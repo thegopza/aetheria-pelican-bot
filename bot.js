@@ -75,6 +75,8 @@
     // Auto-Sell Filter & Whitelist Config (ระดับตามเกมจริง: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
     const defaultSellConfig = {
         enabled: true,
+        weightCheckEnabled: true,
+        weightThreshold: 80, // วาร์ปกลับไปขายเมื่อน้ำหนักเกิน 80% (ปรับได้)
         sellMaterials: true,
         sellWeapons: false,
         sellArmors: false,
@@ -87,6 +89,8 @@
     try {
         const stored = JSON.parse(localStorage.getItem('pelican_sell_cfg') || '{}');
         window.__sellConfig = Object.assign({}, defaultSellConfig, stored);
+        if (typeof window.__sellConfig.weightThreshold !== 'number') window.__sellConfig.weightThreshold = 80;
+        if (window.__sellConfig.weightCheckEnabled === undefined) window.__sellConfig.weightCheckEnabled = true;
     } catch (e) {
         window.__sellConfig = defaultSellConfig;
     }
@@ -1181,9 +1185,92 @@
         return curMap.includes('เมืองหลวง') || curMap.includes('โซลเฮเวน') || curMap.includes('ตลาดคาราวาน');
     }
 
+    // ==========================================
+    // WEIGHT TRACKER & OVERLOAD SENSOR
+    // ==========================================
+    function getCharacterWeight() {
+        try {
+            // Method 1: ค้นหา Element ที่มีคำว่า "น้ำหนัก" และมีสัญลักษณ์ "/"
+            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (el.children.length > 5) return false;
+                const txt = el.textContent || '';
+                return txt.includes('น้ำหนัก') && txt.includes('/');
+            });
+
+            for (const el of candidates) {
+                const match = el.textContent.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                if (match) {
+                    const current = parseFloat(match[1].replace(/,/g, ''));
+                    const max = parseFloat(match[2].replace(/,/g, ''));
+                    if (max > 0) {
+                        const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                        updateWeightHUD(res);
+                        return res;
+                    }
+                }
+            }
+
+            // Method 2: ค้นหา Label "น้ำหนัก" แล้วดู Parent Container
+            const weightLabels = Array.from(document.querySelectorAll('*')).filter(el => {
+                return el.children.length === 0 && (el.textContent || '').trim() === 'น้ำหนัก';
+            });
+            for (const lbl of weightLabels) {
+                const parent = lbl.parentElement;
+                if (parent) {
+                    const match = (parent.textContent || '').match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                    if (match) {
+                        const current = parseFloat(match[1].replace(/,/g, ''));
+                        const max = parseFloat(match[2].replace(/,/g, ''));
+                        if (max > 0) {
+                            const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                            updateWeightHUD(res);
+                            return res;
+                        }
+                    }
+                }
+            }
+
+            // Method 3: Global body search
+            const bodyMatch = (document.body.innerText || '').match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+            if (bodyMatch) {
+                const current = parseFloat(bodyMatch[1].replace(/,/g, ''));
+                const max = parseFloat(bodyMatch[2].replace(/,/g, ''));
+                if (max > 0) {
+                    const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                    updateWeightHUD(res);
+                    return res;
+                }
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function updateWeightHUD(w) {
+        const el = document.getElementById('p-cur-weight-val');
+        if (el) {
+            if (w) {
+                const color = w.percent >= 85 ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
+                el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)</span>`;
+            } else {
+                el.innerHTML = '<span style="color: #64748b;">-- / --</span>';
+            }
+        }
+    }
+
+    setInterval(getCharacterWeight, 1500);
+
     function isCharacterOverweight() {
         const bodyText = document.body.innerText || '';
-        return bodyText.includes('กระเป๋าหนักเกิน 90%') || bodyText.includes('น้ำหนักเกิน 90%');
+        if (bodyText.includes('กระเป๋าหนักเกิน 90%') || bodyText.includes('น้ำหนักเกิน 90%')) {
+            return true;
+        }
+        const w = getCharacterWeight();
+        const cfg = window.__sellConfig || {};
+        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
+        if (w && w.percent >= threshold) {
+            return true;
+        }
+        return false;
     }
 
     function isWorldMapOpen() {
@@ -1621,6 +1708,18 @@
             console.log(`%c[Pelican Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
             window.executeAutoShopRoutine();
             return;
+        }
+
+        // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+        const weightCfg = window.__sellConfig || {};
+        if (weightCfg.weightCheckEnabled) {
+            const weightInfo = getCharacterWeight();
+            const wThreshold = typeof weightCfg.weightThreshold === 'number' ? weightCfg.weightThreshold : 80;
+            if (weightInfo && weightInfo.percent >= wThreshold) {
+                console.log(`%c[Pelican Master] ⚖️ น้ำหนักเกินกำหนด (${weightInfo.percent}% >= ${wThreshold}% | ${weightInfo.current}/${weightInfo.max})! เริ่มต้นกระบวนการขายของและเติมเสบียงทันที...`, 'color: #f59e0b; font-weight: bold;');
+                window.executeAutoShopRoutine();
+                return;
+            }
         }
 
         // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
@@ -2295,9 +2394,16 @@
             const arrowId = parseInt(cfg.arrowType) || 0x00015fae;
             const arrowQty = parseInt(cfg.arrowBuyQty) || 200;
 
-            // 2. ซื้อลูกธนูชนิดที่เลือก
-            if (cfg.requireArrow) {
-                window.sendShopBuy(arrowId, arrowQty);
+            // 2. ซื้อลูกธนูชนิดที่เลือก (Smart Restock: เติมส่วนต่างให้ครบ targetQty ป้องกันซื้อเกินจนน้ำหนักล้น)
+            const targetQty = parseInt(cfg.arrowBuyQty) || 1000;
+            const curAmmo = (typeof window.__currentAmmo === 'number') ? window.__currentAmmo : 0;
+            const qtyToBuy = Math.max(0, targetQty - curAmmo);
+
+            if (cfg.requireArrow && qtyToBuy > 0) {
+                console.log(`%c[Pelican Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
+                window.sendShopBuy(arrowId, qtyToBuy);
+            } else if (cfg.requireArrow) {
+                console.log(`%c[Pelican Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
             }
 
             // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
@@ -2314,8 +2420,8 @@
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
                     }
                     // แก้นับเบิ้ล (ถ้า Server ซิงก์มาแล้วให้ใช้ค่านั้น หรือตั้งเป็น arrowQty ไม่บวกซ้ำ)
-                    if (!window.__currentAmmo || window.__currentAmmo < arrowQty) {
-                        window.__currentAmmo = arrowQty;
+                    if (!window.__currentAmmo || window.__currentAmmo < targetQty) {
+                        window.__currentAmmo = targetQty;
                     }
                     localStorage.setItem('pelican_current_ammo', window.__currentAmmo);
                     updateAmmoHUD();
@@ -2824,6 +2930,18 @@
                 window.executeAutoShopRoutine();
                 return;
             }
+
+            // ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+            const sellCfg = window.__sellConfig || {};
+            if (sellCfg.weightCheckEnabled && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+                const wInfo = getCharacterWeight();
+                const wThreshold = typeof sellCfg.weightThreshold === 'number' ? sellCfg.weightThreshold : 80;
+                if (wInfo && wInfo.percent >= wThreshold) {
+                    console.log(`%c[Pelican Weight] ⚖️ น้ำหนักเกินกำหนด (${wInfo.percent}% >= ${wThreshold}% | ${wInfo.current}/${wInfo.max}) -> สั่งวาร์ปกลับไปขายของและเติมลูกธนูทันที!`, 'color: #f59e0b; font-weight: bold;');
+                    window.executeAutoShopRoutine();
+                    return;
+                }
+            }
         }
 
         const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
@@ -3209,8 +3327,8 @@
                     </div>
 
                     <div class="p-row">
-                        <span>ซื้อจำนวน (Qty):</span>
-                        <input type="number" id="p-archer-qty" value="${window.__archerConfig.arrowBuyQty || 200}" style="width: 65px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                        <span>ตั้งเป้าพกลูกธนู (ซื้อเติมให้ครบ):</span>
+                        <input type="number" id="p-archer-qty" value="${window.__archerConfig.arrowBuyQty || 1000}" style="width: 65px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
                     </div>
 
                     <div class="p-row">
@@ -3246,6 +3364,24 @@
 
                 <!-- TAB 3: AUTO-SELL & WHITELIST -->
                 <div class="p-tab-pane" id="p-tab-sell">
+                    <!-- Weight Check Card -->
+                    <div class="p-card" style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05); margin-bottom: 6px;">
+                        <label class="p-check-box" style="color: #f59e0b;">
+                            <input type="checkbox" id="p-weight-check-enabled" ${window.__sellConfig.weightCheckEnabled ? 'checked' : ''}>
+                            <b>⚖️ ตรวจสอบน้ำหนักเกิน (Weight Return)</b>
+                        </label>
+                        <div class="p-row" style="margin-top: 4px;">
+                            <span style="font-size: 10px; color: #cbd5e1;">วาร์ปกลับไปขายเมื่อเกิน (%):</span>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" id="p-weight-threshold" min="10" max="95" value="${window.__sellConfig.weightThreshold || 80}" style="width: 48px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                                <span style="font-size: 10px; color: #94a3b8;">%</span>
+                            </div>
+                        </div>
+                        <div id="p-weight-hud-display" style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">
+                            น้ำหนักปัจจุบัน: <span id="p-cur-weight-val" style="color: #00ffcc; font-weight: bold;">-- / --</span>
+                        </div>
+                    </div>
+
                     <label class="p-check-box" style="color: #facc15;">
                         <input type="checkbox" id="p-sell-enabled" ${window.__sellConfig.enabled ? 'checked' : ''}>
                         <b>เปิดระบบ Auto-Sell คัดกรองอัตโนมัติ</b>
@@ -3424,6 +3560,22 @@
         };
 
         // Auto-Sell & Whitelist Event Listeners
+        const weightCheckEl = document.getElementById('p-weight-check-enabled');
+        if (weightCheckEl) {
+            weightCheckEl.onchange = (e) => {
+                window.__sellConfig.weightCheckEnabled = e.target.checked;
+                saveSellConfig();
+            };
+        }
+
+        const weightThresholdEl = document.getElementById('p-weight-threshold');
+        if (weightThresholdEl) {
+            weightThresholdEl.onchange = (e) => {
+                window.__sellConfig.weightThreshold = parseInt(e.target.value) || 80;
+                saveSellConfig();
+            };
+        }
+
         document.getElementById('p-sell-enabled').onchange = (e) => {
             window.__sellConfig.enabled = e.target.checked;
             saveSellConfig();
