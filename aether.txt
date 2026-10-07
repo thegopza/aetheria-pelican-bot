@@ -1297,55 +1297,43 @@
     setInterval(getCharacterWeight, 1500);
 
     function isCharacterOverweight() {
+        const cfg = window.__sellConfig || {};
+
+        // ถ้าผู้เล่นปิดระบบตรวจน้ำหนัก ไม่ต้องส่งวาร์ปกลับ ยกเว้นกรณีฉุกเฉินที่ตัวเกมล็อค AUTO ชัดเจน (__isKnownOverweight)
+        if (!cfg.weightCheckEnabled && !window.__isKnownOverweight) {
+            return false;
+        }
+
+        // กรณีฉุกเฉิน: บอทพยายามเปิด AUTO 3 ครั้งแล้วเกมไม่ยอมเปิด แสดงว่าตัวเกมล็อคเพราะน้ำหนักเกิน 90%
         if (window.__isKnownOverweight) {
             return true;
         }
 
-        // 1. ตรวจสอบข้อความแจ้งเตือนน้ำหนักเกินบนหน้าจอ / Toast / Modal
-        const bodyText = document.body.innerText || '';
-        const overweightKeywords = [
-            'กระเป๋าหนักเกิน 90%',
-            'น้ำหนักเกิน 90%',
-            'หนักเกิน 90%',
-            'เกิน 90%',
-            'น้ำหนักเกิน',
-            'กระเป๋าหนักเกิน',
-            'กระเป๋าเต็ม',
-            'สัมภาระเต็ม',
-            'น้ำหนักสัมภาระเกิน',
-            'ไม่สามารถเปิดระบบอัตโนมัติ',
-            'ไม่สามารถเปิด AUTO',
-            'น้ำหนักเกินกำหนด',
-            'แบกของหนักเกินไป',
-            'Overweight',
-            'overweight',
-            'Weight limit',
-            'Inventory is full'
-        ];
-        for (const kw of overweightKeywords) {
-            if (bodyText.includes(kw)) {
-                return true;
-            }
+        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
+
+        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM (อ่านจากหลอดน้ำหนักในเกม เช่น 571 / 2,030 = 28.1%)
+        const w = getCharacterWeight();
+        if (w && typeof w.percent === 'number' && w.percent > 0) {
+            return w.percent >= threshold;
         }
 
         // 2. ตรวจสอบข้อมูลน้ำหนักจาก Memory/Packet ถ้ามี
-        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number') {
-            const cfg = window.__sellConfig || {};
-            const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
-            if (window.__serverWeight.percent >= threshold || window.__serverWeight.percent >= 90) {
-                return true;
-            }
+        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
+            return window.__serverWeight.percent >= threshold;
         }
 
-        // 3. ตรวจสอบข้อมูลน้ำหนักจาก DOM
-        const w = getCharacterWeight();
-        const cfg = window.__sellConfig || {};
-        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
-        if (w && typeof w.percent === 'number') {
-            if (w.percent >= threshold || w.percent >= 90) {
-                return true;
+        // 3. ตรวจสอบข้อความแจ้งเตือนจาก Toast/Modal ของระบบเกม (เฉพาะเจาะจง และต้องไม่อยู่ใน HUD ของบอท)
+        try {
+            const toastEls = document.querySelectorAll('.toast, .notification, .alert, .modal-title, .system-msg, .chat-system, [class*="toast"], [class*="alert"]');
+            for (const el of toastEls) {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) continue;
+                const t = (el.innerText || el.textContent || '').trim();
+                if (t.includes('กระเป๋าหนักเกิน 90%') || t.includes('น้ำหนักเกิน 90%') || t.includes('กระเป๋าเต็ม') || t.includes('สัมภาระเต็ม')) {
+                    return true;
+                }
             }
-        }
+        } catch(e) {}
+
         return false;
     }
 
@@ -3672,7 +3660,10 @@
 
         // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คเป็นอันดับแรกก่อนสั่ง AUTO!
         if (!inCity && typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-            console.warn('%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...', 'color: #ef4444; font-weight: bold;');
+            const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__serverWeight;
+            const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
+            const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
+            console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
             autoActivateFailCount = 0;
             window.executeAutoShopRoutine();
             return;
