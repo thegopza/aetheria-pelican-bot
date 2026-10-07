@@ -2304,14 +2304,25 @@
             return 1;
         }
 
-        function isRefined(rowText, titleEl) {
-            const text = ((titleEl ? titleEl.innerText : '') + ' ' + (rowText || '')).toLowerCase();
-            return /\+\s*\d+/.test(text) || text.includes('ตีบวก');
+        function isRefined(itemName, rowText, titleEl) {
+            // ของตีบวกจะมีเครื่องหมาย + นำหน้าชื่อไอเทมเสมอ เช่น "+4 Damascus", "+7 Knife", "+9 Crossbow"
+            // ห้ามตรวจเช็ค /\+\s*\d+/ ใน rowText สุ่มสี่สุ่มห้า เพราะจะไปตรงกับ Tooltip "ATK +7", "HIT +1" หรือปุ่ม '+' กับตัวเลขจำนวน '1' (+\n1)
+            const name = (itemName || (titleEl ? titleEl.innerText : '') || '').trim();
+            if (/^\s*\+\s*[1-9]\d*/.test(name)) return true;
+            if (/\+\s*[1-9]\d*\s+[a-zA-Z\u0E00-\u0E7F]/.test(name)) return true;
+            if (name.includes('ตีบวก')) return true;
+            return false;
         }
 
-        function hasSockets(rowText, titleEl) {
-            const text = ((titleEl ? titleEl.innerText : '') + ' ' + (rowText || ''));
-            return /\[\s*[1-4]\s*\]/.test(text) || text.includes('ช่องการ์ด 1') || text.includes('ช่องการ์ด 2') || text.includes('ช่องการ์ด 3') || text.includes('ช่องการ์ด 4');
+        function hasSockets(itemName, rowText, titleEl) {
+            // ของมีรูการ์ดจะมี [1], [2], [3], [4] อยู่ในชื่อไอเทม เช่น "Damascus [1]", "Crossbow [3]"
+            const name = (itemName || (titleEl ? titleEl.innerText : '') || '').trim();
+            if (/\[\s*[1-4]\s*\]/.test(name)) return true;
+            const text = (rowText || '');
+            if (text.includes('ช่องการ์ด 1') || text.includes('ช่องการ์ด 2') || text.includes('ช่องการ์ด 3') || text.includes('ช่องการ์ด 4')) {
+                return true;
+            }
+            return false;
         }
 
         function hasOptions(rowText) {
@@ -2352,37 +2363,53 @@
         }
 
         function findItemRow(btn) {
-            let curr = btn;
-            while (curr && curr.parentElement && curr.parentElement !== document.body) {
-                const p = curr.parentElement;
+            let curr = btn.parentElement;
+            let bestRow = null;
+            while (curr && curr !== document.body) {
+                if (curr.classList.contains('shop-window') || curr.classList.contains('modal') || (curr.innerText && (curr.innerText.includes('ตะกร้าขาย') || curr.innerText.includes('General Goods')))) {
+                    break;
+                }
+                const txt = (curr.innerText || '').trim();
                 const h = curr.offsetHeight;
-                if (p.children.length >= 2 && h >= 25 && h <= 110) {
-                    const txt = curr.innerText || '';
-                    if (txt.includes('z') || txt.includes('+') || txt.includes('option')) {
+                
+                // ตรวจสอบว่าคอนเทนเนอร์นี้มีราคา zeny และมีชื่อไอเทม (ไม่ใช่แค่ปุ่ม '+' หรือราคาอย่างเดียว)
+                const hasZeny = /\d+[\s,]*z/i.test(txt);
+                const cleanTxt = txt.replace(/\b\d+\s*z\b/gi, '').replace(/\boption\b/gi, '').replace(/\bออฟชั่น\b/gi, '').replace(/มี\s*\d+/g, '').replace(/[+\-0-9\s]/g, '');
+                const hasItemName = cleanTxt.length >= 2;
+
+                if (hasZeny && hasItemName && h >= 25 && h <= 130) {
+                    bestRow = curr;
+                    if (curr.querySelector('img, [class*="icon"], [class*="thumb"]')) {
                         return curr;
                     }
                 }
                 curr = curr.parentElement;
             }
-            return btn.parentElement?.parentElement || btn.parentElement;
+            return bestRow || btn.closest('[class*="item"], [class*="row"], li, tr') || btn.parentElement?.parentElement || btn.parentElement;
         }
 
         function extractItemName(row) {
             if (!row) return '';
-            const nameEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong');
+            
+            // 1. ค้นหาจาก element ชื่อโดยตรง
+            const nameEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label');
             if (nameEl) {
                 const t = nameEl.innerText.split('\n')[0].trim();
-                if (t && !t.includes('option') && !/^\d+[\s,]*z$/i.test(t) && !/^\d+$/.test(t)) {
+                if (t && !t.toLowerCase().includes('option') && !/^\d+[\s,]*z$/i.test(t) && !/^\d+$/.test(t) && !/^มี\s*\d+/.test(t) && t !== '+' && t !== '-') {
                     return t;
                 }
             }
 
+            // 2. ถ้าไม่พบ element เฉพาะ ให้แยกบรรทัดข้อความทั้งหมดในแถว
             const lines = (row.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
             for (const line of lines) {
                 if (/^\d+$/.test(line)) continue;
                 if (/^\d+[\s,]*z$/i.test(line)) continue;
                 if (line === '+' || line === '-' || line === 'ทั้งหมด') continue;
-                if (line.includes('option') || line.includes('ออฟชั่น')) continue;
+                if (line.toLowerCase().includes('option') || line.includes('ออฟชั่น')) continue;
+                if (/^มี\s*\d+/.test(line) || /^x\s*\d+/i.test(line) || /^จำนวน/i.test(line)) continue;
+                if (line.includes('ขาย') || line.includes('ราคา') || line.includes('น้ำหนัก')) continue;
+                if (line.length <= 1) continue;
                 return line;
             }
             return '';
@@ -2446,15 +2473,21 @@
 
                     const itemsToSell = [];
 
-                    plusBtns.forEach(btn => {
+                    plusBtns.forEach((btn, btnIdx) => {
                         const row = findItemRow(btn);
-                        if (!row) return;
+                        if (!row) {
+                            console.warn(`[Pelican Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่พบ Item Row`);
+                            return;
+                        }
 
                         const rowText = row.innerText || '';
                         const itemName = extractItemName(row);
-                        if (!itemName) return;
+                        if (!itemName) {
+                            console.warn(`[Pelican Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่สามารถอ่านชื่อไอเทมจากแถวได้ (${rowText.replace(/\n+/g, ' | ')})`);
+                            return;
+                        }
 
-                        const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong') || 
+                        const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label') || 
                                         Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
 
                         // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู เด็ดขาด
@@ -2486,13 +2519,13 @@
                         }
 
                         // กฎความปลอดภัย 4: ห้ามขายของตีบวก (+1 ขึ้นไป)
-                        if (sellCfg.keepRefined && isRefined(rowText, titleEl)) {
+                        if (sellCfg.keepRefined && isRefined(itemName, rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [ของตีบวก] ข้ามไอเทมตีบวก: "${itemName}"`);
                             return;
                         }
 
                         // กฎความปลอดภัย 5: ห้ามขายของมีรูการ์ด [1-4]
-                        if (sellCfg.keepSockets && hasSockets(rowText, titleEl)) {
+                        if (sellCfg.keepSockets && hasSockets(itemName, rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [มีรูการ์ด] ข้ามไอเทมมีรู: "${itemName}"`);
                             return;
                         }
@@ -2503,6 +2536,7 @@
                             return;
                         }
 
+                        console.log(`%c[Pelican Shop] 🛒 เลือกขาย: "${itemName}" (ระดับ: ธรรมดา, 0 option)`, 'color: #22c55e;');
                         itemsToSell.push({ name: itemName, btn: btn, row: row });
                     });
 
