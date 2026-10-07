@@ -387,15 +387,70 @@
         } catch(e) {}
     }
 
-    window.copyOutgoingLogs = function(count = 10) {
-        const recent = window.__outgoingLogs.slice(-count);
-        const jsonStr = JSON.stringify(recent, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert(`คัดลอก Packet ขาออก (OUT) จำนวน ${recent.length} รายการ (Hex เต็ม 100%) สำเร็จแล้ว!`);
+    // ==========================================
+    // BULLETPROOF CLIPBOARD & DATA EXTRACTOR
+    // ==========================================
+    window.safeCopyToClipboard = function(text, successMsg, onComplete) {
+        console.log('%c[Pelican Clipboard Data]:', 'color: #38bdf8; font-weight: bold; font-size: 11px;');
+        console.log(text);
+
+        function showResult(success) {
+            if (success && successMsg) {
+                alert(successMsg);
+            }
+            if (typeof onComplete === 'function') onComplete(success);
+        }
+
+        function execCommandCopy() {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (ok) {
+                    showResult(true);
+                    return true;
+                }
+            } catch(e) {
+                console.warn('[Pelican] execCommand copy failed:', e);
+            }
+            return false;
+        }
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).then(() => {
+                showResult(true);
+            }).catch((err) => {
+                console.warn('[Pelican] navigator.clipboard.writeText rejected (focus issue), falling back to execCommand:', err);
+                const ok = execCommandCopy();
+                if (!ok) {
+                    showResult(false);
+                }
             });
-        } else {
-            console.log(jsonStr);
+            return;
+        }
+
+        execCommandCopy();
+    };
+
+    window.copyOutgoingLogs = function(count = 10) {
+        const recent = (window.__outgoingLogs || []).slice(-count);
+        const jsonStr = JSON.stringify(recent, null, 2);
+
+        console.log(`%c[Pelican Dump] 📤 Dump Outgoing Packets (${recent.length} รายการ):`, 'color: #38bdf8; font-weight: bold;');
+        console.table(recent.map(p => ({ time: p.time, opcode: p.opcode, len: p.len, hex: (p.hex || '').slice(0, 30), ascii: (p.ascii || '').slice(0, 30) })));
+
+        window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet ขาออก (OUT) จำนวน ${recent.length} รายการ (Hex เต็ม 100%) สำเร็จแล้ว!`);
+
+        if (window.showDataViewerModal) {
+            window.showDataViewerModal('packets');
         }
     };
 
@@ -435,11 +490,7 @@
             console.log(`%c[Pelican Dump] 🗺️ พบข้อมูลแมพทั้งหมด ${mapList.length} โซน:`, 'color: #00ffcc; font-weight: bold;');
             console.table(mapList);
             const jsonStr = JSON.stringify(mapList, null, 2);
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(jsonStr).then(() => {
-                    alert(`📋 คัดลอกข้อมูลแผนที่โลก (${mapList.length} โซน) ลง Clipboard เรียบร้อยแล้ว!`);
-                });
-            }
+            window.safeCopyToClipboard(jsonStr, `📋 คัดลอกข้อมูลแผนที่โลก (${mapList.length} โซน) ลง Clipboard เรียบร้อยแล้ว!`);
             return mapList;
         }
 
@@ -544,11 +595,7 @@
         })));
 
         const jsonStr = JSON.stringify(dump, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert('📦 [Pelican Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
-            });
-        }
+        window.safeCopyToClipboard(jsonStr, '📦 [Pelican Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
         return dump;
     };
 
@@ -559,10 +606,9 @@
         const jsonStr = JSON.stringify(packets, null, 2);
         console.log(`%c[Pelican Dump] 📜 Dump Packet Logs (${packets.length} รายการ):`, 'color: #f59e0b; font-weight: bold;');
         console.table(packets.map(p => ({ time: p.time, dir: p.dir, opcode: p.opcode, len: p.len, ascii: p.ascii.slice(0, 30) })));
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert(`📋 คัดลอก Packet Logs ทั้งหมด (${packets.length} รายการ) ลง Clipboard เรียบร้อยแล้ว!`);
-            });
+        window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet Logs ทั้งหมด (${packets.length} รายการ) ลง Clipboard เรียบร้อยแล้ว!`);
+        if (window.showDataViewerModal) {
+            window.showDataViewerModal('packets');
         }
         return packets;
     };
@@ -587,11 +633,7 @@
         console.log('%c[Pelican Dump] 🕹️ ข้อมูล Game State ปัจจุบัน:', 'color: #22c55e; font-weight: bold;');
         console.dir(state);
         const jsonStr = JSON.stringify(state, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert('📋 คัดลอก Game State ลง Clipboard เรียบร้อยแล้ว!');
-            });
-        }
+        window.safeCopyToClipboard(jsonStr, '📋 คัดลอก Game State ลง Clipboard เรียบร้อยแล้ว!');
         return state;
     };
 
@@ -672,14 +714,14 @@
                 } else {
                     dataToCopy = window.dumpGameState();
                 }
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(JSON.stringify(dataToCopy, null, 2)).then(() => {
-                        const btn = document.getElementById('p-modal-copy-btn');
-                        const orig = btn.innerText;
+                const btn = document.getElementById('p-modal-copy-btn');
+                const orig = btn.innerText;
+                window.safeCopyToClipboard(JSON.stringify(dataToCopy, null, 2), null, (ok) => {
+                    if (ok) {
                         btn.innerText = '✅ คัดลอกสำเร็จ!';
                         setTimeout(() => btn.innerText = orig, 1500);
-                    });
-                }
+                    }
+                });
             };
         }
 
@@ -846,45 +888,110 @@
             container.innerHTML = html;
 
         } else if (tabName === 'packets') {
-            const packets = (window.__packetLogs || []).slice(-40);
+            const packets = (window.__packetLogs || []).slice(-50);
             const filtered = packets.filter(p => {
                 if (!query) return true;
-                return p.dir.toLowerCase().includes(query) || p.opcode.toLowerCase().includes(query) || p.ascii.toLowerCase().includes(query);
+                const q = query.toLowerCase();
+                return p.dir.toLowerCase().includes(q) || p.opcode.toLowerCase().includes(q) || (p.ascii && p.ascii.toLowerCase().includes(q)) || (p.hex && p.hex.toLowerCase().includes(q));
             });
 
             let html = `
-                <div style="margin-bottom: 8px; color: #f59e0b; font-weight: bold;">📜 บันทึก Packet เครือข่ายล่าสุด (ย้อนหลัง 40 รายการ):</div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: monospace;">
-                    <thead>
-                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">เวลา</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">ทิศทาง</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">Opcode</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">ขนาด</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">Decoded / ASCII Preview</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                    <div style="color: #f59e0b; font-weight: bold; font-size: 11.5px;">📜 บันทึก Packet เครือข่าย (${packets.length} รายการล่าสุด | คลิกแถวเพื่อดู Hex/JSON เต็ม):</div>
+                    <div style="display: flex; gap: 4px;">
+                        <button id="p-mod-copy-out-btn" style="background: #0284c7; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: bold;">📤 คัดลอกเฉพาะ OUT</button>
+                        <button id="p-mod-copy-all-btn" style="background: #e11d48; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: bold;">📜 คัดลอกทั้งหมด</button>
+                    </div>
+                </div>
+                <div style="max-height: 220px; overflow-y: auto; border: 1px solid #334155; border-radius: 6px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: monospace;">
+                        <thead>
+                            <tr style="background: #1e293b; color: #94a3b8; text-align: left; position: sticky; top: 0; z-index: 2;">
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">เวลา</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">ทิศทาง</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">Opcode</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">ขนาด</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">Decoded / ASCII Preview</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155; text-align: center;">ดู</th>
+                            </tr>
+                        </thead>
+                        <tbody>
             `;
             if (filtered.length === 0) {
-                html += `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b;">ยังไม่มี Packet</td></tr>`;
+                html += `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #64748b;">ยังไม่มี Packet ข้อมูล (ลองขยับตัวหรือยิงมอนสเตอร์ดูครับ)</td></tr>`;
             } else {
-                filtered.slice().reverse().forEach(p => {
+                filtered.slice().reverse().forEach((p, idx) => {
                     const isOut = p.dir === 'OUT';
-                    const decStr = p.decoded ? (typeof p.decoded === 'object' ? JSON.stringify(p.decoded).slice(0, 70) : String(p.decoded)) : p.ascii.slice(0, 50);
+                    const decStr = p.decoded ? (typeof p.decoded === 'object' ? JSON.stringify(p.decoded).slice(0, 60) : String(p.decoded)) : (p.ascii || '').slice(0, 40);
                     html += `
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 4px 8px; color: #64748b; border: 1px solid #334155;">${p.time}</td>
-                            <td style="padding: 4px 8px; font-weight: bold; color: ${isOut ? '#38bdf8' : '#f59e0b'}; border: 1px solid #334155;">${p.dir}</td>
-                            <td style="padding: 4px 8px; color: #c084fc; border: 1px solid #334155;">${p.opcode}</td>
-                            <td style="padding: 4px 8px; color: #94a3b8; border: 1px solid #334155;">${p.len}B</td>
-                            <td style="padding: 4px 8px; color: #cbd5e1; word-break: break-all; border: 1px solid #334155;">${decStr}</td>
+                        <tr class="p-packet-row" data-idx="${idx}" style="border-bottom: 1px solid #1e293b; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                            <td style="padding: 4px 8px; color: #64748b;">${p.time}</td>
+                            <td style="padding: 4px 8px; font-weight: bold; color: ${isOut ? '#38bdf8' : '#f59e0b'};">${p.dir}</td>
+                            <td style="padding: 4px 8px; color: #c084fc; font-weight: bold;">${p.opcode}</td>
+                            <td style="padding: 4px 8px; color: #94a3b8;">${p.len}B</td>
+                            <td style="padding: 4px 8px; color: #cbd5e1; word-break: break-all;">${decStr}</td>
+                            <td style="padding: 4px 8px; text-align: center;">
+                                <button class="p-row-inspect-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 6px; font-size: 9.5px; cursor: pointer;">🔍</button>
+                            </td>
                         </tr>
                     `;
                 });
             }
-            html += `</tbody></table>`;
+            html += `</tbody></table></div>`;
+
+            // Dedicated Textarea for instant highlight/copy without permission issues
+            const defaultJson = JSON.stringify(filtered.slice(-10), null, 2);
+            html += `
+                <div style="margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                        <span style="font-size: 10px; color: #38bdf8; font-weight: bold;">📋 Packet Raw JSON / รายละเอียดเต็ม (คลุมดำแล้วกด Ctrl+C ได้ตลอดเวลา):</span>
+                        <button id="p-btn-select-json" style="background: #334155; color: #fff; border: none; padding: 2px 7px; border-radius: 3px; font-size: 9.5px; cursor: pointer;">✨ เลือกทั้งหมดในกล่องนี้</button>
+                    </div>
+                    <textarea id="p-modal-raw-json" readonly style="width: 100%; height: 95px; background: #020617; border: 1px solid #334155; color: #00ffcc; font-family: monospace; font-size: 9.5px; padding: 6px; box-sizing: border-box; border-radius: 6px; resize: vertical;">${defaultJson}</textarea>
+                </div>
+            `;
             container.innerHTML = html;
+
+            const reversedFiltered = filtered.slice().reverse();
+            const rawTextarea = document.getElementById('p-modal-raw-json');
+
+            container.querySelectorAll('.p-packet-row').forEach(row => {
+                row.onclick = () => {
+                    const idx = parseInt(row.getAttribute('data-idx'));
+                    const selected = reversedFiltered[idx];
+                    if (selected && rawTextarea) {
+                        rawTextarea.value = JSON.stringify(selected, null, 2);
+                        rawTextarea.focus();
+                        rawTextarea.select();
+                    }
+                };
+            });
+
+            const selBtn = document.getElementById('p-btn-select-json');
+            if (selBtn && rawTextarea) {
+                selBtn.onclick = () => {
+                    rawTextarea.focus();
+                    rawTextarea.select();
+                };
+            }
+
+            const copyOutBtn = document.getElementById('p-mod-copy-out-btn');
+            if (copyOutBtn) {
+                copyOutBtn.onclick = () => {
+                    const outPackets = (window.__outgoingLogs || []).slice(-20);
+                    window.safeCopyToClipboard(JSON.stringify(outPackets, null, 2), `📋 คัดลอก Packet ขาออก (${outPackets.length} รายการ) สำเร็จแล้ว!`);
+                    if (rawTextarea) rawTextarea.value = JSON.stringify(outPackets, null, 2);
+                };
+            }
+
+            const copyAllBtn = document.getElementById('p-mod-copy-all-btn');
+            if (copyAllBtn) {
+                copyAllBtn.onclick = () => {
+                    const allPackets = (window.__packetLogs || []).slice(-50);
+                    window.safeCopyToClipboard(JSON.stringify(allPackets, null, 2), `📋 คัดลอก Packet ทั้งหมด (${allPackets.length} รายการ) สำเร็จแล้ว!`);
+                    if (rawTextarea) rawTextarea.value = JSON.stringify(allPackets, null, 2);
+                };
+            }
 
         } else if (tabName === 'state') {
             const state = window.dumpGameState ? window.dumpGameState() : {};
@@ -1266,10 +1373,8 @@
                                 `;
                             }
 
-                            if (navigator.clipboard) {
-                                const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
-                                navigator.clipboard.writeText(clipData);
-                            }
+                            const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
+                            window.safeCopyToClipboard(clipData, null);
                         }
                     }
 
