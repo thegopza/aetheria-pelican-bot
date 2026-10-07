@@ -867,7 +867,7 @@
                 html += `
                     <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
                         <span style="color: #fde047;">⚠️ ยังไม่ได้รับ Packet กระเป๋าจากเซิร์ฟเวอร์ (ลองกดเปิด-ปิดกระเป๋าในเกม 1 ครั้ง)</span>
-                        <button onclick="window.pressKey('b')" style="background: #eab308; color: #000; border: none; padding: 5px 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">🎒 กดเปิดกระเป๋า (B)</button>
+                        <button onclick="window.pressKey('i')" style="background: #eab308; color: #000; border: none; padding: 5px 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">🎒 กดเปิดกระเป๋า (I)</button>
                     </div>
                 `;
             }
@@ -1501,10 +1501,11 @@
     }
 
     window.pressKey = function(keyStr) {
-        const charCode = keyStr.charCodeAt(0);
-        if (keyStr.toLowerCase() === 'b') {
-            dispatchKeyAll('b', 'KeyB', 66);
+        const lower = keyStr.toLowerCase();
+        if (lower === 'b' || lower === 'i') {
+            dispatchKeyAll('i', 'KeyI', 73);
         } else {
+            const charCode = keyStr.charCodeAt(0);
             dispatchKeyAll(keyStr, 'Digit' + keyStr, charCode);
         }
     };
@@ -1583,13 +1584,17 @@
 
         window.__isRefreshingWeight = true;
 
-        const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
-        const isBagOpen = bagModals.some(modal => {
-            const txt = modal.textContent || '';
-            return (txt.includes('กระเป๋า') || txt.includes('Inventory')) && modal.offsetWidth > 0 && modal.offsetHeight > 0;
-        });
+        const findBagModal = () => {
+            const modals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
+            return modals.find(modal => {
+                const txt = modal.textContent || '';
+                return (txt.includes('กระเป๋า') || txt.includes('Inventory') || txt.includes('น้ำหนัก') || txt.includes('จัดเรียง')) && modal.offsetWidth > 0 && modal.offsetHeight > 0;
+            });
+        };
 
-        if (isBagOpen) {
+        const existingModal = findBagModal();
+
+        if (existingModal) {
             window.clickSortBag();
             setTimeout(() => {
                 const w = getCharacterWeight();
@@ -1597,15 +1602,29 @@
                 if (typeof callback === 'function') callback(w);
             }, 250);
         } else {
-            console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋า (B) เพื่อกด "จัดเรียง" และซิงก์น้ำหนักที่แท้จริง...', 'color: #38bdf8;');
-            dispatchKeyAll('b', 'KeyB', 66);
+            console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋า (I) เพื่อกด "จัดเรียง" และซิงก์น้ำหนักที่แท้จริง...', 'color: #38bdf8;');
+            dispatchKeyAll('i', 'KeyI', 73);
 
             setTimeout(() => {
                 window.clickSortBag();
 
                 setTimeout(() => {
                     const w = getCharacterWeight();
-                    dispatchKeyAll('b', 'KeyB', 66);
+
+                    // ปิดหน้าต่างกระเป๋ากลับถ้าตอนแรกมันไม่ได้เปิดค้างไว้
+                    const modalAfter = findBagModal();
+                    if (modalAfter) {
+                        const closeBtn = Array.from(modalAfter.querySelectorAll('button, .close, [aria-label="close"], [class*="close"]')).find(b => {
+                            const t = (b.innerText || b.textContent || '').trim();
+                            return t === '✕' || t === 'X' || t === 'ปิด' || b.className.includes('close');
+                        });
+                        if (closeBtn) {
+                            triggerClick(closeBtn);
+                        } else {
+                            dispatchKeyAll('i', 'KeyI', 73);
+                        }
+                    }
+
                     window.__isRefreshingWeight = false;
                     if (w) {
                         console.log(`%c[Pelican Inventory] ✅ อัปเดตน้ำหนักสำเร็จ: ${w.current.toLocaleString()}/${w.max.toLocaleString()} (${w.percent}%)`, 'color: #22c55e; font-weight: bold;');
@@ -2828,7 +2847,7 @@
 
             // ถ้าหน้าต่างกระเป๋ายังไม่เคยเปิด ให้กดเปิดเพื่อดึง Packet และสแกน DOM
             if (bagModals.length === 0) {
-                dispatchKeyAll('b', 'KeyB', 66);
+                dispatchKeyAll('i', 'KeyI', 73);
                 setTimeout(() => {
                     window.useButterflyWing();
                 }, 300);
@@ -4089,9 +4108,9 @@
             return;
         }
 
-        // 3.1 ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าเป็นระยะ (ทุกๆ 45 วินาที)
+        // 3.1 ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าเป็นระยะ (ทุกๆ 25 วินาที)
         const now = Date.now();
-        if (now - lastPeriodicWeightRefresh > 45000 && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+        if (now - lastPeriodicWeightRefresh > 25000 && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
             lastPeriodicWeightRefresh = now;
             if (typeof window.refreshInventoryAndWeight === 'function') {
                 window.refreshInventoryAndWeight();
@@ -5123,7 +5142,17 @@
         const quickWeightEl = document.getElementById('p-quick-weight');
         if (quickWeightEl) {
             quickWeightEl.onclick = () => {
-                window.refreshInventoryAndWeight();
+                const oldText = quickWeightEl.innerText;
+                quickWeightEl.innerText = '⚖️ ⏳...';
+                quickWeightEl.style.opacity = '0.7';
+                window.refreshInventoryAndWeight((w) => {
+                    quickWeightEl.style.opacity = '1';
+                    if (w && typeof w.percent === 'number') {
+                        quickWeightEl.innerText = `⚖️ ${w.percent}%`;
+                    } else {
+                        quickWeightEl.innerText = oldText;
+                    }
+                });
             };
         }
 
