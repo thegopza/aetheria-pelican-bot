@@ -2421,7 +2421,6 @@
                 clickMapPin(5);
             }, 600);
         });
-    }
     };
 
     function startArrivalWatcher(targetMap) {
