@@ -8,7 +8,7 @@ const GAME = "https://www.aetheria-online.in.th/play";
 const SITE = new URL(GAME).host;
 
 // URL สำหรับ Remote Auto-Update (เปลี่ยนเป็น URL ของคุณเมื่อสร้าง GitHub Repo เสร็จ)
-const GITHUB_RAW_URL = "https://raw.githubusercontent.com/golf-aetheria/pelican-bot/main/bot.js";
+const GITHUB_RAW_URL = "https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/bot.js";
 
 // One window: a second launch brings the first one forward
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -62,7 +62,7 @@ function open() {
 
     let fetched = false;
     // Check if remote URL is configured
-    if (GITHUB_RAW_URL && !GITHUB_RAW_URL.includes("golf-aetheria")) {
+    if (GITHUB_RAW_URL && true) {
       try {
         const req = https.get(GITHUB_RAW_URL + "?t=" + Date.now(), (res) => {
           if (res.statusCode === 200) {
