@@ -1462,10 +1462,14 @@
             return;
         }
 
-        // Case B: ตัวละครยังไม่ถึงแมพเป้าหมาย -> เปิดแผนที่โลกเพื่อเดินทาง
-        console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
-        window.walkToTargetMap(targetMap, true);
-        return;
+        // Case B: ตัวละครอยู่ในเมืองหลวง (Soulhaven) -> วาร์ปผ่าน Alice Service (n6)
+        if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
+            console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> เดินไปหา Alice (n6) เพื่อเปิดวาร์ปไป "${targetMap}"...`, 'color: #eab308; font-weight: bold;');
+            window.walkToTargetMap(targetMap, true);
+            return;
+        }
+
+        // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เปิดแผนที่โลกเพื่อเดินทาง
 
         // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เดินทางไปยังแมพเป้าหมาย
         console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
@@ -1665,7 +1669,7 @@
             });
 
             // เงื่อนไข: ตัวละครหยุดเดินแล้ว (ถึงตัว Alice แล้ว) หรือหน้าต่าง UI ขึ้นแล้ว
-            if (hasAliceUI || (stationaryCount >= 2 && moveAttempts >= 2)) {
+            if (hasAliceUI || (stationaryCount >= 2 && moveAttempts >= 5)) {
                 clearInterval(aliceArrivalCheck);
                 console.log('%c[Pelican Warp] 🎯 เดินถึงระยะคุยกับ NPC Alice แล้ว! กำลังเปิดเมนูวาร์ป...', 'color: #22c55e; font-weight: bold;');
 
@@ -2500,6 +2504,9 @@
                         clearInterval(walkInterval);
                     }
                 }, 300);
+                if (mapId && typeof window.sendNpcWarp === 'function') {
+                    setTimeout(() => window.sendNpcWarp(mapId), 500);
+                }
             } else if (retries > 0) {
                 setTimeout(() => clickMapPin(retries - 1), 400);
             } else {
@@ -2518,14 +2525,16 @@
             }
         }
 
-        // เปิดแผนที่โลกเพื่อค้นหาหมุดและคลิกเดินทางอัตโนมัติ
-        console.log(`%c[Pelican] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
-        openWorldMap(() => {
-            console.log(`%c[Pelican] 🔍 แผนที่โลกเปิดเรียบร้อย กำลังค้นหาหมุดแมพ "${mapName}"...`, 'color: #00ffcc;');
-            setTimeout(() => {
-                clickMapPin(5);
-            }, 600);
-        });
+        // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อเปิด Alice Warp Service ก่อน
+        if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
+            console.log(`%c[Pelican Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice (n6) เพื่อเปิดวาร์ปไป "${mapName}"...`, 'color: #eab308; font-weight: bold;');
+            window.openAliceWarpService(() => {
+                setTimeout(() => clickMapPin(3), 500);
+            });
+        } else {
+            console.log(`%c[Pelican] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
+            openWorldMap(() => clickMapPin(2));
+        }
     };
 
     function startArrivalWatcher(targetMap) {
