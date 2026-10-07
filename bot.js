@@ -247,19 +247,39 @@
     setInterval(syncAmmoFromDOM, 600);
 
     
+    const OriginalWebSocket = window.WebSocket;
+
+    function isGameSocket(ws) {
+        if (!ws) return false;
+        if (ws.__isMcpInternal) return false;
+        const url = (ws.url || '').toLowerCase();
+        if (url.includes('extension') || url.includes(':3025') || url.includes('127.0.0.1:3025') ||
+            url.includes('livereload') || url.includes('hot-reload') || url.includes('webpack') || 
+            url.includes('vite') || url.includes('devtools') || url.includes('socket.io') || 
+            url.includes('browser-tools') || url.includes('/ws-internal')) {
+            return false;
+        }
+        return true;
+    }
+
     // ==========================================
     // BROWSERTOOLS MCP NATIVE GAME CONNECTOR
     // ==========================================
     (function initBrowserToolsBridge() {
         let mcpWs = null;
         let reconnectTimer = null;
+        let failCount = 0;
         const tabId = "aetheria-game";
 
         function tryConnect() {
-            if (mcpWs && (mcpWs.readyState === WebSocket.OPEN || mcpWs.readyState === WebSocket.CONNECTING)) return;
+            if (failCount >= 2) return; // ถ้าเครื่องอื่นไม่มี BrowserTools MCP ให้หยุดเชื่อมต่อทันที ไม่ต้องสแปม error
+            if (mcpWs && (mcpWs.readyState === 1 || mcpWs.readyState === 0)) return;
             try {
-                mcpWs = new WebSocket('ws://127.0.0.1:3025/extension-ws');
+                mcpWs = new OriginalWebSocket('ws://127.0.0.1:3025/extension-ws');
+                mcpWs.__isMcpInternal = true;
+
                 mcpWs.onopen = () => {
+                    failCount = 0;
                     console.log('%c[Pelican MCP] 🔗 Connected natively to BrowserTools MCP on port 3025!', 'color: #00ffcc; font-weight: bold;');
                     mcpWs.send(JSON.stringify({ type: 'hello', extensionVersion: '2.0.0', tabId: tabId }));
                     mcpWs.send(JSON.stringify({ type: 'page', url: window.location.href, tabId: tabId }));
@@ -290,23 +310,26 @@
 
                 mcpWs.onclose = () => {
                     mcpWs = null;
-                    scheduleReconnect();
+                    failCount++;
+                    if (failCount < 2) scheduleReconnect();
                 };
 
                 mcpWs.onerror = () => {
                     mcpWs = null;
+                    failCount++;
                 };
             } catch(e) {
-                scheduleReconnect();
+                failCount++;
+                if (failCount < 2) scheduleReconnect();
             }
         }
 
         function scheduleReconnect() {
-            if (!reconnectTimer) {
+            if (!reconnectTimer && failCount < 2) {
                 reconnectTimer = setTimeout(() => {
                     reconnectTimer = null;
                     tryConnect();
-                }, 3000);
+                }, 5000);
             }
         }
 
@@ -315,7 +338,7 @@
         const origError = console.error;
 
         function forward(level, args) {
-            if (mcpWs && mcpWs.readyState === WebSocket.OPEN) {
+            if (mcpWs && mcpWs.readyState === 1) {
                 try {
                     const text = Array.from(args).map(a => {
                         if (typeof a === 'string') return a;
@@ -350,8 +373,6 @@
 
         tryConnect();
     })();
-
-    const OriginalWebSocket = window.WebSocket;
 
     // บันทึก Hex เต็ม 100% ทุกไบต์
     function recordPacket(direction, rawData) {
@@ -1214,41 +1235,65 @@
     // ==========================================
     // WEIGHT TRACKER & OVERLOAD SENSOR
     // ==========================================
-    function getCharacterWeight() {
-        try {
-            // Method 1: ค้นหา Element ที่มีคำว่า "น้ำหนัก" และมีสัญลักษณ์ "/"
-            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (el.children.length > 5) return false;
-                const txt = el.textContent || '';
-                return txt.includes('น้ำหนัก') && txt.includes('/');
-            });
+    function isValidNonBotElement(el) {
+        return el && !el.closest('#pelican-hud') && !el.closest('#pelican-data-modal') && !el.closest('#pelican-log');
+    }
 
-            for (const el of candidates) {
-                const match = el.textContent.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                if (match) {
-                    const current = parseFloat(match[1].replace(/,/g, ''));
-                    const max = parseFloat(match[2].replace(/,/g, ''));
+    function getBagSlots() {
+        try {
+            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
+            for (const modal of bagModals) {
+                const txt = modal.textContent || '';
+                const m = txt.match(/กระเป๋า[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/Inventory[^\d]*(\d+)\s*\/\s*(\d+)/i);
+                if (m) {
+                    const cur = parseInt(m[1]);
+                    const max = parseInt(m[2]);
                     if (max > 0) {
-                        const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
-                        updateWeightHUD(res);
-                        return res;
+                        return { current: cur, max, percent: Math.round((cur / max) * 100) };
                     }
                 }
             }
+        } catch(e) {}
+        return null;
+    }
 
-            // Method 2: ค้นหา Label "น้ำหนัก" แล้วดู Parent Container
-            const weightLabels = Array.from(document.querySelectorAll('*')).filter(el => {
-                return el.children.length === 0 && (el.textContent || '').trim() === 'น้ำหนัก';
-            });
-            for (const lbl of weightLabels) {
-                const parent = lbl.parentElement;
-                if (parent) {
-                    const match = (parent.textContent || '').match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                    if (match) {
-                        const current = parseFloat(match[1].replace(/,/g, ''));
-                        const max = parseFloat(match[2].replace(/,/g, ''));
-                        if (max > 0) {
-                            const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+    function getCharacterWeight() {
+        try {
+            // Method 1: ค้นหาในหน้าต่างกระเป๋า (Inventory Modal) ถ้าผู้เล่นเปิดอยู่
+            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
+            for (const modal of bagModals) {
+                // ค้นหาข้อความแถว "น้ำหนัก" ที่ด้านล่างกระเป๋า
+                const nodes = Array.from(modal.querySelectorAll('*')).filter(el => {
+                    return isValidNonBotElement(el) && (el.textContent || '').includes('น้ำหนัก');
+                });
+                for (const el of nodes) {
+                    const searchTargets = [el, el.parentElement, el.parentElement?.parentElement].filter(Boolean);
+                    for (const target of searchTargets) {
+                        const m = (target.textContent || '').match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                        if (m) {
+                            const cur = parseFloat(m[1].replace(/,/g, ''));
+                            const max = parseFloat(m[2].replace(/,/g, ''));
+                            if (max > 0) {
+                                const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                                updateWeightHUD(res);
+                                return res;
+                            }
+                        }
+                    }
+                }
+
+                // ค้นหาตัวเลข x / y ที่อยู่ใน footer กระเป๋า เช่น "7,030.9/7,060"
+                const slashEls = Array.from(modal.querySelectorAll('*')).filter(el => {
+                    return isValidNonBotElement(el) && el.children.length === 0 && (el.textContent || '').includes('/');
+                });
+                for (const el of slashEls) {
+                    const txt = (el.textContent || '').trim();
+                    const m = txt.match(/^([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)$/);
+                    if (m) {
+                        const cur = parseFloat(m[1].replace(/,/g, ''));
+                        const max = parseFloat(m[2].replace(/,/g, ''));
+                        if (max >= 500 && cur <= max * 2) {
+                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             updateWeightHUD(res);
                             return res;
                         }
@@ -1256,27 +1301,48 @@
                 }
             }
 
-            // Method 3: Global body search
-            const bodyMatch = (document.body.innerText || '').match(/(?:น้ำหนัก|Weight)[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/i);
-            if (bodyMatch) {
-                const current = parseFloat(bodyMatch[1].replace(/,/g, ''));
-                const max = parseFloat(bodyMatch[2].replace(/,/g, ''));
-                if (max > 0) {
-                    const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
-                    updateWeightHUD(res);
-                    return res;
+            // Method 2: ค้นหาแถบ/ป้ายเปอร์เซ็นต์น้ำหนักบนหน้าจอเกม (เช่น ป้าย "100%", "92%" ใต้ Minimap)
+            const percentBadges = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el) || el.children.length > 0) return false;
+                const txt = (el.textContent || '').trim();
+                return /^\d{1,3}%$/.test(txt);
+            });
+            for (const el of percentBadges) {
+                const rect = el.getBoundingClientRect();
+                // แถบแจ้งเตือนน้ำหนักมักอยู่ด้านบนของจอ (top <= 180px)
+                if (rect.top >= 0 && rect.top <= 180 && rect.width > 0 && rect.height > 0) {
+                    const p = parseFloat(el.textContent);
+                    if (p >= 50) { // น้ำหนักตัวละครเมื่อแสดงเป็น badge เตือน มักจะเริ่มที่ 50% หรือ 70% ขึ้นไป
+                        const res = { current: p, max: 100, percent: p };
+                        updateWeightHUD(res);
+                        return res;
+                    }
                 }
             }
 
-            // Method 4: Percentage search (e.g. "น้ำหนัก 92%")
-            const percentMatch = (document.body.innerText || '').match(/(?:น้ำหนัก|Weight)[^\d]*(\d+(?:\.\d+)?)%/i);
-            if (percentMatch) {
-                const p = parseFloat(percentMatch[1]);
-                if (p > 0) {
-                    const res = { current: p, max: 100, percent: p };
-                    updateWeightHUD(res);
-                    return res;
+            // Method 3: ค้นหา Element ทั่วทั้งจอที่มีคำว่า "น้ำหนัก" และเครื่องหมาย "/" (ห้ามอ่านจาก Pelican HUD เด็ดขาด)
+            const allCandidates = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el) || el.children.length > 6) return false;
+                const txt = el.textContent || '';
+                return txt.includes('น้ำหนัก') && txt.includes('/');
+            });
+            for (const el of allCandidates) {
+                const match = el.textContent.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                if (match) {
+                    const cur = parseFloat(match[1].replace(/,/g, ''));
+                    const max = parseFloat(match[2].replace(/,/g, ''));
+                    if (max > 0) {
+                        const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                        updateWeightHUD(res);
+                        return res;
+                    }
                 }
+            }
+
+            // Method 4: ข้อมูลจาก Server Packet (ถ้ามี)
+            if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
+                updateWeightHUD(window.__serverWeight);
+                return window.__serverWeight;
             }
         } catch(e) {}
         return null;
@@ -1285,9 +1351,14 @@
     function updateWeightHUD(w) {
         const el = document.getElementById('p-cur-weight-val');
         if (el) {
+            const slots = getBagSlots();
+            const slotStr = slots ? ` | ช่อง: ${slots.current}/${slots.max}` : '';
             if (w) {
                 const color = w.percent >= 85 ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
-                el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)</span>`;
+                el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)${slotStr}</span>`;
+            } else if (slots) {
+                const color = slots.percent >= 90 ? '#ef4444' : '#00ffcc';
+                el.innerHTML = `<span style="color: ${color}; font-weight: bold;">ช่อง: ${slots.current}/${slots.max} (${slots.percent}%)</span>`;
             } else {
                 el.innerHTML = '<span style="color: #64748b;">-- / --</span>';
             }
@@ -1311,24 +1382,31 @@
 
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
-        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM (อ่านจากหลอดน้ำหนักในเกม เช่น 571 / 2,030 = 28.1%)
+        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM (ห้ามอ่านจาก Pelican HUD)
         const w = getCharacterWeight();
         if (w && typeof w.percent === 'number' && w.percent > 0) {
-            return w.percent >= threshold;
+            if (w.percent >= threshold) return true;
         }
 
-        // 2. ตรวจสอบข้อมูลน้ำหนักจาก Memory/Packet ถ้ามี
+        // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้าเกิน 95 ช่องถือว่ากระเป๋าเต็ม)
+        const slots = getBagSlots();
+        if (slots && (slots.percent >= 95 || slots.current >= slots.max - 2)) {
+            console.warn(`%c[Pelican Overload] 🎒 ช่องกระเป๋าใกล้เต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
+            return true;
+        }
+
+        // 3. ตรวจสอบข้อมูลน้ำหนักจาก Memory/Packet ถ้ามี
         if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
-            return window.__serverWeight.percent >= threshold;
+            if (window.__serverWeight.percent >= threshold) return true;
         }
 
-        // 3. ตรวจสอบข้อความแจ้งเตือนจาก Toast/Modal ของระบบเกม (เฉพาะเจาะจง และต้องไม่อยู่ใน HUD ของบอท)
+        // 4. ตรวจสอบข้อความแจ้งเตือนจาก Toast/Modal ของระบบเกม (เฉพาะเจาะจง และต้องไม่อยู่ใน HUD ของบอท)
         try {
             const toastEls = document.querySelectorAll('.toast, .notification, .alert, .modal-title, .system-msg, .chat-system, [class*="toast"], [class*="alert"]');
             for (const el of toastEls) {
-                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) continue;
+                if (!isValidNonBotElement(el)) continue;
                 const t = (el.innerText || el.textContent || '').trim();
-                if (t.includes('กระเป๋าหนักเกิน 90%') || t.includes('น้ำหนักเกิน 90%') || t.includes('กระเป๋าเต็ม') || t.includes('สัมภาระเต็ม')) {
+                if (t.includes('กระเป๋าหนักเกิน 90%') || t.includes('น้ำหนักเกิน 90%') || t.includes('กระเป๋าเต็ม') || t.includes('สัมภาระเต็ม') || t.includes('Overweight')) {
                     return true;
                 }
             }
@@ -1541,21 +1619,47 @@
     }
 
     function hookSocketInstance(ws) {
-        if (!ws || ws.__pelicanHooked) return;
+        if (!ws || !isGameSocket(ws)) return;
+        if (ws.__pelicanHooked) {
+            if (ws.readyState === 1 && (!window.__gameSocket || window.__gameSocket.readyState !== 1)) {
+                window.__gameSocket = ws;
+                updateUIStatus(true);
+            }
+            return;
+        }
         ws.__pelicanHooked = true;
-        window.__gameSocket = ws;
-        console.log('%c[Pelican] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
-        updateUIStatus(true);
 
-        ws.addEventListener('open', () => updateUIStatus(true));
-        ws.addEventListener('message', (event) => {
-            processIncomingData(event.data);
+        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) {
+            window.__gameSocket = ws;
+            if (ws.readyState === 1) updateUIStatus(true);
+        }
+
+        console.log('%c[Pelican] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
+
+        ws.addEventListener('open', () => {
+            if (isGameSocket(ws)) {
+                window.__gameSocket = ws;
+                updateUIStatus(true);
+            }
         });
-        ws.addEventListener('close', () => updateUIStatus(false));
+        ws.addEventListener('message', (event) => {
+            if (isGameSocket(ws)) {
+                processIncomingData(event.data);
+            }
+        });
+        ws.addEventListener('close', () => {
+            if (window.__gameSocket === ws) {
+                updateUIStatus(false);
+                setTimeout(() => { if (typeof window.scanForActiveSocket === 'function') window.scanForActiveSocket(); }, 1000);
+            }
+        });
 
         const origInstanceSend = ws.send;
         ws.send = function(data) {
-            processOutgoingData(data);
+            if (isGameSocket(ws)) {
+                window.__gameSocket = ws;
+                processOutgoingData(data);
+            }
             return origInstanceSend.apply(this, arguments);
         };
     }
@@ -1563,17 +1667,19 @@
     // 1. Hook WebSocket.prototype.send so even existing sockets get captured on their very first send
     const origProtoSend = OriginalWebSocket.prototype.send;
     OriginalWebSocket.prototype.send = function(data) {
-        if (!window.__gameSocket || window.__gameSocket !== this) {
-            hookSocketInstance(this);
+        if (isGameSocket(this)) {
+            if (!window.__gameSocket || window.__gameSocket !== this) {
+                hookSocketInstance(this);
+            }
+            processOutgoingData(data);
         }
-        processOutgoingData(data);
         return origProtoSend.apply(this, arguments);
     };
 
     // 2. Hook WebSocket.prototype.addEventListener to capture socket on registration
     const origProtoAddEventListener = OriginalWebSocket.prototype.addEventListener;
     OriginalWebSocket.prototype.addEventListener = function(type, listener, options) {
-        if (type === 'message') {
+        if (type === 'message' && isGameSocket(this)) {
             if (!window.__gameSocket || window.__gameSocket !== this) {
                 hookSocketInstance(this);
             }
@@ -1585,18 +1691,20 @@
     window.WebSocket = new Proxy(OriginalWebSocket, {
         construct(Target, args) {
             const ws = new Target(...args);
-            hookSocketInstance(ws);
+            if (isGameSocket(ws)) {
+                hookSocketInstance(ws);
+            }
             return ws;
         }
     });
 
     // 4. Actively scan window properties to find any existing WebSocket instance immediately
     window.scanForActiveSocket = function() {
-        if (window.__gameSocket && window.__gameSocket.readyState === 1) return;
+        if (window.__gameSocket && window.__gameSocket.readyState === 1 && isGameSocket(window.__gameSocket)) return;
         for (const key of Object.getOwnPropertyNames(window)) {
             try {
                 const val = window[key];
-                if (val && val instanceof OriginalWebSocket && val.readyState === 1) {
+                if (val && val instanceof OriginalWebSocket && val.readyState === 1 && isGameSocket(val)) {
                     hookSocketInstance(val);
                     return;
                 }
@@ -1610,7 +1718,7 @@
                     for (const subKey of Object.keys(root)) {
                         try {
                             const subVal = root[subKey];
-                            if (subVal && subVal instanceof OriginalWebSocket && subVal.readyState === 1) {
+                            if (subVal && subVal instanceof OriginalWebSocket && subVal.readyState === 1 && isGameSocket(subVal)) {
                                 hookSocketInstance(subVal);
                                 return;
                             }
@@ -2473,51 +2581,90 @@
     window.useButterflyWing = function() {
         console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ค้นหาช่องของ Butterfly Wing ในกระเป๋าจริง (ห้ามส่ง sendEquip เด็ดขาด เพื่อไม่ให้ไปสลับใส่อาวุธ!)
-        let bwingSlot = 8;
+        // 1. ค้นหาช่อง Butterfly Wing ในข้อมูล Packet เซิร์ฟเวอร์
+        let bwingSlot = -1;
         const bwingInBag = findItemInServerInv(it => {
             const id = it.itemId || it.id || it.item_id;
             const name = (it.name || it.itemName || '').toLowerCase();
-            return (id === 90311 || id === 0x000160c7 || name.includes('wing') || name.includes('bwing') || name.includes('butterfly')) && typeof (it.slot ?? it.idx) === 'number';
+            return (id === 90311 || id === 0x000160c7 || name.includes('wing') || name.includes('bwing') || name.includes('butterfly') || name.includes('วิง')) && typeof (it.slot ?? it.idx) === 'number';
         });
         if (bwingInBag) {
             bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
+            console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ใน Server Inventory Slot: ${bwingSlot}`, 'color: #22c55e;');
+            window.sendInvUse(bwingSlot);
         }
 
-        // 2. ส่ง Packet inv_use ช่องของ Bwing โดยตรง
-        window.sendInvUse(bwingSlot);
+        // 2. ค้นหาใน DOM ช่องกระเป๋า (ถ้าหน้าต่างกระเป๋าเปิดอยู่)
+        const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(el => {
+            return !el.closest('#pelican-hud') && !el.closest('#pelican-data-modal');
+        });
 
-        // 3. กด Key ช่อง Hotbar 8
-        dispatchKeyAll('8', 'Digit8', 56);
+        let domFound = false;
+        for (const modal of bagModals) {
+            const slots = Array.from(modal.querySelectorAll('[class*="item"], .inventory-slot, [data-item-id], [class*="slot"]'));
+            for (let idx = 0; idx < slots.length; idx++) {
+                const s = slots[idx];
+                const img = s.querySelector('img');
+                const src = (img?.src || s.style?.backgroundImage || '').toLowerCase();
+                const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
+                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || title.includes('butterfly') || title.includes('วิง')) {
+                    domFound = true;
+                    console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ในช่องกระเป๋า DOM ช่องที่ ${idx} -> ดับเบิลคลิกใช้งาน!`, 'color: #22c55e; font-weight: bold;');
+                    triggerClick(s);
+                    s.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    window.sendInvUse(idx);
+                    break;
+                }
+            }
+            if (domFound) break;
+        }
 
-        // 3. คลิก DOM Element ถ้ามี (หา element ที่มีรูปหรือชื่อ Bwing)
+        // 3. ตรวจสอบ Hotbar ช่องลัด 1-10
+        let hotbarKey = '8';
+        for (let i = 0; i < 10; i++) {
+            const hotbarSlot = document.querySelector(`[data-slot="${i}"], .slot-${i}, #hotbar-${i}, .quick-slot-${i}, [class*="hotbar"] > *:nth-child(${i+1})`);
+            if (hotbarSlot) {
+                const img = hotbarSlot.querySelector('img');
+                const src = (img?.src || hotbarSlot.style?.backgroundImage || '').toLowerCase();
+                const txt = (hotbarSlot.getAttribute('title') || hotbarSlot.innerText || '').toLowerCase();
+                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || txt.includes('butterfly') || txt.includes('วิง')) {
+                    hotbarKey = (i === 9 ? '0' : (i + 1).toString());
+                    console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ใน Hotbar ช่องลัดเลข ${hotbarKey} -> กดใช้งาน!`, 'color: #22c55e;');
+                    triggerClick(hotbarSlot);
+                    break;
+                }
+            }
+        }
+        dispatchKeyAll(hotbarKey, 'Digit' + hotbarKey, hotbarKey.charCodeAt(0));
+
+        // 4. คลิกไอคอน Bwing บนหน้าจอถ้ามี
         try {
             const bwingEl = Array.from(document.querySelectorAll('*')).find(el => {
-                if (el.closest('#pelican-hud')) return false;
-                const src = el.src || (el.style && el.style.backgroundImage) || '';
-                const txt = el.innerText || el.textContent || '';
-                return (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || txt.includes('Butterfly')) && el.offsetWidth > 0;
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+                const src = (el.src || el.style?.backgroundImage || '').toLowerCase();
+                const txt = (el.innerText || el.textContent || '').toLowerCase();
+                return (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || txt.includes('butterfly')) && el.offsetWidth > 0;
             });
             if (bwingEl) {
                 triggerClick(bwingEl);
+                bwingEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
                 console.log('%c[Pelican] 🦋 คลิกปุ่ม Butterfly Wing บนหน้าจอสำเร็จ!', 'color: #22c55e;');
             }
         } catch(e) {}
 
-        // 4. จำลองคลิก Canvas ที่ช่องลัด Slot 8 (แถวบน ItemBar ฝั่งขวาสุด)
-        const canvas = document.querySelector('canvas');
-        if (canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const targetX = centerX + 160;
-            const targetY = rect.bottom - 85;
+        // 5. Fallback: ส่ง Packet inv_use ช่องที่ 2 (Item 3 ในกระเป๋า) และช่อง 8
+        if (!bwingInBag && !domFound) {
+            window.sendInvUse(2);
+            window.sendInvUse(8);
+            dispatchKeyAll('8', 'Digit8', 56);
 
-            const opts = { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window, buttons: 1 };
-            canvas.dispatchEvent(new PointerEvent('pointerdown', opts));
-            canvas.dispatchEvent(new MouseEvent('mousedown', opts));
-            canvas.dispatchEvent(new PointerEvent('pointerup', opts));
-            canvas.dispatchEvent(new MouseEvent('mouseup', opts));
-            canvas.dispatchEvent(new MouseEvent('click', opts));
+            // ถ้าหน้าต่างกระเป๋ายังไม่เคยเปิด ให้กดเปิดเพื่อดึง Packet และสแกน DOM
+            if (bagModals.length === 0) {
+                dispatchKeyAll('b', 'KeyB', 66);
+                setTimeout(() => {
+                    window.useButterflyWing();
+                }, 300);
+            }
         }
     };
 
