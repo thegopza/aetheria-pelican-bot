@@ -2175,16 +2175,86 @@
 
         function hasSockets(rowText, titleEl) {
             const text = ((titleEl ? titleEl.innerText : '') + ' ' + (rowText || ''));
-            return /\[\s*[1-4]\s*\]/.test(text);
+            return /\[\s*[1-4]\s*\]/.test(text) || text.includes('ช่องการ์ด 1') || text.includes('ช่องการ์ด 2') || text.includes('ช่องการ์ด 3') || text.includes('ช่องการ์ด 4');
         }
 
         function hasOptions(rowText) {
             const text = (rowText || '').toLowerCase();
-            return text.includes('option') || text.includes('ออฟชั่น') || text.includes('มี option');
+            if (text.includes('0 option') || text.includes('0  option') || text.includes('0ออฟชั่น')) {
+                if (/[1-9]\s*option/i.test(text) || /[1-9]\s*ออฟชั่น/i.test(text)) return true;
+                return false;
+            }
+            return /[1-9]\s*option/i.test(text) || text.includes('มี option') || text.includes('ออฟชั่นพิเศษ');
+        }
+
+        function findCategoryTab(catName) {
+            const shopModal = document.querySelector('.shop-window, [class*="shop"], .modal-body, .window') || document.body;
+            const candidates = Array.from(shopModal.querySelectorAll('button, [role="tab"], div, span, a, li')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
+                
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt.includes(catName)) return false;
+
+                // กรอง container แม่ทิ้ง: ถ้ามีชื่อแท็บหมวดอื่นปนอยู่ แสดงว่าเป็นแถบแท็บรวม ไม่ใช่ตัวปุ่มแท็บ
+                const knownTabs = ['ทั้งหมด', 'อาวุธ', 'ชุดเกราะ', 'ประดับ', 'ใช้ได้', 'การ์ด', 'แร่', 'วัตถุดิบ', 'อื่นๆ'];
+                const overlap = knownTabs.filter(t => t !== catName && txt.includes(t)).length;
+                if (overlap > 0) return false;
+
+                return true;
+            });
+
+            if (candidates.length === 0) return null;
+
+            candidates.sort((a, b) => {
+                const aTxt = (a.innerText || a.textContent || '').trim();
+                const bTxt = (b.innerText || b.textContent || '').trim();
+                return aTxt.length - bTxt.length;
+            });
+
+            return candidates.find(el => el.tagName === 'BUTTON' || (el.className && el.className.includes('tab'))) || candidates[0];
+        }
+
+        function findItemRow(btn) {
+            let curr = btn;
+            while (curr && curr.parentElement && curr.parentElement !== document.body) {
+                const p = curr.parentElement;
+                const h = curr.offsetHeight;
+                if (p.children.length >= 2 && h >= 25 && h <= 110) {
+                    const txt = curr.innerText || '';
+                    if (txt.includes('z') || txt.includes('+') || txt.includes('option')) {
+                        return curr;
+                    }
+                }
+                curr = curr.parentElement;
+            }
+            return btn.parentElement?.parentElement || btn.parentElement;
+        }
+
+        function extractItemName(row) {
+            if (!row) return '';
+            const nameEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong');
+            if (nameEl) {
+                const t = nameEl.innerText.split('\n')[0].trim();
+                if (t && !t.includes('option') && !/^\d+[\s,]*z$/i.test(t) && !/^\d+$/.test(t)) {
+                    return t;
+                }
+            }
+
+            const lines = (row.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (/^\d+$/.test(line)) continue;
+                if (/^\d+[\s,]*z$/i.test(line)) continue;
+                if (line === '+' || line === '-' || line === 'ทั้งหมด') continue;
+                if (line.includes('option') || line.includes('ออฟชั่น')) continue;
+                return line;
+            }
+            return '';
         }
 
         // 1. สลับไปแท็บ "ขาย" (เฉพาะปุ่มแท็บในหน้าต่างร้านค้า)
         const sellTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
             const txt = (el.innerText || '').trim();
             return txt === 'ขาย' && (el.closest('.shop-window') || el.closest('[class*="shop"]') || el.offsetHeight > 0);
         });
@@ -2196,51 +2266,74 @@
 
         function processCategory(catName, isItemByItem, onDone) {
             console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}"...`);
-            const catBtns = Array.from(document.querySelectorAll('button, div')).filter(el => {
-                const txt = (el.innerText || '').trim();
-                return txt.includes(catName) && el.offsetWidth > 0 && el.offsetHeight > 0;
-            });
-            const catBtn = catBtns[0];
+            
+            const catBtn = findCategoryTab(catName);
             if (catBtn) {
+                const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
+                console.log(`%c[Pelican Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
                 triggerClick(catBtn);
+                catBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
                 if (typeof catBtn.click === 'function') catBtn.click();
+            } else {
+                console.warn(`[Pelican Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า`);
             }
 
+            // รอ 600ms ให้หน้าร้านค้าเปลี่ยนรายการตามแท็บที่เลือก
             setTimeout(() => {
                 if (!isItemByItem) {
                     // หมวด "วัตถุดิบ": คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า" (button.shop-sell-junk)
                     const putAllBtn = document.querySelector('button.shop-sell-junk') ||
-                        Array.from(document.querySelectorAll('button')).find(el => (el.innerText || '').includes('ใส่วัตถุดิบ'));
+                        Array.from(document.querySelectorAll('button')).find(el => {
+                            if (el.closest('#pelican-hud')) return false;
+                            const t = (el.innerText || '').trim();
+                            return t.includes('ใส่วัตถุดิบ') || t.includes('ขายขยะ');
+                        });
                     
-                    if (putAllBtn && !putAllBtn.innerText.includes('0 รายการ')) {
+                    if (putAllBtn && !putAllBtn.disabled && !putAllBtn.className.includes('disabled') && !putAllBtn.innerText.includes('0 รายการ') && !putAllBtn.innerText.includes('ไม่มีวัตถุดิบ')) {
                         console.log('%c[Pelican Shop] 🧺 คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า"...', 'color: #eab308; font-weight: bold;');
                         triggerClick(putAllBtn);
                         if (typeof putAllBtn.click === 'function') putAllBtn.click();
-                        const inner = putAllBtn.querySelector('button, span, div') || putAllBtn;
-                        if (typeof inner.click === 'function') inner.click();
+                    } else {
+                        console.log('[Pelican Shop] ℹ️ ไม่มีวัตถุดิบขยะให้ขายในกระเป๋า');
                     }
-                    setTimeout(onDone, 500);
+                    setTimeout(onDone, 400);
                 } else {
                     // หมวด "อาวุธ" หรือ "ชุดเกราะ": กรองตาม Whitelist, ระดับ Rarity, ตีบวก, รูการ์ด, และ Option
-                    const shopModal = document.querySelector('.shop-window') || document.querySelector('[class*="shop"]') || document.body;
-                    const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => (b.innerText || '').trim() === '+' && b.offsetWidth > 0);
+                    const shopModal = document.querySelector('.shop-window, [class*="shop"]') || document.body;
+                    const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => {
+                        if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
+                        const txt = (b.innerText || '').trim();
+                        return txt === '+' && b.offsetWidth > 0 && b.offsetHeight > 0;
+                    });
 
-                    let addedCount = 0;
+                    console.log(`[Pelican Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
+
+                    const itemsToSell = [];
+
                     plusBtns.forEach(btn => {
-                        const row = btn.closest('[class*="item"]') || btn.parentElement?.parentElement || btn.parentElement;
+                        const row = findItemRow(btn);
                         if (!row) return;
 
                         const rowText = row.innerText || '';
-                        const titleEl = row.querySelector('h3, h4, span, div') || row;
-                        const itemName = titleEl ? titleEl.innerText.split('\n')[0].trim() : '';
+                        const itemName = extractItemName(row);
+                        if (!itemName) return;
 
-                        // กฎความปลอดภัย 1: ห้ามขายเด็ดขาดถ้าตรงกับ Whitelist
+                        const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong') || 
+                                        Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
+
+                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู เด็ดขาด
+                        const lower = itemName.toLowerCase();
+                        if (lower.includes('wing') || lower.includes('potion') || lower.includes('arrow') || lower.includes('ใบวาร์ป') || lower.includes('ลูกธนู') || lower.includes('ขวดยา')) {
+                            return;
+                        }
+
+                        // กฎความปลอดภัย 2: ห้ามขายเด็ดขาดถ้าตรงกับ Whitelist
                         if (isWhitelisted(itemName)) {
                             console.log(`[Pelican Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 2: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
+                        // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
                         const rarityRank = getItemRarity(rowText, titleEl);
                         const rankMap = {
                             'normal': 1, 'common': 1,
@@ -2256,34 +2349,51 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 3: ห้ามขายของตีบวก (+1 ขึ้นไป)
+                        // กฎความปลอดภัย 4: ห้ามขายของตีบวก (+1 ขึ้นไป)
                         if (sellCfg.keepRefined && isRefined(rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [ของตีบวก] ข้ามไอเทมตีบวก: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 4: ห้ามขายของมีรูการ์ด [1-4]
+                        // กฎความปลอดภัย 5: ห้ามขายของมีรูการ์ด [1-4]
                         if (sellCfg.keepSockets && hasSockets(rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [มีรูการ์ด] ข้ามไอเทมมีรู: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 5: ห้ามขายของมี Option สุ่ม
+                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม
                         if (sellCfg.keepSpecial && hasOptions(rowText)) {
                             console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}"`);
                             return;
                         }
 
-                        // ปลอดภัย 100% -> กด '+' ใส่ตะกร้า
-                        console.log(`%c[Pelican Shop] ➕ ใส่อาวุธ/เกราะขยะลงตะกร้า: "${itemName}"`, 'color: #22c55e;');
-                        triggerClick(btn);
-                        if (typeof btn.click === 'function') btn.click();
-                        addedCount++;
+                        itemsToSell.push({ name: itemName, btn: btn, row: row });
                     });
 
-                    setTimeout(onDone, addedCount > 0 ? 600 : 350);
+                    if (itemsToSell.length === 0) {
+                        console.log(`[Pelican Shop] ℹ️ ไม่มีไอเทมในหมวด "${catName}" ที่ตรงตามเงื่อนไขการขาย`);
+                        setTimeout(onDone, 300);
+                        return;
+                    }
+
+                    console.log(`%c[Pelican Shop] 📋 เตรียมใส่ไอเทมลงตะกร้า ${itemsToSell.length} ชิ้น...`, 'color: #22c55e; font-weight: bold;');
+
+                    // คลิกปุ่ม '+' ทีละชิ้นอย่างต่อเนื่อง (เว้นจังหวะ 130ms เพื่อให้ UI อัปเดตเสถียร)
+                    let clickIdx = 0;
+                    function stepClick() {
+                        if (clickIdx >= itemsToSell.length) {
+                            setTimeout(onDone, 500);
+                            return;
+                        }
+                        const item = itemsToSell[clickIdx++];
+                        console.log(`%c[Pelican Shop] ➕ ใส่อาวุธ/เกราะลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
+                        triggerClick(item.btn);
+                        if (typeof item.btn.click === 'function') item.btn.click();
+                        setTimeout(stepClick, 130);
+                    }
+                    stepClick();
                 }
-            }, 500);
+            }, 600);
         }
 
         setTimeout(() => {
@@ -2296,7 +2406,10 @@
                 if (idx >= steps.length) {
                     setTimeout(() => {
                         const confirmBtn = document.querySelector('button.cart-go') ||
-                            Array.from(document.querySelectorAll('button')).find(el => (el.innerText || '').includes('ตรวจสอบและขาย') && el.offsetWidth > 0);
+                            Array.from(document.querySelectorAll('button')).find(el => {
+                                if (el.closest('#pelican-hud')) return false;
+                                return (el.innerText || '').includes('ตรวจสอบและขาย') && el.offsetWidth > 0;
+                            });
 
                         if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('disabled')) {
                             console.log('%c[Pelican Shop] 💵 คลิก "ตรวจสอบและขาย" (cart-go)...', 'color: #22c55e; font-weight: bold;');
@@ -2310,20 +2423,23 @@
 
                                 // 1. หาปุ่มที่มีคำว่า "ยืนยันขาย" โดยตรง
                                 let finalBtn = Array.from(document.querySelectorAll('button')).find(b => {
+                                    if (b.closest('#pelican-hud')) return false;
                                     const txt = (b.innerText || '').trim();
-                                    return txt === 'ยืนยันขาย' || txt.includes('ยืนยันขาย');
+                                    return (txt === 'ยืนยันขาย' || txt.includes('ยืนยันขาย')) && b.offsetWidth > 0;
                                 });
 
                                 // 2. ถ้าไม่พบตรงๆ ให้หาจากกล่อง Modal ยืนยันการขาย (ไม่เอากล่องร้านหลัก)
                                 if (!finalBtn) {
                                     const confirmModal = Array.from(document.querySelectorAll('div, section, aside')).find(el => {
+                                        if (el.closest('#pelican-hud')) return false;
                                         const t = el.innerText || '';
                                         return t.includes('ยืนยันการขาย') && (t.includes('ยกเลิก') || t.includes('รวมที่ได้รับ'));
                                     });
                                     if (confirmModal) {
                                         finalBtn = Array.from(confirmModal.querySelectorAll('button')).find(b => {
+                                            if (b.closest('#pelican-hud')) return false;
                                             const txt = (b.innerText || '').trim();
-                                            return txt.includes('ยืนยัน') && !txt.includes('ยกเลิก');
+                                            return txt.includes('ยืนยัน') && !txt.includes('ยกเลิก') && b.offsetWidth > 0;
                                         });
                                     }
                                 }
@@ -2339,6 +2455,7 @@
                                     // รอให้ Modal ปิดลงและระบบบันทึกเงิน Zeny จากนั้นสลับกลับไปแท็บ "ซื้อ"
                                     setTimeout(() => {
                                         const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                            if (el.closest('#pelican-hud')) return false;
                                             return (el.innerText || '').trim() === 'ซื้อ' && (el.closest('.shop-window') || el.closest('[class*="shop"]') || el.offsetHeight > 0);
                                         });
                                         const buyTab = buyTabs[0];
@@ -2354,14 +2471,20 @@
                                 if (confirmAttempts >= 12) {
                                     clearInterval(confirmPoll);
                                     console.warn('[Pelican Shop] ⚠️ หมดเวลารอปุ่มยืนยันขาย (Timeout)');
-                                    const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => (el.innerText || '').trim() === 'ซื้อ');
+                                    const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                        if (el.closest('#pelican-hud')) return false;
+                                        return (el.innerText || '').trim() === 'ซื้อ';
+                                    });
                                     if (buyTabs[0]) triggerClick(buyTabs[0]);
                                     if (callback) callback();
                                 }
                             }, 200);
                         } else {
                             console.log('[Pelican Shop] ตะกร้าขายว่างเปล่า (ไม่มีไอเทมจะขาย) -> สลับไปขั้นตอนซื้อ');
-                            const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => (el.innerText || '').trim() === 'ซื้อ');
+                            const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                if (el.closest('#pelican-hud')) return false;
+                                return (el.innerText || '').trim() === 'ซื้อ';
+                            });
                             if (buyTabs[0]) triggerClick(buyTabs[0]);
                             if (callback) callback();
                         }
