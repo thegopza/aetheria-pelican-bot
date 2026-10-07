@@ -74,6 +74,24 @@
         localStorage.setItem('pelican_shop_cfg', JSON.stringify(window.__shopConfig));
     }
 
+    // Auto-Login & Account Config
+    const defaultAuthConfig = {
+        enabled: false,
+        username: '',
+        password: '',
+        autoResumeBot: true
+    };
+    try {
+        const storedAuth = JSON.parse(localStorage.getItem('pelican_auth_cfg') || '{}');
+        window.__authConfig = Object.assign({}, defaultAuthConfig, storedAuth);
+    } catch(e) {
+        window.__authConfig = defaultAuthConfig;
+    }
+
+    function saveAuthConfig() {
+        localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
+    }
+
     // Auto-Sell Filter & Whitelist Config (ระดับตามเกมจริง: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
     const defaultSellConfig = {
         enabled: true,
@@ -634,7 +652,13 @@
             autoJump: window.__autoJumpEnabled,
             archerConfig: window.__archerConfig,
             sellConfig: window.__sellConfig,
-            shopConfig: window.__shopConfig
+            shopConfig: window.__shopConfig,
+            authConfig: {
+                enabled: window.__authConfig?.enabled,
+                username: window.__authConfig?.username,
+                hasPassword: !!window.__authConfig?.password,
+                autoResumeBot: window.__authConfig?.autoResumeBot
+            }
         };
         console.log('%c[Pelican Dump] 🕹️ ข้อมูล Game State ปัจจุบัน:', 'color: #22c55e; font-weight: bold;');
         console.dir(state);
@@ -3613,6 +3637,205 @@
     }, 1000);
 
     // ==========================================
+    // 6.5 AUTO-LOGIN & RECONNECT ENGINE
+    // ==========================================
+    let lastLoginAttemptTime = 0;
+    let loginFailCount = 0;
+    let isLoginInProgress = false;
+
+    function setNativeInputValue(element, value) {
+        if (!element) return;
+        element.focus();
+        try {
+            const prototype = Object.getPrototypeOf(element);
+            const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+            if (descriptor && descriptor.set) {
+                descriptor.set.call(element, value);
+            } else {
+                element.value = value;
+            }
+        } catch(e) {
+            element.value = value;
+        }
+        element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }));
+        element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true }));
+    }
+
+    function findLoginElements() {
+        // หา password input ที่อยู่นอก #pelican-hud
+        const passInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(el => {
+            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
+        });
+        const passInput = passInputs[0] || null;
+
+        // หา text/username input ที่อยู่นอก #pelican-hud
+        const allTextInputs = Array.from(document.querySelectorAll('input:not([type="password"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="hidden"])')).filter(el => {
+            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
+        });
+
+        let userInput = allTextInputs.find(el => {
+            const placeholder = (el.placeholder || '').toLowerCase();
+            const name = (el.name || '').toLowerCase();
+            const id = (el.id || '').toLowerCase();
+            return placeholder.includes('ผู้ใช้') || placeholder.includes('user') || placeholder.includes('username') || placeholder.includes('id') ||
+                   name.includes('user') || name.includes('username') || name.includes('login') ||
+                   id.includes('user') || id.includes('username');
+        });
+
+        if (!userInput && passInput) {
+            const form = passInput.closest('form');
+            if (form) {
+                userInput = form.querySelector('input:not([type="password"])');
+            } else {
+                userInput = allTextInputs[0] || null;
+            }
+        }
+
+        // หาปุ่ม "เข้าเกม"
+        const allButtons = Array.from(document.querySelectorAll('button, div[role="button"], a.btn, input[type="submit"]')).filter(el => {
+            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
+        });
+
+        const loginBtn = allButtons.find(el => {
+            const txt = (el.innerText || el.textContent || el.value || '').trim();
+            return txt === 'เข้าเกม' || txt === 'เข้าสู่ระบบ' || txt === 'Login' || txt === 'Sign In';
+        }) || null;
+
+        return { userInput, passInput, loginBtn };
+    }
+
+    function isLoginScreenVisible() {
+        const { passInput, loginBtn } = findLoginElements();
+        if (passInput && loginBtn) return true;
+
+        const bodyText = document.body.innerText || '';
+        const isAuthPage = bodyText.includes('เริ่มต้นเป็น Novice') || 
+                           bodyText.includes('สมัครบัญชีใหม่') || 
+                           bodyText.includes('ลงชื่อเข้าใช้ด้วย Google') ||
+                           bodyText.includes('เล่นทันที ไม่ต้องสมัคร');
+
+        if (isAuthPage && (passInput || loginBtn)) {
+            return true;
+        }
+        return false;
+    }
+
+    function checkPostLoginScreen() {
+        // ตรวจสอบหน้าต่างเลือกตัวละคร หรือปุ่ม "เริ่มเกม" หลัง Login
+        const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
+            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
+        });
+        const enterBtn = candidates.find(el => {
+            const txt = (el.innerText || el.textContent || '').trim();
+            return txt === 'เริ่มเกม' || txt === 'เข้าสู่โลก' || txt === 'เข้าเล่น' || txt === 'เลือกตัวละคร' || txt === 'Enter World' || txt === 'Start Game';
+        });
+        if (enterBtn && !isLoginScreenVisible()) {
+            console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${enterBtn.innerText.trim()}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
+            triggerClick(enterBtn);
+        }
+    }
+
+    window.executeAutoLogin = function(force = false) {
+        const cfg = window.__authConfig || {};
+        if (!force && !cfg.enabled) return;
+
+        if (!cfg.username || !cfg.password) {
+            if (force) {
+                console.warn('%c[Pelican Auth] ⚠️ ยังไม่ได้ตั้งค่าชื่อผู้ใช้ (ID) หรือ รหัสผ่าน (PS) ในแท็บ "ตั้งค่า"!', 'color: #f59e0b; font-weight: bold;');
+                alert('กรุณากรอกชื่อผู้ใช้ (ID) และ รหัสผ่าน (PS) ในแท็บ "⚙️ ตั้งค่า" ก่อนเปิดใช้งาน Auto-Login');
+            }
+            return;
+        }
+
+        if (isLoginInProgress) return;
+
+        const { userInput, passInput, loginBtn } = findLoginElements();
+        if (!passInput || !loginBtn) {
+            if (force) {
+                console.warn('%c[Pelican Auth] ⚠️ ไม่พบหน้าต่าง Login บนหน้าจอ (ตัวละครอาจอยู่ในเกมอยู่แล้ว)', 'color: #f59e0b;');
+            }
+            return;
+        }
+
+        const now = Date.now();
+        if (!force && (now - lastLoginAttemptTime < 4500)) return;
+
+        if (!force && loginFailCount >= 6) {
+            if (now - lastLoginAttemptTime < 25000) {
+                return;
+            }
+            loginFailCount = 0;
+        }
+
+        isLoginInProgress = true;
+        lastLoginAttemptTime = now;
+        loginFailCount++;
+
+        console.log(`%c[Pelican Auth] 🔐 กำลังดำเนินการ Auto-Login (ครั้งที่ ${loginFailCount}) ด้วย ID: "${cfg.username}"...`, 'color: #a855f7; font-weight: bold;');
+
+        // 1. กรอก Username
+        if (userInput) {
+            setNativeInputValue(userInput, cfg.username);
+        }
+
+        // 2. กรอก Password
+        if (passInput) {
+            setNativeInputValue(passInput, cfg.password);
+        }
+
+        // 3. คลิกปุ่มเข้าเกม
+        setTimeout(() => {
+            console.log('%c[Pelican Auth] 🚀 คลิกปุ่ม "เข้าเกม"...', 'color: #22c55e; font-weight: bold;');
+            triggerClick(loginBtn);
+
+            setTimeout(() => {
+                isLoginInProgress = false;
+                checkPostLoginScreen();
+            }, 2500);
+        }, 500);
+    };
+
+    // Auto-Login Watcher & Reconnect Monitor (รันทุก 2.5 วินาที)
+    setInterval(() => {
+        const cfg = window.__authConfig || {};
+        if (!cfg.enabled) return;
+
+        // ถ้าอยู่ในหน้า Login
+        if (isLoginScreenVisible()) {
+            window.executeAutoLogin(false);
+            return;
+        }
+
+        // ตรวจสอบหน้าเลือกตัวละคร (ถ้ามี)
+        checkPostLoginScreen();
+
+        // ตรวจสอบเมื่อกลับเข้าสู่เกมสำเร็จ และต้องการ Resume Bot ทำงานต่อ
+        const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+        if (curMap && curMap !== 'ไม่ทราบ' && curMap.length > 0 && !isLoginScreenVisible()) {
+            if (loginFailCount > 0) {
+                console.log('%c[Pelican Auth] ✅ เข้าสู่โลกสำเร็จเรียบร้อย! (แมพปัจจุบัน: ' + curMap + ')', 'color: #22c55e; font-weight: bold;');
+                loginFailCount = 0;
+            }
+
+            const shouldResume = cfg.autoResumeBot && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled);
+            if (shouldResume && !window.__isBotRunning && !window.__isNavigating && !window.__isShopping && !window.__isRecovering) {
+                if (!window.__resumeTimer) {
+                    console.log('%c[Pelican Auth] ⏳ กำลังเตรียมความพร้อมแผนที่... อีก 3 วินาทีจะเริ่มระบบฟาร์มอัตโนมัติต่อเนื่อง', 'color: #38bdf8; font-weight: bold;');
+                    window.__resumeTimer = setTimeout(() => {
+                        window.__resumeTimer = null;
+                        if (!window.__isBotRunning && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled)) {
+                            console.log('%c[Pelican Auth] 🚀 Auto-Resume: ทำการ START BOT ฟาร์มต่อทันที 24 ชม.!', 'color: #10b981; font-weight: bold;');
+                            window.startMasterBot();
+                        }
+                    }, 3500);
+                }
+            }
+        }
+    }, 2500);
+
+    // ==========================================
     // 7. GUI HUD
     // ==========================================
     function updateUIStatus(online) {
@@ -4080,6 +4303,38 @@
 
                 <!-- TAB 4: SYSTEM & TOOLS -->
                 <div class="p-tab-pane" id="p-tab-system">
+                    <!-- Auto-Login & Account Card -->
+                    <div class="p-card" style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.06); margin-bottom: 6px;">
+                        <label class="p-check-box" style="color: #c084fc;">
+                            <input type="checkbox" id="p-auth-enabled" ${window.__authConfig.enabled ? 'checked' : ''}>
+                            <b>🔐 เปิดระบบ Auto-Login (เข้าเกมอัตโนมัติ)</b>
+                        </label>
+                        <div style="font-size: 9.5px; color: #94a3b8; margin: 3px 0 6px 0; line-height: 1.3;">
+                            เมื่อเกมหลุดหรือเด้งไปหน้า Login บอทจะกรอก ID/PS และเข้าเกมให้อัตโนมัติ
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div class="p-row">
+                                <span style="font-size: 10px; color: #cbd5e1;">ชื่อผู้ใช้ (ID):</span>
+                                <input type="text" id="p-auth-user" value="${window.__authConfig.username || ''}" placeholder="ชื่อผู้ใช้ / ID" style="width: 130px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                            </div>
+                            <div class="p-row">
+                                <span style="font-size: 10px; color: #cbd5e1;">รหัสผ่าน (PS):</span>
+                                <div style="display: flex; align-items: center; gap: 3px;">
+                                    <input type="password" id="p-auth-pass" value="${window.__authConfig.password || ''}" placeholder="รหัสผ่าน" style="width: 105px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                                    <button type="button" id="p-auth-toggle-pass" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #64748b; color: #94a3b8; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <label class="p-check-box" style="color: #4ade80; margin-top: 6px;">
+                            <input type="checkbox" id="p-auth-resume" ${window.__authConfig.autoResumeBot ? 'checked' : ''}>
+                            <span style="font-size: 9.5px;">เริ่มทำงานบอทต่อทันทีเมื่อ Login สำเร็จ (Auto-Resume)</span>
+                        </label>
+
+                        <button class="p-btn" id="p-btn-test-login" style="background: #9333ea; color: #fff; font-size: 10.5px; padding: 5px; margin-top: 6px; font-weight: bold; border-radius: 4px; border: 1px solid #a855f7; width: 100%; cursor: pointer;">🔑 ทดสอบเข้าสู่ระบบทันที (Test Login)</button>
+                    </div>
+
                     <div class="p-card" style="border-color: rgba(56, 189, 248, 0.3);">
                         <label class="p-check-box" style="color: #38bdf8;">
                             <input type="checkbox" id="p-shop-enabled" ${window.__shopConfig.enabled ? 'checked' : ''}>
@@ -4201,6 +4456,54 @@
         document.getElementById('p-btn-test-shop').onclick = () => {
             window.executeAutoShopRoutine();
         };
+
+        // Auto-Login Event Listeners
+        const authEnabledEl = document.getElementById('p-auth-enabled');
+        if (authEnabledEl) {
+            authEnabledEl.onchange = (e) => {
+                window.__authConfig.enabled = e.target.checked;
+                saveAuthConfig();
+            };
+        }
+
+        const authUserEl = document.getElementById('p-auth-user');
+        if (authUserEl) {
+            authUserEl.oninput = (e) => {
+                window.__authConfig.username = e.target.value.trim();
+                saveAuthConfig();
+            };
+        }
+
+        const authPassEl = document.getElementById('p-auth-pass');
+        if (authPassEl) {
+            authPassEl.oninput = (e) => {
+                window.__authConfig.password = e.target.value;
+                saveAuthConfig();
+            };
+        }
+
+        const authTogglePassEl = document.getElementById('p-auth-toggle-pass');
+        if (authTogglePassEl && authPassEl) {
+            authTogglePassEl.onclick = () => {
+                authPassEl.type = authPassEl.type === 'password' ? 'text' : 'password';
+            };
+        }
+
+        const authResumeEl = document.getElementById('p-auth-resume');
+        if (authResumeEl) {
+            authResumeEl.onchange = (e) => {
+                window.__authConfig.autoResumeBot = e.target.checked;
+                saveAuthConfig();
+            };
+        }
+
+        const btnTestLogin = document.getElementById('p-btn-test-login');
+        if (btnTestLogin) {
+            btnTestLogin.onclick = () => {
+                console.log('%c[Pelican Auth] 🔑 ทดสอบกระบวนการ Login ด้วยตนเอง...', 'color: #c084fc; font-weight: bold;');
+                window.executeAutoLogin(true);
+            };
+        }
 
         // Auto-Sell & Whitelist Event Listeners
         const weightCheckEl = document.getElementById('p-weight-check-enabled');
