@@ -1914,7 +1914,7 @@
 
         // Case B: ตัวละครอยู่ในเมืองหลวง (Soulhaven) -> วาร์ปผ่าน Alice Service (n6)
         if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-            console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> เดินไปหา Alice (n6) เพื่อเปิดวาร์ปไป "${targetMap}"...`, 'color: #eab308; font-weight: bold;');
+            console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> ใช้วาร์ปเกตด่วน NPC Alice เพื่อไปยัง "${targetMap}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.walkToTargetMap(targetMap, true);
             return;
         }
@@ -2111,19 +2111,54 @@
             return;
         }
 
-        console.log('%c[Pelican Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (n6)...', 'color: #eab308; font-weight: bold;');
+        console.log('%c[Pelican Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (Warp Service) เพื่อเปิดวาร์ปเกต...', 'color: #eab308; font-weight: bold;');
 
-        // 1. ค้นหาป้ายชื่อ "Alice Service" บนจอเกมแล้วคลิกเพื่อให้ตัวละครเดินไปหา
-        const labels = Array.from(document.querySelectorAll('*')).filter(el => {
-            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
-            const txt = (el.innerText || el.textContent || '').trim();
-            return txt === 'Alice Service' && el.offsetWidth > 0 && el.offsetHeight > 0 && el.offsetHeight < 40;
-        });
-        const aliceLabel = labels[labels.length - 1];
-        if (aliceLabel) {
-            console.log('%c[Pelican Warp] 🎯 คลิกป้ายชื่อ "Alice Service" บนหน้าจอเพื่อให้ตัวละครเดินไปหา...', 'color: #38bdf8;');
-            triggerClick(aliceLabel);
+        // ฟังก์ชันช่วยค้นหาและคลิกป้ายชื่อ NPC Alice บนจอ
+        function findAliceElement() {
+            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
+                const txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!txt.includes('Alice')) return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width >= 15 && rect.width <= 350 && rect.height >= 10 && rect.height <= 85;
+            });
+            if (candidates.length > 0) {
+                // เลือก element ที่มีพื้นที่เล็กที่สุด (innermost badge / text)
+                candidates.sort((a, b) => {
+                    const ra = a.getBoundingClientRect();
+                    const rb = b.getBoundingClientRect();
+                    return (ra.width * ra.height) - (rb.width * rb.height);
+                });
+                return candidates[0];
+            }
+            return null;
         }
+
+        function clickAliceOnScreen() {
+            const aliceLabel = findAliceElement();
+            if (aliceLabel) {
+                console.log('%c[Pelican Warp] 🎯 พบคลิกป้ายชื่อ "Alice Service" บนจอเพื่อให้ตัวละครเดินไปหา...', 'color: #38bdf8; font-weight: bold;');
+                triggerClick(aliceLabel);
+
+                const rect = aliceLabel.getBoundingClientRect();
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    const clientX = rect.left + rect.width / 2;
+                    const clientY = rect.top + rect.height / 2;
+                    const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY, buttons: 1 };
+                    canvas.dispatchEvent(new PointerEvent('pointerdown', opts));
+                    canvas.dispatchEvent(new MouseEvent('mousedown', opts));
+                    canvas.dispatchEvent(new PointerEvent('pointerup', opts));
+                    canvas.dispatchEvent(new MouseEvent('mouseup', opts));
+                    canvas.dispatchEvent(new MouseEvent('click', opts));
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // 1. ลองคลิกที่ตัว Alice บนจอเกม
+        clickAliceOnScreen();
 
         // 2. ส่ง Packet npc_talk เพื่อเปิดคุย
         window.sendRemoteNpcTalk('n6');
@@ -2173,14 +2208,19 @@
                 window.sendRemoteNpcOption(1);
             }
 
+            // ถ้าพึ่งเริ่มรอบ 2 แล้วยังไม่เปิดหน้าต่าง ลองคลิกป้ายชื่อซ้ำอีกครั้ง
+            if (attempts === 2) {
+                clickAliceOnScreen();
+            }
+
             // ตรวจสอบตำแหน่งการเดิน
             const curPos = window.__currentPos || { x: 0, y: 0 };
             const isStationary = (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0);
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
 
-            // ถ้าหยุดเดินแล้ว (หลังจากเดินมาแล้วอย่างน้อย 2 วินาที) หรือส่งมา 4 ครั้ง
-            if ((stillCount >= 2 && attempts >= 4) || attempts === 5 || attempts === 9) {
+            // ถ้าเริ่มหยุดเดินแล้ว หรือรอบที่ 3 ให้ส่ง packet คุยซ้ำ
+            if ((stillCount >= 2 && attempts >= 3) || attempts === 3) {
                 console.log('%c[Pelican Warp] 💬 ส่ง Packet คุยกับ Alice ซ้ำและเลือก Alice Warp Service...', 'color: #eab308;');
                 window.sendRemoteNpcTalk('n6');
                 setTimeout(() => {
@@ -2189,11 +2229,12 @@
                 }, 350);
             }
 
-            // Timeout 12 วินาที
-            if (attempts >= 20) {
+            // Timeout ปรับลดจาก 12 วินาที เหลือเพียง 3 วินาที (5 รอบ):
+            // ถ้าไม่สามารถคุยกับ Alice ได้ทันที ให้สลับไปเปิดแผนที่โลกเพื่อเดินเท้าไปแมพสำรองทันที ไม่ต้องยืนรอนิ่ง
+            if (attempts >= 5) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
-                console.warn('[Pelican Warp] ⚠️ Timeout รอเปิด Alice Warp Service -> ทำการเปิดแผนที่โลกสำรอง');
+                console.warn('%c[Pelican Warp] ⚠️ ไม่สามารถเปิด Alice Warp Service ได้ภายใน 3 วิ -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าไปแมพสำรองทันที!', 'color: #f59e0b; font-weight: bold;');
                 openWorldMap(() => {
                     if (callback) callback();
                 });
@@ -3535,7 +3576,7 @@
 
         // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อเปิด Alice Warp Service ก่อน
         if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-            console.log(`%c[Pelican Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice (n6) เพื่อเปิดวาร์ปไป "${mapName}"...`, 'color: #eab308; font-weight: bold;');
+            console.log(`%c[Pelican Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.openAliceWarpService(() => {
                 setTimeout(() => clickMapPin(3), 500);
             });
