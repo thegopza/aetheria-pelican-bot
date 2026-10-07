@@ -75,6 +75,8 @@
     // Auto-Sell Filter & Whitelist Config (ระดับตามเกมจริง: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
     const defaultSellConfig = {
         enabled: true,
+        weightCheckEnabled: true,
+        weightThreshold: 80, // วาร์ปกลับไปขายเมื่อน้ำหนักเกิน 80% (ปรับได้)
         sellMaterials: true,
         sellWeapons: false,
         sellArmors: false,
@@ -87,6 +89,8 @@
     try {
         const stored = JSON.parse(localStorage.getItem('pelican_sell_cfg') || '{}');
         window.__sellConfig = Object.assign({}, defaultSellConfig, stored);
+        if (typeof window.__sellConfig.weightThreshold !== 'number') window.__sellConfig.weightThreshold = 80;
+        if (window.__sellConfig.weightCheckEnabled === undefined) window.__sellConfig.weightCheckEnabled = true;
     } catch (e) {
         window.__sellConfig = defaultSellConfig;
     }
@@ -387,15 +391,70 @@
         } catch(e) {}
     }
 
-    window.copyOutgoingLogs = function(count = 10) {
-        const recent = window.__outgoingLogs.slice(-count);
-        const jsonStr = JSON.stringify(recent, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert(`คัดลอก Packet ขาออก (OUT) จำนวน ${recent.length} รายการ (Hex เต็ม 100%) สำเร็จแล้ว!`);
+    // ==========================================
+    // BULLETPROOF CLIPBOARD & DATA EXTRACTOR
+    // ==========================================
+    window.safeCopyToClipboard = function(text, successMsg, onComplete) {
+        console.log('%c[Pelican Clipboard Data]:', 'color: #38bdf8; font-weight: bold; font-size: 11px;');
+        console.log(text);
+
+        function showResult(success) {
+            if (success && successMsg) {
+                alert(successMsg);
+            }
+            if (typeof onComplete === 'function') onComplete(success);
+        }
+
+        function execCommandCopy() {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (ok) {
+                    showResult(true);
+                    return true;
+                }
+            } catch(e) {
+                console.warn('[Pelican] execCommand copy failed:', e);
+            }
+            return false;
+        }
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).then(() => {
+                showResult(true);
+            }).catch((err) => {
+                console.warn('[Pelican] navigator.clipboard.writeText rejected (focus issue), falling back to execCommand:', err);
+                const ok = execCommandCopy();
+                if (!ok) {
+                    showResult(false);
+                }
             });
-        } else {
-            console.log(jsonStr);
+            return;
+        }
+
+        execCommandCopy();
+    };
+
+    window.copyOutgoingLogs = function(count = 10) {
+        const recent = (window.__outgoingLogs || []).slice(-count);
+        const jsonStr = JSON.stringify(recent, null, 2);
+
+        console.log(`%c[Pelican Dump] 📤 Dump Outgoing Packets (${recent.length} รายการ):`, 'color: #38bdf8; font-weight: bold;');
+        console.table(recent.map(p => ({ time: p.time, opcode: p.opcode, len: p.len, hex: (p.hex || '').slice(0, 30), ascii: (p.ascii || '').slice(0, 30) })));
+
+        window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet ขาออก (OUT) จำนวน ${recent.length} รายการ (Hex เต็ม 100%) สำเร็จแล้ว!`);
+
+        if (window.showDataViewerModal) {
+            window.showDataViewerModal('packets');
         }
     };
 
@@ -435,11 +494,7 @@
             console.log(`%c[Pelican Dump] 🗺️ พบข้อมูลแมพทั้งหมด ${mapList.length} โซน:`, 'color: #00ffcc; font-weight: bold;');
             console.table(mapList);
             const jsonStr = JSON.stringify(mapList, null, 2);
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(jsonStr).then(() => {
-                    alert(`📋 คัดลอกข้อมูลแผนที่โลก (${mapList.length} โซน) ลง Clipboard เรียบร้อยแล้ว!`);
-                });
-            }
+            window.safeCopyToClipboard(jsonStr, `📋 คัดลอกข้อมูลแผนที่โลก (${mapList.length} โซน) ลง Clipboard เรียบร้อยแล้ว!`);
             return mapList;
         }
 
@@ -544,11 +599,7 @@
         })));
 
         const jsonStr = JSON.stringify(dump, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert('📦 [Pelican Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
-            });
-        }
+        window.safeCopyToClipboard(jsonStr, '📦 [Pelican Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
         return dump;
     };
 
@@ -559,10 +610,9 @@
         const jsonStr = JSON.stringify(packets, null, 2);
         console.log(`%c[Pelican Dump] 📜 Dump Packet Logs (${packets.length} รายการ):`, 'color: #f59e0b; font-weight: bold;');
         console.table(packets.map(p => ({ time: p.time, dir: p.dir, opcode: p.opcode, len: p.len, ascii: p.ascii.slice(0, 30) })));
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert(`📋 คัดลอก Packet Logs ทั้งหมด (${packets.length} รายการ) ลง Clipboard เรียบร้อยแล้ว!`);
-            });
+        window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet Logs ทั้งหมด (${packets.length} รายการ) ลง Clipboard เรียบร้อยแล้ว!`);
+        if (window.showDataViewerModal) {
+            window.showDataViewerModal('packets');
         }
         return packets;
     };
@@ -587,11 +637,7 @@
         console.log('%c[Pelican Dump] 🕹️ ข้อมูล Game State ปัจจุบัน:', 'color: #22c55e; font-weight: bold;');
         console.dir(state);
         const jsonStr = JSON.stringify(state, null, 2);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(jsonStr).then(() => {
-                alert('📋 คัดลอก Game State ลง Clipboard เรียบร้อยแล้ว!');
-            });
-        }
+        window.safeCopyToClipboard(jsonStr, '📋 คัดลอก Game State ลง Clipboard เรียบร้อยแล้ว!');
         return state;
     };
 
@@ -672,14 +718,14 @@
                 } else {
                     dataToCopy = window.dumpGameState();
                 }
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(JSON.stringify(dataToCopy, null, 2)).then(() => {
-                        const btn = document.getElementById('p-modal-copy-btn');
-                        const orig = btn.innerText;
+                const btn = document.getElementById('p-modal-copy-btn');
+                const orig = btn.innerText;
+                window.safeCopyToClipboard(JSON.stringify(dataToCopy, null, 2), null, (ok) => {
+                    if (ok) {
                         btn.innerText = '✅ คัดลอกสำเร็จ!';
                         setTimeout(() => btn.innerText = orig, 1500);
-                    });
-                }
+                    }
+                });
             };
         }
 
@@ -846,45 +892,110 @@
             container.innerHTML = html;
 
         } else if (tabName === 'packets') {
-            const packets = (window.__packetLogs || []).slice(-40);
+            const packets = (window.__packetLogs || []).slice(-50);
             const filtered = packets.filter(p => {
                 if (!query) return true;
-                return p.dir.toLowerCase().includes(query) || p.opcode.toLowerCase().includes(query) || p.ascii.toLowerCase().includes(query);
+                const q = query.toLowerCase();
+                return p.dir.toLowerCase().includes(q) || p.opcode.toLowerCase().includes(q) || (p.ascii && p.ascii.toLowerCase().includes(q)) || (p.hex && p.hex.toLowerCase().includes(q));
             });
 
             let html = `
-                <div style="margin-bottom: 8px; color: #f59e0b; font-weight: bold;">📜 บันทึก Packet เครือข่ายล่าสุด (ย้อนหลัง 40 รายการ):</div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: monospace;">
-                    <thead>
-                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">เวลา</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">ทิศทาง</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">Opcode</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">ขนาด</th>
-                            <th style="padding: 5px 8px; border: 1px solid #334155;">Decoded / ASCII Preview</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                    <div style="color: #f59e0b; font-weight: bold; font-size: 11.5px;">📜 บันทึก Packet เครือข่าย (${packets.length} รายการล่าสุด | คลิกแถวเพื่อดู Hex/JSON เต็ม):</div>
+                    <div style="display: flex; gap: 4px;">
+                        <button id="p-mod-copy-out-btn" style="background: #0284c7; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: bold;">📤 คัดลอกเฉพาะ OUT</button>
+                        <button id="p-mod-copy-all-btn" style="background: #e11d48; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10.5px; cursor: pointer; font-weight: bold;">📜 คัดลอกทั้งหมด</button>
+                    </div>
+                </div>
+                <div style="max-height: 220px; overflow-y: auto; border: 1px solid #334155; border-radius: 6px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: monospace;">
+                        <thead>
+                            <tr style="background: #1e293b; color: #94a3b8; text-align: left; position: sticky; top: 0; z-index: 2;">
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">เวลา</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">ทิศทาง</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">Opcode</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">ขนาด</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155;">Decoded / ASCII Preview</th>
+                                <th style="padding: 5px 8px; border-bottom: 1px solid #334155; text-align: center;">ดู</th>
+                            </tr>
+                        </thead>
+                        <tbody>
             `;
             if (filtered.length === 0) {
-                html += `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b;">ยังไม่มี Packet</td></tr>`;
+                html += `<tr><td colspan="6" style="text-align: center; padding: 20px; color: #64748b;">ยังไม่มี Packet ข้อมูล (ลองขยับตัวหรือยิงมอนสเตอร์ดูครับ)</td></tr>`;
             } else {
-                filtered.slice().reverse().forEach(p => {
+                filtered.slice().reverse().forEach((p, idx) => {
                     const isOut = p.dir === 'OUT';
-                    const decStr = p.decoded ? (typeof p.decoded === 'object' ? JSON.stringify(p.decoded).slice(0, 70) : String(p.decoded)) : p.ascii.slice(0, 50);
+                    const decStr = p.decoded ? (typeof p.decoded === 'object' ? JSON.stringify(p.decoded).slice(0, 60) : String(p.decoded)) : (p.ascii || '').slice(0, 40);
                     html += `
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 4px 8px; color: #64748b; border: 1px solid #334155;">${p.time}</td>
-                            <td style="padding: 4px 8px; font-weight: bold; color: ${isOut ? '#38bdf8' : '#f59e0b'}; border: 1px solid #334155;">${p.dir}</td>
-                            <td style="padding: 4px 8px; color: #c084fc; border: 1px solid #334155;">${p.opcode}</td>
-                            <td style="padding: 4px 8px; color: #94a3b8; border: 1px solid #334155;">${p.len}B</td>
-                            <td style="padding: 4px 8px; color: #cbd5e1; word-break: break-all; border: 1px solid #334155;">${decStr}</td>
+                        <tr class="p-packet-row" data-idx="${idx}" style="border-bottom: 1px solid #1e293b; cursor: pointer; transition: background 0.15s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                            <td style="padding: 4px 8px; color: #64748b;">${p.time}</td>
+                            <td style="padding: 4px 8px; font-weight: bold; color: ${isOut ? '#38bdf8' : '#f59e0b'};">${p.dir}</td>
+                            <td style="padding: 4px 8px; color: #c084fc; font-weight: bold;">${p.opcode}</td>
+                            <td style="padding: 4px 8px; color: #94a3b8;">${p.len}B</td>
+                            <td style="padding: 4px 8px; color: #cbd5e1; word-break: break-all;">${decStr}</td>
+                            <td style="padding: 4px 8px; text-align: center;">
+                                <button class="p-row-inspect-btn" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 6px; font-size: 9.5px; cursor: pointer;">🔍</button>
+                            </td>
                         </tr>
                     `;
                 });
             }
-            html += `</tbody></table>`;
+            html += `</tbody></table></div>`;
+
+            // Dedicated Textarea for instant highlight/copy without permission issues
+            const defaultJson = JSON.stringify(filtered.slice(-10), null, 2);
+            html += `
+                <div style="margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                        <span style="font-size: 10px; color: #38bdf8; font-weight: bold;">📋 Packet Raw JSON / รายละเอียดเต็ม (คลุมดำแล้วกด Ctrl+C ได้ตลอดเวลา):</span>
+                        <button id="p-btn-select-json" style="background: #334155; color: #fff; border: none; padding: 2px 7px; border-radius: 3px; font-size: 9.5px; cursor: pointer;">✨ เลือกทั้งหมดในกล่องนี้</button>
+                    </div>
+                    <textarea id="p-modal-raw-json" readonly style="width: 100%; height: 95px; background: #020617; border: 1px solid #334155; color: #00ffcc; font-family: monospace; font-size: 9.5px; padding: 6px; box-sizing: border-box; border-radius: 6px; resize: vertical;">${defaultJson}</textarea>
+                </div>
+            `;
             container.innerHTML = html;
+
+            const reversedFiltered = filtered.slice().reverse();
+            const rawTextarea = document.getElementById('p-modal-raw-json');
+
+            container.querySelectorAll('.p-packet-row').forEach(row => {
+                row.onclick = () => {
+                    const idx = parseInt(row.getAttribute('data-idx'));
+                    const selected = reversedFiltered[idx];
+                    if (selected && rawTextarea) {
+                        rawTextarea.value = JSON.stringify(selected, null, 2);
+                        rawTextarea.focus();
+                        rawTextarea.select();
+                    }
+                };
+            });
+
+            const selBtn = document.getElementById('p-btn-select-json');
+            if (selBtn && rawTextarea) {
+                selBtn.onclick = () => {
+                    rawTextarea.focus();
+                    rawTextarea.select();
+                };
+            }
+
+            const copyOutBtn = document.getElementById('p-mod-copy-out-btn');
+            if (copyOutBtn) {
+                copyOutBtn.onclick = () => {
+                    const outPackets = (window.__outgoingLogs || []).slice(-20);
+                    window.safeCopyToClipboard(JSON.stringify(outPackets, null, 2), `📋 คัดลอก Packet ขาออก (${outPackets.length} รายการ) สำเร็จแล้ว!`);
+                    if (rawTextarea) rawTextarea.value = JSON.stringify(outPackets, null, 2);
+                };
+            }
+
+            const copyAllBtn = document.getElementById('p-mod-copy-all-btn');
+            if (copyAllBtn) {
+                copyAllBtn.onclick = () => {
+                    const allPackets = (window.__packetLogs || []).slice(-50);
+                    window.safeCopyToClipboard(JSON.stringify(allPackets, null, 2), `📋 คัดลอก Packet ทั้งหมด (${allPackets.length} รายการ) สำเร็จแล้ว!`);
+                    if (rawTextarea) rawTextarea.value = JSON.stringify(allPackets, null, 2);
+                };
+            }
 
         } else if (tabName === 'state') {
             const state = window.dumpGameState ? window.dumpGameState() : {};
@@ -1074,9 +1185,92 @@
         return curMap.includes('เมืองหลวง') || curMap.includes('โซลเฮเวน') || curMap.includes('ตลาดคาราวาน');
     }
 
+    // ==========================================
+    // WEIGHT TRACKER & OVERLOAD SENSOR
+    // ==========================================
+    function getCharacterWeight() {
+        try {
+            // Method 1: ค้นหา Element ที่มีคำว่า "น้ำหนัก" และมีสัญลักษณ์ "/"
+            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (el.children.length > 5) return false;
+                const txt = el.textContent || '';
+                return txt.includes('น้ำหนัก') && txt.includes('/');
+            });
+
+            for (const el of candidates) {
+                const match = el.textContent.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                if (match) {
+                    const current = parseFloat(match[1].replace(/,/g, ''));
+                    const max = parseFloat(match[2].replace(/,/g, ''));
+                    if (max > 0) {
+                        const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                        updateWeightHUD(res);
+                        return res;
+                    }
+                }
+            }
+
+            // Method 2: ค้นหา Label "น้ำหนัก" แล้วดู Parent Container
+            const weightLabels = Array.from(document.querySelectorAll('*')).filter(el => {
+                return el.children.length === 0 && (el.textContent || '').trim() === 'น้ำหนัก';
+            });
+            for (const lbl of weightLabels) {
+                const parent = lbl.parentElement;
+                if (parent) {
+                    const match = (parent.textContent || '').match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                    if (match) {
+                        const current = parseFloat(match[1].replace(/,/g, ''));
+                        const max = parseFloat(match[2].replace(/,/g, ''));
+                        if (max > 0) {
+                            const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                            updateWeightHUD(res);
+                            return res;
+                        }
+                    }
+                }
+            }
+
+            // Method 3: Global body search
+            const bodyMatch = (document.body.innerText || '').match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+            if (bodyMatch) {
+                const current = parseFloat(bodyMatch[1].replace(/,/g, ''));
+                const max = parseFloat(bodyMatch[2].replace(/,/g, ''));
+                if (max > 0) {
+                    const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                    updateWeightHUD(res);
+                    return res;
+                }
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function updateWeightHUD(w) {
+        const el = document.getElementById('p-cur-weight-val');
+        if (el) {
+            if (w) {
+                const color = w.percent >= 85 ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
+                el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)</span>`;
+            } else {
+                el.innerHTML = '<span style="color: #64748b;">-- / --</span>';
+            }
+        }
+    }
+
+    setInterval(getCharacterWeight, 1500);
+
     function isCharacterOverweight() {
         const bodyText = document.body.innerText || '';
-        return bodyText.includes('กระเป๋าหนักเกิน 90%') || bodyText.includes('น้ำหนักเกิน 90%');
+        if (bodyText.includes('กระเป๋าหนักเกิน 90%') || bodyText.includes('น้ำหนักเกิน 90%')) {
+            return true;
+        }
+        const w = getCharacterWeight();
+        const cfg = window.__sellConfig || {};
+        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
+        if (w && w.percent >= threshold) {
+            return true;
+        }
+        return false;
     }
 
     function isWorldMapOpen() {
@@ -1134,161 +1328,227 @@
     };
 
     // ==========================================
-    // 2. WebSocket Hooking
+    // 2. UNIVERSAL WEBSOCKET HOOKING (All-Vector Sniffer)
     // ==========================================
+    function processIncomingData(rawData) {
+        recordPacket('IN', rawData);
+        try {
+            const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
+            if (u[0] === 0x0D) {
+                let slotsPos = -1;
+                for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
+                    if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
+                        slotsPos = i;
+                        break;
+                    }
+                }
+
+                if (slotsPos !== -1) {
+                    for (let offset = Math.max(0, slotsPos - 4); offset <= slotsPos; offset++) {
+                        try {
+                            const dec = window.msgpack.decode(u.slice(offset));
+                            if (dec && typeof dec === 'object') {
+                                window.__latestInventory = dec;
+                                const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+                                
+                                let foundQty = null;
+
+                                function inspectObject(obj, depth = 0) {
+                                    if (!obj || depth > 5 || foundQty !== null) return;
+                                    if (Array.isArray(obj)) {
+                                        for (const item of obj) {
+                                            if (item && typeof item === 'object') {
+                                                const id = item.itemId || item.id || item.item_id || item.code;
+                                                const name = (item.name || item.itemName || '').toLowerCase();
+                                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                                                if (isArrow) {
+                                                    foundQty = item.qty ?? item.amount ?? item.count ?? item.val ?? 0;
+                                                    return;
+                                                }
+                                                inspectObject(item, depth + 1);
+                                            }
+                                        }
+                                    } else if (typeof obj === 'object') {
+                                        const id = obj.itemId || obj.id || obj.item_id || obj.code;
+                                        const name = (obj.name || obj.itemName || '').toLowerCase();
+                                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                                        if (isArrow) {
+                                            foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
+                                            return;
+                                        }
+                                        for (const k in obj) {
+                                            inspectObject(obj[k], depth + 1);
+                                        }
+                                    }
+                                }
+
+                                inspectObject(dec);
+
+                                const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
+                                if (hasInventoryList) {
+                                    const realQty = foundQty !== null ? (parseInt(foundQty) || 0) : 0;
+                                    if (window.__currentAmmo !== realQty) {
+                                        console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนูจริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+                                    }
+                                    window.__currentAmmo = realQty;
+                                    localStorage.setItem('pelican_current_ammo', realQty);
+                                    updateAmmoHUD();
+                                }
+                                break;
+                            }
+                        } catch(err) {}
+                    }
+                }
+            }
+        } catch(err) {}
+    }
+
+    function processOutgoingData(data) {
+        recordPacket('OUT', data);
+        try {
+            const uint8 = new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer);
+            for (let i = 0; i < uint8.length - 3; i++) {
+                if (uint8[i] === 0xd4 && uint8[i+1] === 0x72) {
+                    window.__lastMoveToken = uint8.slice(i, i + 3);
+                    break;
+                }
+            }
+
+            // EQUIP ACTION SNIFFER
+            if (window.__isSniffingEquip) {
+                const isMovePacket = uint8[1] === 0xa4 && uint8[2] === 0x6d && uint8[3] === 0x6f && uint8[4] === 0x76; // 'move'
+                if (!isMovePacket) {
+                    window.__isSniffingEquip = false;
+                    const fullHex = Array.from(uint8).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    let fullAscii = '';
+                    for (let i = 0; i < uint8.length; i++) {
+                        const b = uint8[i];
+                        fullAscii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+                    }
+                    let decoded = null;
+                    try {
+                        if (window.msgpack && uint8.length > 2) decoded = window.msgpack.decode(uint8.slice(1));
+                    } catch(err) {}
+
+                    console.log('%c======================================================', 'color: #22c55e;');
+                    console.log('%c🎯 [EQUIP SNIFFER] ตรวจพบ Packet สวมใส่/ใช้งานไอเทม!', 'color: #22c55e; font-weight: bold; font-size: 14px;');
+                    console.log(`%cความยาว: ${uint8.length} ไบต์ | Opcode: 0x${uint8[0].toString(16).toUpperCase()}`, 'color: #38bdf8; font-weight: bold;');
+                    console.log('%cHex: ' + fullHex, 'color: #f59e0b;');
+                    console.log('%cAscii: ' + fullAscii, 'color: #94a3b8;');
+                    console.log('%cDecoded Data:', 'color: #a855f7;', decoded);
+                    console.log('%c======================================================', 'color: #22c55e;');
+
+                    const resBox = document.getElementById('p-sniffer-result');
+                    if (resBox) {
+                        resBox.style.display = 'block';
+                        resBox.innerHTML = `
+                            <div style="color: #22c55e; font-weight: bold; font-size: 11px;">✅ ตรวจพบ Packet สวมใส่!</div>
+                            <div style="color: #38bdf8; font-size: 10px; margin-top: 1px;">Op: 0x${uint8[0].toString(16).toUpperCase()} | Len: ${uint8.length}B</div>
+                            <div style="color: #cbd5e1; font-family: monospace; font-size: 9px; word-break: break-all; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 3px; margin-top: 2px;">Hex: ${fullHex}</div>
+                            <div style="color: #c084fc; font-size: 9.5px; margin-top: 2px;">Decoded: ${JSON.stringify(decoded)}</div>
+                        `;
+                    }
+
+                    const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
+                    window.safeCopyToClipboard(clipData, null);
+                }
+            }
+
+            // ตรวจจับการยิงโจมตี (คำสั่ง target) เพื่อลดจำนวนลูกธนู Real-Time
+            if (window.__archerConfig && window.__archerConfig.requireArrow && !window.__isShopping) {
+                if (uint8[1] === 0xa6 && uint8[2] === 0x74 && uint8[3] === 0x61 && uint8[4] === 0x72) {
+                    if (typeof window.__currentAmmo === 'number' && window.__currentAmmo > 0) {
+                        window.__currentAmmo--;
+                        updateAmmoHUD();
+                    }
+                }
+            }
+        } catch(e) {}
+    }
+
+    function hookSocketInstance(ws) {
+        if (!ws || ws.__pelicanHooked) return;
+        ws.__pelicanHooked = true;
+        window.__gameSocket = ws;
+        console.log('%c[Pelican] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
+        updateUIStatus(true);
+
+        ws.addEventListener('open', () => updateUIStatus(true));
+        ws.addEventListener('message', (event) => {
+            processIncomingData(event.data);
+        });
+        ws.addEventListener('close', () => updateUIStatus(false));
+
+        const origInstanceSend = ws.send;
+        ws.send = function(data) {
+            processOutgoingData(data);
+            return origInstanceSend.apply(this, arguments);
+        };
+    }
+
+    // 1. Hook WebSocket.prototype.send so even existing sockets get captured on their very first send
+    const origProtoSend = OriginalWebSocket.prototype.send;
+    OriginalWebSocket.prototype.send = function(data) {
+        if (!window.__gameSocket || window.__gameSocket !== this) {
+            hookSocketInstance(this);
+        }
+        processOutgoingData(data);
+        return origProtoSend.apply(this, arguments);
+    };
+
+    // 2. Hook WebSocket.prototype.addEventListener to capture socket on registration
+    const origProtoAddEventListener = OriginalWebSocket.prototype.addEventListener;
+    OriginalWebSocket.prototype.addEventListener = function(type, listener, options) {
+        if (type === 'message') {
+            if (!window.__gameSocket || window.__gameSocket !== this) {
+                hookSocketInstance(this);
+            }
+        }
+        return origProtoAddEventListener.apply(this, arguments);
+    };
+
+    // 3. Hook new WebSocket creation via Proxy
     window.WebSocket = new Proxy(OriginalWebSocket, {
         construct(Target, args) {
             const ws = new Target(...args);
-            window.__gameSocket = ws;
-            console.log('%c[Pelican] Captured Game Socket:', 'color: #38bdf8;', args[0]);
-
-            ws.addEventListener('open', () => updateUIStatus(true));
-            ws.addEventListener('message', (event) => {
-                recordPacket('IN', event.data);
-                try {
-                    const rawData = event.data;
-                    const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
-                    if (u[0] === 0x0D) {
-                        // ค้นหาตำแหน่งคำว่า "slots" ในไบต์ (s=0x73, l=0x6c, o=0x6f, t=0x74, s=0x73)
-                        let slotsPos = -1;
-                        for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
-                            if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
-                                slotsPos = i;
-                                break;
-                            }
-                        }
-
-                        if (slotsPos !== -1) {
-                            for (let offset = Math.max(0, slotsPos - 4); offset <= slotsPos; offset++) {
-                                try {
-                                    const dec = window.msgpack.decode(u.slice(offset));
-                                    if (dec && typeof dec === 'object') {
-                                        window.__latestInventory = dec;
-                                        const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-                                        
-                                        let foundQty = null;
-
-                                        function inspectObject(obj, depth = 0) {
-                                            if (!obj || depth > 5 || foundQty !== null) return;
-                                            if (Array.isArray(obj)) {
-                                                for (const item of obj) {
-                                                    if (item && typeof item === 'object') {
-                                                        const id = item.itemId || item.id || item.item_id || item.code;
-                                                        const name = (item.name || item.itemName || '').toLowerCase();
-                                                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                                        if (isArrow) {
-                                                            foundQty = item.qty ?? item.amount ?? item.count ?? item.val ?? 0;
-                                                            return;
-                                                        }
-                                                        inspectObject(item, depth + 1);
-                                                    }
-                                                }
-                                            } else if (typeof obj === 'object') {
-                                                const id = obj.itemId || obj.id || obj.item_id || obj.code;
-                                                const name = (obj.name || obj.itemName || '').toLowerCase();
-                                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                                if (isArrow) {
-                                                    foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
-                                                    return;
-                                                }
-                                                for (const k in obj) {
-                                                    inspectObject(obj[k], depth + 1);
-                                                }
-                                            }
-                                        }
-
-                                        inspectObject(dec);
-
-                                        // ถ้ามีโครงสร้าง slots ส่งมา (อัปเดต inventory)
-                                        const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
-                                        if (hasInventoryList) {
-                                            const realQty = foundQty !== null ? (parseInt(foundQty) || 0) : 0;
-                                            if (window.__currentAmmo !== realQty) {
-                                                console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนูจริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
-                                            }
-                                            window.__currentAmmo = realQty;
-                                            localStorage.setItem('pelican_current_ammo', realQty);
-                                            updateAmmoHUD();
-                                        }
-                                        break;
-                                    }
-                                } catch(err) {}
-                            }
-                        }
-                    }
-                } catch(err) {}
-            });
-
-            const originalSend = ws.send;
-            ws.send = function (data) {
-                recordPacket('OUT', data);
-                try {
-                    const uint8 = new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer);
-                    for (let i = 0; i < uint8.length - 3; i++) {
-                        if (uint8[i] === 0xd4 && uint8[i+1] === 0x72) {
-                            window.__lastMoveToken = uint8.slice(i, i + 3);
-                            break;
-                        }
-                    }
-
-                    // EQUIP ACTION SNIFFER
-                    if (window.__isSniffingEquip) {
-                        const isMovePacket = uint8[1] === 0xa4 && uint8[2] === 0x6d && uint8[3] === 0x6f && uint8[4] === 0x76; // 'move'
-                        if (!isMovePacket) {
-                            window.__isSniffingEquip = false;
-                            const fullHex = Array.from(uint8).map(b => b.toString(16).padStart(2, '0')).join(' ');
-                            let fullAscii = '';
-                            for (let i = 0; i < uint8.length; i++) {
-                                const b = uint8[i];
-                                fullAscii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
-                            }
-                            let decoded = null;
-                            try {
-                                if (window.msgpack && uint8.length > 2) decoded = window.msgpack.decode(uint8.slice(1));
-                            } catch(err) {}
-
-                            console.log('%c======================================================', 'color: #22c55e;');
-                            console.log('%c🎯 [EQUIP SNIFFER] ตรวจพบ Packet สวมใส่/ใช้งานไอเทม!', 'color: #22c55e; font-weight: bold; font-size: 14px;');
-                            console.log(`%cความยาว: ${uint8.length} ไบต์ | Opcode: 0x${uint8[0].toString(16).toUpperCase()}`, 'color: #38bdf8; font-weight: bold;');
-                            console.log('%cHex: ' + fullHex, 'color: #f59e0b;');
-                            console.log('%cAscii: ' + fullAscii, 'color: #94a3b8;');
-                            console.log('%cDecoded Data:', 'color: #a855f7;', decoded);
-                            console.log('%c======================================================', 'color: #22c55e;');
-
-                            const resBox = document.getElementById('p-sniffer-result');
-                            if (resBox) {
-                                resBox.style.display = 'block';
-                                resBox.innerHTML = `
-                                    <div style="color: #22c55e; font-weight: bold; font-size: 11px;">✅ ตรวจพบ Packet สวมใส่!</div>
-                                    <div style="color: #38bdf8; font-size: 10px; margin-top: 1px;">Op: 0x${uint8[0].toString(16).toUpperCase()} | Len: ${uint8.length}B</div>
-                                    <div style="color: #cbd5e1; font-family: monospace; font-size: 9px; word-break: break-all; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 3px; margin-top: 2px;">Hex: ${fullHex}</div>
-                                    <div style="color: #c084fc; font-size: 9.5px; margin-top: 2px;">Decoded: ${JSON.stringify(decoded)}</div>
-                                `;
-                            }
-
-                            if (navigator.clipboard) {
-                                const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
-                                navigator.clipboard.writeText(clipData);
-                            }
-                        }
-                    }
-
-                    // ตรวจจับการยิงโจมตี (คำสั่ง target) เพื่อลดจำนวนลูกธนู Real-Time
-                    if (window.__archerConfig && window.__archerConfig.requireArrow && !window.__isShopping) {
-                        if (uint8[1] === 0xa6 && uint8[2] === 0x74 && uint8[3] === 0x61 && uint8[4] === 0x72) {
-                            if (typeof window.__currentAmmo === 'number' && window.__currentAmmo > 0) {
-                                window.__currentAmmo--;
-                                updateAmmoHUD();
-                            }
-                        }
-                    }
-                } catch(e) {}
-                return originalSend.apply(this, arguments);
-            };
-
+            hookSocketInstance(ws);
             return ws;
         }
     });
+
+    // 4. Actively scan window properties to find any existing WebSocket instance immediately
+    window.scanForActiveSocket = function() {
+        if (window.__gameSocket && window.__gameSocket.readyState === 1) return;
+        for (const key of Object.getOwnPropertyNames(window)) {
+            try {
+                const val = window[key];
+                if (val && val instanceof OriginalWebSocket && val.readyState === 1) {
+                    hookSocketInstance(val);
+                    return;
+                }
+            } catch(e) {}
+        }
+        // Deep scan 1 level
+        for (const key of Object.getOwnPropertyNames(window)) {
+            try {
+                const root = window[key];
+                if (root && typeof root === 'object' && root !== window && !root.document && !root.window) {
+                    for (const subKey of Object.keys(root)) {
+                        try {
+                            const subVal = root[subKey];
+                            if (subVal && subVal instanceof OriginalWebSocket && subVal.readyState === 1) {
+                                hookSocketInstance(subVal);
+                                return;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } catch(e) {}
+        }
+    };
+
+    window.scanForActiveSocket();
+    setInterval(window.scanForActiveSocket, 1000);
 
     // ==========================================
     // 3. WASD Reverse Backflip Engine
@@ -1356,16 +1616,10 @@
     // In-Game AUTO Toggles (Low-Level)
     // ------------------------------------------
     window.activateInGameAuto = function() {
-        // สลับใส่ลูกธนูผ่านคีย์ลัดเฉพาะเมื่อผู้ใช้เปิดใช้งานอย่างชัดเจน (ป้องกันการไปกดสลับใส่ดาบ Damascus)
+        // สลับใส่ลูกธนูและคันธนูเฉพาะเมื่อผู้ใช้เปิดใช้งานอย่างชัดเจน (ป้องกันการไปกดสลับใส่ดาบ Damascus)
         if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
-            const slot = window.__archerConfig.arrowHotbarSlot;
-            if (typeof slot === 'number' && slot >= 0) {
-                if (typeof window.sendEquip === 'function') {
-                    window.sendEquip(slot);
-                }
-                if (typeof window.pressKey === 'function') {
-                    window.pressKey((slot + 1).toString());
-                }
+            if (typeof window.equipArrowAndBow === 'function') {
+                window.equipArrowAndBow();
             }
         }
 
@@ -1448,6 +1702,18 @@
             console.log(`%c[Pelican Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
             window.executeAutoShopRoutine();
             return;
+        }
+
+        // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+        const weightCfg = window.__sellConfig || {};
+        if (weightCfg.weightCheckEnabled) {
+            const weightInfo = getCharacterWeight();
+            const wThreshold = typeof weightCfg.weightThreshold === 'number' ? weightCfg.weightThreshold : 80;
+            if (weightInfo && weightInfo.percent >= wThreshold) {
+                console.log(`%c[Pelican Master] ⚖️ น้ำหนักเกินกำหนด (${weightInfo.percent}% >= ${wThreshold}% | ${weightInfo.current}/${weightInfo.max})! เริ่มต้นกระบวนการขายของและเติมเสบียงทันที...`, 'color: #f59e0b; font-weight: bold;');
+                window.executeAutoShopRoutine();
+                return;
+            }
         }
 
         // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
@@ -1798,7 +2064,140 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican] 🏹 สวมใส่ไอเทมช่องลัด (sendEquip Slot: ${slot})!`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[Pelican Inv] 🎒 ส่ง Packet สวมใส่จากกระเป๋า (sendEquip Inventory Slot: ${slot})!`, 'color: #22c55e;');
+    };
+
+    function findItemInServerInv(filterFn) {
+        if (!window.__latestInventory) return null;
+        let found = null;
+        function scan(obj, depth = 0) {
+            if (!obj || depth > 6 || found) return;
+            if (Array.isArray(obj)) {
+                for (const item of obj) {
+                    if (item && typeof item === 'object') {
+                        if (filterFn(item)) {
+                            found = item;
+                            return;
+                        }
+                        scan(item, depth + 1);
+                    }
+                }
+            } else if (typeof obj === 'object') {
+                if (filterFn(obj)) {
+                    found = obj;
+                    return;
+                }
+                for (const k in obj) {
+                    scan(obj[k], depth + 1);
+                }
+            }
+        }
+        scan(window.__latestInventory);
+        return found;
+    }
+
+    window.equipArrowAndBow = function() {
+        console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่คันธนู & ลูกธนู...', 'color: #38bdf8; font-weight: bold;');
+
+        // 1. ตรวจสอบและสวมใส่ "คันธนู" (Bow) เข้ามือหลักก่อนเสมอ! ป้องกันการไปถือมีดสั้น/ดาบ เช่น Damascus
+        let bowFound = false;
+        const bowInBag = findItemInServerInv(it => {
+            const name = (it.name || it.itemName || '').toLowerCase();
+            const slot = it.slot ?? it.idx;
+            const isBow = ((name.includes('bow') || name.includes('crossbow') || name.includes('gakkung') || name.includes('arbalest') || name.includes('คันธนู') || (name.includes('ธนู') && !name.includes('ลูกธนู'))) && !name.includes('arrow') && !name.includes('ลูกธนู'));
+            const isMelee = (name.includes('damascus') || name.includes('dagger') || name.includes('sword') || name.includes('knife') || name.includes('มีด') || name.includes('ดาบ'));
+            return isBow && !isMelee && typeof slot === 'number';
+        });
+
+        if (bowInBag) {
+            const slot = bowInBag.slot ?? bowInBag.idx;
+            console.log(`%c[Pelican Weapon] 🏹 พบคันธนูในกระเป๋า Slot ${slot} ("${bowInBag.name || 'Bow'}") -> ส่งคำสั่งสวมใส่คันธนูกลับเข้ามือ!`, 'color: #22c55e; font-weight: bold;');
+            window.sendEquip(slot);
+            bowFound = true;
+        }
+
+        // 2. ถ้าในหน้าต่างกระเป๋าเปิดอยู่ ให้ลองหา element ของ Bow และ double click
+        try {
+            const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
+            const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
+            for (const el of slots) {
+                const img = el.querySelector('img');
+                const src = img ? (img.src || '').toLowerCase() : '';
+                const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
+                const isBow = (src.includes('bow') || title.includes('bow') || title.includes('crossbow') || title.includes('gakkung') || title.includes('arbalest') || title.includes('คันธนู') || (title.includes('ธนู') && !title.includes('ลูกธนู'))) && !src.includes('arrow') && !title.includes('arrow') && !title.includes('ลูกธนู');
+                const isMelee = src.includes('dagger') || src.includes('sword') || src.includes('damascus') || title.includes('damascus') || title.includes('มีด') || title.includes('ดาบ');
+                if (isBow && !isMelee) {
+                    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    console.log('%c[Pelican Weapon] 🏹 Double-click สวมใส่คันธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    bowFound = true;
+                    break;
+                }
+            }
+        } catch(e) {}
+
+        // 3. ตรวจสอบการสวมใส่ "ลูกธนู" (Arrow) จากกระเป๋าเซิร์ฟเวอร์
+        const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+        const arrowInBag = findItemInServerInv(it => {
+            const id = it.itemId || it.id || it.item_id;
+            const name = (it.name || it.itemName || '').toLowerCase();
+            const slot = it.slot ?? it.idx;
+            const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || name.includes('ลูกธนู'));
+            return isArrow && typeof slot === 'number';
+        });
+
+        if (arrowInBag) {
+            const slot = arrowInBag.slot ?? arrowInBag.idx;
+            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนูในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ลูกธนู!`, 'color: #22c55e; font-weight: bold;');
+            setTimeout(() => {
+                window.sendEquip(slot);
+            }, 100);
+        }
+
+        // 4. ถ้ามีกระเป๋าเปิดอยู่ ให้ double click ที่ลูกธนู
+        try {
+            const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
+            const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
+            for (const el of slots) {
+                const img = el.querySelector('img');
+                const src = img ? (img.src || '').toLowerCase() : '';
+                const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
+                const isArrow = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
+                if (isArrow) {
+                    setTimeout(() => {
+                        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                        console.log('%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    }, 120);
+                    break;
+                }
+            }
+        } catch(e) {}
+
+        // 5. สั่งกดคีย์ Hotbar สำหรับลูกธนู (เพื่อกระตุ้นให้ระบบเกมสวมใส่ลูกธนูเข้า Arrow Slot)
+        setTimeout(() => {
+            const hotbarSlot = window.__archerConfig ? window.__archerConfig.arrowHotbarSlot : -1;
+            if (typeof hotbarSlot === 'number' && hotbarSlot >= 0) {
+                window.pressKey((hotbarSlot + 1).toString());
+            } else {
+                // ค้นหาช่อง Hotbar ที่มีรูปลูกธนูอัตโนมัติ
+                try {
+                    const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
+                    let foundKey = '1';
+                    for (let i = 0; i < hotbarSlots.length; i++) {
+                        const s = hotbarSlots[i];
+                        const img = s.querySelector('img');
+                        const src = img ? (img.src || '').toLowerCase() : '';
+                        const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
+                        if (src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู')) {
+                            foundKey = (i === 9 ? '0' : (i + 1).toString());
+                            break;
+                        }
+                    }
+                    window.pressKey(foundKey);
+                } catch(e) {
+                    window.pressKey('1');
+                }
+            }
+        }, 180);
     };
 
     window.sendInvUse = function(slot = 8) {
@@ -1815,15 +2214,24 @@
     };
 
     window.useButterflyWing = function() {
-        console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง (Slot 8)...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ส่ง Packet equip ช่อง 8 (Packet หลักของช่อง ItemBar)
-        if (typeof window.sendEquip === 'function') {
-            window.sendEquip(8);
+        // 1. ค้นหาช่องของ Butterfly Wing ในกระเป๋าจริง (ห้ามส่ง sendEquip เด็ดขาด เพื่อไม่ให้ไปสลับใส่อาวุธ!)
+        let bwingSlot = 8;
+        const bwingInBag = findItemInServerInv(it => {
+            const id = it.itemId || it.id || it.item_id;
+            const name = (it.name || it.itemName || '').toLowerCase();
+            return (id === 90311 || id === 0x000160c7 || name.includes('wing') || name.includes('bwing') || name.includes('butterfly')) && typeof (it.slot ?? it.idx) === 'number';
+        });
+        if (bwingInBag) {
+            bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
         }
 
-        // 2. ส่ง Packet inv_use ช่อง 8 (สำรอง)
-        window.sendInvUse(8);
+        // 2. ส่ง Packet inv_use ช่องของ Bwing โดยตรง
+        window.sendInvUse(bwingSlot);
+
+        // 3. กด Key ช่อง Hotbar 8
+        dispatchKeyAll('8', 'Digit8', 56);
 
         // 3. คลิก DOM Element ถ้ามี (หา element ที่มีรูปหรือชื่อ Bwing)
         try {
@@ -1903,16 +2311,86 @@
 
         function hasSockets(rowText, titleEl) {
             const text = ((titleEl ? titleEl.innerText : '') + ' ' + (rowText || ''));
-            return /\[\s*[1-4]\s*\]/.test(text);
+            return /\[\s*[1-4]\s*\]/.test(text) || text.includes('ช่องการ์ด 1') || text.includes('ช่องการ์ด 2') || text.includes('ช่องการ์ด 3') || text.includes('ช่องการ์ด 4');
         }
 
         function hasOptions(rowText) {
             const text = (rowText || '').toLowerCase();
-            return text.includes('option') || text.includes('ออฟชั่น') || text.includes('มี option');
+            if (text.includes('0 option') || text.includes('0  option') || text.includes('0ออฟชั่น')) {
+                if (/[1-9]\s*option/i.test(text) || /[1-9]\s*ออฟชั่น/i.test(text)) return true;
+                return false;
+            }
+            return /[1-9]\s*option/i.test(text) || text.includes('มี option') || text.includes('ออฟชั่นพิเศษ');
+        }
+
+        function findCategoryTab(catName) {
+            const shopModal = document.querySelector('.shop-window, [class*="shop"], .modal-body, .window') || document.body;
+            const candidates = Array.from(shopModal.querySelectorAll('button, [role="tab"], div, span, a, li')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
+                
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt.includes(catName)) return false;
+
+                // กรอง container แม่ทิ้ง: ถ้ามีชื่อแท็บหมวดอื่นปนอยู่ แสดงว่าเป็นแถบแท็บรวม ไม่ใช่ตัวปุ่มแท็บ
+                const knownTabs = ['ทั้งหมด', 'อาวุธ', 'ชุดเกราะ', 'ประดับ', 'ใช้ได้', 'การ์ด', 'แร่', 'วัตถุดิบ', 'อื่นๆ'];
+                const overlap = knownTabs.filter(t => t !== catName && txt.includes(t)).length;
+                if (overlap > 0) return false;
+
+                return true;
+            });
+
+            if (candidates.length === 0) return null;
+
+            candidates.sort((a, b) => {
+                const aTxt = (a.innerText || a.textContent || '').trim();
+                const bTxt = (b.innerText || b.textContent || '').trim();
+                return aTxt.length - bTxt.length;
+            });
+
+            return candidates.find(el => el.tagName === 'BUTTON' || (el.className && el.className.includes('tab'))) || candidates[0];
+        }
+
+        function findItemRow(btn) {
+            let curr = btn;
+            while (curr && curr.parentElement && curr.parentElement !== document.body) {
+                const p = curr.parentElement;
+                const h = curr.offsetHeight;
+                if (p.children.length >= 2 && h >= 25 && h <= 110) {
+                    const txt = curr.innerText || '';
+                    if (txt.includes('z') || txt.includes('+') || txt.includes('option')) {
+                        return curr;
+                    }
+                }
+                curr = curr.parentElement;
+            }
+            return btn.parentElement?.parentElement || btn.parentElement;
+        }
+
+        function extractItemName(row) {
+            if (!row) return '';
+            const nameEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong');
+            if (nameEl) {
+                const t = nameEl.innerText.split('\n')[0].trim();
+                if (t && !t.includes('option') && !/^\d+[\s,]*z$/i.test(t) && !/^\d+$/.test(t)) {
+                    return t;
+                }
+            }
+
+            const lines = (row.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (/^\d+$/.test(line)) continue;
+                if (/^\d+[\s,]*z$/i.test(line)) continue;
+                if (line === '+' || line === '-' || line === 'ทั้งหมด') continue;
+                if (line.includes('option') || line.includes('ออฟชั่น')) continue;
+                return line;
+            }
+            return '';
         }
 
         // 1. สลับไปแท็บ "ขาย" (เฉพาะปุ่มแท็บในหน้าต่างร้านค้า)
         const sellTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
             const txt = (el.innerText || '').trim();
             return txt === 'ขาย' && (el.closest('.shop-window') || el.closest('[class*="shop"]') || el.offsetHeight > 0);
         });
@@ -1924,51 +2402,74 @@
 
         function processCategory(catName, isItemByItem, onDone) {
             console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}"...`);
-            const catBtns = Array.from(document.querySelectorAll('button, div')).filter(el => {
-                const txt = (el.innerText || '').trim();
-                return txt.includes(catName) && el.offsetWidth > 0 && el.offsetHeight > 0;
-            });
-            const catBtn = catBtns[0];
+            
+            const catBtn = findCategoryTab(catName);
             if (catBtn) {
+                const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
+                console.log(`%c[Pelican Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
                 triggerClick(catBtn);
+                catBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
                 if (typeof catBtn.click === 'function') catBtn.click();
+            } else {
+                console.warn(`[Pelican Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า`);
             }
 
+            // รอ 600ms ให้หน้าร้านค้าเปลี่ยนรายการตามแท็บที่เลือก
             setTimeout(() => {
                 if (!isItemByItem) {
                     // หมวด "วัตถุดิบ": คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า" (button.shop-sell-junk)
                     const putAllBtn = document.querySelector('button.shop-sell-junk') ||
-                        Array.from(document.querySelectorAll('button')).find(el => (el.innerText || '').includes('ใส่วัตถุดิบ'));
+                        Array.from(document.querySelectorAll('button')).find(el => {
+                            if (el.closest('#pelican-hud')) return false;
+                            const t = (el.innerText || '').trim();
+                            return t.includes('ใส่วัตถุดิบ') || t.includes('ขายขยะ');
+                        });
                     
-                    if (putAllBtn && !putAllBtn.innerText.includes('0 รายการ')) {
+                    if (putAllBtn && !putAllBtn.disabled && !putAllBtn.className.includes('disabled') && !putAllBtn.innerText.includes('0 รายการ') && !putAllBtn.innerText.includes('ไม่มีวัตถุดิบ')) {
                         console.log('%c[Pelican Shop] 🧺 คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า"...', 'color: #eab308; font-weight: bold;');
                         triggerClick(putAllBtn);
                         if (typeof putAllBtn.click === 'function') putAllBtn.click();
-                        const inner = putAllBtn.querySelector('button, span, div') || putAllBtn;
-                        if (typeof inner.click === 'function') inner.click();
+                    } else {
+                        console.log('[Pelican Shop] ℹ️ ไม่มีวัตถุดิบขยะให้ขายในกระเป๋า');
                     }
-                    setTimeout(onDone, 500);
+                    setTimeout(onDone, 400);
                 } else {
                     // หมวด "อาวุธ" หรือ "ชุดเกราะ": กรองตาม Whitelist, ระดับ Rarity, ตีบวก, รูการ์ด, และ Option
-                    const shopModal = document.querySelector('.shop-window') || document.querySelector('[class*="shop"]') || document.body;
-                    const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => (b.innerText || '').trim() === '+' && b.offsetWidth > 0);
+                    const shopModal = document.querySelector('.shop-window, [class*="shop"]') || document.body;
+                    const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => {
+                        if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
+                        const txt = (b.innerText || '').trim();
+                        return txt === '+' && b.offsetWidth > 0 && b.offsetHeight > 0;
+                    });
 
-                    let addedCount = 0;
+                    console.log(`[Pelican Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
+
+                    const itemsToSell = [];
+
                     plusBtns.forEach(btn => {
-                        const row = btn.closest('[class*="item"]') || btn.parentElement?.parentElement || btn.parentElement;
+                        const row = findItemRow(btn);
                         if (!row) return;
 
                         const rowText = row.innerText || '';
-                        const titleEl = row.querySelector('h3, h4, span, div') || row;
-                        const itemName = titleEl ? titleEl.innerText.split('\n')[0].trim() : '';
+                        const itemName = extractItemName(row);
+                        if (!itemName) return;
 
-                        // กฎความปลอดภัย 1: ห้ามขายเด็ดขาดถ้าตรงกับ Whitelist
+                        const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong') || 
+                                        Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
+
+                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู เด็ดขาด
+                        const lower = itemName.toLowerCase();
+                        if (lower.includes('wing') || lower.includes('potion') || lower.includes('arrow') || lower.includes('ใบวาร์ป') || lower.includes('ลูกธนู') || lower.includes('ขวดยา')) {
+                            return;
+                        }
+
+                        // กฎความปลอดภัย 2: ห้ามขายเด็ดขาดถ้าตรงกับ Whitelist
                         if (isWhitelisted(itemName)) {
                             console.log(`[Pelican Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 2: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
+                        // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
                         const rarityRank = getItemRarity(rowText, titleEl);
                         const rankMap = {
                             'normal': 1, 'common': 1,
@@ -1984,34 +2485,51 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 3: ห้ามขายของตีบวก (+1 ขึ้นไป)
+                        // กฎความปลอดภัย 4: ห้ามขายของตีบวก (+1 ขึ้นไป)
                         if (sellCfg.keepRefined && isRefined(rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [ของตีบวก] ข้ามไอเทมตีบวก: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 4: ห้ามขายของมีรูการ์ด [1-4]
+                        // กฎความปลอดภัย 5: ห้ามขายของมีรูการ์ด [1-4]
                         if (sellCfg.keepSockets && hasSockets(rowText, titleEl)) {
                             console.log(`[Pelican Shop] 🔒 [มีรูการ์ด] ข้ามไอเทมมีรู: "${itemName}"`);
                             return;
                         }
 
-                        // กฎความปลอดภัย 5: ห้ามขายของมี Option สุ่ม
+                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม
                         if (sellCfg.keepSpecial && hasOptions(rowText)) {
                             console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}"`);
                             return;
                         }
 
-                        // ปลอดภัย 100% -> กด '+' ใส่ตะกร้า
-                        console.log(`%c[Pelican Shop] ➕ ใส่อาวุธ/เกราะขยะลงตะกร้า: "${itemName}"`, 'color: #22c55e;');
-                        triggerClick(btn);
-                        if (typeof btn.click === 'function') btn.click();
-                        addedCount++;
+                        itemsToSell.push({ name: itemName, btn: btn, row: row });
                     });
 
-                    setTimeout(onDone, addedCount > 0 ? 600 : 350);
+                    if (itemsToSell.length === 0) {
+                        console.log(`[Pelican Shop] ℹ️ ไม่มีไอเทมในหมวด "${catName}" ที่ตรงตามเงื่อนไขการขาย`);
+                        setTimeout(onDone, 300);
+                        return;
+                    }
+
+                    console.log(`%c[Pelican Shop] 📋 เตรียมใส่ไอเทมลงตะกร้า ${itemsToSell.length} ชิ้น...`, 'color: #22c55e; font-weight: bold;');
+
+                    // คลิกปุ่ม '+' ทีละชิ้นอย่างต่อเนื่อง (เว้นจังหวะ 130ms เพื่อให้ UI อัปเดตเสถียร)
+                    let clickIdx = 0;
+                    function stepClick() {
+                        if (clickIdx >= itemsToSell.length) {
+                            setTimeout(onDone, 500);
+                            return;
+                        }
+                        const item = itemsToSell[clickIdx++];
+                        console.log(`%c[Pelican Shop] ➕ ใส่อาวุธ/เกราะลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
+                        triggerClick(item.btn);
+                        if (typeof item.btn.click === 'function') item.btn.click();
+                        setTimeout(stepClick, 130);
+                    }
+                    stepClick();
                 }
-            }, 500);
+            }, 600);
         }
 
         setTimeout(() => {
@@ -2024,7 +2542,10 @@
                 if (idx >= steps.length) {
                     setTimeout(() => {
                         const confirmBtn = document.querySelector('button.cart-go') ||
-                            Array.from(document.querySelectorAll('button')).find(el => (el.innerText || '').includes('ตรวจสอบและขาย') && el.offsetWidth > 0);
+                            Array.from(document.querySelectorAll('button')).find(el => {
+                                if (el.closest('#pelican-hud')) return false;
+                                return (el.innerText || '').includes('ตรวจสอบและขาย') && el.offsetWidth > 0;
+                            });
 
                         if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('disabled')) {
                             console.log('%c[Pelican Shop] 💵 คลิก "ตรวจสอบและขาย" (cart-go)...', 'color: #22c55e; font-weight: bold;');
@@ -2038,20 +2559,23 @@
 
                                 // 1. หาปุ่มที่มีคำว่า "ยืนยันขาย" โดยตรง
                                 let finalBtn = Array.from(document.querySelectorAll('button')).find(b => {
+                                    if (b.closest('#pelican-hud')) return false;
                                     const txt = (b.innerText || '').trim();
-                                    return txt === 'ยืนยันขาย' || txt.includes('ยืนยันขาย');
+                                    return (txt === 'ยืนยันขาย' || txt.includes('ยืนยันขาย')) && b.offsetWidth > 0;
                                 });
 
                                 // 2. ถ้าไม่พบตรงๆ ให้หาจากกล่อง Modal ยืนยันการขาย (ไม่เอากล่องร้านหลัก)
                                 if (!finalBtn) {
                                     const confirmModal = Array.from(document.querySelectorAll('div, section, aside')).find(el => {
+                                        if (el.closest('#pelican-hud')) return false;
                                         const t = el.innerText || '';
                                         return t.includes('ยืนยันการขาย') && (t.includes('ยกเลิก') || t.includes('รวมที่ได้รับ'));
                                     });
                                     if (confirmModal) {
                                         finalBtn = Array.from(confirmModal.querySelectorAll('button')).find(b => {
+                                            if (b.closest('#pelican-hud')) return false;
                                             const txt = (b.innerText || '').trim();
-                                            return txt.includes('ยืนยัน') && !txt.includes('ยกเลิก');
+                                            return txt.includes('ยืนยัน') && !txt.includes('ยกเลิก') && b.offsetWidth > 0;
                                         });
                                     }
                                 }
@@ -2067,6 +2591,7 @@
                                     // รอให้ Modal ปิดลงและระบบบันทึกเงิน Zeny จากนั้นสลับกลับไปแท็บ "ซื้อ"
                                     setTimeout(() => {
                                         const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                            if (el.closest('#pelican-hud')) return false;
                                             return (el.innerText || '').trim() === 'ซื้อ' && (el.closest('.shop-window') || el.closest('[class*="shop"]') || el.offsetHeight > 0);
                                         });
                                         const buyTab = buyTabs[0];
@@ -2082,14 +2607,20 @@
                                 if (confirmAttempts >= 12) {
                                     clearInterval(confirmPoll);
                                     console.warn('[Pelican Shop] ⚠️ หมดเวลารอปุ่มยืนยันขาย (Timeout)');
-                                    const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => (el.innerText || '').trim() === 'ซื้อ');
+                                    const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                        if (el.closest('#pelican-hud')) return false;
+                                        return (el.innerText || '').trim() === 'ซื้อ';
+                                    });
                                     if (buyTabs[0]) triggerClick(buyTabs[0]);
                                     if (callback) callback();
                                 }
                             }, 200);
                         } else {
                             console.log('[Pelican Shop] ตะกร้าขายว่างเปล่า (ไม่มีไอเทมจะขาย) -> สลับไปขั้นตอนซื้อ');
-                            const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => (el.innerText || '').trim() === 'ซื้อ');
+                            const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
+                                if (el.closest('#pelican-hud')) return false;
+                                return (el.innerText || '').trim() === 'ซื้อ';
+                            });
                             if (buyTabs[0]) triggerClick(buyTabs[0]);
                             if (callback) callback();
                         }
@@ -2122,9 +2653,16 @@
             const arrowId = parseInt(cfg.arrowType) || 0x00015fae;
             const arrowQty = parseInt(cfg.arrowBuyQty) || 200;
 
-            // 2. ซื้อลูกธนูชนิดที่เลือก
-            if (cfg.requireArrow) {
-                window.sendShopBuy(arrowId, arrowQty);
+            // 2. ซื้อลูกธนูชนิดที่เลือก (Smart Restock: เติมส่วนต่างให้ครบ targetQty ป้องกันซื้อเกินจนน้ำหนักล้น)
+            const targetQty = parseInt(cfg.arrowBuyQty) || 1000;
+            const curAmmo = (typeof window.__currentAmmo === 'number') ? window.__currentAmmo : 0;
+            const qtyToBuy = Math.max(0, targetQty - curAmmo);
+
+            if (cfg.requireArrow && qtyToBuy > 0) {
+                console.log(`%c[Pelican Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
+                window.sendShopBuy(arrowId, qtyToBuy);
+            } else if (cfg.requireArrow) {
+                console.log(`%c[Pelican Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
             }
 
             // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
@@ -2141,8 +2679,8 @@
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
                     }
                     // แก้นับเบิ้ล (ถ้า Server ซิงก์มาแล้วให้ใช้ค่านั้น หรือตั้งเป็น arrowQty ไม่บวกซ้ำ)
-                    if (!window.__currentAmmo || window.__currentAmmo < arrowQty) {
-                        window.__currentAmmo = arrowQty;
+                    if (!window.__currentAmmo || window.__currentAmmo < targetQty) {
+                        window.__currentAmmo = targetQty;
                     }
                     localStorage.setItem('pelican_current_ammo', window.__currentAmmo);
                     updateAmmoHUD();
@@ -2152,12 +2690,15 @@
                 }
             }, 900);
 
-            // 5. สั่งสวมใส่ลูกธนู (เฉพาะกรณีที่ผู้ใช้เปิด autoEquipArrow เท่านั้น เพื่อไม่ให้ไปสลับใส่ดาบ)
+            // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
             setTimeout(() => {
-                if (cfg.requireArrow && cfg.autoEquipArrow && typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
-                    window.sendEquip(cfg.arrowHotbarSlot);
-                    window.pressKey((cfg.arrowHotbarSlot + 1).toString());
-                    console.log(`%c[Pelican Shop] 🏹 สวมใส่ลูกธนู (Equip Arrows Slot ${cfg.arrowHotbarSlot}) เรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
+                if (cfg.requireArrow) {
+                    if (typeof window.equipArrowAndBow === 'function') {
+                        window.equipArrowAndBow();
+                    } else if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
+                        window.pressKey((cfg.arrowHotbarSlot + 1).toString());
+                    }
+                    console.log(`%c[Pelican Shop] 🏹 สวมใส่คันธนูและลูกธนูเรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
                 }
             }, 1400);
 
@@ -2651,6 +3192,18 @@
                 window.executeAutoShopRoutine();
                 return;
             }
+
+            // ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+            const sellCfg = window.__sellConfig || {};
+            if (sellCfg.weightCheckEnabled && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+                const wInfo = getCharacterWeight();
+                const wThreshold = typeof sellCfg.weightThreshold === 'number' ? sellCfg.weightThreshold : 80;
+                if (wInfo && wInfo.percent >= wThreshold) {
+                    console.log(`%c[Pelican Weight] ⚖️ น้ำหนักเกินกำหนด (${wInfo.percent}% >= ${wThreshold}% | ${wInfo.current}/${wInfo.max}) -> สั่งวาร์ปกลับไปขายของและเติมลูกธนูทันที!`, 'color: #f59e0b; font-weight: bold;');
+                    window.executeAutoShopRoutine();
+                    return;
+                }
+            }
         }
 
         const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
@@ -3036,8 +3589,8 @@
                     </div>
 
                     <div class="p-row">
-                        <span>ซื้อจำนวน (Qty):</span>
-                        <input type="number" id="p-archer-qty" value="${window.__archerConfig.arrowBuyQty || 200}" style="width: 65px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                        <span>ตั้งเป้าพกลูกธนู (ซื้อเติมให้ครบ):</span>
+                        <input type="number" id="p-archer-qty" value="${window.__archerConfig.arrowBuyQty || 1000}" style="width: 65px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
                     </div>
 
                     <div class="p-row">
@@ -3064,15 +3617,35 @@
                         <button class="p-btn" id="p-btn-sniff-equip" style="background: #eab308; color: #000; font-size: 10px; padding: 4px;">🎯 เริ่มดักจับ Packet สวมใส่ (Sniff)</button>
                         <div id="p-sniffer-result" style="display: none; margin-top: 4px; padding: 4px; background: rgba(0,0,0,0.5); border-radius: 4px; border: 1px dashed rgba(234, 179, 8, 0.4);"></div>
 
+                        <button class="p-btn" id="p-btn-equip-bow-arrow" style="background: #10b981; color: #fff; font-size: 11px; padding: 6px; margin-top: 6px; font-weight: bold; border-radius: 4px; border: 1px solid #059669; width: 100%; cursor: pointer;">🏹 สวมใส่คันธนู & ลูกธนูทันที (Equip Bow & Arrow)</button>
+
                         <label class="p-check-box" style="color: #94a3b8; margin-top: 5px;">
                             <input type="checkbox" id="p-archer-auto-equip" ${window.__archerConfig.autoEquipArrow ? 'checked' : ''}>
-                            <span style="font-size: 9.5px;">เปิดสลับลูกธนูอัตโนมัติ (ปกติปิดไว้เพื่อกันสลับใส่ดาบ)</span>
+                            <span style="font-size: 9.5px;">สวมใส่คันธนู & ลูกธนูอัตโนมัติ (Auto-Equip Bow & Arrow)</span>
                         </label>
                     </div>
                 </div>
 
                 <!-- TAB 3: AUTO-SELL & WHITELIST -->
                 <div class="p-tab-pane" id="p-tab-sell">
+                    <!-- Weight Check Card -->
+                    <div class="p-card" style="border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05); margin-bottom: 6px;">
+                        <label class="p-check-box" style="color: #f59e0b;">
+                            <input type="checkbox" id="p-weight-check-enabled" ${window.__sellConfig.weightCheckEnabled ? 'checked' : ''}>
+                            <b>⚖️ ตรวจสอบน้ำหนักเกิน (Weight Return)</b>
+                        </label>
+                        <div class="p-row" style="margin-top: 4px;">
+                            <span style="font-size: 10px; color: #cbd5e1;">วาร์ปกลับไปขายเมื่อเกิน (%):</span>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" id="p-weight-threshold" min="10" max="95" value="${window.__sellConfig.weightThreshold || 80}" style="width: 48px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                                <span style="font-size: 10px; color: #94a3b8;">%</span>
+                            </div>
+                        </div>
+                        <div id="p-weight-hud-display" style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">
+                            น้ำหนักปัจจุบัน: <span id="p-cur-weight-val" style="color: #00ffcc; font-weight: bold;">-- / --</span>
+                        </div>
+                    </div>
+
                     <label class="p-check-box" style="color: #facc15;">
                         <input type="checkbox" id="p-sell-enabled" ${window.__sellConfig.enabled ? 'checked' : ''}>
                         <b>เปิดระบบ Auto-Sell คัดกรองอัตโนมัติ</b>
@@ -3251,6 +3824,22 @@
         };
 
         // Auto-Sell & Whitelist Event Listeners
+        const weightCheckEl = document.getElementById('p-weight-check-enabled');
+        if (weightCheckEl) {
+            weightCheckEl.onchange = (e) => {
+                window.__sellConfig.weightCheckEnabled = e.target.checked;
+                saveSellConfig();
+            };
+        }
+
+        const weightThresholdEl = document.getElementById('p-weight-threshold');
+        if (weightThresholdEl) {
+            weightThresholdEl.onchange = (e) => {
+                window.__sellConfig.weightThreshold = parseInt(e.target.value) || 80;
+                saveSellConfig();
+            };
+        }
+
         document.getElementById('p-sell-enabled').onchange = (e) => {
             window.__sellConfig.enabled = e.target.checked;
             saveSellConfig();
@@ -3374,6 +3963,15 @@
         if (sniffEquipBtn) {
             sniffEquipBtn.onclick = () => {
                 window.startEquipSniffer();
+            };
+        }
+
+        const equipBowArrowBtn = document.getElementById('p-btn-equip-bow-arrow');
+        if (equipBowArrowBtn) {
+            equipBowArrowBtn.onclick = () => {
+                if (typeof window.equipArrowAndBow === 'function') {
+                    window.equipArrowAndBow();
+                }
             };
         }
 

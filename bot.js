@@ -1616,16 +1616,10 @@
     // In-Game AUTO Toggles (Low-Level)
     // ------------------------------------------
     window.activateInGameAuto = function() {
-        // สลับใส่ลูกธนูผ่านคีย์ลัดเฉพาะเมื่อผู้ใช้เปิดใช้งานอย่างชัดเจน (ป้องกันการไปกดสลับใส่ดาบ Damascus)
+        // สลับใส่ลูกธนูและคันธนูเฉพาะเมื่อผู้ใช้เปิดใช้งานอย่างชัดเจน (ป้องกันการไปกดสลับใส่ดาบ Damascus)
         if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
-            const slot = window.__archerConfig.arrowHotbarSlot;
-            if (typeof slot === 'number' && slot >= 0) {
-                if (typeof window.sendEquip === 'function') {
-                    window.sendEquip(slot);
-                }
-                if (typeof window.pressKey === 'function') {
-                    window.pressKey((slot + 1).toString());
-                }
+            if (typeof window.equipArrowAndBow === 'function') {
+                window.equipArrowAndBow();
             }
         }
 
@@ -2070,7 +2064,140 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican] 🏹 สวมใส่ไอเทมช่องลัด (sendEquip Slot: ${slot})!`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[Pelican Inv] 🎒 ส่ง Packet สวมใส่จากกระเป๋า (sendEquip Inventory Slot: ${slot})!`, 'color: #22c55e;');
+    };
+
+    function findItemInServerInv(filterFn) {
+        if (!window.__latestInventory) return null;
+        let found = null;
+        function scan(obj, depth = 0) {
+            if (!obj || depth > 6 || found) return;
+            if (Array.isArray(obj)) {
+                for (const item of obj) {
+                    if (item && typeof item === 'object') {
+                        if (filterFn(item)) {
+                            found = item;
+                            return;
+                        }
+                        scan(item, depth + 1);
+                    }
+                }
+            } else if (typeof obj === 'object') {
+                if (filterFn(obj)) {
+                    found = obj;
+                    return;
+                }
+                for (const k in obj) {
+                    scan(obj[k], depth + 1);
+                }
+            }
+        }
+        scan(window.__latestInventory);
+        return found;
+    }
+
+    window.equipArrowAndBow = function() {
+        console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่คันธนู & ลูกธนู...', 'color: #38bdf8; font-weight: bold;');
+
+        // 1. ตรวจสอบและสวมใส่ "คันธนู" (Bow) เข้ามือหลักก่อนเสมอ! ป้องกันการไปถือมีดสั้น/ดาบ เช่น Damascus
+        let bowFound = false;
+        const bowInBag = findItemInServerInv(it => {
+            const name = (it.name || it.itemName || '').toLowerCase();
+            const slot = it.slot ?? it.idx;
+            const isBow = ((name.includes('bow') || name.includes('crossbow') || name.includes('gakkung') || name.includes('arbalest') || name.includes('คันธนู') || (name.includes('ธนู') && !name.includes('ลูกธนู'))) && !name.includes('arrow') && !name.includes('ลูกธนู'));
+            const isMelee = (name.includes('damascus') || name.includes('dagger') || name.includes('sword') || name.includes('knife') || name.includes('มีด') || name.includes('ดาบ'));
+            return isBow && !isMelee && typeof slot === 'number';
+        });
+
+        if (bowInBag) {
+            const slot = bowInBag.slot ?? bowInBag.idx;
+            console.log(`%c[Pelican Weapon] 🏹 พบคันธนูในกระเป๋า Slot ${slot} ("${bowInBag.name || 'Bow'}") -> ส่งคำสั่งสวมใส่คันธนูกลับเข้ามือ!`, 'color: #22c55e; font-weight: bold;');
+            window.sendEquip(slot);
+            bowFound = true;
+        }
+
+        // 2. ถ้าในหน้าต่างกระเป๋าเปิดอยู่ ให้ลองหา element ของ Bow และ double click
+        try {
+            const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
+            const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
+            for (const el of slots) {
+                const img = el.querySelector('img');
+                const src = img ? (img.src || '').toLowerCase() : '';
+                const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
+                const isBow = (src.includes('bow') || title.includes('bow') || title.includes('crossbow') || title.includes('gakkung') || title.includes('arbalest') || title.includes('คันธนู') || (title.includes('ธนู') && !title.includes('ลูกธนู'))) && !src.includes('arrow') && !title.includes('arrow') && !title.includes('ลูกธนู');
+                const isMelee = src.includes('dagger') || src.includes('sword') || src.includes('damascus') || title.includes('damascus') || title.includes('มีด') || title.includes('ดาบ');
+                if (isBow && !isMelee) {
+                    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    console.log('%c[Pelican Weapon] 🏹 Double-click สวมใส่คันธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    bowFound = true;
+                    break;
+                }
+            }
+        } catch(e) {}
+
+        // 3. ตรวจสอบการสวมใส่ "ลูกธนู" (Arrow) จากกระเป๋าเซิร์ฟเวอร์
+        const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+        const arrowInBag = findItemInServerInv(it => {
+            const id = it.itemId || it.id || it.item_id;
+            const name = (it.name || it.itemName || '').toLowerCase();
+            const slot = it.slot ?? it.idx;
+            const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || name.includes('ลูกธนู'));
+            return isArrow && typeof slot === 'number';
+        });
+
+        if (arrowInBag) {
+            const slot = arrowInBag.slot ?? arrowInBag.idx;
+            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนูในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ลูกธนู!`, 'color: #22c55e; font-weight: bold;');
+            setTimeout(() => {
+                window.sendEquip(slot);
+            }, 100);
+        }
+
+        // 4. ถ้ามีกระเป๋าเปิดอยู่ ให้ double click ที่ลูกธนู
+        try {
+            const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
+            const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
+            for (const el of slots) {
+                const img = el.querySelector('img');
+                const src = img ? (img.src || '').toLowerCase() : '';
+                const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
+                const isArrow = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
+                if (isArrow) {
+                    setTimeout(() => {
+                        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                        console.log('%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    }, 120);
+                    break;
+                }
+            }
+        } catch(e) {}
+
+        // 5. สั่งกดคีย์ Hotbar สำหรับลูกธนู (เพื่อกระตุ้นให้ระบบเกมสวมใส่ลูกธนูเข้า Arrow Slot)
+        setTimeout(() => {
+            const hotbarSlot = window.__archerConfig ? window.__archerConfig.arrowHotbarSlot : -1;
+            if (typeof hotbarSlot === 'number' && hotbarSlot >= 0) {
+                window.pressKey((hotbarSlot + 1).toString());
+            } else {
+                // ค้นหาช่อง Hotbar ที่มีรูปลูกธนูอัตโนมัติ
+                try {
+                    const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
+                    let foundKey = '1';
+                    for (let i = 0; i < hotbarSlots.length; i++) {
+                        const s = hotbarSlots[i];
+                        const img = s.querySelector('img');
+                        const src = img ? (img.src || '').toLowerCase() : '';
+                        const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
+                        if (src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู')) {
+                            foundKey = (i === 9 ? '0' : (i + 1).toString());
+                            break;
+                        }
+                    }
+                    window.pressKey(foundKey);
+                } catch(e) {
+                    window.pressKey('1');
+                }
+            }
+        }, 180);
     };
 
     window.sendInvUse = function(slot = 8) {
@@ -2087,15 +2214,24 @@
     };
 
     window.useButterflyWing = function() {
-        console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง (Slot 8)...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ส่ง Packet equip ช่อง 8 (Packet หลักของช่อง ItemBar)
-        if (typeof window.sendEquip === 'function') {
-            window.sendEquip(8);
+        // 1. ค้นหาช่องของ Butterfly Wing ในกระเป๋าจริง (ห้ามส่ง sendEquip เด็ดขาด เพื่อไม่ให้ไปสลับใส่อาวุธ!)
+        let bwingSlot = 8;
+        const bwingInBag = findItemInServerInv(it => {
+            const id = it.itemId || it.id || it.item_id;
+            const name = (it.name || it.itemName || '').toLowerCase();
+            return (id === 90311 || id === 0x000160c7 || name.includes('wing') || name.includes('bwing') || name.includes('butterfly')) && typeof (it.slot ?? it.idx) === 'number';
+        });
+        if (bwingInBag) {
+            bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
         }
 
-        // 2. ส่ง Packet inv_use ช่อง 8 (สำรอง)
-        window.sendInvUse(8);
+        // 2. ส่ง Packet inv_use ช่องของ Bwing โดยตรง
+        window.sendInvUse(bwingSlot);
+
+        // 3. กด Key ช่อง Hotbar 8
+        dispatchKeyAll('8', 'Digit8', 56);
 
         // 3. คลิก DOM Element ถ้ามี (หา element ที่มีรูปหรือชื่อ Bwing)
         try {
@@ -2554,12 +2690,15 @@
                 }
             }, 900);
 
-            // 5. สั่งสวมใส่ลูกธนู (เฉพาะกรณีที่ผู้ใช้เปิด autoEquipArrow เท่านั้น เพื่อไม่ให้ไปสลับใส่ดาบ)
+            // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
             setTimeout(() => {
-                if (cfg.requireArrow && cfg.autoEquipArrow && typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
-                    window.sendEquip(cfg.arrowHotbarSlot);
-                    window.pressKey((cfg.arrowHotbarSlot + 1).toString());
-                    console.log(`%c[Pelican Shop] 🏹 สวมใส่ลูกธนู (Equip Arrows Slot ${cfg.arrowHotbarSlot}) เรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
+                if (cfg.requireArrow) {
+                    if (typeof window.equipArrowAndBow === 'function') {
+                        window.equipArrowAndBow();
+                    } else if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
+                        window.pressKey((cfg.arrowHotbarSlot + 1).toString());
+                    }
+                    console.log(`%c[Pelican Shop] 🏹 สวมใส่คันธนูและลูกธนูเรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
                 }
             }, 1400);
 
@@ -3478,9 +3617,11 @@
                         <button class="p-btn" id="p-btn-sniff-equip" style="background: #eab308; color: #000; font-size: 10px; padding: 4px;">🎯 เริ่มดักจับ Packet สวมใส่ (Sniff)</button>
                         <div id="p-sniffer-result" style="display: none; margin-top: 4px; padding: 4px; background: rgba(0,0,0,0.5); border-radius: 4px; border: 1px dashed rgba(234, 179, 8, 0.4);"></div>
 
+                        <button class="p-btn" id="p-btn-equip-bow-arrow" style="background: #10b981; color: #fff; font-size: 11px; padding: 6px; margin-top: 6px; font-weight: bold; border-radius: 4px; border: 1px solid #059669; width: 100%; cursor: pointer;">🏹 สวมใส่คันธนู & ลูกธนูทันที (Equip Bow & Arrow)</button>
+
                         <label class="p-check-box" style="color: #94a3b8; margin-top: 5px;">
                             <input type="checkbox" id="p-archer-auto-equip" ${window.__archerConfig.autoEquipArrow ? 'checked' : ''}>
-                            <span style="font-size: 9.5px;">เปิดสลับลูกธนูอัตโนมัติ (ปกติปิดไว้เพื่อกันสลับใส่ดาบ)</span>
+                            <span style="font-size: 9.5px;">สวมใส่คันธนู & ลูกธนูอัตโนมัติ (Auto-Equip Bow & Arrow)</span>
                         </label>
                     </div>
                 </div>
@@ -3822,6 +3963,15 @@
         if (sniffEquipBtn) {
             sniffEquipBtn.onclick = () => {
                 window.startEquipSniffer();
+            };
+        }
+
+        const equipBowArrowBtn = document.getElementById('p-btn-equip-bow-arrow');
+        if (equipBowArrowBtn) {
+            equipBowArrowBtn.onclick = () => {
+                if (typeof window.equipArrowAndBow === 'function') {
+                    window.equipArrowAndBow();
+                }
             };
         }
 
