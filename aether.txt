@@ -2277,6 +2277,7 @@
         let attempts = 0;
         let lastPos = { x: 0, y: 0 };
         let stillCount = 0;
+        const maxAttempts = 35; // 35 * 600ms = 21 วินาที ให้เวลาเดินข้ามเมืองจากร้านค้ามาหา Alice อย่างสบายๆ
 
         if (window.__alicePollInterval) {
             clearInterval(window.__alicePollInterval);
@@ -2309,6 +2310,7 @@
 
             // ตรวจว่ามีปุ่มตัวเลือก "Alice Warp Service" หรือ "วาร์ป" ในหน้าต่างสนทนาหรือไม่
             const dialogOption = Array.from(document.querySelectorAll('button, .dialog-option, [class*="option"]')).find(b => {
+                if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
                 const txt = (b.innerText || '').trim();
                 return (txt.includes('Alice Warp') || txt.includes('Warp Service') || txt.includes('วาร์ป')) && b.offsetWidth > 0;
             });
@@ -2319,33 +2321,34 @@
                 window.sendRemoteNpcOption(1);
             }
 
-            // ถ้าพึ่งเริ่มรอบ 2 แล้วยังไม่เปิดหน้าต่าง ลองคลิกป้ายชื่อซ้ำอีกครั้ง
-            if (attempts === 2) {
-                clickAliceOnScreen();
-            }
-
             // ตรวจสอบตำแหน่งการเดิน
             const curPos = window.__currentPos || { x: 0, y: 0 };
             const isStationary = (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0);
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
 
-            // ถ้าเริ่มหยุดเดินแล้ว หรือรอบที่ 3 ให้ส่ง packet คุยซ้ำ
-            if ((stillCount >= 2 && attempts >= 3) || attempts === 3) {
-                console.log('%c[Pelican Warp] 💬 ส่ง Packet คุยกับ Alice ซ้ำและเลือก Alice Warp Service...', 'color: #eab308;');
+            // ระหว่างเดินข้ามเมือง: ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก
+            if (attempts % 5 === 0) {
+                clickAliceOnScreen();
+                window.sendRemoteNpcTalk('n6');
+            }
+
+            // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice หรือยืนอยู่นิ่งๆ) ให้ส่ง Packet คุยและเลือกตัวเลือกวาร์ป
+            if ((isStationary && stillCount >= 2) || attempts === 2) {
+                console.log('%c[Pelican Warp] 💬 ตัวละครเข้าใกล้ Alice -> ส่ง Packet คุยและเลือก Alice Warp Service...', 'color: #eab308;');
                 window.sendRemoteNpcTalk('n6');
                 setTimeout(() => {
                     if (!window.__isBotRunning && !window.__isManualWarping) return;
                     window.sendRemoteNpcOption(1);
-                }, 350);
+                }, 300);
             }
 
-            // Timeout ปรับลดจาก 12 วินาที เหลือเพียง 3 วินาที (5 รอบ):
-            // ถ้าไม่สามารถคุยกับ Alice ได้ทันที ให้สลับไปเปิดแผนที่โลกเพื่อเดินเท้าไปแมพสำรองทันที ไม่ต้องยืนรอนิ่ง
-            if (attempts >= 5) {
+            // Timeout: ให้เวลาเดินอย่างน้อย 21 วินาที (35 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
+            const isStillMoving = !isStationary && curPos.x !== 0;
+            if (attempts >= maxAttempts && !isStillMoving) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
-                console.warn('%c[Pelican Warp] ⚠️ ไม่สามารถเปิด Alice Warp Service ได้ภายใน 3 วิ -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าไปแมพสำรองทันที!', 'color: #f59e0b; font-weight: bold;');
+                console.warn('%c[Pelican Warp] ⚠️ หมดเวลารอ Alice Warp Service (เดินหาเกิน 21 วิ) -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าสำรอง...', 'color: #f59e0b; font-weight: bold;');
                 openWorldMap(() => {
                     if (callback) callback();
                 });
