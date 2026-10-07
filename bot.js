@@ -3789,8 +3789,12 @@
 
         console.log(`%c[Pelican] 🗺️ กำลังเริ่มกระบวนการเดินไปแมพ: ${mapName}`, 'color: #00ffcc; font-weight: bold;');
 
+        const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-        if (curMap && curMap.includes(mapName)) {
+        const isTargetCity = mapName.includes('เมืองหลวง') || mapName.includes('โซลเฮเวน') || mapName.includes('ตลาดคาราวาน');
+
+        // ถ้าตัวละครอยู่ในเมืองหลวง หรือกำลังฟื้นคืนชีพ (recovering) แต่เป้าหมายคือแมพมอนสเตอร์ -> ห้ามสรุปว่าถึงแล้วเด็ดขาด!
+        if ((!inCity || isTargetCity) && curMap && curMap.includes(mapName) && !window.__isRecovering) {
             console.log(`[Pelican] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
             window.startBot();
             window.__isNavigating = false;
@@ -3947,8 +3951,11 @@
                 return;
             }
 
+            const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-            if (currentMap && currentMap.includes(targetMap)) {
+            const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
+
+            if ((!inCity || isTargetCity) && currentMap && currentMap.includes(targetMap)) {
                 stopArrivalWatcher();
                 console.log(`%c[Pelican] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
                 setTimeout(() => {
@@ -4006,6 +4013,7 @@
     let lastAutoActivateAttempt = 0;
     let autoActivateFailCount = 0;
     let lastPeriodicWeightRefresh = 0;
+    let lastCityToFarmAttempt = 0;
 
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping) return;
@@ -4015,7 +4023,7 @@
 
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
         if (isDead) {
-            console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
+            console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
             window.__isRecovering = true;
             autoActivateFailCount = 0;
 
@@ -4034,11 +4042,31 @@
                 if (respawnBtns[0]) triggerClick(respawnBtns[0]);
             } catch(e) {}
 
-            setTimeout(() => { window.__isRecovering = false; }, 30000);
+            // รอจนกระทั่งตัวละครฟื้นคืนชีพและแมพสลับเข้าเมืองสำเร็จ
+            let respawnCheckCount = 0;
+            const respawnInterval = setInterval(() => {
+                respawnCheckCount++;
+                const stillDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
+                const nowInCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
 
+                // เมื่อตัวละครฟื้นแล้ว และเข้าสู่เมืองหลวงเรียบร้อย (หรือรอครบ 15 วินาที fail-safe)
+                if (!stillDead && (nowInCity || respawnCheckCount >= 15)) {
+                    clearInterval(respawnInterval);
+                    window.__isRecovering = false;
+                    console.log(`%c[Pelican] 🏛️ ตัวละครฟื้นคืนชีพเรียบร้อย (แมพ: "${getCurrentMapName()}")! สั่งเดินกลับไปฟาร์ม...`, 'color: #22c55e; font-weight: bold;');
+                    setTimeout(() => {
+                        if (window.__isBotRunning) {
+                            window.walkToTargetMap(window.__targetFarmMap || 'ถนนต้นหลิว', true);
+                        }
+                    }, 1200);
+                }
+            }, 1000);
+
+            // Fail-safe 20s ป้องกันติดค้าง
             setTimeout(() => {
-                window.walkToTargetMap(window.__targetFarmMap);
-            }, 4000);
+                clearInterval(respawnInterval);
+                window.__isRecovering = false;
+            }, 20000);
             return;
         }
 
@@ -4132,6 +4160,22 @@
                     autoActivateFailCount++;
                     console.log(`%c[Pelican Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") [ครั้งที่ ${autoActivateFailCount}/3] -> สั่งกดเปิด AUTO ทันที!`, 'color: #f59e0b; font-weight: bold;');
                     window.activateInGameAuto();
+                }
+            }
+        }
+
+        // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
+        // เมื่อบอท START อยู่ แต่ตัวละครยืนค้างอยู่ในเมืองหลวง และไม่ได้อยู่ในลูปซื้อของ/เดินทาง/ฟื้นฟู
+        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+            const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+            const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
+            if (!isTargetCity) {
+                const now = Date.now();
+                if (now - lastCityToFarmAttempt > 4000) {
+                    lastCityToFarmAttempt = now;
+                    console.log(`%c[Pelican Watchdog] 🏛️ ตัวละครตกค้างอยู่ในเมืองหลวง ("${getCurrentMapName()}") ขณะบอท START -> สั่งเดินทางไปยังแมพเป้าหมาย: "${targetMap}" ผ่าน NPC Alice ทันที!`, 'color: #38bdf8; font-weight: bold;');
+                    window.walkToTargetMap(targetMap, true);
+                    return;
                 }
             }
         }
