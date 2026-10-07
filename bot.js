@@ -1241,159 +1241,227 @@
     };
 
     // ==========================================
-    // 2. WebSocket Hooking
+    // 2. UNIVERSAL WEBSOCKET HOOKING (All-Vector Sniffer)
     // ==========================================
+    function processIncomingData(rawData) {
+        recordPacket('IN', rawData);
+        try {
+            const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
+            if (u[0] === 0x0D) {
+                let slotsPos = -1;
+                for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
+                    if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
+                        slotsPos = i;
+                        break;
+                    }
+                }
+
+                if (slotsPos !== -1) {
+                    for (let offset = Math.max(0, slotsPos - 4); offset <= slotsPos; offset++) {
+                        try {
+                            const dec = window.msgpack.decode(u.slice(offset));
+                            if (dec && typeof dec === 'object') {
+                                window.__latestInventory = dec;
+                                const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+                                
+                                let foundQty = null;
+
+                                function inspectObject(obj, depth = 0) {
+                                    if (!obj || depth > 5 || foundQty !== null) return;
+                                    if (Array.isArray(obj)) {
+                                        for (const item of obj) {
+                                            if (item && typeof item === 'object') {
+                                                const id = item.itemId || item.id || item.item_id || item.code;
+                                                const name = (item.name || item.itemName || '').toLowerCase();
+                                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                                                if (isArrow) {
+                                                    foundQty = item.qty ?? item.amount ?? item.count ?? item.val ?? 0;
+                                                    return;
+                                                }
+                                                inspectObject(item, depth + 1);
+                                            }
+                                        }
+                                    } else if (typeof obj === 'object') {
+                                        const id = obj.itemId || obj.id || obj.item_id || obj.code;
+                                        const name = (obj.name || obj.itemName || '').toLowerCase();
+                                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                                        if (isArrow) {
+                                            foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
+                                            return;
+                                        }
+                                        for (const k in obj) {
+                                            inspectObject(obj[k], depth + 1);
+                                        }
+                                    }
+                                }
+
+                                inspectObject(dec);
+
+                                const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
+                                if (hasInventoryList) {
+                                    const realQty = foundQty !== null ? (parseInt(foundQty) || 0) : 0;
+                                    if (window.__currentAmmo !== realQty) {
+                                        console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนูจริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+                                    }
+                                    window.__currentAmmo = realQty;
+                                    localStorage.setItem('pelican_current_ammo', realQty);
+                                    updateAmmoHUD();
+                                }
+                                break;
+                            }
+                        } catch(err) {}
+                    }
+                }
+            }
+        } catch(err) {}
+    }
+
+    function processOutgoingData(data) {
+        recordPacket('OUT', data);
+        try {
+            const uint8 = new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer);
+            for (let i = 0; i < uint8.length - 3; i++) {
+                if (uint8[i] === 0xd4 && uint8[i+1] === 0x72) {
+                    window.__lastMoveToken = uint8.slice(i, i + 3);
+                    break;
+                }
+            }
+
+            // EQUIP ACTION SNIFFER
+            if (window.__isSniffingEquip) {
+                const isMovePacket = uint8[1] === 0xa4 && uint8[2] === 0x6d && uint8[3] === 0x6f && uint8[4] === 0x76; // 'move'
+                if (!isMovePacket) {
+                    window.__isSniffingEquip = false;
+                    const fullHex = Array.from(uint8).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    let fullAscii = '';
+                    for (let i = 0; i < uint8.length; i++) {
+                        const b = uint8[i];
+                        fullAscii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+                    }
+                    let decoded = null;
+                    try {
+                        if (window.msgpack && uint8.length > 2) decoded = window.msgpack.decode(uint8.slice(1));
+                    } catch(err) {}
+
+                    console.log('%c======================================================', 'color: #22c55e;');
+                    console.log('%c🎯 [EQUIP SNIFFER] ตรวจพบ Packet สวมใส่/ใช้งานไอเทม!', 'color: #22c55e; font-weight: bold; font-size: 14px;');
+                    console.log(`%cความยาว: ${uint8.length} ไบต์ | Opcode: 0x${uint8[0].toString(16).toUpperCase()}`, 'color: #38bdf8; font-weight: bold;');
+                    console.log('%cHex: ' + fullHex, 'color: #f59e0b;');
+                    console.log('%cAscii: ' + fullAscii, 'color: #94a3b8;');
+                    console.log('%cDecoded Data:', 'color: #a855f7;', decoded);
+                    console.log('%c======================================================', 'color: #22c55e;');
+
+                    const resBox = document.getElementById('p-sniffer-result');
+                    if (resBox) {
+                        resBox.style.display = 'block';
+                        resBox.innerHTML = `
+                            <div style="color: #22c55e; font-weight: bold; font-size: 11px;">✅ ตรวจพบ Packet สวมใส่!</div>
+                            <div style="color: #38bdf8; font-size: 10px; margin-top: 1px;">Op: 0x${uint8[0].toString(16).toUpperCase()} | Len: ${uint8.length}B</div>
+                            <div style="color: #cbd5e1; font-family: monospace; font-size: 9px; word-break: break-all; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 3px; margin-top: 2px;">Hex: ${fullHex}</div>
+                            <div style="color: #c084fc; font-size: 9.5px; margin-top: 2px;">Decoded: ${JSON.stringify(decoded)}</div>
+                        `;
+                    }
+
+                    const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
+                    window.safeCopyToClipboard(clipData, null);
+                }
+            }
+
+            // ตรวจจับการยิงโจมตี (คำสั่ง target) เพื่อลดจำนวนลูกธนู Real-Time
+            if (window.__archerConfig && window.__archerConfig.requireArrow && !window.__isShopping) {
+                if (uint8[1] === 0xa6 && uint8[2] === 0x74 && uint8[3] === 0x61 && uint8[4] === 0x72) {
+                    if (typeof window.__currentAmmo === 'number' && window.__currentAmmo > 0) {
+                        window.__currentAmmo--;
+                        updateAmmoHUD();
+                    }
+                }
+            }
+        } catch(e) {}
+    }
+
+    function hookSocketInstance(ws) {
+        if (!ws || ws.__pelicanHooked) return;
+        ws.__pelicanHooked = true;
+        window.__gameSocket = ws;
+        console.log('%c[Pelican] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
+        updateUIStatus(true);
+
+        ws.addEventListener('open', () => updateUIStatus(true));
+        ws.addEventListener('message', (event) => {
+            processIncomingData(event.data);
+        });
+        ws.addEventListener('close', () => updateUIStatus(false));
+
+        const origInstanceSend = ws.send;
+        ws.send = function(data) {
+            processOutgoingData(data);
+            return origInstanceSend.apply(this, arguments);
+        };
+    }
+
+    // 1. Hook WebSocket.prototype.send so even existing sockets get captured on their very first send
+    const origProtoSend = OriginalWebSocket.prototype.send;
+    OriginalWebSocket.prototype.send = function(data) {
+        if (!window.__gameSocket || window.__gameSocket !== this) {
+            hookSocketInstance(this);
+        }
+        processOutgoingData(data);
+        return origProtoSend.apply(this, arguments);
+    };
+
+    // 2. Hook WebSocket.prototype.addEventListener to capture socket on registration
+    const origProtoAddEventListener = OriginalWebSocket.prototype.addEventListener;
+    OriginalWebSocket.prototype.addEventListener = function(type, listener, options) {
+        if (type === 'message') {
+            if (!window.__gameSocket || window.__gameSocket !== this) {
+                hookSocketInstance(this);
+            }
+        }
+        return origProtoAddEventListener.apply(this, arguments);
+    };
+
+    // 3. Hook new WebSocket creation via Proxy
     window.WebSocket = new Proxy(OriginalWebSocket, {
         construct(Target, args) {
             const ws = new Target(...args);
-            window.__gameSocket = ws;
-            console.log('%c[Pelican] Captured Game Socket:', 'color: #38bdf8;', args[0]);
-
-            ws.addEventListener('open', () => updateUIStatus(true));
-            ws.addEventListener('message', (event) => {
-                recordPacket('IN', event.data);
-                try {
-                    const rawData = event.data;
-                    const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
-                    if (u[0] === 0x0D) {
-                        // ค้นหาตำแหน่งคำว่า "slots" ในไบต์ (s=0x73, l=0x6c, o=0x6f, t=0x74, s=0x73)
-                        let slotsPos = -1;
-                        for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
-                            if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
-                                slotsPos = i;
-                                break;
-                            }
-                        }
-
-                        if (slotsPos !== -1) {
-                            for (let offset = Math.max(0, slotsPos - 4); offset <= slotsPos; offset++) {
-                                try {
-                                    const dec = window.msgpack.decode(u.slice(offset));
-                                    if (dec && typeof dec === 'object') {
-                                        window.__latestInventory = dec;
-                                        const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-                                        
-                                        let foundQty = null;
-
-                                        function inspectObject(obj, depth = 0) {
-                                            if (!obj || depth > 5 || foundQty !== null) return;
-                                            if (Array.isArray(obj)) {
-                                                for (const item of obj) {
-                                                    if (item && typeof item === 'object') {
-                                                        const id = item.itemId || item.id || item.item_id || item.code;
-                                                        const name = (item.name || item.itemName || '').toLowerCase();
-                                                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                                        if (isArrow) {
-                                                            foundQty = item.qty ?? item.amount ?? item.count ?? item.val ?? 0;
-                                                            return;
-                                                        }
-                                                        inspectObject(item, depth + 1);
-                                                    }
-                                                }
-                                            } else if (typeof obj === 'object') {
-                                                const id = obj.itemId || obj.id || obj.item_id || obj.code;
-                                                const name = (obj.name || obj.itemName || '').toLowerCase();
-                                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                                if (isArrow) {
-                                                    foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
-                                                    return;
-                                                }
-                                                for (const k in obj) {
-                                                    inspectObject(obj[k], depth + 1);
-                                                }
-                                            }
-                                        }
-
-                                        inspectObject(dec);
-
-                                        // ถ้ามีโครงสร้าง slots ส่งมา (อัปเดต inventory)
-                                        const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
-                                        if (hasInventoryList) {
-                                            const realQty = foundQty !== null ? (parseInt(foundQty) || 0) : 0;
-                                            if (window.__currentAmmo !== realQty) {
-                                                console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนูจริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
-                                            }
-                                            window.__currentAmmo = realQty;
-                                            localStorage.setItem('pelican_current_ammo', realQty);
-                                            updateAmmoHUD();
-                                        }
-                                        break;
-                                    }
-                                } catch(err) {}
-                            }
-                        }
-                    }
-                } catch(err) {}
-            });
-
-            const originalSend = ws.send;
-            ws.send = function (data) {
-                recordPacket('OUT', data);
-                try {
-                    const uint8 = new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer);
-                    for (let i = 0; i < uint8.length - 3; i++) {
-                        if (uint8[i] === 0xd4 && uint8[i+1] === 0x72) {
-                            window.__lastMoveToken = uint8.slice(i, i + 3);
-                            break;
-                        }
-                    }
-
-                    // EQUIP ACTION SNIFFER
-                    if (window.__isSniffingEquip) {
-                        const isMovePacket = uint8[1] === 0xa4 && uint8[2] === 0x6d && uint8[3] === 0x6f && uint8[4] === 0x76; // 'move'
-                        if (!isMovePacket) {
-                            window.__isSniffingEquip = false;
-                            const fullHex = Array.from(uint8).map(b => b.toString(16).padStart(2, '0')).join(' ');
-                            let fullAscii = '';
-                            for (let i = 0; i < uint8.length; i++) {
-                                const b = uint8[i];
-                                fullAscii += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
-                            }
-                            let decoded = null;
-                            try {
-                                if (window.msgpack && uint8.length > 2) decoded = window.msgpack.decode(uint8.slice(1));
-                            } catch(err) {}
-
-                            console.log('%c======================================================', 'color: #22c55e;');
-                            console.log('%c🎯 [EQUIP SNIFFER] ตรวจพบ Packet สวมใส่/ใช้งานไอเทม!', 'color: #22c55e; font-weight: bold; font-size: 14px;');
-                            console.log(`%cความยาว: ${uint8.length} ไบต์ | Opcode: 0x${uint8[0].toString(16).toUpperCase()}`, 'color: #38bdf8; font-weight: bold;');
-                            console.log('%cHex: ' + fullHex, 'color: #f59e0b;');
-                            console.log('%cAscii: ' + fullAscii, 'color: #94a3b8;');
-                            console.log('%cDecoded Data:', 'color: #a855f7;', decoded);
-                            console.log('%c======================================================', 'color: #22c55e;');
-
-                            const resBox = document.getElementById('p-sniffer-result');
-                            if (resBox) {
-                                resBox.style.display = 'block';
-                                resBox.innerHTML = `
-                                    <div style="color: #22c55e; font-weight: bold; font-size: 11px;">✅ ตรวจพบ Packet สวมใส่!</div>
-                                    <div style="color: #38bdf8; font-size: 10px; margin-top: 1px;">Op: 0x${uint8[0].toString(16).toUpperCase()} | Len: ${uint8.length}B</div>
-                                    <div style="color: #cbd5e1; font-family: monospace; font-size: 9px; word-break: break-all; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 3px; margin-top: 2px;">Hex: ${fullHex}</div>
-                                    <div style="color: #c084fc; font-size: 9.5px; margin-top: 2px;">Decoded: ${JSON.stringify(decoded)}</div>
-                                `;
-                            }
-
-                            const clipData = JSON.stringify({ hex: fullHex, ascii: fullAscii, decoded: decoded, len: uint8.length }, null, 2);
-                            window.safeCopyToClipboard(clipData, null);
-                        }
-                    }
-
-                    // ตรวจจับการยิงโจมตี (คำสั่ง target) เพื่อลดจำนวนลูกธนู Real-Time
-                    if (window.__archerConfig && window.__archerConfig.requireArrow && !window.__isShopping) {
-                        if (uint8[1] === 0xa6 && uint8[2] === 0x74 && uint8[3] === 0x61 && uint8[4] === 0x72) {
-                            if (typeof window.__currentAmmo === 'number' && window.__currentAmmo > 0) {
-                                window.__currentAmmo--;
-                                updateAmmoHUD();
-                            }
-                        }
-                    }
-                } catch(e) {}
-                return originalSend.apply(this, arguments);
-            };
-
+            hookSocketInstance(ws);
             return ws;
         }
     });
+
+    // 4. Actively scan window properties to find any existing WebSocket instance immediately
+    window.scanForActiveSocket = function() {
+        if (window.__gameSocket && window.__gameSocket.readyState === 1) return;
+        for (const key of Object.getOwnPropertyNames(window)) {
+            try {
+                const val = window[key];
+                if (val && val instanceof OriginalWebSocket && val.readyState === 1) {
+                    hookSocketInstance(val);
+                    return;
+                }
+            } catch(e) {}
+        }
+        // Deep scan 1 level
+        for (const key of Object.getOwnPropertyNames(window)) {
+            try {
+                const root = window[key];
+                if (root && typeof root === 'object' && root !== window && !root.document && !root.window) {
+                    for (const subKey of Object.keys(root)) {
+                        try {
+                            const subVal = root[subKey];
+                            if (subVal && subVal instanceof OriginalWebSocket && subVal.readyState === 1) {
+                                hookSocketInstance(subVal);
+                                return;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } catch(e) {}
+        }
+    };
+
+    window.scanForActiveSocket();
+    setInterval(window.scanForActiveSocket, 1000);
 
     // ==========================================
     // 3. WASD Reverse Backflip Engine
