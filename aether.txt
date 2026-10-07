@@ -1263,88 +1263,127 @@
         return el && !el.closest('#pelican-hud') && !el.closest('#pelican-data-modal') && !el.closest('#pelican-log');
     }
 
+    // Helper: ค้นหาข้อมูลหน้าต่างกระเป๋าบนจอ
+    function getOpenBagInfo() {
+        try {
+            // 1. หาปุ่ม "จัดเรียง" หรือ "จัดเรียงไอเทม" บนหน้าจอเกม
+            const sortBtn = Array.from(document.querySelectorAll('button, div[role="button"], a, span, div')).find(el => {
+                if (!isValidNonBotElement(el)) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                return (txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort') && el.offsetWidth > 0 && el.offsetHeight > 0;
+            });
+
+            if (sortBtn) {
+                let cur = sortBtn.parentElement;
+                for (let i = 0; i < 8 && cur && cur !== document.body; i++) {
+                    const t = cur.textContent || '';
+                    if (t.includes('กระเป๋า') || t.includes('Inventory') || t.includes('น้ำหนัก')) {
+                        return { windowEl: cur, sortBtn };
+                    }
+                    cur = cur.parentElement;
+                }
+                return { windowEl: sortBtn.parentElement?.parentElement || sortBtn.parentElement, sortBtn };
+            }
+
+            // 2. หา Header "กระเป๋า x/y"
+            const allBagHeaders = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el) || el.children.length > 3) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                return /กระเป๋า\s*\d+\s*\/\s*\d+/i.test(txt) && el.offsetWidth > 0 && el.offsetHeight > 0;
+            });
+            if (allBagHeaders.length > 0) {
+                let cur = allBagHeaders[0].parentElement;
+                for (let i = 0; i < 6 && cur && cur !== document.body; i++) {
+                    if (cur.offsetWidth >= 200 && cur.offsetHeight >= 200) {
+                        return { windowEl: cur, sortBtn: null };
+                    }
+                    cur = cur.parentElement;
+                }
+                return { windowEl: allBagHeaders[0].parentElement, sortBtn: null };
+            }
+        } catch(e) {}
+        return null;
+    }
+
     function getBagSlots() {
         try {
-            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
-            for (const modal of bagModals) {
-                const txt = modal.textContent || '';
-                const m = txt.match(/กระเป๋า[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/Inventory[^\d]*(\d+)\s*\/\s*(\d+)/i);
+            const bagInfo = getOpenBagInfo();
+            const searchScope = bagInfo && bagInfo.windowEl ? bagInfo.windowEl : document.body;
+            const bagHeaders = Array.from(searchScope.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el)) return false;
+                const txt = (el.textContent || '').trim();
+                return txt.includes('กระเป๋า') || txt.includes('Inventory');
+            });
+            for (const el of bagHeaders) {
+                const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                const m = txt.match(/กระเป๋า[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/Inventory[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/(\d+)\s*\/\s*(\d+)/);
                 if (m) {
                     const cur = parseInt(m[1]);
                     const max = parseInt(m[2]);
-                    if (max > 0) {
-                        return { current: cur, max, percent: Math.round((cur / max) * 100) };
+                    if (max > 0 && max <= 300) {
+                        const res = { current: cur, max, percent: Math.round((cur / max) * 100) };
+                        window.__lastKnownSlots = res;
+                        return res;
                     }
                 }
             }
+            if (window.__lastKnownSlots) return window.__lastKnownSlots;
         } catch(e) {}
         return null;
     }
 
     function getCharacterWeight() {
         try {
-            // Method 1: ค้นหาในหน้าต่างกระเป๋า (Inventory Modal) ถ้าผู้เล่นเปิดอยู่
-            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
-            for (const modal of bagModals) {
-                // ค้นหาข้อความแถว "น้ำหนัก" ที่ด้านล่างกระเป๋า
-                const nodes = Array.from(modal.querySelectorAll('*')).filter(el => {
-                    return isValidNonBotElement(el) && (el.textContent || '').includes('น้ำหนัก');
-                });
-                for (const el of nodes) {
-                    const searchTargets = [el, el.parentElement, el.parentElement?.parentElement].filter(Boolean);
-                    for (const target of searchTargets) {
-                        const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
-                        const m = cleanTxt.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                        if (m) {
-                            const cur = parseFloat(m[1].replace(/,/g, ''));
-                            const max = parseFloat(m[2].replace(/,/g, ''));
-                            if (max > 0) {
-                                const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
-                                window.__lastKnownWeight = res;
-                                updateWeightHUD(res);
-                                return res;
-                            }
-                        }
-                    }
-                }
+            const bagInfo = getOpenBagInfo();
+            const searchScope = bagInfo && bagInfo.windowEl ? bagInfo.windowEl : document.body;
 
-                // ค้นหาตัวเลข x / y ที่อยู่ใน footer กระเป๋า เช่น "4,366/5,030" หรือ "7,030.9/7,060"
-                const slashEls = Array.from(modal.querySelectorAll('*')).filter(el => {
-                    return isValidNonBotElement(el) && el.children.length <= 1 && (el.textContent || '').includes('/');
-                });
-                for (const el of slashEls) {
-                    const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ').trim();
-                    const m = txt.match(/^([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)$/) || txt.match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                    if (m) {
-                        const cur = parseFloat(m[1].replace(/,/g, ''));
-                        const max = parseFloat(m[2].replace(/,/g, ''));
-                        if (max >= 500 && cur <= max * 3) {
-                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
-                            window.__lastKnownWeight = res;
-                            updateWeightHUD(res);
-                            return res;
-                        }
+            // Method 1: ค้นหา Node ทุกตัวที่มีตัวเลขรูปแบบ X / Y (เช่น "4,311/5,030")
+            const leafNodes = Array.from(searchScope.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el)) return false;
+                const txt = (el.textContent || '').trim();
+                if (!txt.includes('/')) return false;
+                return /^[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?$/.test(txt) ||
+                       /น้ำหนัก[^\d]*[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?/.test(txt);
+            });
+
+            for (const el of leafNodes) {
+                const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ').trim();
+                const m = txt.match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                if (m) {
+                    const cur = parseFloat(m[1].replace(/,/g, ''));
+                    const max = parseFloat(m[2].replace(/,/g, ''));
+                    if (max >= 500 && max <= 50000) {
+                        const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                        window.__lastKnownWeight = res;
+                        try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
+                        updateWeightHUD(res);
+                        return res;
                     }
                 }
             }
 
-            // Method 2: ค้นหา Element ทั่วทั้งจอที่มีคำว่า "น้ำหนัก" และเครื่องหมาย "/" (เฉพาะเจาะจง ห้ามอ่านจาก Pelican HUD)
-            const allCandidates = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (!isValidNonBotElement(el) || el.children.length > 6) return false;
-                const txt = el.textContent || '';
-                return txt.includes('น้ำหนัก') && txt.includes('/');
+            // Method 2: ค้นหาแถวข้อความที่มีคำว่า "น้ำหนัก"
+            const weightLabels = Array.from(searchScope.querySelectorAll('*')).filter(el => {
+                if (!isValidNonBotElement(el) || el.children.length > 5) return false;
+                const txt = (el.textContent || '').trim();
+                return txt.includes('น้ำหนัก');
             });
-            for (const el of allCandidates) {
-                const clean = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
-                const match = clean.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                if (match) {
-                    const cur = parseFloat(match[1].replace(/,/g, ''));
-                    const max = parseFloat(match[2].replace(/,/g, ''));
-                    if (max > 0) {
-                        const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
-                        window.__lastKnownWeight = res;
-                        updateWeightHUD(res);
-                        return res;
+
+            for (const label of weightLabels) {
+                const searchTargets = [label, label.parentElement, label.parentElement?.parentElement].filter(Boolean);
+                for (const target of searchTargets) {
+                    const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                    const matches = Array.from(cleanTxt.matchAll(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/g));
+                    for (const m of matches) {
+                        const cur = parseFloat(m[1].replace(/,/g, ''));
+                        const max = parseFloat(m[2].replace(/,/g, ''));
+                        if (max >= 500 && max <= 50000) {
+                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                            window.__lastKnownWeight = res;
+                            try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
+                            updateWeightHUD(res);
+                            return res;
+                        }
                     }
                 }
             }
@@ -1356,16 +1395,44 @@
                 return window.__serverWeight;
             }
 
-            // Fallback: ใช้ค่าน้ำหนักล่าสุดที่เคยอ่านได้จริง (ถ้ามี)
+            // Method 4: Fallback จาก Memory หรือ localStorage
             if (window.__lastKnownWeight) {
                 updateWeightHUD(window.__lastKnownWeight);
                 return window.__lastKnownWeight;
+            } else {
+                try {
+                    const saved = localStorage.getItem('pelican_last_weight');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (parsed && typeof parsed.percent === 'number') {
+                            window.__lastKnownWeight = parsed;
+                            updateWeightHUD(parsed);
+                            return parsed;
+                        }
+                    }
+                } catch(e) {}
             }
-        } catch(e) {}
-        return null;
+        } catch(e) {
+            console.error('[Pelican Weight] getCharacterWeight error:', e);
+        }
+        return window.__lastKnownWeight || null;
     }
 
     function updateWeightHUD(w) {
+        if (!w && window.__lastKnownWeight) w = window.__lastKnownWeight;
+        if (!w) {
+            try {
+                const saved = localStorage.getItem('pelican_last_weight');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed && typeof parsed.percent === 'number') {
+                        w = parsed;
+                        window.__lastKnownWeight = parsed;
+                    }
+                }
+            } catch(e) {}
+        }
+
         const el = document.getElementById('p-cur-weight-val');
         const quickWeightEl = document.getElementById('p-quick-weight');
         const bannerEl = document.getElementById('p-weight-alert-banner');
@@ -1482,21 +1549,73 @@
         return true;
     }
 
-    function dispatchKeyAll(keyStr, codeStr, keyCodeNum) {
-        const opts = { key: keyStr, code: codeStr, keyCode: keyCodeNum, which: keyCodeNum, bubbles: true, cancelable: true, composed: true, view: window };
-        document.body.focus();
-        document.dispatchEvent(new KeyboardEvent('keydown', opts));
-        document.body.dispatchEvent(new KeyboardEvent('keydown', opts));
-        window.dispatchEvent(new KeyboardEvent('keydown', opts));
+    function createSyntheticKeyEvent(type, keyStr, codeStr, keyCodeNum) {
+        let evt;
+        try {
+            evt = new KeyboardEvent(type, {
+                key: keyStr,
+                code: codeStr,
+                keyCode: keyCodeNum,
+                which: keyCodeNum,
+                charCode: keyCodeNum,
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                view: window
+            });
+        } catch(e) {
+            evt = document.createEvent('Event');
+            evt.initEvent(type, true, true);
+        }
+        try { Object.defineProperty(evt, 'keyCode', { get: () => keyCodeNum, configurable: true }); } catch(e) {}
+        try { Object.defineProperty(evt, 'which', { get: () => keyCodeNum, configurable: true }); } catch(e) {}
+        try { Object.defineProperty(evt, 'charCode', { get: () => keyCodeNum, configurable: true }); } catch(e) {}
+        try { Object.defineProperty(evt, 'key', { get: () => keyStr, configurable: true }); } catch(e) {}
+        try { Object.defineProperty(evt, 'code', { get: () => codeStr, configurable: true }); } catch(e) {}
+        return evt;
+    }
 
+    function dispatchKeyAll(keyStr, codeStr, keyCodeNum) {
+        // ปลด Focus จากปุ่ม/Input บน HUD ไม่ให้กลืน Key Event
+        if (document.activeElement && document.activeElement !== document.body) {
+            try { document.activeElement.blur(); } catch(e) {}
+        }
         const canvas = document.querySelector('canvas');
-        if (canvas) canvas.dispatchEvent(new KeyboardEvent('keydown', opts));
+        if (canvas) {
+            try { canvas.focus(); } catch(e) {}
+        }
+
+        const downEvt = createSyntheticKeyEvent('keydown', keyStr, codeStr, keyCodeNum);
+        window.dispatchEvent(downEvt);
+        document.dispatchEvent(downEvt);
+        document.body.dispatchEvent(downEvt);
+        if (canvas) canvas.dispatchEvent(downEvt);
+
+        // Phaser Keyboard Injection หากตัวเกมมี instance บน window
+        try {
+            const phaserGame = window.game || (window.Phaser && window.Phaser.GAMES && window.Phaser.GAMES[0]);
+            if (phaserGame && phaserGame.input && phaserGame.input.keyboard) {
+                if (typeof phaserGame.input.keyboard.onKeyDown === 'function') {
+                    phaserGame.input.keyboard.onKeyDown(downEvt);
+                }
+            }
+        } catch(e) {}
 
         setTimeout(() => {
-            document.dispatchEvent(new KeyboardEvent('keyup', opts));
-            document.body.dispatchEvent(new KeyboardEvent('keyup', opts));
-            window.dispatchEvent(new KeyboardEvent('keyup', opts));
-            if (canvas) canvas.dispatchEvent(new KeyboardEvent('keyup', opts));
+            const upEvt = createSyntheticKeyEvent('keyup', keyStr, codeStr, keyCodeNum);
+            window.dispatchEvent(upEvt);
+            document.dispatchEvent(upEvt);
+            document.body.dispatchEvent(upEvt);
+            if (canvas) canvas.dispatchEvent(upEvt);
+
+            try {
+                const phaserGame = window.game || (window.Phaser && window.Phaser.GAMES && window.Phaser.GAMES[0]);
+                if (phaserGame && phaserGame.input && phaserGame.input.keyboard) {
+                    if (typeof phaserGame.input.keyboard.onKeyUp === 'function') {
+                        phaserGame.input.keyboard.onKeyUp(upEvt);
+                    }
+                }
+            } catch(e) {}
         }, 50);
     }
 
@@ -1531,108 +1650,143 @@
 
     window.clickSortBag = function() {
         try {
-            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
-            let targetBtn = null;
-
-            for (const modal of bagModals) {
-                const candidates = Array.from(modal.querySelectorAll('button, div[role="button"], a, span, div')).filter(el => {
-                    if (!isValidNonBotElement(el)) return false;
-                    const txt = (el.innerText || el.textContent || '').trim();
-                    return txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort' || txt.includes('จัดเรียง');
-                });
-                if (candidates.length > 0) {
-                    targetBtn = candidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || candidates[0];
-                    break;
-                }
-            }
-
-            if (!targetBtn) {
-                const allCandidates = Array.from(document.querySelectorAll('button, div[role="button"], a, span, div')).filter(el => {
-                    if (!isValidNonBotElement(el) || el.closest('#pelican-hud')) return false;
-                    const txt = (el.innerText || el.textContent || '').trim();
-                    return txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort';
-                });
-                if (allCandidates.length > 0) {
-                    targetBtn = allCandidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || allCandidates[0];
-                }
-            }
-
-            if (targetBtn) {
-                triggerClick(targetBtn);
+            const bagInfo = getOpenBagInfo();
+            if (bagInfo && bagInfo.sortBtn) {
+                triggerClick(bagInfo.sortBtn);
                 console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return true;
-            } else {
-                console.warn('[Pelican Inventory] ⚠️ ไม่พบปุ่ม "จัดเรียง" บนหน้าจอ');
-                return false;
             }
-        } catch(err) {
-            console.error('[Pelican Inventory] เกิดข้อผิดพลาดในการคลิกปุ่มจัดเรียง:', err);
-            return false;
-        }
+
+            // ค้นหาทั่วทั้งจอ
+            const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a, span, div')).filter(el => {
+                if (!isValidNonBotElement(el)) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                return (txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort') && el.offsetWidth > 0;
+            });
+
+            if (candidates.length > 0) {
+                const btn = candidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || candidates[0];
+                triggerClick(btn);
+                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                return true;
+            }
+        } catch(e) {}
+        return false;
     };
+
+    function closeOpenBagWindow() {
+        const bagInfo = getOpenBagInfo();
+        if (bagInfo && bagInfo.windowEl) {
+            const closeBtn = Array.from(bagInfo.windowEl.querySelectorAll('button, div, span, [aria-label="close"], [class*="close"]')).find(el => {
+                const txt = (el.innerText || el.textContent || '').trim();
+                return (txt === '✕' || txt === 'X' || txt === 'ปิด' || el.className.includes('close')) && el.offsetWidth > 0;
+            });
+            if (closeBtn) {
+                triggerClick(closeBtn);
+                return;
+            }
+        }
+        dispatchKeyAll('i', 'KeyI', 73);
+        dispatchKeyAll('Escape', 'Escape', 27);
+    }
 
     window.__isRefreshingWeight = false;
 
     window.refreshInventoryAndWeight = function(callback) {
         if (window.__isRefreshingWeight) {
-            if (typeof callback === 'function') {
-                const curW = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
-                callback(curW);
-            }
+            if (typeof callback === 'function') callback(window.__lastKnownWeight);
             return;
         }
 
         window.__isRefreshingWeight = true;
 
-        const findBagModal = () => {
-            const modals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
-            return modals.find(modal => {
-                const txt = modal.textContent || '';
-                return (txt.includes('กระเป๋า') || txt.includes('Inventory') || txt.includes('น้ำหนัก') || txt.includes('จัดเรียง')) && modal.offsetWidth > 0 && modal.offsetHeight > 0;
-            });
+        const safetyTimer = setTimeout(() => {
+            window.__isRefreshingWeight = false;
+            if (typeof callback === 'function') callback(window.__lastKnownWeight);
+        }, 5000);
+
+        const finish = (w) => {
+            clearTimeout(safetyTimer);
+            window.__isRefreshingWeight = false;
+            if (w) {
+                window.__lastKnownWeight = w;
+                try { localStorage.setItem('pelican_last_weight', JSON.stringify(w)); } catch(e) {}
+                updateWeightHUD(w);
+            }
+            if (typeof callback === 'function') callback(w || window.__lastKnownWeight);
         };
 
-        const existingModal = findBagModal();
-
-        if (existingModal) {
+        // 1. ตรวจสอบว่าหน้าต่างกระเป๋าเปิดอยู่แล้วหรือไม่
+        const openBag = getOpenBagInfo();
+        if (openBag) {
             window.clickSortBag();
             setTimeout(() => {
                 const w = getCharacterWeight();
-                window.__isRefreshingWeight = false;
-                if (typeof callback === 'function') callback(w);
-            }, 250);
-        } else {
-            console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋า (I) เพื่อกด "จัดเรียง" และซิงก์น้ำหนักที่แท้จริง...', 'color: #38bdf8;');
-            dispatchKeyAll('i', 'KeyI', 73);
+                finish(w);
+            }, 300);
+            return;
+        }
 
-            setTimeout(() => {
+        // 2. ถ้าหน้าต่างกระเป๋าปิดอยู่: ดำเนินการเปิดกระเป๋า
+        console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋าเพื่ออ่านน้ำหนักและกดจัดเรียง...', 'color: #38bdf8;');
+
+        // วิธี A: คลิกปุ่ม "กระเป๋า" จากหน้าจอเกม
+        const bagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span')).find(el => {
+            if (!isValidNonBotElement(el)) return false;
+            const txt = (el.innerText || el.textContent || '').trim();
+            return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/'))) && el.offsetWidth > 0 && el.offsetHeight > 0;
+        });
+
+        if (bagBtn) {
+            triggerClick(bagBtn);
+        } else {
+            // ถ้าไม่เจอปุ่มกระเป๋า ให้คลิกปุ่ม "เมนู" เพื่อเปิดเมนูกริดออกมาก่อน
+            const menuBtn = Array.from(document.querySelectorAll('button, div, [role="button"]')).find(el => {
+                if (!isValidNonBotElement(el)) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                return txt.includes('เมนู') && el.offsetWidth > 0;
+            });
+            if (menuBtn) {
+                triggerClick(menuBtn);
+                setTimeout(() => {
+                    const subBagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span')).find(el => {
+                        if (!isValidNonBotElement(el)) return false;
+                        const txt = (el.innerText || el.textContent || '').trim();
+                        return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/'))) && el.offsetWidth > 0;
+                    });
+                    if (subBagBtn) triggerClick(subBagBtn);
+                }, 120);
+            }
+        }
+
+        // วิธี B: ส่งคำสั่ง Keyboard 'I' เสริมไปด้วย
+        dispatchKeyAll('i', 'KeyI', 73);
+
+        // 3. Poll รอจนกว่าหน้าต่างกระเป๋าจะเปิดออกมา (เช็คทุก 50ms สูงสุด 30 รอบ = 1.5 วินาที)
+        let pollCount = 0;
+        const pollInterval = setInterval(() => {
+            pollCount++;
+            const currentBag = getOpenBagInfo();
+            if (currentBag || pollCount >= 30) {
+                clearInterval(pollInterval);
+
                 window.clickSortBag();
 
                 setTimeout(() => {
                     const w = getCharacterWeight();
 
-                    // ปิดหน้าต่างกระเป๋ากลับถ้าตอนแรกมันไม่ได้เปิดค้างไว้
-                    const modalAfter = findBagModal();
-                    if (modalAfter) {
-                        const closeBtn = Array.from(modalAfter.querySelectorAll('button, .close, [aria-label="close"], [class*="close"]')).find(b => {
-                            const t = (b.innerText || b.textContent || '').trim();
-                            return t === '✕' || t === 'X' || t === 'ปิด' || b.className.includes('close');
-                        });
-                        if (closeBtn) {
-                            triggerClick(closeBtn);
-                        } else {
-                            dispatchKeyAll('i', 'KeyI', 73);
-                        }
+                    // ปิดหน้าต่างกระเป๋ากลับอัตโนมัติเฉพาะกรณีที่เราเป็นคนสั่งเปิด
+                    if (currentBag) {
+                        closeOpenBagWindow();
                     }
 
-                    window.__isRefreshingWeight = false;
-                    if (w) {
-                        console.log(`%c[Pelican Inventory] ✅ อัปเดตน้ำหนักสำเร็จ: ${w.current.toLocaleString()}/${w.max.toLocaleString()} (${w.percent}%)`, 'color: #22c55e; font-weight: bold;');
-                    }
-                    if (typeof callback === 'function') callback(w);
-                }, 250);
-            }, 300);
-        }
+                    finish(w);
+                }, 350);
+            } else if (pollCount === 10) {
+                // Retry dispatching 'I' at 500ms if not open yet
+                dispatchKeyAll('i', 'KeyI', 73);
+            }
+        }, 50);
     };
 
     // ==========================================
@@ -5130,7 +5284,11 @@
                 btnRefreshWeight.innerText = '⏳ จัดเรียง...';
                 btnRefreshWeight.style.opacity = '0.7';
                 window.refreshInventoryAndWeight((w) => {
-                    btnRefreshWeight.innerText = '✅ เรียบร้อย';
+                    if (w && typeof w.percent === 'number') {
+                        btnRefreshWeight.innerText = `✅ ${w.percent}%`;
+                    } else {
+                        btnRefreshWeight.innerText = '✅ เรียบร้อย';
+                    }
                     btnRefreshWeight.style.opacity = '1';
                     setTimeout(() => {
                         btnRefreshWeight.innerText = '🔄 จัดเรียง & อัปเดต';
@@ -5339,6 +5497,8 @@
         });
         document.addEventListener('mouseup', () => { isDragging = false; });
         updateMasterBotUI();
+        if (typeof getCharacterWeight === 'function') getCharacterWeight();
+        setTimeout(() => { if (typeof getCharacterWeight === 'function') getCharacterWeight(); }, 800);
     }
 
     if (document.readyState === 'loading') {
