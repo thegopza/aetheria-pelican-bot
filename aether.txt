@@ -1039,7 +1039,7 @@
                     window.__currentPos = { x: worldX, y: worldY, tileX: parts[0], tileY: parts[1] };
                     updateUIPos(worldX, worldY, parts[0], parts[1]);
 
-                    if (window.__autoJumpEnabled && window.__monsterPos) {
+                    if (window.__isBotRunning && window.__autoJumpEnabled && window.__monsterPos) {
                         const dist = Math.hypot(window.__monsterPos.x - worldX, window.__monsterPos.y - worldY);
                         if (dist >= 60 && dist <= 260) {
                             window.executeReverseBackflip(window.__monsterPos.x, window.__monsterPos.y);
@@ -1553,7 +1553,8 @@
     // ==========================================
     // 3. WASD Reverse Backflip Engine
     // ==========================================
-    window.executeReverseBackflip = function(mX, mY) {
+    window.executeReverseBackflip = function(mX, mY, force = false) {
+        if (!window.__isBotRunning && !force) return;
         const now = Date.now();
         if (now - window.__lastBackflipTime < 1100) return;
 
@@ -1613,55 +1614,155 @@
     };
 
     // ------------------------------------------
-    // In-Game AUTO Toggles (Low-Level)
+    // In-Game AUTO Toggles & Detection
     // ------------------------------------------
-    window.activateInGameAuto = function() {
-        // สลับใส่ลูกธนูและคันธนูเฉพาะเมื่อผู้ใช้เปิดใช้งานอย่างชัดเจน (ป้องกันการไปกดสลับใส่ดาบ Damascus)
+    function getInGameAutoButton() {
+        const candidates = Array.from(document.querySelectorAll('button, div, span, a, [role="button"]')).filter(el => {
+            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-sniffer-modal')) return false;
+            if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
+            if (el.offsetWidth > 160 || el.offsetHeight > 100) return false;
+            const txt = (el.innerText || el.textContent || '').trim();
+            return txt.includes('AUTO') && (txt.includes('เปิด') || txt.includes('ปิด'));
+        });
+
+        if (candidates.length > 0) {
+            const btnTag = candidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button');
+            if (btnTag) return btnTag;
+            candidates.sort((a, b) => (a.offsetWidth * a.offsetHeight) - (b.offsetWidth * b.offsetHeight));
+            return candidates[0];
+        }
+
+        const fallbacks = Array.from(document.querySelectorAll('button, div, [role="button"]')).filter(el => {
+            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-sniffer-modal')) return false;
+            if (el.offsetWidth <= 0 || el.offsetHeight <= 0 || el.offsetWidth > 160 || el.offsetHeight > 100) return false;
+            const txt = (el.innerText || el.textContent || '').trim();
+            return txt === 'AUTO' || txt.startsWith('AUTO\n') || txt.startsWith('AUTO ');
+        });
+
+        if (fallbacks.length > 0) {
+            const btnTag = fallbacks.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button');
+            return btnTag || fallbacks[0];
+        }
+
+        return null;
+    }
+
+    function getInGameAutoStatus() {
+        const btn = getInGameAutoButton();
+        if (!btn) return 'unknown';
+
+        const txt = (btn.innerText || btn.textContent || '').trim();
+        if (txt.includes('เปิด')) return 'on';
+        if (txt.includes('ปิด')) return 'off';
+
+        if (btn.classList.contains('active') || btn.classList.contains('running') || btn.classList.contains('on') || btn.classList.contains('enabled')) {
+            return 'on';
+        }
+
+        try {
+            const cs = window.getComputedStyle(btn);
+            const bg = cs.backgroundColor || '';
+            const border = cs.borderColor || '';
+            if (bg.includes('197') || bg.includes('222') || bg.includes('231') || bg.includes('185') || border.includes('245') || border.includes('234')) {
+                return 'on';
+            }
+        } catch(e) {}
+
+        return 'off';
+    }
+
+    function clickInGameAutoButton() {
+        const btn = getInGameAutoButton();
+        if (!btn) {
+            console.warn('[Pelican Auto] ⚠️ ไม่พบปุ่ม AUTO บนหน้าจอเกม');
+            return false;
+        }
+
+        triggerClick(btn);
+        if (typeof btn.click === 'function') btn.click();
+
+        const rect = btn.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const opts = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window, buttons: 1 };
+        btn.dispatchEvent(new PointerEvent('pointerdown', opts));
+        btn.dispatchEvent(new MouseEvent('mousedown', opts));
+        btn.dispatchEvent(new PointerEvent('pointerup', opts));
+        btn.dispatchEvent(new MouseEvent('mouseup', opts));
+        btn.dispatchEvent(new MouseEvent('click', opts));
+        return true;
+    }
+
+    function sendAutoSetPacket(enabled) {
+        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
+        const token = window.__lastMoveToken || [0xd4, 0x72, 0x41];
+        const buffer = new Uint8Array(10 + token.length + 10);
+        buffer.set([0x0D, 0xA8, 0x61, 0x75, 0x74, 0x6F, 0x5F, 0x73, 0x65, 0x74], 0);
+        buffer.set(token, 10);
+        buffer.set([0x91, 0xA7, 0x65, 0x6E, 0x61, 0x62, 0x6C, 0x65, 0x64, enabled ? 0xC3 : 0xC2], 10 + token.length);
+        window.__gameSocket.send(buffer.buffer);
+    }
+
+    window.activateInGameAuto = function(force = false) {
+        const status = getInGameAutoStatus();
+        if (status === 'on' && !force) {
+            console.log('%c[Pelican Auto] ⚡ In-Game AUTO เปิดอยู่แล้ว (Status: ON)', 'color: #22c55e;');
+            sendAutoSetPacket(true);
+            return;
+        }
+
+        console.log('%c[Pelican Auto] 🤖 กำลังคลิกเปิด In-Game AUTO...', 'color: #22c55e; font-weight: bold;');
+
         if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
             if (typeof window.equipArrowAndBow === 'function') {
                 window.equipArrowAndBow();
             }
         }
 
-        const autoPanel = document.querySelector('.auto-panel') || document.body;
-        const autoBtns = Array.from(autoPanel.querySelectorAll('button, div')).filter(el => el.innerText && el.innerText.includes('AUTO'));
-        const autoBtn = autoBtns.find(b => b.innerText.includes('ปิด') || b.innerText.includes('AUTO')) || autoBtns[0];
-
-        if (autoBtn) {
-            triggerClick(autoBtn);
-            console.log('%c[Pelican] 🤖 คลิกปุ่ม AUTO บนหน้าจอเกมสำเร็จ!', 'color: #22c55e; font-weight: bold;');
-        }
-
-        if (window.__gameSocket && window.__gameSocket.readyState === 1) {
-            const token = window.__lastMoveToken || [0xd4, 0x72, 0x41];
-            const buffer = new Uint8Array(10 + token.length + 10);
-            buffer.set([0x0D, 0xA8, 0x61, 0x75, 0x74, 0x6F, 0x5F, 0x73, 0x65, 0x74], 0);
-            buffer.set(token, 10);
-            buffer.set([0x91, 0xA7, 0x65, 0x6E, 0x61, 0x62, 0x6C, 0x65, 0x64, 0xC3], 10 + token.length);
-            window.__gameSocket.send(buffer.buffer);
-        }
+        clickInGameAutoButton();
+        sendAutoSetPacket(true);
     };
 
-    window.deactivateInGameAuto = function() {
-        const autoPanel = document.querySelector('.auto-panel') || document.body;
-        const autoBtns = Array.from(autoPanel.querySelectorAll('button, div')).filter(el => el.innerText && el.innerText.includes('AUTO'));
-        const activeAutoBtn = autoBtns.find(b => b.innerText.includes('เปิด') || b.className.includes('active') || b.className.includes('running'));
-        if (activeAutoBtn) {
-            triggerClick(activeAutoBtn);
+    window.deactivateInGameAuto = function(force = false) {
+        const status = getInGameAutoStatus();
+        if (status === 'off' && !force) {
+            console.log('%c[Pelican Auto] ⏹️ In-Game AUTO ปิดอยู่แล้ว (Status: OFF)', 'color: #94a3b8;');
+            sendAutoSetPacket(false);
+            return;
         }
 
-        if (window.__gameSocket && window.__gameSocket.readyState === 1) {
-            const token = window.__lastMoveToken || [0xd4, 0x72, 0x41];
-            const buffer = new Uint8Array(10 + token.length + 10);
-            buffer.set([0x0D, 0xA8, 0x61, 0x75, 0x74, 0x6F, 0x5F, 0x73, 0x65, 0x74], 0);
-            buffer.set(token, 10);
-            buffer.set([0x91, 0xA7, 0x65, 0x6E, 0x61, 0x62, 0x6C, 0x65, 0x64, 0xC2], 10 + token.length); // 0xC2 = false in msgpack
-            window.__gameSocket.send(buffer.buffer);
-        }
+        console.log('%c[Pelican Auto] ⏹️ กำลังคลิกปิด In-Game AUTO...', 'color: #ef4444; font-weight: bold;');
+        clickInGameAutoButton();
+        sendAutoSetPacket(false);
     };
 
     // Alias for backward compatibility
     window.startBot = window.activateInGameAuto;
+
+    // ------------------------------------------
+    // Timer & Interval Cleanup Manager
+    // ------------------------------------------
+    function clearAllBotTimers() {
+        const timers = [
+            '__alicePollInterval',
+            '__shopConfirmInterval',
+            '__shopArrivalInterval',
+            '__shopWarpInterval',
+            '__worldMapPollInterval',
+            '__walkClickInterval',
+            '__arrivalWatcherInterval'
+        ];
+        for (const t of timers) {
+            if (window[t]) {
+                clearInterval(window[t]);
+                window[t] = null;
+            }
+        }
+        if (window.__arrivalTimeout) {
+            clearTimeout(window.__arrivalTimeout);
+            window.__arrivalTimeout = null;
+        }
+    }
 
     // ------------------------------------------
     // Master START / STOP Controller (High-Level)
@@ -1735,8 +1836,6 @@
             return;
         }
 
-        // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เปิดแผนที่โลกเพื่อเดินทาง
-
         // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เดินทางไปยังแมพเป้าหมาย
         console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
         window.walkToTargetMap(targetMap, true);
@@ -1751,17 +1850,36 @@
         const loopCheckbox = document.getElementById('p-auto-loop');
         if (loopCheckbox) loopCheckbox.checked = false;
 
-        // 1. ปิดระบบ AUTO ของเกม
-        window.deactivateInGameAuto();
-
-        // 2. หยุด Navigation และ Watchers
+        // 1. ล้าง Interval และ Timeout ทั้งหมดที่ค้างส่ง packet ทันที!
+        clearAllBotTimers();
         if (typeof stopArrivalWatcher === 'function') stopArrivalWatcher();
+
+        // 2. ปิดระบบ In-Game AUTO ของเกมอย่างแน่นอน
+        window.deactivateInGameAuto();
+        setTimeout(() => {
+            if (getInGameAutoStatus() === 'on') {
+                window.deactivateInGameAuto();
+            }
+        }, 350);
+
+        // 3. ปิดการสนทนา NPC เพื่อตัดลูปที่ค้างอยู่ที่ Server
+        if (typeof window.sendNpcClose === 'function') {
+            window.sendNpcClose();
+        }
+
+        // 4. รีเซ็ตสถานะการทำงาน
         window.__isNavigating = false;
         window.__isShopping = false;
         window.__isRecovering = false;
 
+        // 5. ปิดเมนูและหน้าต่างที่อาจค้างอยู่
+        if (typeof closeAnyOpenMenus === 'function') {
+            closeAnyOpenMenus();
+        }
+        dispatchKeyAll('Escape', 'Escape', 27);
+
         if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
-        console.log('%c[Pelican Master] 🛑 STOP BOT: ปิดระบบการทำงานทั้งหมดเรียบร้อยแล้ว!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
+        console.log('%c[Pelican Master] 🛑 STOP BOT: ปิดระบบการทำงานทั้งหมด เคลียร์ Timer และหยุดส่ง Packet โดยเด็ดขาด!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
     };
 
     window.toggleMasterBot = function() {
@@ -1931,17 +2049,30 @@
         let lastPos = { x: 0, y: 0 };
         let stillCount = 0;
 
-        const checkInterval = setInterval(() => {
+        if (window.__alicePollInterval) {
+            clearInterval(window.__alicePollInterval);
+            window.__alicePollInterval = null;
+        }
+
+        window.__alicePollInterval = setInterval(() => {
+            if (!window.__isBotRunning && !window.__isManualWarping) {
+                clearInterval(window.__alicePollInterval);
+                window.__alicePollInterval = null;
+                return;
+            }
+
             attempts++;
 
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-                clearInterval(checkInterval);
+                clearInterval(window.__alicePollInterval);
+                window.__alicePollInterval = null;
                 return;
             }
 
             // ถ้าหน้าต่างแผนที่วาร์ปเปิดแล้ว ให้ตัดจบและทำงานต่อทันที
             if (isAliceMapWindowOpen()) {
-                clearInterval(checkInterval);
+                clearInterval(window.__alicePollInterval);
+                window.__alicePollInterval = null;
                 console.log('%c[Pelican Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
                 setTimeout(() => { if (callback) callback(); }, 300);
                 return;
@@ -1970,13 +2101,15 @@
                 console.log('%c[Pelican Warp] 💬 ส่ง Packet คุยกับ Alice ซ้ำและเลือก Alice Warp Service...', 'color: #eab308;');
                 window.sendRemoteNpcTalk('n6');
                 setTimeout(() => {
+                    if (!window.__isBotRunning && !window.__isManualWarping) return;
                     window.sendRemoteNpcOption(1);
                 }, 350);
             }
 
             // Timeout 12 วินาที
             if (attempts >= 20) {
-                clearInterval(checkInterval);
+                clearInterval(window.__alicePollInterval);
+                window.__alicePollInterval = null;
                 console.warn('[Pelican Warp] ⚠️ Timeout รอเปิด Alice Warp Service -> ทำการเปิดแผนที่โลกสำรอง');
                 openWorldMap(() => {
                     if (callback) callback();
@@ -2587,8 +2720,19 @@
                             if (typeof confirmBtn.click === 'function') confirmBtn.click();
 
                             // รอให้หน้าต่าง Modal "ยืนยันการขาย" เด้งขึ้นมา แล้วกดปุ่ม "ยืนยันขาย" สีทอง
+                            if (window.__shopConfirmInterval) {
+                                clearInterval(window.__shopConfirmInterval);
+                                window.__shopConfirmInterval = null;
+                            }
+
                             let confirmAttempts = 0;
-                            const confirmPoll = setInterval(() => {
+                            window.__shopConfirmInterval = setInterval(() => {
+                                if (!window.__isBotRunning && !window.__isManualSelling) {
+                                    clearInterval(window.__shopConfirmInterval);
+                                    window.__shopConfirmInterval = null;
+                                    return;
+                                }
+
                                 confirmAttempts++;
 
                                 // 1. หาปุ่มที่มีคำว่า "ยืนยันขาย" โดยตรง
@@ -2615,7 +2759,8 @@
                                 }
 
                                 if (finalBtn) {
-                                    clearInterval(confirmPoll);
+                                    clearInterval(window.__shopConfirmInterval);
+                                    window.__shopConfirmInterval = null;
                                     console.log('%c[Pelican Shop] 💰 พบปุ่ม "ยืนยันขาย" สีทองตัวจริง กำลังกดยืนยัน...', 'color: #22c55e; font-weight: bold;', finalBtn);
                                     triggerClick(finalBtn);
                                     if (typeof finalBtn.click === 'function') finalBtn.click();
@@ -2624,6 +2769,7 @@
 
                                     // รอให้ Modal ปิดลงและระบบบันทึกเงิน Zeny จากนั้นสลับกลับไปแท็บ "ซื้อ"
                                     setTimeout(() => {
+                                        if (!window.__isBotRunning && !window.__isManualSelling) return;
                                         const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
                                             if (el.closest('#pelican-hud')) return false;
                                             return (el.innerText || '').trim() === 'ซื้อ' && (el.closest('.shop-window') || el.closest('[class*="shop"]') || el.offsetHeight > 0);
@@ -2639,7 +2785,8 @@
                                 }
 
                                 if (confirmAttempts >= 12) {
-                                    clearInterval(confirmPoll);
+                                    clearInterval(window.__shopConfirmInterval);
+                                    window.__shopConfirmInterval = null;
                                     console.warn('[Pelican Shop] ⚠️ หมดเวลารอปุ่มยืนยันขาย (Timeout)');
                                     const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
                                         if (el.closest('#pelican-hud')) return false;
@@ -2673,16 +2820,20 @@
     }
 
     window.testSellTrash = function() {
+        window.__isManualSelling = true;
         triggerAutoSellTrash(() => {
+            window.__isManualSelling = false;
             console.log('%c[Pelican Shop] ✅ ทดสอบขายไอเทมเสร็จสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
         });
     };
 
     function executeSellAndBuyActions(onComplete) {
+        if (!window.__isBotRunning && !window.__isManualSelling) return;
         console.log('%c[Pelican Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
 
         // 1. ดำเนินการขายขยะมอนสเตอร์ก่อน (ถ้าเปิดใช้งาน)
         triggerAutoSellTrash(() => {
+            if (!window.__isBotRunning && !window.__isManualSelling) return;
             const cfg = window.__archerConfig || {};
             const arrowId = parseInt(cfg.arrowType) || 0x00015fae;
             const arrowQty = parseInt(cfg.arrowBuyQty) || 200;
@@ -2702,12 +2853,14 @@
             // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
             if (cfg.useBwing) {
                 setTimeout(() => {
+                    if (!window.__isBotRunning && !window.__isManualSelling) return;
                     window.sendShopBuy(cfg.bwingItemId || 0x000160c7, parseInt(cfg.bwingBuyQty) || 5);
                 }, 350);
             }
 
             // 4. นำลูกธนูและ Butterfly Wing ใส่ช่องลัดด้านล่างอัตโนมัติ (เฉพาะเมื่อระบุช่อง)
             setTimeout(() => {
+                if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (cfg.requireArrow) {
                     if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
@@ -2726,6 +2879,7 @@
 
             // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
             setTimeout(() => {
+                if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (cfg.requireArrow) {
                     if (typeof window.equipArrowAndBow === 'function') {
                         window.equipArrowAndBow();
@@ -2737,6 +2891,7 @@
             }, 1400);
 
             setTimeout(() => {
+                if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (onComplete) onComplete();
             }, 2400);
         });
@@ -2788,10 +2943,23 @@
             let moveAttempts = 0;
             let lastPlayerPos = { x: 0, y: 0 };
 
-            const arrivalCheck = setInterval(() => {
+            if (window.__shopArrivalInterval) {
+                clearInterval(window.__shopArrivalInterval);
+                window.__shopArrivalInterval = null;
+            }
+
+            window.__shopArrivalInterval = setInterval(() => {
+                if (!window.__isBotRunning) {
+                    clearInterval(window.__shopArrivalInterval);
+                    window.__shopArrivalInterval = null;
+                    window.__isShopping = false;
+                    return;
+                }
+
                 // GUARD 5: ระหว่างเดินหา NPC ถ้าตัวละครตาย ให้ตัดจบ
                 if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-                    clearInterval(arrivalCheck);
+                    clearInterval(window.__shopArrivalInterval);
+                    window.__shopArrivalInterval = null;
                     console.error('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิตระหว่างเดินในเมือง! ยกเลิกทันที', 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                     return;
@@ -2803,7 +2971,8 @@
                 lastPlayerPos = { x: curPos.x, y: curPos.y };
 
                 if (isStationary && moveAttempts >= 3) {
-                    clearInterval(arrivalCheck);
+                    clearInterval(window.__shopArrivalInterval);
+                    window.__shopArrivalInterval = null;
 
                     // GUARD 6: ตรวจสอบเมืองอีกครั้งก่อนส่ง packet เปิดร้านค้า
                     if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
@@ -2816,13 +2985,17 @@
                     window.sendRemoteNpcTalk(targetNpc);
 
                     setTimeout(() => {
+                        if (!window.__isBotRunning) return;
                         window.sendRemoteNpcOption(0);
 
                         setTimeout(() => {
+                            if (!window.__isBotRunning) return;
                             executeSellAndBuyActions(() => {
+                                if (!window.__isBotRunning) return;
                                 window.sendNpcClose();
                                 console.log(`%c[Pelican Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
                                 setTimeout(() => {
+                                    if (!window.__isBotRunning) return;
                                     window.__isShopping = false;
                                     window.walkToTargetMap(currentFarmMap);
                                 }, 1000);
@@ -2833,7 +3006,8 @@
                 }
 
                 if (moveAttempts >= 45) {
-                    clearInterval(arrivalCheck);
+                    clearInterval(window.__shopArrivalInterval);
+                    window.__shopArrivalInterval = null;
                     console.error('[Pelican Shop] ❌ หมดเวลาเดินหา NPC (Timeout)');
                     window.__isShopping = false;
                 }
@@ -2852,13 +3026,26 @@
             console.log(`%c[Pelican Shop] ⚡ ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) -> กำลังใช้วาร์ป Butterfly Wing...`, 'color: #38bdf8; font-weight: bold;');
             window.useButterflyWing();
 
+            if (window.__shopWarpInterval) {
+                clearInterval(window.__shopWarpInterval);
+                window.__shopWarpInterval = null;
+            }
+
             let warpAttempts = 0;
-            const warpChecker = setInterval(() => {
+            window.__shopWarpInterval = setInterval(() => {
+                if (!window.__isBotRunning) {
+                    clearInterval(window.__shopWarpInterval);
+                    window.__shopWarpInterval = null;
+                    window.__isShopping = false;
+                    return;
+                }
+
                 warpAttempts++;
 
                 // เช็คว่าตัวละครตายหรือไม่ขณะรอวาร์ป
                 if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-                    clearInterval(warpChecker);
+                    clearInterval(window.__shopWarpInterval);
+                    window.__shopWarpInterval = null;
                     console.warn('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิตขณะพยายามวาร์ป! ยกเลิก Routine ร้านค้า', 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                     return;
@@ -2866,9 +3053,12 @@
 
                 // เช็คว่าถึงเมืองหลวงสำเร็จหรือยัง
                 if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-                    clearInterval(warpChecker);
+                    clearInterval(window.__shopWarpInterval);
+                    window.__shopWarpInterval = null;
                     console.log(`%c[Pelican Shop] 🏛️ วาร์ปถึงเมืองหลวง (${getCurrentMapName()}) สำเร็จ 100%! เตรียมเดินหา NPC...`, 'color: #22c55e; font-weight: bold;');
-                    setTimeout(startCityWalk, 1200);
+                    setTimeout(() => {
+                        if (window.__isBotRunning) startCityWalk();
+                    }, 1200);
                     return;
                 }
 
@@ -2877,7 +3067,8 @@
                     console.log(`%c[Pelican Shop] 🔄 ยังไม่ถึงเมืองหลวง (อยู่ที่ "${getCurrentMapName()}") กำลังใช้วาร์ปซ้ำ (${warpAttempts}/3)...`, 'color: #f59e0b;');
                     window.useButterflyWing();
                 } else {
-                    clearInterval(warpChecker);
+                    clearInterval(window.__shopWarpInterval);
+                    window.__shopWarpInterval = null;
                     console.error(`%c[Pelican Shop Guard] ❌ วาร์ปกลับเมืองไม่สำเร็จหลังจากลอง 3 ครั้ง (แมพยังคงเป็น "${getCurrentMapName()}")! ยกเลิก Routine ร้านค้าทั้งหมด เพื่อป้องกันการซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                 }
@@ -2934,11 +3125,23 @@
 
         dispatchKeyAll('m', 'KeyM', 77);
 
+        if (window.__worldMapPollInterval) {
+            clearInterval(window.__worldMapPollInterval);
+            window.__worldMapPollInterval = null;
+        }
+
         let attempts = 0;
-        const poll = setInterval(() => {
+        window.__worldMapPollInterval = setInterval(() => {
+            if (!window.__isBotRunning && !window.__isNavigating) {
+                clearInterval(window.__worldMapPollInterval);
+                window.__worldMapPollInterval = null;
+                return;
+            }
+
             attempts++;
             if (isWorldMapOpen()) {
-                clearInterval(poll);
+                clearInterval(window.__worldMapPollInterval);
+                window.__worldMapPollInterval = null;
                 console.log('%c[Pelican] ✅ หน้าต่างแผนที่โลกเปิดสำเร็จ!', 'color: #22c55e;');
                 setTimeout(() => { if (callback) callback(); }, 350);
                 return;
@@ -2951,7 +3154,8 @@
             }
 
             if (attempts >= 16) {
-                clearInterval(poll);
+                clearInterval(window.__worldMapPollInterval);
+                window.__worldMapPollInterval = null;
                 console.error('[Pelican] ❌ เปิดแผนที่โลกไม่สำเร็จ');
                 window.__isNavigating = false;
                 window.__isRecovering = false;
@@ -3090,16 +3294,32 @@
 
                 const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
 
+                if (window.__walkClickInterval) {
+                    clearInterval(window.__walkClickInterval);
+                    window.__walkClickInterval = null;
+                }
+
                 let walkTries = 0;
-                const walkInterval = setInterval(() => {
+                window.__walkClickInterval = setInterval(() => {
+                    if (!window.__isBotRunning && !window.__isNavigating) {
+                        clearInterval(window.__walkClickInterval);
+                        window.__walkClickInterval = null;
+                        return;
+                    }
+
                     walkTries++;
                     if (clickWalkButton() || walkTries >= 8) {
-                        clearInterval(walkInterval);
+                        clearInterval(window.__walkClickInterval);
+                        window.__walkClickInterval = null;
                     }
                 }, 300);
 
                 if (mapId && typeof window.sendNpcWarp === 'function') {
-                    setTimeout(() => window.sendNpcWarp(mapId), 500);
+                    setTimeout(() => {
+                        if (window.__isBotRunning || window.__isNavigating) {
+                            window.sendNpcWarp(mapId);
+                        }
+                    }, 500);
                 }
             } else if (retries > 0) {
                 setTimeout(() => clickMapPin(retries - 1), 400);
@@ -3135,6 +3355,12 @@
         stopArrivalWatcher();
         console.log(`%c[Pelican] 📡 เริ่มต้นระบบตรวจจับการถึงแมพ: "${targetMap}"`, 'color: #38bdf8;');
         window.__arrivalWatcherInterval = setInterval(() => {
+            if (!window.__isBotRunning && !window.__isNavigating) {
+                stopArrivalWatcher();
+                window.__isNavigating = false;
+                return;
+            }
+
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
                 stopArrivalWatcher();
                 window.__isNavigating = false;
@@ -3146,7 +3372,9 @@
                 stopArrivalWatcher();
                 console.log(`%c[Pelican] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
                 setTimeout(() => {
-                    window.startBot();
+                    if (window.__isBotRunning) {
+                        window.startBot();
+                    }
                     window.__isNavigating = false;
                     window.__isRecovering = false;
                 }, 1500);
@@ -3190,8 +3418,24 @@
     // ==========================================
     // 6. Watchdog Loop
     // ==========================================
+    let lastAutoActivateAttempt = 0;
+
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping) return;
+
+        const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
+        const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
+
+        // ตรวจสอบสถานะปุ่ม AUTO ในเกม (In-Game AUTO State Monitor)
+        // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
+        if (!inCity && !isDead && !window.__isNavigating && !window.__isShopping && !window.__isRecovering) {
+            const autoStatus = getInGameAutoStatus();
+            if (autoStatus === 'off' && (Date.now() - lastAutoActivateAttempt > 1500)) {
+                lastAutoActivateAttempt = Date.now();
+                console.log('%c[Pelican Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") -> สั่งกดเปิด AUTO ทันที!', 'color: #f59e0b; font-weight: bold;');
+                window.activateInGameAuto();
+            }
+        }
 
         // ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter (วาร์ปซื้อเมื่อเหลือ <= 50 ดอก)
         if (window.__archerConfig && window.__archerConfig.requireArrow) {
@@ -3240,8 +3484,6 @@
             }
         }
 
-        const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
-
         if (isDead) {
             console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
             window.__isRecovering = true;
@@ -3265,7 +3507,7 @@
                 window.walkToTargetMap(window.__targetFarmMap);
             }, 4000);
         }
-    }, 2000);
+    }, 1000);
 
     // ==========================================
     // 7. GUI HUD
