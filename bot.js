@@ -23,6 +23,8 @@
     window.__packetLogs = [];
     window.__outgoingLogs = [];
     window.__latestInventory = null;
+    window.__serverWeight = null;
+    window.__isKnownOverweight = false;
     window.__debugSnifferEnabled = false;
 
     // Config & Map Name Migration
@@ -1231,12 +1233,23 @@
             }
 
             // Method 3: Global body search
-            const bodyMatch = (document.body.innerText || '').match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+            const bodyMatch = (document.body.innerText || '').match(/(?:น้ำหนัก|Weight)[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/i);
             if (bodyMatch) {
                 const current = parseFloat(bodyMatch[1].replace(/,/g, ''));
                 const max = parseFloat(bodyMatch[2].replace(/,/g, ''));
                 if (max > 0) {
                     const res = { current, max, percent: Math.round((current / max) * 1000) / 10 };
+                    updateWeightHUD(res);
+                    return res;
+                }
+            }
+
+            // Method 4: Percentage search (e.g. "น้ำหนัก 92%")
+            const percentMatch = (document.body.innerText || '').match(/(?:น้ำหนัก|Weight)[^\d]*(\d+(?:\.\d+)?)%/i);
+            if (percentMatch) {
+                const p = parseFloat(percentMatch[1]);
+                if (p > 0) {
+                    const res = { current: p, max: 100, percent: p };
                     updateWeightHUD(res);
                     return res;
                 }
@@ -1260,15 +1273,54 @@
     setInterval(getCharacterWeight, 1500);
 
     function isCharacterOverweight() {
-        const bodyText = document.body.innerText || '';
-        if (bodyText.includes('กระเป๋าหนักเกิน 90%') || bodyText.includes('น้ำหนักเกิน 90%')) {
+        if (window.__isKnownOverweight) {
             return true;
         }
+
+        // 1. ตรวจสอบข้อความแจ้งเตือนน้ำหนักเกินบนหน้าจอ / Toast / Modal
+        const bodyText = document.body.innerText || '';
+        const overweightKeywords = [
+            'กระเป๋าหนักเกิน 90%',
+            'น้ำหนักเกิน 90%',
+            'หนักเกิน 90%',
+            'เกิน 90%',
+            'น้ำหนักเกิน',
+            'กระเป๋าหนักเกิน',
+            'กระเป๋าเต็ม',
+            'สัมภาระเต็ม',
+            'น้ำหนักสัมภาระเกิน',
+            'ไม่สามารถเปิดระบบอัตโนมัติ',
+            'ไม่สามารถเปิด AUTO',
+            'น้ำหนักเกินกำหนด',
+            'แบกของหนักเกินไป',
+            'Overweight',
+            'overweight',
+            'Weight limit',
+            'Inventory is full'
+        ];
+        for (const kw of overweightKeywords) {
+            if (bodyText.includes(kw)) {
+                return true;
+            }
+        }
+
+        // 2. ตรวจสอบข้อมูลน้ำหนักจาก Memory/Packet ถ้ามี
+        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number') {
+            const cfg = window.__sellConfig || {};
+            const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
+            if (window.__serverWeight.percent >= threshold || window.__serverWeight.percent >= 90) {
+                return true;
+            }
+        }
+
+        // 3. ตรวจสอบข้อมูลน้ำหนักจาก DOM
         const w = getCharacterWeight();
         const cfg = window.__sellConfig || {};
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
-        if (w && w.percent >= threshold) {
-            return true;
+        if (w && typeof w.percent === 'number') {
+            if (w.percent >= threshold || w.percent >= 90) {
+                return true;
+            }
         }
         return false;
     }
@@ -1383,6 +1435,16 @@
                                 }
 
                                 inspectObject(dec);
+
+                                // Detect weight if present in dec
+                                try {
+                                    const curW = dec.curWeight ?? dec.cur_weight ?? dec.weight ?? dec.currentWeight;
+                                    const maxW = dec.maxWeight ?? dec.max_weight ?? dec.weightMax ?? dec.totalWeight;
+                                    if (typeof curW === 'number' && typeof maxW === 'number' && maxW > 0) {
+                                        window.__serverWeight = { current: curW, max: maxW, percent: Math.round((curW / maxW) * 1000) / 10 };
+                                        updateWeightHUD(window.__serverWeight);
+                                    }
+                                } catch(e) {}
 
                                 const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
                                 if (hasInventoryList) {
@@ -1711,6 +1773,15 @@
             return;
         }
 
+        // GUARD: ตรวจสอบน้ำหนักเกิน 90% หรือกระเป๋าเต็ม
+        if (!force && typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+            console.warn('%c[Pelican Auto] 🛑 ไม่สามารถเปิด AUTO ได้ เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90%! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+            if (typeof window.executeAutoShopRoutine === 'function') {
+                window.executeAutoShopRoutine();
+            }
+            return;
+        }
+
         console.log('%c[Pelican Auto] 🤖 กำลังคลิกเปิด In-Game AUTO...', 'color: #22c55e; font-weight: bold;');
 
         if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
@@ -1806,15 +1877,10 @@
         }
 
         // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
-        const weightCfg = window.__sellConfig || {};
-        if (weightCfg.weightCheckEnabled) {
-            const weightInfo = getCharacterWeight();
-            const wThreshold = typeof weightCfg.weightThreshold === 'number' ? weightCfg.weightThreshold : 80;
-            if (weightInfo && weightInfo.percent >= wThreshold) {
-                console.log(`%c[Pelican Master] ⚖️ น้ำหนักเกินกำหนด (${weightInfo.percent}% >= ${wThreshold}% | ${weightInfo.current}/${weightInfo.max})! เริ่มต้นกระบวนการขายของและเติมเสบียงทันที...`, 'color: #f59e0b; font-weight: bold;');
-                window.executeAutoShopRoutine();
-                return;
-            }
+        if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+            console.log('%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (>= 90%)! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...', 'color: #ef4444; font-weight: bold;');
+            window.executeAutoShopRoutine();
+            return;
         }
 
         // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
@@ -1824,6 +1890,11 @@
 
         // Case A: ตัวละครอยู่ที่แมพเป้าหมายแล้ว!
         if (currentMap && currentMap.includes(targetMap)) {
+            if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+                console.log('%c[Pelican Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                window.executeAutoShopRoutine();
+                return;
+            }
             console.log(`%c[Pelican Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
             window.activateInGameAuto();
             return;
@@ -2997,6 +3068,7 @@
                                 setTimeout(() => {
                                     if (!window.__isBotRunning) return;
                                     window.__isShopping = false;
+                                    window.__isKnownOverweight = false;
                                     window.walkToTargetMap(currentFarmMap);
                                 }, 1000);
                             });
@@ -3017,7 +3089,8 @@
         // GUARD 7: วาร์ปกลับเมืองหลวง (Bwing Guard)
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
         if (!inCity) {
-            if (!window.__archerConfig || !window.__archerConfig.useBwing) {
+            const allowWarp = (window.__archerConfig && window.__archerConfig.useBwing) || (typeof isCharacterOverweight === 'function' && isCharacterOverweight());
+            if (!allowWarp) {
                 console.warn(`%c[Pelican Shop Guard] 🛑 ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) และไม่ได้เปิดใช้งาน Butterfly Wing -> ยกเลิก Routine ร้านค้า!`, 'color: #ef4444; font-weight: bold;');
                 window.__isShopping = false;
                 return;
@@ -3373,7 +3446,12 @@
                 console.log(`%c[Pelican] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
                 setTimeout(() => {
                     if (window.__isBotRunning) {
-                        window.startBot();
+                        if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+                            console.warn('%c[Pelican] ⚖️ ถึงแมพฟาร์มแล้วแต่น้ำหนักเต็มหรือเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                            window.executeAutoShopRoutine();
+                        } else {
+                            window.startBot();
+                        }
                     }
                     window.__isNavigating = false;
                     window.__isRecovering = false;
@@ -3419,6 +3497,7 @@
     // 6. Watchdog Loop
     // ==========================================
     let lastAutoActivateAttempt = 0;
+    let autoActivateFailCount = 0;
 
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping) return;
@@ -3426,19 +3505,48 @@
         const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
 
-        // ตรวจสอบสถานะปุ่ม AUTO ในเกม (In-Game AUTO State Monitor)
-        // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
-        if (!inCity && !isDead && !window.__isNavigating && !window.__isShopping && !window.__isRecovering) {
-            const autoStatus = getInGameAutoStatus();
-            if (autoStatus === 'off' && (Date.now() - lastAutoActivateAttempt > 1500)) {
-                lastAutoActivateAttempt = Date.now();
-                console.log('%c[Pelican Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") -> สั่งกดเปิด AUTO ทันที!', 'color: #f59e0b; font-weight: bold;');
-                window.activateInGameAuto();
+        // 1. ตรวจจับการเสียชีวิต (Dead Check)
+        if (isDead) {
+            console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
+            window.__isRecovering = true;
+            autoActivateFailCount = 0;
+
+            // ส่ง Packet ชุบชีวิต
+            if (typeof window.sendRespawn === 'function') {
+                window.sendRespawn();
             }
+
+            // คลิกปุ่มฟื้นคืนชีพบน Modal (เช่น "ฟื้นที่จุดเกิด")
+            try {
+                const respawnBtns = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
+                    if (el.closest('#pelican-hud') || el.closest('[class*="chat"]') || el.closest('.chat-log') || el.closest('.worldmap-window')) return false;
+                    const txt = (el.innerText || '').trim();
+                    return (txt === 'ฟื้นที่จุดเกิด' || txt === 'ฟื้นคืนชีพ' || txt === 'ฟื้นอัตโนมัติ') && el.offsetWidth > 0 && el.offsetHeight > 0;
+                });
+                if (respawnBtns[0]) triggerClick(respawnBtns[0]);
+            } catch(e) {}
+
+            setTimeout(() => { window.__isRecovering = false; }, 30000);
+
+            setTimeout(() => {
+                window.walkToTargetMap(window.__targetFarmMap);
+            }, 4000);
+            return;
         }
 
-        // ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter (วาร์ปซื้อเมื่อเหลือ <= 50 ดอก)
-        if (window.__archerConfig && window.__archerConfig.requireArrow) {
+        // 2. ถ้ากำลังเดินทางข้ามแมพ ให้รอเดินทางเสร็จก่อน
+        if (window.__isNavigating) return;
+
+        // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คเป็นอันดับแรกก่อนสั่ง AUTO!
+        if (!inCity && typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+            console.warn('%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...', 'color: #ef4444; font-weight: bold;');
+            autoActivateFailCount = 0;
+            window.executeAutoShopRoutine();
+            return;
+        }
+
+        // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter
+        if (window.__archerConfig && window.__archerConfig.requireArrow && !inCity) {
             const threshold = typeof window.__archerConfig.ammoThreshold === 'number' ? window.__archerConfig.ammoThreshold : 50;
 
             // ซิงก์จำนวนล่าสุดจาก DOM ก่อนตัดสินใจ
@@ -3461,51 +3569,46 @@
                 window.__currentAmmo = 0;
                 localStorage.setItem('pelican_current_ammo', 0);
                 updateAmmoHUD();
+                autoActivateFailCount = 0;
                 window.executeAutoShopRoutine();
                 return;
             }
 
             if (typeof window.__currentAmmo === 'number' && window.__currentAmmo <= threshold) {
                 console.log(`%c[Pelican Archer] 🏹 ลูกธนูหมดหรือเหลือน้อย (${window.__currentAmmo} <= ${threshold} ดอก) -> สั่งวาร์ปกลับไปซื้อทันที!`, 'color: #ef4444; font-weight: bold;');
+                autoActivateFailCount = 0;
                 window.executeAutoShopRoutine();
                 return;
             }
-
-            // ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
-            const sellCfg = window.__sellConfig || {};
-            if (sellCfg.weightCheckEnabled && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
-                const wInfo = getCharacterWeight();
-                const wThreshold = typeof sellCfg.weightThreshold === 'number' ? sellCfg.weightThreshold : 80;
-                if (wInfo && wInfo.percent >= wThreshold) {
-                    console.log(`%c[Pelican Weight] ⚖️ น้ำหนักเกินกำหนด (${wInfo.percent}% >= ${wThreshold}% | ${wInfo.current}/${wInfo.max}) -> สั่งวาร์ปกลับไปขายของและเติมลูกธนูทันที!`, 'color: #f59e0b; font-weight: bold;');
-                    window.executeAutoShopRoutine();
-                    return;
-                }
-            }
         }
 
-        if (isDead) {
-            console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
-            window.__isRecovering = true;
+        // 5. ตรวจสอบสถานะปุ่ม AUTO ในเกม (In-Game AUTO State Monitor)
+        // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
+        if (!inCity) {
+            const autoStatus = getInGameAutoStatus();
+            if (autoStatus === 'on') {
+                // AUTO กำลังทำงานปกติ รีเซ็ตตัวนับความล้มเหลว
+                autoActivateFailCount = 0;
+                window.__isKnownOverweight = false;
+            } else if (autoStatus === 'off') {
+                if (Date.now() - lastAutoActivateAttempt > 1500) {
+                    lastAutoActivateAttempt = Date.now();
 
-            // 1. ส่ง Packet ชุบชีวิต
-            window.sendRespawn();
+                    // FAIL-SAFE: ถ้ากดเปิด AUTO ไปแล้ว 3 ครั้ง แต่สถานะยังคงเป็น "off" ตลอด
+                    // แสดงว่าตัวเกมบล็อคไม่ให้เปิด AUTO เพราะน้ำหนักในกระเป๋าเต็มหรือเกิน 90%!
+                    if (autoActivateFailCount >= 3) {
+                        console.error('%c[Pelican Watchdog] 🛑 กดเปิด AUTO ไม่สำเร็จ 3 ครั้งติดต่อกัน! ตัวเกมล็อค AUTO เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90% -> สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
+                        autoActivateFailCount = 0;
+                        window.__isKnownOverweight = true;
+                        window.executeAutoShopRoutine();
+                        return;
+                    }
 
-            // 2. คลิกปุ่มฟื้นคืนชีพบน Modal (เช่น "ฟื้นที่จุดเกิด")
-            try {
-                const respawnBtns = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
-                    if (el.closest('#pelican-hud') || el.closest('[class*="chat"]') || el.closest('.chat-log') || el.closest('.worldmap-window')) return false;
-                    const txt = (el.innerText || '').trim();
-                    return (txt === 'ฟื้นที่จุดเกิด' || txt === 'ฟื้นคืนชีพ' || txt === 'ฟื้นอัตโนมัติ') && el.offsetWidth > 0 && el.offsetHeight > 0;
-                });
-                if (respawnBtns[0]) triggerClick(respawnBtns[0]);
-            } catch(e) {}
-
-            setTimeout(() => { window.__isRecovering = false; }, 30000);
-
-            setTimeout(() => {
-                window.walkToTargetMap(window.__targetFarmMap);
-            }, 4000);
+                    autoActivateFailCount++;
+                    console.log(`%c[Pelican Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") [ครั้งที่ ${autoActivateFailCount}/3] -> สั่งกดเปิด AUTO ทันที!`, 'color: #f59e0b; font-weight: bold;');
+                    window.activateInGameAuto();
+                }
+            }
         }
     }, 1000);
 
