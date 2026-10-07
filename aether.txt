@@ -2569,30 +2569,15 @@
             return false;
         }
 
-        function getItemRarity(rowText, titleEl, row) {
+        function getItemRarity(itemName, rowText, titleEl, row) {
             const fullText = [
+                itemName || '',
                 titleEl ? (titleEl.innerText || titleEl.textContent || '') : '',
                 row ? (row.innerText || row.textContent || '') : '',
                 rowText || ''
             ].join(' ').toLowerCase();
 
-            // 1. ตรวจสอบจำนวน Option ก่อนเป็นอันดับแรก (เพราะใน Aetheria: 0 ออฟ = ขาว, 1 ออฟ = เขียว, 2 ออฟ = ฟ้า, 3 ออฟ = ม่วง, 4+ ออฟ = ส้ม)
-            const optCount = parseOptionCount(fullText);
-            if (optCount !== null) {
-                if (optCount >= 4) return 5; // ตำนาน (Legendary - สีส้ม/ทอง)
-                if (optCount === 3) return 4; // มหากาพย์ (Epic - สีม่วง)
-                if (optCount === 2) return 3; // หายาก (Rare - สีฟ้า)
-                if (optCount === 1) return 2; // ดี (Good - สีเขียว)
-                if (optCount === 0) {
-                    // ถ้า 0 Option ชัดเจน แต่ข้อความระบุระดับสูงไว้
-                    if (fullText.includes('ตำนาน') || fullText.includes('legendary')) return 5;
-                    if (fullText.includes('มหากาพย์') || fullText.includes('epic')) return 4;
-                    if (fullText.includes('หายาก') || fullText.includes('rare')) return 3;
-                    return 1; // ขาวธรรมดา 0 Option
-                }
-            }
-
-            // 2. ตรวจสอบข้อความระดับ Rarity ภาษาไทย / อังกฤษ
+            // 1. ตรวจสอบข้อความระดับ Rarity ภาษาไทย / อังกฤษ โดยตรงเป็นอันดับแรก (ป้องกันของหายาก/มหากาพย์/ตำนาน หลุดรอด 100%)
             if (fullText.includes('ตำนาน') || fullText.includes('legendary')) return 5;
             if (fullText.includes('มหากาพย์') || fullText.includes('epic')) return 4;
             if (fullText.includes('หายาก') || fullText.includes('rare')) return 3;
@@ -2601,8 +2586,18 @@
                 fullText.includes('good') || fullText.includes('ชำนาญ') || fullText.includes('ขั้นดี')) return 2;
             if (fullText.includes('ธรรมดา') || fullText.includes('ทั่วไป') || fullText.includes('common') || fullText.includes('normal')) {
                 // ถ้ามีข้อความธรรมดาแต่มี Option ให้ยึดตาม Option (อย่างน้อยเขียว)
-                if (hasOptions(fullText, row)) return 2;
+                if (hasOptions(rowText, row)) return 2;
                 return 1;
+            }
+
+            // 2. ตรวจสอบจำนวน Option
+            const optCount = parseOptionCount(fullText);
+            if (optCount !== null) {
+                if (optCount >= 4) return 5; // ตำนาน (Legendary - สีส้ม/ทอง)
+                if (optCount === 3) return 4; // มหากาพย์ (Epic - สีม่วง)
+                if (optCount === 2) return 3; // หายาก (Rare - สีฟ้า)
+                if (optCount === 1) return 2; // ดี (Good - สีเขียว)
+                if (optCount === 0) return 1; // ขาวธรรมดา 0 Option
             }
 
             // 3. ตรวจสอบ Class name ของ Row และ Sub-elements (Tailwind, CSS classes)
@@ -2671,7 +2666,7 @@
             }
 
             // 5. ถ้ามี Option ปรากฏในแถวแต่ตรวจนับไม่ได้ชัดเจน ให้ถือเป็นระดับอย่างน้อย "ดี (เขียว)"
-            if (hasOptions(fullText, row)) {
+            if (hasOptions(rowText, row)) {
                 return 2;
             }
 
@@ -2869,7 +2864,7 @@
                         }
 
                         // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
-                        const rarityRank = getItemRarity(rowText, titleEl, row);
+                        const rarityRank = getItemRarity(itemName, rowText, titleEl, row);
                         const rankMap = {
                             'normal': 1, 'common': 1,
                             'good': 2, 'magic': 2,
@@ -2915,8 +2910,9 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม
-                        if (sellCfg.keepSpecial && hasOptions(rowText, row)) {
+                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม (เฉพาะเมื่อผู้เล่นเลือกขายระดับขาวธรรมดา maxRank === 1)
+                        // หากผู้เล่นเลือกขายระดับ "ดี (เขียวลงไป)" ขึ้นไป (maxRank >= 2) ย่อมต้องการขายของระดับดีที่มี Option ได้
+                        if (sellCfg.keepSpecial && maxRank === 1 && hasOptions(rowText, row)) {
                             console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}"`);
                             return;
                         }
