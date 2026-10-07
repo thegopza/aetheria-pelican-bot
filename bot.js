@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Aetheria Pelican Control Hub v4.2.0 (Auto-Sell Whitelist & True-Ammo Sync)
+// @name         Aetheria Pelican Control Hub v4.2.1 (Auto-Sort Bag & Weight Auto-Sync 24/7)
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.2.0
-// @description  Full Packet Hex Dump, Minimap Direct Map Opener, WASD Backflip, Auto Shop, Auto-Sell Whitelist & True-Ammo Sync 24/7
+// @version      4.2.1
+// @description  Full Packet Hex Dump, Minimap Direct Map Opener, WASD Backflip, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
 // @grant        none
@@ -12,7 +12,7 @@
 (function () {
     'use strict';
 
-    console.log('%c[Pelican] Control Hub v4.2.0 (Auto-Sell Whitelist & True-Ammo Sync 24/7) Ready', 'color: #00ffcc; font-weight: bold; font-size: 14px;');
+    console.log('%c[Pelican] Control Hub v4.2.1 (Auto-Sort Bag & Weight Auto-Sync 24/7) Ready', 'color: #00ffcc; font-weight: bold; font-size: 14px;');
 
     window.__gameSocket = null;
     window.__lastMoveToken = null;
@@ -1293,7 +1293,8 @@
                 for (const el of nodes) {
                     const searchTargets = [el, el.parentElement, el.parentElement?.parentElement].filter(Boolean);
                     for (const target of searchTargets) {
-                        const m = (target.textContent || '').match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                        const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                        const m = cleanTxt.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
                         if (m) {
                             const cur = parseFloat(m[1].replace(/,/g, ''));
                             const max = parseFloat(m[2].replace(/,/g, ''));
@@ -1307,17 +1308,17 @@
                     }
                 }
 
-                // ค้นหาตัวเลข x / y ที่อยู่ใน footer กระเป๋า เช่น "7,030.9/7,060"
+                // ค้นหาตัวเลข x / y ที่อยู่ใน footer กระเป๋า เช่น "4,366/5,030" หรือ "7,030.9/7,060"
                 const slashEls = Array.from(modal.querySelectorAll('*')).filter(el => {
-                    return isValidNonBotElement(el) && el.children.length === 0 && (el.textContent || '').includes('/');
+                    return isValidNonBotElement(el) && el.children.length <= 1 && (el.textContent || '').includes('/');
                 });
                 for (const el of slashEls) {
-                    const txt = (el.textContent || '').trim();
-                    const m = txt.match(/^([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)$/);
+                    const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ').trim();
+                    const m = txt.match(/^([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)$/) || txt.match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
                     if (m) {
                         const cur = parseFloat(m[1].replace(/,/g, ''));
                         const max = parseFloat(m[2].replace(/,/g, ''));
-                        if (max >= 500 && cur <= max * 2) {
+                        if (max >= 500 && cur <= max * 3) {
                             const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             window.__lastKnownWeight = res;
                             updateWeightHUD(res);
@@ -1334,7 +1335,8 @@
                 return txt.includes('น้ำหนัก') && txt.includes('/');
             });
             for (const el of allCandidates) {
-                const match = el.textContent.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                const clean = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                const match = clean.match(/น้ำหนัก[^\d]*([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
                 if (match) {
                     const cur = parseFloat(match[1].replace(/,/g, ''));
                     const max = parseFloat(match[2].replace(/,/g, ''));
@@ -1365,17 +1367,51 @@
 
     function updateWeightHUD(w) {
         const el = document.getElementById('p-cur-weight-val');
+        const quickWeightEl = document.getElementById('p-quick-weight');
+        const bannerEl = document.getElementById('p-weight-alert-banner');
+        const slots = getBagSlots();
+        const slotStr = slots ? ` | ช่อง: ${slots.current}/${slots.max}` : '';
+
+        const thresh = window.__sellConfig?.weightThreshold || 80;
+        const isOver = (w && typeof w.percent === 'number' && w.percent >= thresh) || window.__isKnownOverweight;
+
         if (el) {
-            const slots = getBagSlots();
-            const slotStr = slots ? ` | ช่อง: ${slots.current}/${slots.max}` : '';
             if (w) {
-                const color = w.percent >= 85 ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
+                const color = isOver ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
                 el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)${slotStr}</span>`;
             } else if (slots) {
                 const color = slots.percent >= 90 ? '#ef4444' : '#00ffcc';
                 el.innerHTML = `<span style="color: ${color}; font-weight: bold;">ช่อง: ${slots.current}/${slots.max} (${slots.percent}%)</span>`;
             } else {
                 el.innerHTML = '<span style="color: #64748b;">-- / --</span>';
+            }
+        }
+
+        if (quickWeightEl) {
+            if (w && typeof w.percent === 'number') {
+                quickWeightEl.innerText = `⚖️ ${w.percent}%`;
+                if (isOver) {
+                    quickWeightEl.style.background = 'rgba(239, 68, 68, 0.3)';
+                    quickWeightEl.style.borderColor = '#ef4444';
+                    quickWeightEl.style.color = '#ef4444';
+                } else if (w.percent >= 70) {
+                    quickWeightEl.style.background = 'rgba(245, 158, 11, 0.2)';
+                    quickWeightEl.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                    quickWeightEl.style.color = '#f59e0b';
+                } else {
+                    quickWeightEl.style.background = 'rgba(56, 189, 248, 0.2)';
+                    quickWeightEl.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+                    quickWeightEl.style.color = '#38bdf8';
+                }
+            }
+        }
+
+        if (bannerEl) {
+            if (isOver && w) {
+                bannerEl.style.display = 'block';
+                bannerEl.innerHTML = `⚠️ <b>น้ำหนักเกินเกณฑ์!</b> (${w.percent}% >= ${thresh}%) บอทจะนำทางไปขายของ`;
+            } else {
+                bannerEl.style.display = 'none';
             }
         }
     }
@@ -1466,7 +1502,118 @@
 
     window.pressKey = function(keyStr) {
         const charCode = keyStr.charCodeAt(0);
-        dispatchKeyAll(keyStr, 'Digit' + keyStr, charCode);
+        if (keyStr.toLowerCase() === 'b') {
+            dispatchKeyAll('b', 'KeyB', 66);
+        } else {
+            dispatchKeyAll(keyStr, 'Digit' + keyStr, charCode);
+        }
+    };
+
+    function playWarningChime() {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.35);
+            gain.gain.setValueAtTime(0.25, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.35);
+        } catch(e) {}
+    }
+
+    window.clickSortBag = function() {
+        try {
+            const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
+            let targetBtn = null;
+
+            for (const modal of bagModals) {
+                const candidates = Array.from(modal.querySelectorAll('button, div[role="button"], a, span, div')).filter(el => {
+                    if (!isValidNonBotElement(el)) return false;
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    return txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort' || txt.includes('จัดเรียง');
+                });
+                if (candidates.length > 0) {
+                    targetBtn = candidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || candidates[0];
+                    break;
+                }
+            }
+
+            if (!targetBtn) {
+                const allCandidates = Array.from(document.querySelectorAll('button, div[role="button"], a, span, div')).filter(el => {
+                    if (!isValidNonBotElement(el) || el.closest('#pelican-hud')) return false;
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    return txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort';
+                });
+                if (allCandidates.length > 0) {
+                    targetBtn = allCandidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || allCandidates[0];
+                }
+            }
+
+            if (targetBtn) {
+                triggerClick(targetBtn);
+                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                return true;
+            } else {
+                console.warn('[Pelican Inventory] ⚠️ ไม่พบปุ่ม "จัดเรียง" บนหน้าจอ');
+                return false;
+            }
+        } catch(err) {
+            console.error('[Pelican Inventory] เกิดข้อผิดพลาดในการคลิกปุ่มจัดเรียง:', err);
+            return false;
+        }
+    };
+
+    window.__isRefreshingWeight = false;
+
+    window.refreshInventoryAndWeight = function(callback) {
+        if (window.__isRefreshingWeight) {
+            if (typeof callback === 'function') {
+                const curW = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
+                callback(curW);
+            }
+            return;
+        }
+
+        window.__isRefreshingWeight = true;
+
+        const bagModals = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).filter(isValidNonBotElement);
+        const isBagOpen = bagModals.some(modal => {
+            const txt = modal.textContent || '';
+            return (txt.includes('กระเป๋า') || txt.includes('Inventory')) && modal.offsetWidth > 0 && modal.offsetHeight > 0;
+        });
+
+        if (isBagOpen) {
+            window.clickSortBag();
+            setTimeout(() => {
+                const w = getCharacterWeight();
+                window.__isRefreshingWeight = false;
+                if (typeof callback === 'function') callback(w);
+            }, 250);
+        } else {
+            console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋า (B) เพื่อกด "จัดเรียง" และซิงก์น้ำหนักที่แท้จริง...', 'color: #38bdf8;');
+            dispatchKeyAll('b', 'KeyB', 66);
+
+            setTimeout(() => {
+                window.clickSortBag();
+
+                setTimeout(() => {
+                    const w = getCharacterWeight();
+                    dispatchKeyAll('b', 'KeyB', 66);
+                    window.__isRefreshingWeight = false;
+                    if (w) {
+                        console.log(`%c[Pelican Inventory] ✅ อัปเดตน้ำหนักสำเร็จ: ${w.current.toLocaleString()}/${w.max.toLocaleString()} (${w.percent}%)`, 'color: #22c55e; font-weight: bold;');
+                    }
+                    if (typeof callback === 'function') callback(w);
+                }, 250);
+            }, 300);
+        }
     };
 
     // ==========================================
@@ -1984,55 +2131,70 @@
             return;
         }
 
-        // 2. ตรวจสอบลูกธนูและเสบียง (Ammo Check)
-        if (typeof syncAmmoFromDOM === 'function') syncAmmoFromDOM();
-        const requireArrow = window.__archerConfig && window.__archerConfig.requireArrow;
-        const threshold = (window.__archerConfig && typeof window.__archerConfig.ammoThreshold === 'number') ? window.__archerConfig.ammoThreshold : 50;
-        const currentAmmo = typeof window.__currentAmmo === 'number' ? window.__currentAmmo : 999;
+        function continueStart() {
+            if (!window.__isBotRunning) return;
 
-        if (requireArrow && currentAmmo <= threshold) {
-            console.log(`%c[Pelican Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
-            window.executeAutoShopRoutine();
-            return;
-        }
+            // 2. ตรวจสอบลูกธนูและเสบียง (Ammo Check)
+            if (typeof syncAmmoFromDOM === 'function') syncAmmoFromDOM();
+            const requireArrow = window.__archerConfig && window.__archerConfig.requireArrow;
+            const threshold = (window.__archerConfig && typeof window.__archerConfig.ammoThreshold === 'number') ? window.__archerConfig.ammoThreshold : 50;
+            const currentAmmo = typeof window.__currentAmmo === 'number' ? window.__currentAmmo : 999;
 
-        // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
-        if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-            const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
-            const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
-            const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
-            console.log(`%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
-            window.executeAutoShopRoutine();
-            return;
-        }
-
-        // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
-        const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-        const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
-        console.log(`%c[Pelican Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
-
-        // Case A: ตัวละครอยู่ที่แมพเป้าหมายแล้ว!
-        if (currentMap && currentMap.includes(targetMap)) {
-            if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-                console.log('%c[Pelican Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+            if (requireArrow && currentAmmo <= threshold) {
+                console.log(`%c[Pelican Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
                 window.executeAutoShopRoutine();
                 return;
             }
-            console.log(`%c[Pelican Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
-            window.activateInGameAuto();
-            return;
-        }
 
-        // Case B: ตัวละครอยู่ในเมืองหลวง (Soulhaven) -> วาร์ปผ่าน Alice Service (n6)
-        if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-            console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> ใช้วาร์ปเกตด่วน NPC Alice เพื่อไปยัง "${targetMap}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
+            // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+            if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+                const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
+                const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
+                const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
+                console.warn(`%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+                if (typeof playWarningChime === 'function') playWarningChime();
+                window.executeAutoShopRoutine();
+                return;
+            }
+
+            // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
+            const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+            const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+            console.log(`%c[Pelican Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
+
+            // Case A: ตัวละครอยู่ที่แมพเป้าหมายแล้ว!
+            if (currentMap && currentMap.includes(targetMap)) {
+                if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+                    console.warn('%c[Pelican Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                    if (typeof playWarningChime === 'function') playWarningChime();
+                    window.executeAutoShopRoutine();
+                    return;
+                }
+                console.log(`%c[Pelican Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
+                window.activateInGameAuto();
+                return;
+            }
+
+            // Case B: ตัวละครอยู่ในเมืองหลวง (Soulhaven) -> วาร์ปผ่าน Alice Service (n6)
+            if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
+                console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> ใช้วาร์ปเกตด่วน NPC Alice เพื่อไปยัง "${targetMap}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
+                window.walkToTargetMap(targetMap, true);
+                return;
+            }
+
+            // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เดินทางไปยังแมพเป้าหมาย
+            console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
             window.walkToTargetMap(targetMap, true);
-            return;
         }
 
-        // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เดินทางไปยังแมพเป้าหมาย
-        console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
-        window.walkToTargetMap(targetMap, true);
+        // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋า เพื่อให้ได้ค่าน้ำหนักจริง 100% ก่อนตัดสินใจ
+        if (typeof window.refreshInventoryAndWeight === 'function') {
+            window.refreshInventoryAndWeight(() => {
+                continueStart();
+            });
+        } else {
+            continueStart();
+        }
     };
 
     window.stopMasterBot = function() {
@@ -3843,6 +4005,7 @@
     // ==========================================
     let lastAutoActivateAttempt = 0;
     let autoActivateFailCount = 0;
+    let lastPeriodicWeightRefresh = 0;
 
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping) return;
@@ -3882,15 +4045,29 @@
         // 2. ถ้ากำลังเดินทางข้ามแมพ ให้รอเดินทางเสร็จก่อน
         if (window.__isNavigating) return;
 
-        // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คเป็นอันดับแรกก่อนสั่ง AUTO!
-        if (!inCity && typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-            const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__serverWeight;
+        // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คทั้งในเมืองและนอกเมือง!
+        if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+            const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
             const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
             const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
-            console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+            if (inCity) {
+                console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบตัวละครอยู่ในเมืองหลวง แต่น้ำหนักสัมภาระเกินเกณฑ์ (${pctStr} >= ${limitStr})! เดินไปร้านค้า (NPC n2) เพื่อขายของทันที...`, 'color: #ef4444; font-weight: bold;');
+            } else {
+                console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ในสนามฟาร์ม (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+            }
+            if (typeof playWarningChime === 'function') playWarningChime();
             autoActivateFailCount = 0;
             window.executeAutoShopRoutine();
             return;
+        }
+
+        // 3.1 ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าเป็นระยะ (ทุกๆ 45 วินาที)
+        const now = Date.now();
+        if (now - lastPeriodicWeightRefresh > 45000 && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+            lastPeriodicWeightRefresh = now;
+            if (typeof window.refreshInventoryAndWeight === 'function') {
+                window.refreshInventoryAndWeight();
+            }
         }
 
         // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter
@@ -4392,15 +4569,17 @@
             <div class="p-header" id="pelican-drag-handle">
                 <div style="display: flex; align-items: center; gap: 5px;">
                     <span style="font-size: 13px;">🔄</span>
-                    <span>PELICAN v4.2</span>
+                    <span>PELICAN v4.2.1</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${window.__currentAmmo}</span>
+                    <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
                     <span id="pelican-toggle" style="cursor: pointer; font-size: 15px; padding: 0 4px; color: #94a3b8; font-weight: bold;">−</span>
                 </div>
             </div>
 
             <div class="p-body" id="pelican-content">
+                <div id="p-weight-alert-banner" style="display: none; background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 10px; text-align: center; margin: 4px 10px 0 10px;">⚠️ น้ำหนักเกินเกณฑ์!</div>
                 <div class="p-status-strip">
                     <span>แมพ: <b id="p-cur-map-display" style="color:#38bdf8;">รอระบุแมพ...</b></span>
                     <span>สถานะ: <b id="p-char-state" style="color:#22c55e;">ปกติ</b></span>
@@ -4567,8 +4746,9 @@
                                 <span style="font-size: 10px; color: #94a3b8;">%</span>
                             </div>
                         </div>
-                        <div id="p-weight-hud-display" style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">
-                            น้ำหนักปัจจุบัน: <span id="p-cur-weight-val" style="color: #00ffcc; font-weight: bold;">-- / --</span>
+                        <div id="p-weight-hud-display" style="font-size: 9.5px; color: #94a3b8; margin-top: 3px; display: flex; justify-content: space-between; align-items: center;">
+                            <span>น้ำหนัก: <span id="p-cur-weight-val" style="color: #00ffcc; font-weight: bold;">-- / --</span></span>
+                            <button id="p-btn-refresh-weight" style="background: #0284c7; color: white; border: none; padding: 2px 7px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold; transition: all 0.2s ease;">🔄 จัดเรียง & อัปเดต</button>
                         </div>
                     </div>
 
@@ -4878,6 +5058,28 @@
             weightThresholdEl.onchange = (e) => {
                 window.__sellConfig.weightThreshold = parseInt(e.target.value) || 80;
                 saveSellConfig();
+            };
+        }
+
+        const btnRefreshWeight = document.getElementById('p-btn-refresh-weight');
+        if (btnRefreshWeight) {
+            btnRefreshWeight.onclick = () => {
+                btnRefreshWeight.innerText = '⏳ จัดเรียง...';
+                btnRefreshWeight.style.opacity = '0.7';
+                window.refreshInventoryAndWeight((w) => {
+                    btnRefreshWeight.innerText = '✅ เรียบร้อย';
+                    btnRefreshWeight.style.opacity = '1';
+                    setTimeout(() => {
+                        btnRefreshWeight.innerText = '🔄 จัดเรียง & อัปเดต';
+                    }, 1500);
+                });
+            };
+        }
+
+        const quickWeightEl = document.getElementById('p-quick-weight');
+        if (quickWeightEl) {
+            quickWeightEl.onclick = () => {
+                window.refreshInventoryAndWeight();
             };
         }
 
