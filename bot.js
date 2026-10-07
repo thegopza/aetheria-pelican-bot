@@ -2476,26 +2476,41 @@
             return false;
         }
 
-        function clickMapPin(retries = 2) {
+        function clickMapPin(retries = 3) {
+            // ตัดข้อความวงเล็บเลเวลออก เช่น "ทะเลสาบอาซูร์ (Lv. 12-20)" -> "ทะเลสาบอาซูร์"
+            const cleanMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim();
+
             const currentInspect = document.querySelector('.worldmap-inspect h3');
-            if (currentInspect && currentInspect.textContent.includes(mapName)) {
+            if (currentInspect && currentInspect.textContent.includes(cleanMapName)) {
                 if (clickWalkButton()) return;
             }
 
-            const stage = document.querySelector('.worldmap-stage') || document.querySelector('.worldmap-body') || document.querySelector('.worldmap-window') || document.body;
+            // ค้นหาเฉพาะในคอนเทนเนอร์แผนที่เท่านั้น ห้ามค้นหาใน document.body เพื่อป้องกันการไปคลิกโดนผู้เล่นอื่น
+            const stage = document.querySelector('.worldmap-stage, .worldmap-body, .worldmap-window, [class*="worldmap"]');
+            if (!stage) {
+                console.warn(`[Pelican] ⏳ หน้าต่างแผนที่ยังไม่เปิด กำลังรอ... (retries: ${retries})`);
+                if (retries > 0) {
+                    setTimeout(() => clickMapPin(retries - 1), 600);
+                }
+                return;
+            }
+
             const matches = Array.from(stage.querySelectorAll('*')).filter(el => {
-                if (el.closest('#pelican-hud')) return false;
-                if (!el.textContent || !el.textContent.includes(mapName)) return false;
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+                const txt = (el.textContent || '').trim();
+                if (!txt.includes(cleanMapName)) return false;
                 const rect = el.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
             });
 
-            const pin = matches.find(el => !Array.from(el.children).some(c => c.textContent && c.textContent.includes(mapName))) || matches[0];
+            const pin = matches.find(el => !Array.from(el.children).some(c => c.textContent && c.textContent.includes(cleanMapName))) || matches[0];
 
             if (pin) {
+                console.log(`%c[Pelican Map] 📍 คลิกหมุดแมพ: "${cleanMapName}"`, 'color: #00ffcc; font-weight: bold;');
                 triggerClick(pin);
                 pin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                const mapId = MAP_NAME_TO_ID[mapName];
+
+                const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
 
                 let walkTries = 0;
                 const walkInterval = setInterval(() => {
@@ -2504,18 +2519,19 @@
                         clearInterval(walkInterval);
                     }
                 }, 300);
+
                 if (mapId && typeof window.sendNpcWarp === 'function') {
                     setTimeout(() => window.sendNpcWarp(mapId), 500);
                 }
             } else if (retries > 0) {
                 setTimeout(() => clickMapPin(retries - 1), 400);
             } else {
-                console.warn(`[Pelican] ไม่พบหมุดแมพ "${mapName}" บนหน้าต่างแผนที่`);
-                const mapId = MAP_NAME_TO_ID[mapName];
+                console.warn(`[Pelican] ไม่พบหมุดแมพ "${cleanMapName}" บนหน้าต่างแผนที่`);
+                const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
                 if (mapId && typeof window.sendNpcWarp === 'function') {
-                    console.log(`[Pelican Warp] ⚡ ส่ง Packet วาร์ปตรงไปยัง "${mapName}" (${mapId})...`);
+                    console.log(`[Pelican Warp] ⚡ ส่ง Packet วาร์ปตรงไปยัง "${cleanMapName}" (${mapId})...`);
                     window.sendNpcWarp(mapId);
-                    startArrivalWatcher(mapName);
+                    startArrivalWatcher(cleanMapName);
                     return;
                 }
                 if (!clickWalkButton()) {
