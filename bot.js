@@ -1626,92 +1626,95 @@
     };
 
     window.openAliceWarpService = function(callback) {
-        // 1. ถ้าหน้าต่าง Alice Service เปิดอยู่บนหน้าจอแล้ว ให้ทำงานต่อได้ทันที
-        const isAliceAlreadyOpen = isWorldMapOpen() || Array.from(document.querySelectorAll('*')).some(el => {
-            const t = (el.textContent || '').trim();
-            return t.includes('Alice Service') && el.offsetWidth > 0;
-        });
-        if (isAliceAlreadyOpen) {
-            console.log('%c[Pelican Warp] 🗺️ หน้าต่าง Alice Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
+        // ตรวจสอบว่าหน้าต่างแผนที่วาร์ปของ Alice หรือหน้าต่าง WorldMap เปิดอยู่แล้วหรือไม่ (ห้ามตรวจจากป้ายชื่อ NPC)
+        function isAliceMapWindowOpen() {
+            if (typeof isWorldMapOpen === 'function' && isWorldMapOpen()) return true;
+            const stage = document.querySelector('.worldmap-stage, .worldmap-body, .worldmap-window');
+            if (stage && stage.offsetWidth > 0) return true;
+            const warpBtn = Array.from(document.querySelectorAll('button')).find(b => {
+                const txt = (b.innerText || '').trim();
+                return txt.includes('วาร์ปไปที่นี่') && b.offsetWidth > 0;
+            });
+            return !!warpBtn;
+        }
+
+        if (isAliceMapWindowOpen()) {
+            console.log('%c[Pelican Warp] 🗺️ หน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
             if (callback) callback();
             return;
         }
 
         console.log('%c[Pelican Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (n6)...', 'color: #eab308; font-weight: bold;');
+
+        // 1. ค้นหาป้ายชื่อ "Alice Service" บนจอเกมแล้วคลิกเพื่อให้ตัวละครเดินไปหา
+        const labels = Array.from(document.querySelectorAll('*')).filter(el => {
+            if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+            const txt = (el.innerText || el.textContent || '').trim();
+            return txt === 'Alice Service' && el.offsetWidth > 0 && el.offsetHeight > 0 && el.offsetHeight < 40;
+        });
+        const aliceLabel = labels[labels.length - 1];
+        if (aliceLabel) {
+            console.log('%c[Pelican Warp] 🎯 คลิกป้ายชื่อ "Alice Service" บนหน้าจอเพื่อให้ตัวละครเดินไปหา...', 'color: #38bdf8;');
+            triggerClick(aliceLabel);
+        }
+
+        // 2. ส่ง Packet npc_talk เพื่อเปิดคุย
         window.sendRemoteNpcTalk('n6');
 
-        let moveAttempts = 0;
-        let lastPlayerPos = { x: 0, y: 0 };
-        let stationaryCount = 0;
+        let attempts = 0;
+        let lastPos = { x: 0, y: 0 };
+        let stillCount = 0;
 
-        const aliceArrivalCheck = setInterval(() => {
+        const checkInterval = setInterval(() => {
+            attempts++;
+
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-                clearInterval(aliceArrivalCheck);
-                console.warn('[Pelican Warp] 🛑 ตัวละครเสียชีวิต ยกเลิกการเดินไปหา Alice');
+                clearInterval(checkInterval);
                 return;
             }
 
-            moveAttempts++;
-            const curPos = window.__currentPos || { x: 0, y: 0 };
-            const isStationary = (curPos.x === lastPlayerPos.x && curPos.y === lastPlayerPos.y && curPos.x !== 0);
-            lastPlayerPos = { x: curPos.x, y: curPos.y };
-
-            if (isStationary) {
-                stationaryCount++;
-            } else {
-                stationaryCount = 0;
+            // ถ้าหน้าต่างแผนที่วาร์ปเปิดแล้ว ให้ตัดจบและทำงานต่อทันที
+            if (isAliceMapWindowOpen()) {
+                clearInterval(checkInterval);
+                console.log('%c[Pelican Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
+                setTimeout(() => { if (callback) callback(); }, 300);
+                return;
             }
 
-            // ตรวจว่ามี Dialog หรือหน้าต่าง Alice Service เด้งขึ้นมาแล้วหรือไม่
-            const hasAliceUI = isWorldMapOpen() || Array.from(document.querySelectorAll('*')).some(el => {
-                const t = (el.textContent || '').trim();
-                return t.includes('Alice Service') && el.offsetWidth > 0;
+            // ตรวจว่ามีปุ่มตัวเลือก "Alice Warp Service" หรือ "วาร์ป" ในหน้าต่างสนทนาหรือไม่
+            const dialogOption = Array.from(document.querySelectorAll('button, .dialog-option, [class*="option"]')).find(b => {
+                const txt = (b.innerText || '').trim();
+                return (txt.includes('Alice Warp') || txt.includes('Warp Service') || txt.includes('วาร์ป')) && b.offsetWidth > 0;
             });
 
-            // เงื่อนไข: ตัวละครหยุดเดินแล้ว (ถึงตัว Alice แล้ว) หรือหน้าต่าง UI ขึ้นแล้ว
-            if (hasAliceUI || (stationaryCount >= 2 && moveAttempts >= 5)) {
-                clearInterval(aliceArrivalCheck);
-                console.log('%c[Pelican Warp] 🎯 เดินถึงระยะคุยกับ NPC Alice แล้ว! กำลังเปิดเมนูวาร์ป...', 'color: #22c55e; font-weight: bold;');
-
-                // ยิง npc_talk ย้ำระยะประชิดเพื่อเปิด Dialog ให้แน่นอน
-                window.sendRemoteNpcTalk('n6');
-
-                setTimeout(() => {
-                    // ส่ง Option 1: Alice Warp Service
-                    window.sendRemoteNpcOption(1);
-
-                    // รอให้หน้าต่างแผนที่ Alice World Map เรนเดอร์บนหน้าจอ
-                    let waitMapRounds = 0;
-                    const mapWaitInterval = setInterval(() => {
-                        waitMapRounds++;
-                        const isMapReady = isWorldMapOpen() || Array.from(document.querySelectorAll('*')).some(el => {
-                            const t = (el.textContent || '').trim();
-                            return t.includes('Alice Service') && el.offsetWidth > 0;
-                        });
-
-                        if (isMapReady || waitMapRounds >= 10) {
-                            clearInterval(mapWaitInterval);
-                            console.log('%c[Pelican Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
-                            setTimeout(() => {
-                                if (callback) callback();
-                            }, 500);
-                        }
-                    }, 300);
-                }, 700);
-                return;
+            if (dialogOption) {
+                console.log('%c[Pelican Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: ' + dialogOption.innerText, 'color: #00ffcc;');
+                triggerClick(dialogOption);
+                window.sendRemoteNpcOption(1);
             }
 
-            // Timeout ป้องกันค้าง (เกิน 15 วินาที)
-            if (moveAttempts >= 25) {
-                clearInterval(aliceArrivalCheck);
-                console.warn('[Pelican Warp] ⚠️ Timeout เดินไปหา Alice (เกิน 15 วิ) -> ลองส่งคำสั่งเปิดทันที');
+            // ตรวจสอบตำแหน่งการเดิน
+            const curPos = window.__currentPos || { x: 0, y: 0 };
+            const isStationary = (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0);
+            lastPos = { x: curPos.x, y: curPos.y };
+            if (isStationary) stillCount++; else stillCount = 0;
+
+            // ถ้าหยุดเดินแล้ว (หลังจากเดินมาแล้วอย่างน้อย 2 วินาที) หรือส่งมา 4 ครั้ง
+            if ((stillCount >= 2 && attempts >= 4) || attempts === 5 || attempts === 9) {
+                console.log('%c[Pelican Warp] 💬 ส่ง Packet คุยกับ Alice ซ้ำและเลือก Alice Warp Service...', 'color: #eab308;');
                 window.sendRemoteNpcTalk('n6');
                 setTimeout(() => {
                     window.sendRemoteNpcOption(1);
-                    setTimeout(() => {
-                        if (callback) callback();
-                    }, 800);
-                }, 600);
+                }, 350);
+            }
+
+            // Timeout 12 วินาที
+            if (attempts >= 20) {
+                clearInterval(checkInterval);
+                console.warn('[Pelican Warp] ⚠️ Timeout รอเปิด Alice Warp Service -> ทำการเปิดแผนที่โลกสำรอง');
+                openWorldMap(() => {
+                    if (callback) callback();
+                });
             }
         }, 600);
     };
