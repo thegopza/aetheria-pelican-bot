@@ -117,7 +117,7 @@ function open() {
     if (input.type !== "keyDown") return;
     if (input.key === "F11") win.setFullScreen(!win.isFullScreen());
     else if (input.key === "F5") win.webContents.reload();
-    else if (input.key === "I" && input.control && input.shift) win.webContents.toggleDevTools();
+    else if (input.key === "F12" || (input.key === "I" && input.control && input.shift)) win.webContents.toggleDevTools();
     else return;
     e.preventDefault();
   });
@@ -138,5 +138,113 @@ app.on("second-instance", () => {
 });
 
 Menu.setApplicationMenu(null);
-app.whenReady().then(open);
+
+// ==========================================
+// Pelican Local Debug & State API Server
+// ==========================================
+const http = require("http");
+const DEBUG_PORT = 49876;
+let debugServer = null;
+
+function startDebugServer() {
+  if (debugServer) return;
+  debugServer = http.createServer((req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    const parsedUrl = new URL(req.url, `http://localhost:${DEBUG_PORT}`);
+
+    if (parsedUrl.pathname === "/api/eval") {
+      const code = parsedUrl.searchParams.get("code");
+      if (!code || !win || !win.webContents) {
+        res.writeHead(400);
+        return res.end(JSON.stringify({ error: "Missing code or game window" }));
+      }
+      win.webContents.executeJavaScript(code)
+        .then(result => {
+          res.writeHead(200);
+          res.end(JSON.stringify({ success: true, result }));
+        })
+        .catch(err => {
+          res.writeHead(500);
+          res.end(JSON.stringify({ success: false, error: err.message }));
+        });
+      return;
+    }
+
+    if (parsedUrl.pathname === "/api/state") {
+      if (!win || !win.webContents) {
+        res.writeHead(503);
+        return res.end(JSON.stringify({ error: "Game window not ready" }));
+      }
+      win.webContents.executeJavaScript(`({
+        map: window.getCurrentMapName ? window.getCurrentMapName() : null,
+        pos: window.__currentPos,
+        ammo: window.__currentAmmo,
+        targetMap: window.__targetFarmMap,
+        navigating: window.__isNavigating,
+        recovering: window.__isRecovering,
+        shopping: window.__isShopping,
+        autoLoop: window.__autoLoopEnabled,
+        hasSocket: !!window.__gameSocket,
+        hasInventory: !!window.__latestInventory
+      })`)
+        .then(result => {
+          res.writeHead(200);
+          res.end(JSON.stringify(result, null, 2));
+        })
+        .catch(err => {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      return;
+    }
+
+    if (parsedUrl.pathname === "/api/inventory") {
+      if (!win || !win.webContents) {
+        res.writeHead(503);
+        return res.end(JSON.stringify({ error: "Game window not ready" }));
+      }
+      win.webContents.executeJavaScript(`window.dumpDeepInventory ? window.dumpDeepInventory() : { raw: window.__latestInventory }`)
+        .then(result => {
+          res.writeHead(200);
+          res.end(JSON.stringify(result, null, 2));
+        })
+        .catch(err => {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      return;
+    }
+
+    if (parsedUrl.pathname === "/api/packets") {
+      if (!win || !win.webContents) {
+        res.writeHead(503);
+        return res.end(JSON.stringify({ error: "Game window not ready" }));
+      }
+      win.webContents.executeJavaScript(`(window.__packetLogs || []).slice(-30)`)
+        .then(result => {
+          res.writeHead(200);
+          res.end(JSON.stringify(result, null, 2));
+        })
+        .catch(err => {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        });
+      return;
+    }
+
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      status: "ok",
+      service: "Pelican In-Game Debug API",
+      endpoints: ["/api/state", "/api/inventory", "/api/packets", "/api/eval?code=..."]
+    }, null, 2));
+  });
+
+  debugServer.listen(DEBUG_PORT, "127.0.0.1", () => {
+    console.log(`[Pelican Debug API] Listening on http://127.0.0.1:${DEBUG_PORT}`);
+  });
+}
+
+app.whenReady().then(() => { open(); startDebugServer(); });
 app.on("window-all-closed", () => app.quit());

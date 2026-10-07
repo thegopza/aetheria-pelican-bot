@@ -491,6 +491,323 @@
     };
 
     // ==========================================
+    
+    // ==========================================
+    // IN-GAME DATA VIEWER MODAL & INSPECTOR
+    // ==========================================
+    window.__currentModalTab = 'items';
+
+    window.showDataViewerModal = function(activeTab = 'items') {
+        let modal = document.getElementById('pelican-data-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'pelican-data-modal';
+            modal.innerHTML = `
+                <div id="p-modal-backdrop" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); z-index: 999998;"></div>
+                <div id="p-modal-window" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 800px; max-width: 95vw; height: 580px; max-height: 90vh; background: #0b1329; border: 1.5px solid #38bdf8; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 20px rgba(56,189,248,0.25); z-index: 999999; display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; color: #f8fafc; overflow: hidden;">
+                    <!-- Header -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #1e293b; border-bottom: 1px solid #334155;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 16px;">🔍</span>
+                            <span style="font-weight: bold; font-size: 13.5px; color: #38bdf8; letter-spacing: 0.5px;">Aetheria Data & Packet Inspector</span>
+                            <span style="font-size: 10px; background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-weight: bold;">LIVE</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button id="p-modal-copy-btn" style="background: #0284c7; color: white; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: bold;">
+                                📋 คัดลอก JSON ทั้งหมด
+                            </button>
+                            <button id="p-modal-close-btn" style="background: #ef4444; color: white; border: none; width: 28px; height: 28px; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer;">
+                                ✖
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0f172a; border-bottom: 1px solid #1e293b; gap: 10px; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 6px;">
+                            <button class="p-mod-tab-btn" data-tab="items" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📦 กระเป๋า & อุปกรณ์</button>
+                            <button class="p-mod-tab-btn" data-tab="maps" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🗺️ แผนที่โลก (25 โซน)</button>
+                            <button class="p-mod-tab-btn" data-tab="packets" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📜 Packets ล่าสุด</button>
+                            <button class="p-mod-tab-btn" data-tab="state" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🕹️ สถานะตัวละคร</button>
+                        </div>
+                        <div style="flex: 1; min-width: 180px; max-width: 250px;">
+                            <input type="text" id="p-modal-search" placeholder="🔎 ค้นหาชื่อ / ID / Opcode..." style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 11px;">
+                        </div>
+                    </div>
+
+                    <!-- Content Area -->
+                    <div id="p-modal-content" style="flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 12px; background: #090e1a;">
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('p-modal-close-btn').onclick = () => { modal.style.display = 'none'; };
+            document.getElementById('p-modal-backdrop').onclick = () => { modal.style.display = 'none'; };
+
+            modal.querySelectorAll('.p-mod-tab-btn').forEach(btn => {
+                btn.onclick = () => {
+                    const target = btn.getAttribute('data-tab');
+                    window.renderModalTab(target);
+                };
+            });
+
+            document.getElementById('p-modal-search').oninput = (e) => {
+                window.renderModalTab(window.__currentModalTab || 'items', e.target.value.toLowerCase().trim());
+            };
+
+            document.getElementById('p-modal-copy-btn').onclick = () => {
+                let dataToCopy = null;
+                if (window.__currentModalTab === 'items') {
+                    dataToCopy = window.dumpDeepInventory();
+                } else if (window.__currentModalTab === 'maps') {
+                    dataToCopy = window.dumpMapData();
+                } else if (window.__currentModalTab === 'packets') {
+                    dataToCopy = window.__packetLogs || [];
+                } else {
+                    dataToCopy = window.dumpGameState();
+                }
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(JSON.stringify(dataToCopy, null, 2)).then(() => {
+                        const btn = document.getElementById('p-modal-copy-btn');
+                        const orig = btn.innerText;
+                        btn.innerText = '✅ คัดลอกสำเร็จ!';
+                        setTimeout(() => btn.innerText = orig, 1500);
+                    });
+                }
+            };
+        }
+
+        modal.style.display = 'block';
+        window.renderModalTab(activeTab);
+    };
+
+    window.renderModalTab = function(tabName, query = '') {
+        window.__currentModalTab = tabName;
+        const modal = document.getElementById('pelican-data-modal');
+        if (!modal) return;
+
+        // Update tab button styles
+        modal.querySelectorAll('.p-mod-tab-btn').forEach(btn => {
+            if (btn.getAttribute('data-tab') === tabName) {
+                btn.style.background = '#0284c7';
+                btn.style.color = '#fff';
+                btn.style.borderColor = '#38bdf8';
+            } else {
+                btn.style.background = '#1e293b';
+                btn.style.color = '#94a3b8';
+                btn.style.borderColor = '#334155';
+            }
+        });
+
+        const container = document.getElementById('p-modal-content');
+        if (!container) return;
+
+        if (tabName === 'items') {
+            const rawInv = window.__latestInventory;
+            const items = [];
+
+            // Extract items from rawInv recursively
+            function scanRaw(obj) {
+                if (!obj) return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(scanRaw);
+                } else if (typeof obj === 'object') {
+                    const id = obj.itemId || obj.id || obj.item_id || obj.code;
+                    const name = obj.name || obj.itemName || obj.title;
+                    if (id !== undefined || name !== undefined) {
+                        items.push({
+                            id: id,
+                            name: name || `Item_${id}`,
+                            qty: obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1,
+                            slot: obj.slot ?? obj.idx ?? '-',
+                            raw: obj
+                        });
+                    }
+                    for (const k in obj) {
+                        if (typeof obj[k] === 'object') scanRaw(obj[k]);
+                    }
+                }
+            }
+            if (rawInv) scanRaw(rawInv);
+
+            // Also scan DOM slots
+            const domSlots = Array.from(document.querySelectorAll('[class*="item"], .inventory-slot, [data-item-id], [class*="slot"]'))
+                .filter(el => !el.closest('#pelican-hud') && !el.closest('#pelican-data-modal') && el.offsetWidth > 0 && el.innerText.trim().length > 0);
+
+            const filteredItems = items.filter(it => {
+                if (!query) return true;
+                return (String(it.name).toLowerCase().includes(query) || String(it.id).includes(query) || String(it.slot).includes(query));
+            });
+
+            let html = '';
+            if (!rawInv) {
+                html += `
+                    <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="color: #fde047;">⚠️ ยังไม่ได้รับ Packet กระเป๋าจากเซิร์ฟเวอร์ (ลองกดเปิด-ปิดกระเป๋าในเกม 1 ครั้ง)</span>
+                        <button onclick="window.pressKey('b')" style="background: #eab308; color: #000; border: none; padding: 5px 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">🎒 กดเปิดกระเป๋า (B)</button>
+                    </div>
+                `;
+            }
+
+            html += `
+                <div style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold; color: #38bdf8;">📦 รายการไอเทมจากเซิร์ฟเวอร์ (ตรวจพบ ${items.length} รายการ):</span>
+                    <span style="color: #64748b; font-size: 11px;">(Arrow: 90030 / Bwing: 90311)</span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">Slot</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">ชื่อไอเทม</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">Item ID (Dec / Hex)</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">จำนวน</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            if (filteredItems.length === 0) {
+                html += `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b;">ไม่พบไอเทมที่ตรงกับคำค้นหา</td></tr>`;
+            } else {
+                filteredItems.forEach(it => {
+                    const hexId = it.id ? '0x' + parseInt(it.id).toString(16) : '-';
+                    const isArrow = it.id === 90030 || String(it.name).toLowerCase().includes('arrow');
+                    html += `
+                        <tr style="border-bottom: 1px solid #1e293b; ${isArrow ? 'background: rgba(34, 197, 94, 0.1);' : ''}">
+                            <td style="padding: 6px 8px; color: #94a3b8; border: 1px solid #334155;">${it.slot}</td>
+                            <td style="padding: 6px 8px; font-weight: bold; color: ${isArrow ? '#4ade80' : '#f8fafc'}; border: 1px solid #334155;">${it.name}</td>
+                            <td style="padding: 6px 8px; font-family: monospace; color: #38bdf8; border: 1px solid #334155;">${it.id || '-'} (${hexId})</td>
+                            <td style="padding: 6px 8px; font-weight: bold; color: #f59e0b; border: 1px solid #334155;">${it.qty}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155;">
+                                ${isArrow ? '<span style="color: #22c55e; font-weight: bold;">🏹 ลูกธนู</span>' : ''}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            html += `</tbody></table>`;
+
+            // Hotbar & Equips
+            html += `
+                <div style="font-weight: bold; color: #a855f7; margin-top: 14px; margin-bottom: 6px;">🎯 สรุปช่องทางลัด Hotbar (1-10):</div>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+            `;
+            for (let i = 0; i < 10; i++) {
+                const key = i === 9 ? '0' : (i + 1).toString();
+                const hotbarSlot = document.querySelector(`[data-slot="${i}"], .slot-${i}, #hotbar-${i}, .quick-slot-${i}`);
+                const text = hotbarSlot ? hotbarSlot.innerText.trim().replace(/\n+/g, ' ') : 'Empty';
+                html += `
+                    <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 6px 8px; font-size: 10px;">
+                        <span style="color: #38bdf8; font-weight: bold;">[Key ${key}]</span>: <span style="color: #cbd5e1;">${text}</span>
+                    </div>
+                `;
+            }
+            html += `</div>`;
+            container.innerHTML = html;
+
+        } else if (tabName === 'maps') {
+            const mapList = Object.entries(MAP_NAME_TO_ID);
+            const filtered = mapList.filter(([name, id]) => {
+                if (!query) return true;
+                return name.toLowerCase().includes(query) || id.toLowerCase().includes(query);
+            });
+
+            let html = `
+                <div style="margin-bottom: 8px; color: #38bdf8; font-weight: bold;">🗺️ รายชื่อแผนที่โลกทั้งหมด (${mapList.length} รายการ):</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">ชื่อแผนที่ (ไทย / Display)</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">Internal Map ID</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">เดินทาง</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            filtered.forEach(([name, id]) => {
+                html += `
+                    <tr style="border-bottom: 1px solid #1e293b;">
+                        <td style="padding: 6px 8px; font-weight: bold; color: #f8fafc; border: 1px solid #334155;">${name}</td>
+                        <td style="padding: 6px 8px; font-family: monospace; color: #38bdf8; border: 1px solid #334155;">${id}</td>
+                        <td style="padding: 6px 8px; text-align: center; border: 1px solid #334155;">
+                            <button onclick="window.walkToTargetMap('${name}'); document.getElementById('pelican-data-modal').style.display='none';" style="background: #059669; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: bold;">🚶 เดินไปที่นี่</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+
+        } else if (tabName === 'packets') {
+            const packets = (window.__packetLogs || []).slice(-40);
+            const filtered = packets.filter(p => {
+                if (!query) return true;
+                return p.dir.toLowerCase().includes(query) || p.opcode.toLowerCase().includes(query) || p.ascii.toLowerCase().includes(query);
+            });
+
+            let html = `
+                <div style="margin-bottom: 8px; color: #f59e0b; font-weight: bold;">📜 บันทึก Packet เครือข่ายล่าสุด (ย้อนหลัง 40 รายการ):</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: monospace;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 5px 8px; border: 1px solid #334155;">เวลา</th>
+                            <th style="padding: 5px 8px; border: 1px solid #334155;">ทิศทาง</th>
+                            <th style="padding: 5px 8px; border: 1px solid #334155;">Opcode</th>
+                            <th style="padding: 5px 8px; border: 1px solid #334155;">ขนาด</th>
+                            <th style="padding: 5px 8px; border: 1px solid #334155;">Decoded / ASCII Preview</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            if (filtered.length === 0) {
+                html += `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b;">ยังไม่มี Packet</td></tr>`;
+            } else {
+                filtered.slice().reverse().forEach(p => {
+                    const isOut = p.dir === 'OUT';
+                    const decStr = p.decoded ? (typeof p.decoded === 'object' ? JSON.stringify(p.decoded).slice(0, 70) : String(p.decoded)) : p.ascii.slice(0, 50);
+                    html += `
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 4px 8px; color: #64748b; border: 1px solid #334155;">${p.time}</td>
+                            <td style="padding: 4px 8px; font-weight: bold; color: ${isOut ? '#38bdf8' : '#f59e0b'}; border: 1px solid #334155;">${p.dir}</td>
+                            <td style="padding: 4px 8px; color: #c084fc; border: 1px solid #334155;">${p.opcode}</td>
+                            <td style="padding: 4px 8px; color: #94a3b8; border: 1px solid #334155;">${p.len}B</td>
+                            <td style="padding: 4px 8px; color: #cbd5e1; word-break: break-all; border: 1px solid #334155;">${decStr}</td>
+                        </tr>
+                    `;
+                });
+            }
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+
+        } else if (tabName === 'state') {
+            const state = window.dumpGameState ? window.dumpGameState() : {};
+            let html = `
+                <div style="margin-bottom: 10px; color: #22c55e; font-weight: bold;">🕹️ ข้อมูลสถานะระบบและตัวละครแบบเรียลไทม์:</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155;">
+                        <div style="color: #38bdf8; font-weight: bold; margin-bottom: 4px;">🗺️ ตำแหน่ง & แผนที่</div>
+                        <div>แผนที่ปัจจุบัน: <b style="color: #fff;">${state.currentMap || 'ไม่ทราบ'}</b></div>
+                        <div>แมพเป้าหมาย: <b style="color: #f59e0b;">${state.targetMap || '-'}</b></div>
+                        <div>พิกัดตัวละคร: <b style="color: #22c55e;">${state.position ? `X: ${state.position.tileX}, Y: ${state.position.tileY}` : 'กำลังรออ่านค่า...'}</b></div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155;">
+                        <div style="color: #a855f7; font-weight: bold; margin-bottom: 4px;">🏹 สถานะการฟาร์ม</div>
+                        <div>จำนวนลูกธนู: <b style="color: ${(state.ammo <= 50) ? '#ef4444' : '#22c55e'};">${state.ammo} ดอก</b></div>
+                        <div>เป้าหมายมอนสเตอร์: <b style="color: #fff;">${state.monsterTarget ? `X: ${Math.round(state.monsterTarget.x)}, Y: ${Math.round(state.monsterTarget.y)}` : 'ไม่มี'}</b></div>
+                        <div>สถานะบอท: <b style="color: ${state.autoLoop ? '#22c55e' : '#ef4444'};">${state.autoLoop ? 'กำลังทำงาน' : 'หยุด'}</b></div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px; background: #020617; border: 1px solid #334155; border-radius: 8px; padding: 10px;">
+                    <div style="color: #64748b; font-size: 11px; margin-bottom: 4px;">JSON Dump State:</div>
+                    <pre style="margin: 0; color: #cbd5e1; font-size: 10.5px; overflow-x: auto;">${JSON.stringify(state, null, 2)}</pre>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+    };
+
     // 1. Real-Time Minimap Tracker
     // ==========================================
     setInterval(() => {
@@ -2753,16 +3070,16 @@
 
         // Data Dumper Event Listeners
         const dumpMapBtn = document.getElementById('p-btn-dump-map');
-        if (dumpMapBtn) dumpMapBtn.onclick = () => window.dumpMapData();
+        if (dumpMapBtn) dumpMapBtn.onclick = () => { window.dumpMapData(); window.showDataViewerModal("maps"); };
 
         const dumpItemBtn = document.getElementById('p-btn-dump-item');
-        if (dumpItemBtn) dumpItemBtn.onclick = () => window.dumpItemData();
+        if (dumpItemBtn) dumpItemBtn.onclick = () => { window.dumpItemData(); window.showDataViewerModal("items"); };
 
         const dumpPacketsBtn = document.getElementById('p-btn-dump-packets');
-        if (dumpPacketsBtn) dumpPacketsBtn.onclick = () => window.dumpAllPackets(100);
+        if (dumpPacketsBtn) dumpPacketsBtn.onclick = () => { window.dumpAllPackets(100); window.showDataViewerModal("packets"); };
 
         const dumpStateBtn = document.getElementById('p-btn-dump-state');
-        if (dumpStateBtn) dumpStateBtn.onclick = () => window.dumpGameState();
+        if (dumpStateBtn) dumpStateBtn.onclick = () => { window.dumpGameState(); window.showDataViewerModal("state"); };
 
         document.getElementById('p-btn-test-jump').onclick = () => {
             if (window.__monsterPos) {
