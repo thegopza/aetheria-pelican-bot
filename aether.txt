@@ -231,18 +231,9 @@
         let reconnectTimer = null;
         const tabId = "aetheria-game";
 
-        async function tryConnect() {
+        function tryConnect() {
+            if (mcpWs && (mcpWs.readyState === WebSocket.OPEN || mcpWs.readyState === WebSocket.CONNECTING)) return;
             try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 1200);
-                const res = await fetch('http://127.0.0.1:3025/.identity', { signal: controller.signal }).catch(() => null);
-                clearTimeout(timeout);
-
-                if (!res || !res.ok) {
-                    scheduleReconnect();
-                    return;
-                }
-
                 mcpWs = new WebSocket('ws://127.0.0.1:3025/extension-ws');
                 mcpWs.onopen = () => {
                     console.log('%c[Pelican MCP] 🔗 Connected natively to BrowserTools MCP on port 3025!', 'color: #00ffcc; font-weight: bold;');
