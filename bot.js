@@ -2584,93 +2584,39 @@
             if (fullText.includes('ระดับ: ดี') || fullText.includes('ระดับ ดี') || fullText.includes('ระดับดี') || 
                 fullText.includes('· ดี') || /(?:^|\s|[·•|])ดี(?:\s|[·•|]|$)/.test(fullText) || 
                 fullText.includes('good') || fullText.includes('ชำนาญ') || fullText.includes('ขั้นดี')) return 2;
-            if (fullText.includes('ธรรมดา') || fullText.includes('ทั่วไป') || fullText.includes('common') || fullText.includes('normal')) {
-                // ถ้ามีข้อความธรรมดาแต่มี Option ให้ยึดตาม Option (อย่างน้อยเขียว)
-                if (hasOptions(rowText, row)) return 2;
-                return 1;
-            }
 
-            // 2. ตรวจสอบจำนวน Option
+            // 2. ตรวจสอบจำนวน Option จากตัวเลขชัดเจน
             const optCount = parseOptionCount(fullText);
             if (optCount !== null) {
-                if (optCount >= 4) return 5; // ตำนาน (Legendary - สีส้ม/ทอง)
-                if (optCount === 3) return 4; // มหากาพย์ (Epic - สีม่วง)
-                if (optCount === 2) return 3; // หายาก (Rare - สีฟ้า)
-                if (optCount === 1) return 2; // ดี (Good - สีเขียว)
-                if (optCount === 0) return 1; // ขาวธรรมดา 0 Option
+                if (optCount >= 4) return 5; // ตำนาน (4+ Option)
+                if (optCount === 3) return 4; // มหากาพย์ (3 Option)
+                if (optCount === 2) return 3; // หายาก (2 Option)
+                if (optCount === 1) return 2; // ดี (1 Option)
+                if (optCount === 0) return 1; // ขาวธรรมดา (0 Option)
             }
 
-            // 3. ตรวจสอบ Class name ของ Row และ Sub-elements (Tailwind, CSS classes)
-            const elementsToScan = [];
-            if (titleEl) elementsToScan.push(titleEl);
-            if (row) {
-                elementsToScan.push(row);
-                try {
-                    const children = row.querySelectorAll('*');
-                    for (let i = 0; i < children.length && i < 25; i++) {
-                        elementsToScan.push(children[i]);
-                    }
-                } catch(e) {}
-            }
-
-            for (const el of elementsToScan) {
-                const cls = (el.className || '').toString().toLowerCase();
-                if (cls.includes('legendary') || cls.includes('orange') || cls.includes('amber') || cls.includes('gold') || cls.includes('tier-5') || cls.includes('rank-5')) return 5;
-                if (cls.includes('epic') || cls.includes('purple') || cls.includes('violet') || cls.includes('tier-4') || cls.includes('rank-4')) return 4;
-                if (cls.includes('rare') || cls.includes('blue') || cls.includes('cyan') || cls.includes('tier-3') || cls.includes('rank-3')) return 3;
-                if (cls.includes('good') || cls.includes('green') || cls.includes('emerald') || cls.includes('tier-2') || cls.includes('rank-2')) return 2;
-            }
-
-            // 4. ตรวจสอบสี Color, BorderColor ทางคณิตศาสตร์ (RGB)
-            function analyzeRgb(colorStr) {
-                if (!colorStr) return null;
-                const m = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-                if (!m) return null;
-                const r = parseInt(m[1], 10);
-                const g = parseInt(m[2], 10);
-                const b = parseInt(m[3], 10);
-
-                // ละเว้นสีโทนเทา/ขาว/ดำ/โปร่งแสง
-                const maxVal = Math.max(r, g, b);
-                const minVal = Math.min(r, g, b);
-                if (maxVal - minVal < 30) return null;
-
-                // ส้ม / ทอง / เหลือง (Legendary - 5)
-                if (r >= 180 && g >= 75 && g <= r * 0.98 && b <= 130) return 5;
-                // ม่วง / บานเย็น (Epic - 4)
-                if (r >= 100 && b >= 120 && g < r * 0.85 && g < b * 0.85) return 4;
-                // ฟ้า / น้ำเงิน (Rare - 3)
-                if (b >= 120 && b > r * 1.15 && b > g * 0.85) return 3;
-                // เขียว (Good - 2)
-                if (g >= 110 && g > r * 1.15 && g > b * 1.15) return 2;
-
-                return null;
-            }
-
-            for (const el of elementsToScan) {
-                try {
-                    const cs = window.getComputedStyle(el);
-                    const textRank = analyzeRgb(cs.color);
-                    if (textRank) return textRank;
-
-                    const borderRank = analyzeRgb(cs.borderColor);
-                    if (borderRank) return borderRank;
-
-                    if (el.style) {
-                        const sTextRank = analyzeRgb(el.style.color);
-                        if (sTextRank) return sTextRank;
-                        const sBorderRank = analyzeRgb(el.style.borderColor);
-                        if (sBorderRank) return sBorderRank;
-                    }
-                } catch(e) {}
-            }
-
-            // 5. ถ้ามี Option ปรากฏในแถวแต่ตรวจนับไม่ได้ชัดเจน ให้ถือเป็นระดับอย่างน้อย "ดี (เขียว)"
+            // 3. ในเกม Aetheria: ไอเทมที่มีป้าย [มี option] แต่ไม่มีคำว่าหายาก/มหากาพย์/ตำนาน คือของระดับ "ดี (เขียว 1 Option)" เสมอ
             if (hasOptions(rowText, row)) {
                 return 2;
             }
 
-            // 6. ถ้าไม่มีอะไรบ่งบอกว่าเป็นของพิเศษเลย ให้เป็น 1 (ธรรมดา)
+            // 4. ตรวจสอบ Class name เฉพาะของ Title / Badge (เฉพาะคลาส rarity โดยตรง ห้ามตรวจคำว่า gold/amber/orange เด็ดขาด เพราะจะไปตรงกับราคา Zeny ในร้านค้า)
+            const elementsToScan = [];
+            if (titleEl) elementsToScan.push(titleEl);
+            if (row && typeof row.querySelectorAll === 'function') {
+                const badges = row.querySelectorAll('[class*="rarity"], [class*="badge"], [class*="rank"], [class*="tier"]');
+                badges.forEach(b => elementsToScan.push(b));
+            }
+
+            for (const el of elementsToScan) {
+                const cls = (el.className || '').toString().toLowerCase();
+                if (cls.includes('legendary') || cls.includes('tier-5') || cls.includes('rank-5')) return 5;
+                if (cls.includes('epic') || cls.includes('tier-4') || cls.includes('rank-4')) return 4;
+                if (cls.includes('rare') || cls.includes('tier-3') || cls.includes('rank-3')) return 3;
+                if (cls.includes('good') || cls.includes('tier-2') || cls.includes('rank-2')) return 2;
+            }
+
+            // 5. ถ้ามีข้อความระบุธรรมดา หรือไม่มีอะไรบ่งบอก ให้ถือเป็นระดับ 1 (ธรรมดา/ขาว)
             return 1;
         }
 
@@ -2827,7 +2773,17 @@
                     const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => {
                         if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
                         const txt = (b.innerText || '').trim();
-                        return txt === '+' && b.offsetWidth > 0 && b.offsetHeight > 0;
+                        if (txt !== '+') return false;
+                        if (b.offsetWidth <= 0 || b.offsetHeight <= 0) return false;
+                        const row = findItemRow(b);
+                        if (!row || row.offsetWidth <= 0 || row.offsetHeight <= 0) return false;
+                        try {
+                            const rowStyle = window.getComputedStyle(row);
+                            if (rowStyle.display === 'none' || rowStyle.visibility === 'hidden' || rowStyle.opacity === '0') return false;
+                            const btnStyle = window.getComputedStyle(b);
+                            if (btnStyle.display === 'none' || btnStyle.visibility === 'hidden' || btnStyle.opacity === '0') return false;
+                        } catch(e) {}
+                        return true;
                     });
 
                     console.log(`[Pelican Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
