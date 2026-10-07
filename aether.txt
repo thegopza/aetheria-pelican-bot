@@ -98,9 +98,12 @@
         weightCheckEnabled: true,
         weightThreshold: 80, // วาร์ปกลับไปขายเมื่อน้ำหนักเกิน 80% (ปรับได้)
         sellMaterials: true,
-        sellWeapons: false,
-        sellArmors: false,
-        maxRarityToSell: 'normal', // 'normal' (ธรรมดา), 'good' (ดี), 'rare' (หายาก), 'epic' (มหากาพย์)
+        weaponRarity: 'normal', // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
+        armorRarity: 'normal',  // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
+        accRarity: 'none',      // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
+        sellWeapons: false,     // legacy fallback
+        sellArmors: false,      // legacy fallback
+        maxRarityToSell: 'normal', // legacy fallback
         keepRefined: true, // ห้ามขายของตีบวก (+1 ขึ้นไป)
         keepSpecial: true, // ห้ามขายของมี Option สุ่ม
         keepSockets: true, // ห้ามขายของมีรูการ์ด [1-4]
@@ -111,6 +114,27 @@
         window.__sellConfig = Object.assign({}, defaultSellConfig, stored);
         if (typeof window.__sellConfig.weightThreshold !== 'number') window.__sellConfig.weightThreshold = 80;
         if (window.__sellConfig.weightCheckEnabled === undefined) window.__sellConfig.weightCheckEnabled = true;
+
+        // Auto migration for per-category settings
+        if (stored.weaponRarity === undefined) {
+            if (stored.sellWeapons) {
+                window.__sellConfig.weaponRarity = stored.maxRarityToSell || 'normal';
+            } else if (stored.sellWeapons === false) {
+                window.__sellConfig.weaponRarity = 'none';
+            }
+        }
+        if (stored.armorRarity === undefined) {
+            if (stored.sellArmors) {
+                window.__sellConfig.armorRarity = stored.maxRarityToSell || 'normal';
+            } else if (stored.sellArmors === false) {
+                window.__sellConfig.armorRarity = 'none';
+            }
+        }
+        if (stored.accRarity === undefined) {
+            window.__sellConfig.accRarity = 'none';
+        }
+        window.__sellConfig.sellWeapons = window.__sellConfig.weaponRarity !== 'none';
+        window.__sellConfig.sellArmors = window.__sellConfig.armorRarity !== 'none';
     } catch (e) {
         window.__sellConfig = defaultSellConfig;
     }
@@ -1275,6 +1299,7 @@
                             const max = parseFloat(m[2].replace(/,/g, ''));
                             if (max > 0) {
                                 const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                                window.__lastKnownWeight = res;
                                 updateWeightHUD(res);
                                 return res;
                             }
@@ -1294,6 +1319,7 @@
                         const max = parseFloat(m[2].replace(/,/g, ''));
                         if (max >= 500 && cur <= max * 2) {
                             const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                            window.__lastKnownWeight = res;
                             updateWeightHUD(res);
                             return res;
                         }
@@ -1301,26 +1327,7 @@
                 }
             }
 
-            // Method 2: ค้นหาแถบ/ป้ายเปอร์เซ็นต์น้ำหนักบนหน้าจอเกม (เช่น ป้าย "100%", "92%" ใต้ Minimap)
-            const percentBadges = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (!isValidNonBotElement(el) || el.children.length > 0) return false;
-                const txt = (el.textContent || '').trim();
-                return /^\d{1,3}%$/.test(txt);
-            });
-            for (const el of percentBadges) {
-                const rect = el.getBoundingClientRect();
-                // แถบแจ้งเตือนน้ำหนักมักอยู่ด้านบนของจอ (top <= 180px)
-                if (rect.top >= 0 && rect.top <= 180 && rect.width > 0 && rect.height > 0) {
-                    const p = parseFloat(el.textContent);
-                    if (p >= 50) { // น้ำหนักตัวละครเมื่อแสดงเป็น badge เตือน มักจะเริ่มที่ 50% หรือ 70% ขึ้นไป
-                        const res = { current: p, max: 100, percent: p };
-                        updateWeightHUD(res);
-                        return res;
-                    }
-                }
-            }
-
-            // Method 3: ค้นหา Element ทั่วทั้งจอที่มีคำว่า "น้ำหนัก" และเครื่องหมาย "/" (ห้ามอ่านจาก Pelican HUD เด็ดขาด)
+            // Method 2: ค้นหา Element ทั่วทั้งจอที่มีคำว่า "น้ำหนัก" และเครื่องหมาย "/" (เฉพาะเจาะจง ห้ามอ่านจาก Pelican HUD)
             const allCandidates = Array.from(document.querySelectorAll('*')).filter(el => {
                 if (!isValidNonBotElement(el) || el.children.length > 6) return false;
                 const txt = el.textContent || '';
@@ -1333,16 +1340,24 @@
                     const max = parseFloat(match[2].replace(/,/g, ''));
                     if (max > 0) {
                         const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                        window.__lastKnownWeight = res;
                         updateWeightHUD(res);
                         return res;
                     }
                 }
             }
 
-            // Method 4: ข้อมูลจาก Server Packet (ถ้ามี)
+            // Method 3: ข้อมูลจาก Server Packet (ถ้ามี)
             if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
+                window.__lastKnownWeight = window.__serverWeight;
                 updateWeightHUD(window.__serverWeight);
                 return window.__serverWeight;
+            }
+
+            // Fallback: ใช้ค่าน้ำหนักล่าสุดที่เคยอ่านได้จริง (ถ้ามี)
+            if (window.__lastKnownWeight) {
+                updateWeightHUD(window.__lastKnownWeight);
+                return window.__lastKnownWeight;
             }
         } catch(e) {}
         return null;
@@ -1370,7 +1385,7 @@
     function isCharacterOverweight() {
         const cfg = window.__sellConfig || {};
 
-        // ถ้าผู้เล่นปิดระบบตรวจน้ำหนัก ไม่ต้องส่งวาร์ปกลับ ยกเว้นกรณีฉุกเฉินที่ตัวเกมล็อค AUTO ชัดเจน (__isKnownOverweight)
+        // ถ้าผู้เล่นปิดระบบตรวจน้ำหนัก ไม่ต้องส่งวาร์ปกลับ
         if (!cfg.weightCheckEnabled && !window.__isKnownOverweight) {
             return false;
         }
@@ -1382,35 +1397,20 @@
 
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
-        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM (ห้ามอ่านจาก Pelican HUD)
-        const w = getCharacterWeight();
+        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM หรือ Server
+        const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
         if (w && typeof w.percent === 'number' && w.percent > 0) {
             if (w.percent >= threshold) return true;
+            // ถ้าน้ำหนักจริงยังไม่ถึงเกณฑ์ที่ตั้งไว้ (เช่น 38.6% < 70%) ถือว่าปลอดภัย 100% ห้ามสั่งวาร์ปกลับเด็ดขาด!
+            return false;
         }
 
-        // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้าเกิน 95 ช่องถือว่ากระเป๋าเต็ม)
+        // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้า 98 ช่องขึ้นไปถือว่ากระเป๋าเต็ม)
         const slots = getBagSlots();
-        if (slots && (slots.percent >= 95 || slots.current >= slots.max - 2)) {
-            console.warn(`%c[Pelican Overload] 🎒 ช่องกระเป๋าใกล้เต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
+        if (slots && (slots.percent >= 98 || slots.current >= slots.max - 1)) {
+            console.warn(`%c[Pelican Overload] 🎒 ช่องกระเป๋าเต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
             return true;
         }
-
-        // 3. ตรวจสอบข้อมูลน้ำหนักจาก Memory/Packet ถ้ามี
-        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
-            if (window.__serverWeight.percent >= threshold) return true;
-        }
-
-        // 4. ตรวจสอบข้อความแจ้งเตือนจาก Toast/Modal ของระบบเกม (เฉพาะเจาะจง และต้องไม่อยู่ใน HUD ของบอท)
-        try {
-            const toastEls = document.querySelectorAll('.toast, .notification, .alert, .modal-title, .system-msg, .chat-system, [class*="toast"], [class*="alert"]');
-            for (const el of toastEls) {
-                if (!isValidNonBotElement(el)) continue;
-                const t = (el.innerText || el.textContent || '').trim();
-                if (t.includes('กระเป๋าหนักเกิน 90%') || t.includes('น้ำหนักเกิน 90%') || t.includes('กระเป๋าเต็ม') || t.includes('สัมภาระเต็ม') || t.includes('Overweight')) {
-                    return true;
-                }
-            }
-        } catch(e) {}
 
         return false;
     }
@@ -1998,7 +1998,10 @@
 
         // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
         if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-            console.log('%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (>= 90%)! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...', 'color: #ef4444; font-weight: bold;');
+            const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
+            const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
+            const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
+            console.log(`%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
             window.executeAutoShopRoutine();
             return;
         }
@@ -2670,7 +2673,13 @@
 
     function triggerAutoSellTrash(callback) {
         const sellCfg = window.__sellConfig || {};
-        if (!sellCfg.enabled || (!sellCfg.sellMaterials && !sellCfg.sellWeapons && !sellCfg.sellArmors)) {
+        const canSellAny = sellCfg.sellMaterials || 
+            (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') ||
+            (sellCfg.armorRarity && sellCfg.armorRarity !== 'none') ||
+            (sellCfg.accRarity && sellCfg.accRarity !== 'none') ||
+            sellCfg.sellWeapons || sellCfg.sellArmors;
+
+        if (!sellCfg.enabled || !canSellAny) {
             if (callback) callback();
             return;
         }
@@ -2824,11 +2833,15 @@
                 if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
                 
                 const txt = (el.innerText || el.textContent || '').trim();
-                if (!txt.includes(catName)) return false;
+                const searchKey = catName.includes('/') ? catName.split('/')[0] : catName;
+                if (!txt.includes(catName) && !txt.includes(searchKey)) return false;
 
                 // กรอง container แม่ทิ้ง: ถ้ามีชื่อแท็บหมวดอื่นปนอยู่ แสดงว่าเป็นแถบแท็บรวม ไม่ใช่ตัวปุ่มแท็บ
                 const knownTabs = ['ทั้งหมด', 'อาวุธ', 'ชุดเกราะ', 'ประดับ', 'ใช้ได้', 'การ์ด', 'แร่', 'วัตถุดิบ', 'อื่นๆ'];
-                const overlap = knownTabs.filter(t => t !== catName && txt.includes(t)).length;
+                const overlap = knownTabs.filter(t => {
+                    if (t === catName || catName.includes(t) || t.includes(catName)) return false;
+                    return txt.includes(t);
+                }).length;
                 if (overlap > 0) return false;
 
                 return true;
@@ -2910,8 +2923,22 @@
             if (typeof sellTab.click === 'function') sellTab.click();
         }
 
-        function processCategory(catName, isItemByItem, onDone) {
-            console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}"...`);
+        function processCategory(catName, isItemByItem, targetMaxRarity, onDone) {
+            if (typeof targetMaxRarity === 'function') {
+                onDone = targetMaxRarity;
+                targetMaxRarity = sellCfg.maxRarityToSell || 'normal';
+            }
+            const rankMap = {
+                'normal': 1, 'common': 1,
+                'good': 2, 'magic': 2,
+                'rare': 3,
+                'epic': 4,
+                'legendary': 5
+            };
+            const maxRank = rankMap[targetMaxRarity || 'normal'] || 1;
+            const rankNames = { 1: 'ธรรมดา (ขาว 0 Option)', 2: 'ดี (เขียว 1 Option)', 3: 'หายาก (ฟ้า 2 Option)', 4: 'มหากาพย์ (ม่วง 3 Option)', 5: 'ตำนาน (ทอง/ส้ม 4+ Option)' };
+
+            console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}" (เกณฑ์ขายไม่เกิน: ${rankNames[maxRank] || maxRank})...`);
             
             const catBtn = findCategoryTab(catName);
             if (catBtn) {
@@ -2944,7 +2971,7 @@
                     }
                     setTimeout(onDone, 400);
                 } else {
-                    // หมวด "อาวุธ" หรือ "ชุดเกราะ": กรองตาม Whitelist, ระดับ Rarity, ตีบวก, รูการ์ด, และ Option
+                    // หมวด "อาวุธ", "ชุดเกราะ", หรือ "ประดับ/เจม": กรองตาม Whitelist, ระดับ Rarity, ตีบวก, รูการ์ด, และ Option
                     const shopModal = document.querySelector('.shop-window, [class*="shop"]') || document.body;
                     const plusBtns = Array.from(shopModal.querySelectorAll('button, div')).filter(b => {
                         if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
@@ -2995,17 +3022,8 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกม: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
+                        // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกณฑ์เฉพาะของหมวดนี้: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
                         const rarityRank = getItemRarity(itemName, rowText, titleEl, row);
-                        const rankMap = {
-                            'normal': 1, 'common': 1,
-                            'good': 2, 'magic': 2,
-                            'rare': 3,
-                            'epic': 4,
-                            'legendary': 5
-                        };
-                        const maxRank = rankMap[sellCfg.maxRarityToSell || 'normal'] || 1;
-                        const rankNames = { 1: 'ธรรมดา (ขาว 0 Option)', 2: 'ดี (เขียว 1 Option)', 3: 'หายาก (ฟ้า 2 Option)', 4: 'มหากาพย์ (ม่วง 3 Option)', 5: 'ตำนาน (ทอง/ส้ม 4+ Option)' };
 
                         if (rarityRank > maxRank) {
                             console.log(`[Pelican Shop] 🔒 [ระดับสูง] ข้าม: "${itemName}" (ระดับ: ${rankNames[rarityRank] || rarityRank} > เกณฑ์ที่เลือก: ${rankNames[maxRank]})`);
@@ -3069,7 +3087,7 @@
                             return;
                         }
                         const item = itemsToSell[clickIdx++];
-                        console.log(`%c[Pelican Shop] ➕ ใส่อาวุธ/เกราะลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
+                        console.log(`%c[Pelican Shop] ➕ ใส่ไอเทมลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
                         triggerClick(item.btn);
                         if (typeof item.btn.click === 'function') item.btn.click();
                         setTimeout(stepClick, 130);
@@ -3081,9 +3099,24 @@
 
         setTimeout(() => {
             const steps = [];
-            if (sellCfg.sellMaterials) steps.push((next) => processCategory('วัตถุดิบ', false, next));
-            if (sellCfg.sellWeapons) steps.push((next) => processCategory('อาวุธ', true, next));
-            if (sellCfg.sellArmors) steps.push((next) => processCategory('ชุดเกราะ', true, next));
+            if (sellCfg.sellMaterials) {
+                steps.push((next) => processCategory('วัตถุดิบ', false, 'all', next));
+            }
+            if (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') {
+                steps.push((next) => processCategory('อาวุธ', true, sellCfg.weaponRarity, next));
+            } else if (sellCfg.sellWeapons && (!sellCfg.weaponRarity || sellCfg.weaponRarity === 'none')) {
+                steps.push((next) => processCategory('อาวุธ', true, sellCfg.maxRarityToSell || 'normal', next));
+            }
+
+            if (sellCfg.armorRarity && sellCfg.armorRarity !== 'none') {
+                steps.push((next) => processCategory('ชุดเกราะ', true, sellCfg.armorRarity, next));
+            } else if (sellCfg.sellArmors && (!sellCfg.armorRarity || sellCfg.armorRarity === 'none')) {
+                steps.push((next) => processCategory('ชุดเกราะ', true, sellCfg.maxRarityToSell || 'normal', next));
+            }
+
+            if (sellCfg.accRarity && sellCfg.accRarity !== 'none') {
+                steps.push((next) => processCategory('ประดับ/เจม', true, sellCfg.accRarity, next));
+            }
 
             function runSteps(idx) {
                 if (idx >= steps.length) {
@@ -4541,52 +4574,87 @@
                         <b>เปิดระบบ Auto-Sell คัดกรองอัตโนมัติ</b>
                     </label>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: rgba(15, 23, 42, 0.6); padding: 5px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
-                        <label class="p-check-box" style="color: #94a3b8;">
-                            <input type="checkbox" id="p-sell-mat" ${window.__sellConfig.sellMaterials ? 'checked' : ''}>
-                            <span>🌿 วัตถุดิบ</span>
-                        </label>
-                        <label class="p-check-box" style="color: #94a3b8;">
-                            <input type="checkbox" id="p-sell-weap" ${window.__sellConfig.sellWeapons ? 'checked' : ''}>
-                            <span>⚔️ อาวุธ</span>
-                        </label>
-                        <label class="p-check-box" style="color: #94a3b8;">
-                            <input type="checkbox" id="p-sell-armor" ${window.__sellConfig.sellArmors ? 'checked' : ''}>
-                            <span>🛡️ เกราะ</span>
-                        </label>
-                        <label class="p-check-box" style="color: #ef4444;" title="ห้ามขายของที่ผ่านการตีบวก (+1 ขึ้นไป)">
-                            <input type="checkbox" id="p-sell-keep-refined" ${window.__sellConfig.keepRefined ? 'checked' : ''}>
-                            <span>🔨 ล็อกของตีบวก</span>
-                        </label>
+                    <!-- Category Rarity Card -->
+                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.7); padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+                        <div style="font-size: 10px; font-weight: bold; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(56, 189, 248, 0.2); padding-bottom: 3px; margin-bottom: 1px;">
+                            <span>🗂️ แยกขายตามระดับและประเภท</span>
+                            <span style="font-size: 8.5px; color: #94a3b8; font-weight: normal;">ระดับไม่เกินที่เลือก</span>
+                        </div>
+
+                        <!-- 1. อาวุธ -->
+                        <div class="p-row">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">⚔️ อาวุธ:</span>
+                            <select id="p-sell-rarity-weap" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="none" ${window.__sellConfig.weaponRarity === 'none' ? 'selected' : ''}>❌ ไม่ขาย</option>
+                                <option value="normal" ${window.__sellConfig.weaponRarity === 'normal' ? 'selected' : ''}>⚪ ขาวเท่านั้น (0 Opt)</option>
+                                <option value="good" ${window.__sellConfig.weaponRarity === 'good' ? 'selected' : ''}>🟢 ดี (เขียวลงไป)</option>
+                                <option value="rare" ${window.__sellConfig.weaponRarity === 'rare' ? 'selected' : ''}>🔵 หายาก (ฟ้าลงไป)</option>
+                                <option value="epic" ${window.__sellConfig.weaponRarity === 'epic' ? 'selected' : ''}>🟣 มหากาพย์ (ม่วงลงไป)</option>
+                            </select>
+                        </div>
+
+                        <!-- 2. ชุดเกราะ -->
+                        <div class="p-row">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🛡️ ชุดเกราะ:</span>
+                            <select id="p-sell-rarity-armor" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="none" ${window.__sellConfig.armorRarity === 'none' ? 'selected' : ''}>❌ ไม่ขาย</option>
+                                <option value="normal" ${window.__sellConfig.armorRarity === 'normal' ? 'selected' : ''}>⚪ ขาวเท่านั้น (0 Opt)</option>
+                                <option value="good" ${window.__sellConfig.armorRarity === 'good' ? 'selected' : ''}>🟢 ดี (เขียวลงไป)</option>
+                                <option value="rare" ${window.__sellConfig.armorRarity === 'rare' ? 'selected' : ''}>🔵 หายาก (ฟ้าลงไป)</option>
+                                <option value="epic" ${window.__sellConfig.armorRarity === 'epic' ? 'selected' : ''}>🟣 มหากาพย์ (ม่วงลงไป)</option>
+                            </select>
+                        </div>
+
+                        <!-- 3. ประดับ/เจม -->
+                        <div class="p-row">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">💍 ประดับ/เจม:</span>
+                            <select id="p-sell-rarity-acc" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="none" ${window.__sellConfig.accRarity === 'none' ? 'selected' : ''}>❌ ไม่ขาย</option>
+                                <option value="normal" ${window.__sellConfig.accRarity === 'normal' ? 'selected' : ''}>⚪ ขาวเท่านั้น (0 Opt)</option>
+                                <option value="good" ${window.__sellConfig.accRarity === 'good' ? 'selected' : ''}>🟢 ดี (เขียวลงไป)</option>
+                                <option value="rare" ${window.__sellConfig.accRarity === 'rare' ? 'selected' : ''}>🔵 หายาก (ฟ้าลงไป)</option>
+                                <option value="epic" ${window.__sellConfig.accRarity === 'epic' ? 'selected' : ''}>🟣 มหากาพย์ (ม่วงลงไป)</option>
+                            </select>
+                        </div>
+
+                        <!-- 4. วัตถุดิบ -->
+                        <div class="p-row">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🌿 วัตถุดิบ:</span>
+                            <select id="p-sell-rarity-mat" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="all" ${window.__sellConfig.sellMaterials ? 'selected' : ''}>🧺 ขายขยะทั้งหมด</option>
+                                <option value="none" ${!window.__sellConfig.sellMaterials ? 'selected' : ''}>❌ ไม่ขาย</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="p-row">
-                        <span style="font-size: 10px; color: #94a3b8;">ขายเฉพาะระดับไม่เกิน:</span>
-                        <select id="p-sell-max-rarity" class="p-select" style="width: 140px; padding: 2px 4px; font-size: 10.5px;">
-                            <option value="normal" ${window.__sellConfig.maxRarityToSell === 'normal' ? 'selected' : ''}>⚪ ธรรมดา (ขาวเท่านั้น)</option>
-                            <option value="good" ${window.__sellConfig.maxRarityToSell === 'good' ? 'selected' : ''}>🟢 ดี (เขียวลงไป)</option>
-                            <option value="rare" ${window.__sellConfig.maxRarityToSell === 'rare' ? 'selected' : ''}>🔵 หายาก (ฟ้าลงไป)</option>
-                            <option value="epic" ${window.__sellConfig.maxRarityToSell === 'epic' ? 'selected' : ''}>🟣 มหากาพย์ (ม่วงลงไป)</option>
-                        </select>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <label class="p-check-box" style="color: #c084fc;" title="ห้ามขายของที่มี Option สุ่ม">
-                            <input type="checkbox" id="p-sell-keep-special" ${window.__sellConfig.keepSpecial ? 'checked' : ''}>
-                            <span>🔒 ล็อกของมี Option</span>
-                        </label>
+                    <!-- Safety Locks Card -->
+                    <div class="p-card" style="border-color: rgba(239, 68, 68, 0.35); background: rgba(15, 23, 42, 0.65); padding: 5px; display: flex; flex-direction: column; gap: 4px;">
+                        <div style="font-size: 10px; font-weight: bold; color: #f87171; border-bottom: 1px solid rgba(239, 68, 68, 0.2); padding-bottom: 2px;">
+                            🔒 ล็อกความปลอดภัย (ห้ามขายเด็ดขาด)
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <label class="p-check-box" style="color: #ef4444;" title="ห้ามขายของที่ผ่านการตีบวก (+1 ขึ้นไป)">
+                                <input type="checkbox" id="p-sell-keep-refined" ${window.__sellConfig.keepRefined ? 'checked' : ''}>
+                                <span>🔨 ล็อกของตีบวก</span>
+                            </label>
+                            <label class="p-check-box" style="color: #c084fc;" title="ห้ามขายของที่มี Option สุ่ม">
+                                <input type="checkbox" id="p-sell-keep-special" ${window.__sellConfig.keepSpecial ? 'checked' : ''}>
+                                <span>🔒 ล็อกของมี Option</span>
+                            </label>
+                        </div>
                         <label class="p-check-box" style="color: #38bdf8;" title="ห้ามขายของที่มีรูใส่การ์ด [1-4]">
                             <input type="checkbox" id="p-sell-keep-sockets" ${window.__sellConfig.keepSockets ? 'checked' : ''}>
-                            <span>🕳️ ล็อกของมีรู [1-4]</span>
+                            <span>🕳️ ล็อกของมีรูการ์ด [1-4]</span>
                         </label>
                     </div>
 
+                    <!-- Whitelist Card -->
                     <div>
                         <span style="font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px;">🛡️ Whitelist ห้ามขาย (ชื่อไอเทมคั่นด้วย ,):</span>
-                        <textarea id="p-sell-whitelist" style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.4); color: #fff; border-radius: 4px; font-size: 10px; height: 38px; resize: vertical; padding: 3px;">${window.__sellConfig.whitelist || ''}</textarea>
+                        <textarea id="p-sell-whitelist" style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.4); color: #fff; border-radius: 4px; font-size: 9.5px; height: 34px; resize: vertical; padding: 3px;">${window.__sellConfig.whitelist || ''}</textarea>
                     </div>
 
-                    <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
+                    <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
                 </div>
 
                 <!-- TAB 4: SYSTEM & TOOLS -->
@@ -4815,33 +4883,44 @@
             saveSellConfig();
         };
 
-        document.getElementById('p-sell-mat').onchange = (e) => {
-            window.__sellConfig.sellMaterials = e.target.checked;
-            saveSellConfig();
-        };
+        const sellWeapEl = document.getElementById('p-sell-rarity-weap');
+        if (sellWeapEl) {
+            sellWeapEl.onchange = (e) => {
+                window.__sellConfig.weaponRarity = e.target.value;
+                window.__sellConfig.sellWeapons = e.target.value !== 'none';
+                saveSellConfig();
+            };
+        }
 
-        document.getElementById('p-sell-weap').onchange = (e) => {
-            window.__sellConfig.sellWeapons = e.target.checked;
-            saveSellConfig();
-        };
+        const sellArmorEl = document.getElementById('p-sell-rarity-armor');
+        if (sellArmorEl) {
+            sellArmorEl.onchange = (e) => {
+                window.__sellConfig.armorRarity = e.target.value;
+                window.__sellConfig.sellArmors = e.target.value !== 'none';
+                saveSellConfig();
+            };
+        }
 
-        document.getElementById('p-sell-armor').onchange = (e) => {
-            window.__sellConfig.sellArmors = e.target.checked;
-            saveSellConfig();
-        };
+        const sellAccEl = document.getElementById('p-sell-rarity-acc');
+        if (sellAccEl) {
+            sellAccEl.onchange = (e) => {
+                window.__sellConfig.accRarity = e.target.value;
+                saveSellConfig();
+            };
+        }
+
+        const sellMatEl = document.getElementById('p-sell-rarity-mat');
+        if (sellMatEl) {
+            sellMatEl.onchange = (e) => {
+                window.__sellConfig.sellMaterials = (e.target.value === 'all');
+                saveSellConfig();
+            };
+        }
 
         const sellRefinedEl = document.getElementById('p-sell-keep-refined');
         if (sellRefinedEl) {
             sellRefinedEl.onchange = (e) => {
                 window.__sellConfig.keepRefined = e.target.checked;
-                saveSellConfig();
-            };
-        }
-
-        const sellMaxRarityEl = document.getElementById('p-sell-max-rarity');
-        if (sellMaxRarityEl) {
-            sellMaxRarityEl.onchange = (e) => {
-                window.__sellConfig.maxRarityToSell = e.target.value;
                 saveSellConfig();
             };
         }
