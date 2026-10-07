@@ -222,6 +222,120 @@
 
     setInterval(syncAmmoFromDOM, 600);
 
+    
+    // ==========================================
+    // BROWSERTOOLS MCP NATIVE GAME CONNECTOR
+    // ==========================================
+    (function initBrowserToolsBridge() {
+        let mcpWs = null;
+        let reconnectTimer = null;
+        const tabId = "aetheria-game";
+
+        async function tryConnect() {
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 1200);
+                const res = await fetch('http://127.0.0.1:3025/.identity', { signal: controller.signal }).catch(() => null);
+                clearTimeout(timeout);
+
+                if (!res || !res.ok) {
+                    scheduleReconnect();
+                    return;
+                }
+
+                mcpWs = new WebSocket('ws://127.0.0.1:3025/extension-ws');
+                mcpWs.onopen = () => {
+                    console.log('%c[Pelican MCP] 🔗 Connected natively to BrowserTools MCP on port 3025!', 'color: #00ffcc; font-weight: bold;');
+                    mcpWs.send(JSON.stringify({ type: 'hello', extensionVersion: '2.0.0', tabId: tabId }));
+                    mcpWs.send(JSON.stringify({ type: 'page', url: window.location.href, tabId: tabId }));
+                };
+
+                mcpWs.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'ping') {
+                            mcpWs.send(JSON.stringify({ type: 'pong', id: msg.id }));
+                        } else if (msg.type === 'refresh-tab') {
+                            window.location.reload();
+                        } else if (msg.type === 'capture-screenshot') {
+                            const canvas = document.querySelector('canvas');
+                            if (canvas) {
+                                try {
+                                    const dataUrl = canvas.toDataURL('image/png');
+                                    mcpWs.send(JSON.stringify({
+                                        requestId: msg.requestId,
+                                        type: 'screenshot-result',
+                                        dataUrl: dataUrl
+                                    }));
+                                } catch(e) {}
+                            }
+                        }
+                    } catch(e) {}
+                };
+
+                mcpWs.onclose = () => {
+                    mcpWs = null;
+                    scheduleReconnect();
+                };
+
+                mcpWs.onerror = () => {
+                    mcpWs = null;
+                };
+            } catch(e) {
+                scheduleReconnect();
+            }
+        }
+
+        function scheduleReconnect() {
+            if (!reconnectTimer) {
+                reconnectTimer = setTimeout(() => {
+                    reconnectTimer = null;
+                    tryConnect();
+                }, 3000);
+            }
+        }
+
+        const origLog = console.log;
+        const origWarn = console.warn;
+        const origError = console.error;
+
+        function forward(level, args) {
+            if (mcpWs && mcpWs.readyState === WebSocket.OPEN) {
+                try {
+                    const text = Array.from(args).map(a => {
+                        if (typeof a === 'string') return a;
+                        try { return JSON.stringify(a); } catch(e) { return String(a); }
+                    }).join(' ');
+
+                    mcpWs.send(JSON.stringify({
+                        type: 'console',
+                        entries: [{
+                            type: level === 'error' ? 'console-error' : 'console-log',
+                            level: level,
+                            message: text.slice(0, 1500),
+                            timestamp: Date.now()
+                        }]
+                    }));
+                } catch(e) {}
+            }
+        }
+
+        console.log = function(...args) {
+            origLog.apply(console, args);
+            forward('log', args);
+        };
+        console.warn = function(...args) {
+            origWarn.apply(console, args);
+            forward('warn', args);
+        };
+        console.error = function(...args) {
+            origError.apply(console, args);
+            forward('error', args);
+        };
+
+        tryConnect();
+    })();
+
     const OriginalWebSocket = window.WebSocket;
 
     // บันทึก Hex เต็ม 100% ทุกไบต์
