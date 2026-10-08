@@ -968,6 +968,63 @@
         'SP_DRAIN_ATTACK': 'ดูด SP'
     };
 
+    // ==========================================
+    // IN-GAME OFFICIAL ICON LOADER & MANIFEST CACHE
+    // ==========================================
+    window.__itemIconManifest = null;
+    try {
+        const cachedManifest = localStorage.getItem('pelican_icon_manifest');
+        if (cachedManifest) {
+            window.__itemIconManifest = JSON.parse(cachedManifest);
+        }
+    } catch (e) {}
+
+    function fetchIconManifest() {
+        if (typeof fetch === 'function') {
+            fetch('/art/icons/manifest.json', { cache: 'force-cache' })
+                .then(res => res.ok ? res.json() : null)
+                .then(data => {
+                    if (data && (data.items || data.itemKeys)) {
+                        window.__itemIconManifest = data;
+                        try {
+                            localStorage.setItem('pelican_icon_manifest', JSON.stringify(data));
+                        } catch (e) {}
+                        const modal = document.getElementById('pelican-data-modal');
+                        if (modal && modal.style.display === 'flex' && typeof window.renderModalTab === 'function') {
+                            window.renderModalTab('items');
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+    }
+    fetchIconManifest();
+
+    function getItemIconUrl(raw) {
+        if (!raw) return null;
+        const itemId = raw.itemId ?? raw.id ?? raw.item_id;
+        const manifest = window.__itemIconManifest;
+        if (manifest && manifest.items && itemId !== undefined && manifest.items[itemId]) {
+            return '/art/icons/' + manifest.items[itemId];
+        }
+        if (manifest && manifest.itemKeys && raw.name) {
+            const slug = String(raw.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            if (manifest.itemKeys[slug]) {
+                return '/art/icons/' + manifest.itemKeys[slug];
+            }
+        }
+        return null;
+    }
+
+    function getItemIconHtml(raw, size = 20) {
+        const iconUrl = getItemIconUrl(raw);
+        const fallbackEmoji = getItemIconEmoji(raw);
+        if (iconUrl) {
+            return `<img src="${iconUrl}" style="width: ${size}px; height: ${size}px; min-width: ${size}px; min-height: ${size}px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; display: inline-block;" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" alt="" draggable="false" /><span style="display: none; vertical-align: middle;">${fallbackEmoji}</span>`;
+        }
+        return `<span style="vertical-align: middle; display: inline-block;">${fallbackEmoji}</span>`;
+    }
+
     function getItemIconEmoji(raw) {
         if (!raw) return '📦';
         const type = raw.type || '';
@@ -1231,13 +1288,13 @@
             footerText = 'วัตถุดิบสำหรับอัปเกรดและคราฟต์ไอเทม';
         }
 
-        const iconEmoji = getItemIconEmoji(raw);
+        const iconHtml = getItemIconHtml(raw, 36);
 
         // Assemble Full Tooltip
         tt.innerHTML = `
             <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
-                <div style="width: 44px; height: 44px; min-width: 44px; background: rgba(15, 23, 42, 0.85); border: 1.5px solid #d97706; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: inset 0 0 8px rgba(0,0,0,0.5);">
-                    ${iconEmoji}
+                <div style="width: 44px; height: 44px; min-width: 44px; background: rgba(15, 23, 42, 0.85); border: 1.5px solid #d97706; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: inset 0 0 8px rgba(0,0,0,0.5); overflow: hidden;">
+                    ${iconHtml}
                 </div>
                 <div style="flex: 1; min-width: 0;">
                     <div style="font-size: 13.5px; font-weight: bold; color: #67e8f9; text-shadow: 0 1px 3px rgba(0,0,0,0.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
@@ -1548,7 +1605,7 @@
                 filteredItems.forEach((it, idx) => {
                     const hexId = it.id ? '0x' + parseInt(it.id).toString(16) : '-';
                     const isArrow = it.id === 90030 || String(it.name).toLowerCase().includes('arrow');
-                    const icon = getItemIconEmoji(it.raw);
+                    const iconHtml = getItemIconHtml(it.raw, 20);
 
                     let categoryBadge = '';
                     if (isArrow) {
@@ -1590,7 +1647,12 @@
                             onmouseleave="window.hidePelicanItemTooltip()"
                             style="border-bottom: 1px solid #1e293b; cursor: pointer; transition: background 0.15s ease; ${isArrow ? 'background: rgba(34, 197, 94, 0.08);' : ''}">
                             <td style="padding: 6px 8px; color: #94a3b8; border: 1px solid #334155;">${it.slot}</td>
-                            <td style="padding: 6px 8px; font-weight: bold; color: ${isArrow ? '#4ade80' : '#f8fafc'}; border: 1px solid #334155;">${icon} ${it.name}</td>
+                            <td style="padding: 6px 8px; font-weight: bold; color: ${isArrow ? '#4ade80' : '#f8fafc'}; border: 1px solid #334155;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    ${iconHtml}
+                                    <span>${it.name}</span>
+                                </div>
+                            </td>
                             <td style="padding: 6px 8px; font-family: monospace; color: #38bdf8; border: 1px solid #334155;">${it.id || '-'} (${hexId})</td>
                             <td style="padding: 6px 8px; font-weight: bold; color: #f59e0b; border: 1px solid #334155;">${it.qty}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155;">
