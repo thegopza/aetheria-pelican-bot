@@ -577,6 +577,10 @@
         const timestamp = new Date().toLocaleTimeString();
         console.log(`%c[Pelican Dump ${timestamp}] ================= WEIGHT & BAG DOM DUMP =================`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
         
+        // 0. Character HP status
+        const charHp = (typeof getCharacterHP === 'function') ? getCharacterHP() : null;
+        console.log(`[Pelican Dump] ❤️ Character HP:`, charHp);
+
         // 1. Check all elements with text "น้ำหนัก"
         const weightEls = Array.from(document.querySelectorAll('*')).filter(el => {
             if (!isValidNonBotElement(el)) return false;
@@ -625,6 +629,18 @@
             return item;
         });
 
+        // 2.1 Check all elements with text "กระเป๋า"
+        const bagEls = Array.from(document.querySelectorAll('*')).filter(el => {
+            if (!isValidNonBotElement(el)) return false;
+            const t = (el.innerText || el.textContent || '').trim();
+            return (t === 'กระเป๋า' || t.startsWith('กระเป๋า')) && el.children.length <= 2;
+        });
+        console.log(`[Pelican Dump] 🎒 Elements containing "กระเป๋า" (count: ${bagEls.length}):`);
+        bagEls.forEach((el, i) => {
+            const rect = el.getBoundingClientRect();
+            console.log(`  [#${i}] <${el.tagName.toLowerCase()} class="${el.className}"> rect=[${Math.round(rect.x)},${Math.round(rect.y)} (${Math.round(rect.width)}x${Math.round(rect.height)})] text="${(el.innerText || '').trim()}" HTML=${el.outerHTML.slice(0, 150)}`);
+        });
+
         // 3. Bag Modal detection
         const bagInfo = getOpenBagInfo();
         const bagSummary = bagInfo ? {
@@ -646,7 +662,7 @@
         console.log(`[Pelican Dump] 🚨 isCharacterOverweight():`, typeof isCharacterOverweight === 'function' ? isCharacterOverweight() : 'N/A');
         console.log(`%c[Pelican Dump] =====================================================================`, 'color: #f59e0b; font-weight: bold;');
 
-        return { timestamp, weightEls: weightSummary, sortEls: sortSummary, bagInfo: bagSummary, currentWeight: currentW, lastKnownWeight: window.__lastKnownWeight };
+        return { timestamp, charHp, weightEls: weightSummary, sortEls: sortSummary, bagInfo: bagSummary, currentWeight: currentW, lastKnownWeight: window.__lastKnownWeight };
     };
 
     // ==========================================
@@ -1384,22 +1400,23 @@
     function getBagSlots() {
         try {
             const bagInfo = getOpenBagInfo();
-            const searchScope = bagInfo && bagInfo.windowEl ? bagInfo.windowEl : document.body;
-            const bagHeaders = Array.from(searchScope.querySelectorAll('*')).filter(el => {
-                if (!isValidNonBotElement(el)) return false;
-                const txt = (el.textContent || '').trim();
-                return txt.includes('กระเป๋า') || txt.includes('Inventory');
-            });
-            for (const el of bagHeaders) {
-                const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
-                const m = txt.match(/กระเป๋า[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/Inventory[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/(\d+)\s*\/\s*(\d+)/);
-                if (m) {
-                    const cur = parseInt(m[1]);
-                    const max = parseInt(m[2]);
-                    if (max > 0 && max <= 300) {
-                        const res = { current: cur, max, percent: Math.round((cur / max) * 100) };
-                        window.__lastKnownSlots = res;
-                        return res;
+            if (bagInfo && bagInfo.windowEl) {
+                const bagHeaders = Array.from(bagInfo.windowEl.querySelectorAll('*')).filter(el => {
+                    if (!isValidNonBotElement(el)) return false;
+                    const txt = (el.textContent || '').trim();
+                    return txt.includes('กระเป๋า') || txt.includes('Inventory');
+                });
+                for (const el of bagHeaders) {
+                    const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                    const m = txt.match(/กระเป๋า[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/Inventory[^\d]*(\d+)\s*\/\s*(\d+)/i) || txt.match(/(\d+)\s*\/\s*(\d+)/);
+                    if (m) {
+                        const cur = parseInt(m[1]);
+                        const max = parseInt(m[2]);
+                        if (max > 0 && max <= 300) {
+                            const res = { current: cur, max, percent: Math.round((cur / max) * 100) };
+                            window.__lastKnownSlots = res;
+                            return res;
+                        }
                     }
                 }
             }
@@ -1411,41 +1428,64 @@
     function getCharacterWeight() {
         try {
             const bagInfo = getOpenBagInfo();
-            const searchScope = bagInfo && bagInfo.windowEl ? bagInfo.windowEl : document.body;
+            const charHp = (typeof getCharacterHP === 'function') ? getCharacterHP() : null;
+            const invalidMax = charHp && charHp.max > 0 ? charHp.max : null;
 
-            // Method 1 (PRIMARY): ค้นหาแถวข้อความที่มีคำว่า "น้ำหนัก"
-            const weightLabels = Array.from(searchScope.querySelectorAll('*')).filter(el => {
-                if (!isValidNonBotElement(el) || el.children.length > 5) return false;
-                const txt = (el.textContent || '').trim();
-                return txt.includes('น้ำหนัก');
-            });
-
-            for (const label of weightLabels) {
-                const searchTargets = [label, label.parentElement, label.parentElement?.parentElement, label.nextElementSibling].filter(Boolean);
-                for (const target of searchTargets) {
-                    const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
-                    const matches = Array.from(cleanTxt.matchAll(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/g));
-                    for (const m of matches) {
-                        const cur = parseFloat(m[1].replace(/,/g, ''));
-                        const max = parseFloat(m[2].replace(/,/g, ''));
-                        if (max >= 500 && max <= 50000) {
-                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
-                            window.__lastKnownWeight = res;
-                            if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
-                                window.__isKnownOverweight = false;
-                            }
-                            try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
-                            updateWeightHUD(res);
-                            return res;
-                        }
+            // ตรวจจับ Debuff สถานะน้ำหนักเกินบนแถบตัวละคร .hud-status (เช่น "น้ำหนักเกิน 70%" หรือ "น้ำหนักเกิน 90%")
+            const statusPanel = document.querySelector('.hud-status');
+            if (statusPanel) {
+                const statusText = statusPanel.innerText || statusPanel.textContent || '';
+                if (statusText.includes('น้ำหนักเกิน 90%')) {
+                    window.__isKnownOverweight = true;
+                    if (window.__lastKnownWeight && window.__lastKnownWeight.percent < 90) {
+                        window.__lastKnownWeight.percent = 90.0;
+                    }
+                } else if (statusText.includes('น้ำหนักเกิน 70%')) {
+                    if (window.__lastKnownWeight && window.__lastKnownWeight.percent < 70) {
+                        window.__lastKnownWeight.percent = 70.0;
                     }
                 }
             }
 
-            // Method 2: ค้นหา Node X / Y ภายในหน้าต่างกระเป๋าเท่านั้น (ห้ามหาบน document.body เพื่อป้องกันชนกับหลอดเลือด HP/MP)
+            // ถ้าหน้าต่างกระเป๋าเปิดอยู่ -> อ่านค่าน้ำหนักจริงจากภายในหน้าต่างกระเป๋าเท่านั้น!
             if (bagInfo && bagInfo.windowEl) {
+                // Method 1 (PRIMARY): ค้นหาแถวข้อความที่มีคำว่า "น้ำหนัก" ภายในหน้าต่างกระเป๋า
+                const weightLabels = Array.from(bagInfo.windowEl.querySelectorAll('*')).filter(el => {
+                    if (!isValidNonBotElement(el) || el.children.length > 5) return false;
+                    if (el.closest('.hud-status') || el.closest('.hud-head') || el.closest('.hud-levels')) return false;
+                    const txt = (el.textContent || '').trim();
+                    return txt.includes('น้ำหนัก');
+                });
+
+                for (const label of weightLabels) {
+                    const searchTargets = [label, label.parentElement, label.parentElement?.parentElement, label.nextElementSibling].filter(Boolean);
+                    for (const target of searchTargets) {
+                        if (target.closest('.hud-status')) continue;
+                        const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
+                        const matches = Array.from(cleanTxt.matchAll(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/g));
+                        for (const m of matches) {
+                            const cur = parseFloat(m[1].replace(/,/g, ''));
+                            const max = parseFloat(m[2].replace(/,/g, ''));
+                            // กรองค่า: ต้องไม่ใช่ Max HP (เช่น 1,755) และต้องเป็นสเกลน้ำหนักกระเป๋าจริง (เช่น 500 - 50,000)
+                            if (invalidMax && max === invalidMax) continue;
+                            if (max >= 500 && max <= 50000) {
+                                const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                                window.__lastKnownWeight = res;
+                                if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
+                                    window.__isKnownOverweight = false;
+                                }
+                                try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
+                                updateWeightHUD(res);
+                                return res;
+                            }
+                        }
+                    }
+                }
+
+                // Method 2: ค้นหา Node X / Y ภายในหน้าต่างกระเป๋าเท่านั้น
                 const leafNodes = Array.from(bagInfo.windowEl.querySelectorAll('*')).filter(el => {
                     if (!isValidNonBotElement(el)) return false;
+                    if (el.closest('.hud-status')) return false;
                     const txt = (el.textContent || '').trim();
                     if (!txt.includes('/')) return false;
                     return /^[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?$/.test(txt);
@@ -1457,6 +1497,7 @@
                     if (m) {
                         const cur = parseFloat(m[1].replace(/,/g, ''));
                         const max = parseFloat(m[2].replace(/,/g, ''));
+                        if (invalidMax && max === invalidMax) continue;
                         if (max >= 500 && max <= 50000) {
                             const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             window.__lastKnownWeight = res;
@@ -1471,6 +1512,10 @@
                 }
             }
 
+            // ถ้าหน้าต่างกระเป๋าปิดอยู่:
+            // กฎเหล็ก: ห้ามสแกนหาตัวเลขบน document.body เด็ดขาด! เพราะใน Aetheria ตัวเลขน้ำหนัก X/Y มีเฉพาะในหน้าต่างกระเป๋า
+            // การสแกน document.body จะไปจับแถบสถานะดีบัฟ "น้ำหนักเกิน 70%" แล้วไปอ่านค่า HP 1,063/1,755 ของตัวละครแทน
+
             // Method 3: ข้อมูลจาก Server Packet (ถ้ามี)
             if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.percent > 0) {
                 window.__lastKnownWeight = window.__serverWeight;
@@ -1478,9 +1523,12 @@
                 return window.__serverWeight;
             }
 
-            // Method 4: Fallback จาก Memory หรือ localStorage (ล้างค่า 100% บั๊ก HP เก่าทิ้ง)
-            if (window.__lastKnownWeight) {
-                if (window.__lastKnownWeight.percent === 100 && window.__lastKnownWeight.current === window.__lastKnownWeight.max) {
+            // Method 4: Fallback จาก Memory หรือ localStorage (พร้อมกรองล้างค่า HP เก่าที่เคยบันทึกผิดทิ้ง)
+            if (window.__lastKnownWeight && typeof window.__lastKnownWeight.percent === 'number') {
+                if (invalidMax && window.__lastKnownWeight.max === invalidMax) {
+                    window.__lastKnownWeight = null;
+                    try { localStorage.removeItem('pelican_last_weight'); } catch(e) {}
+                } else if (window.__lastKnownWeight.percent === 100 && window.__lastKnownWeight.current === window.__lastKnownWeight.max) {
                     window.__lastKnownWeight = null;
                     try { localStorage.removeItem('pelican_last_weight'); } catch(e) {}
                 } else {
@@ -1493,8 +1541,10 @@
                 const saved = localStorage.getItem('pelican_last_weight');
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    if (parsed && typeof parsed.percent === 'number') {
-                        if (parsed.percent === 100 && parsed.current === parsed.max) {
+                    if (parsed && typeof parsed.percent === 'number' && parsed.max > 0) {
+                        if (invalidMax && parsed.max === invalidMax) {
+                            localStorage.removeItem('pelican_last_weight');
+                        } else if (parsed.percent === 100 && parsed.current === parsed.max) {
                             localStorage.removeItem('pelican_last_weight');
                         } else {
                             window.__lastKnownWeight = parsed;
@@ -1592,6 +1642,19 @@
 
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
+        // 0. ตรวจสอบสถานะ Debuff บนแผง .hud-status ของตัวละครโดยตรง (เชื่อถือได้ 100% แม้ปิดกระเป๋า)
+        const statusPanel = document.querySelector('.hud-status');
+        if (statusPanel) {
+            const statusText = statusPanel.innerText || statusPanel.textContent || '';
+            if (statusText.includes('น้ำหนักเกิน 90%')) {
+                window.__isKnownOverweight = true;
+                return true;
+            }
+            if (statusText.includes('น้ำหนักเกิน 70%') && threshold <= 70) {
+                return true;
+            }
+        }
+
         // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM หรือ Server
         const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
         if (w && typeof w.percent === 'number' && w.percent > 0) {
@@ -1677,11 +1740,9 @@
             try { canvas.focus(); } catch(e) {}
         }
 
+        const target = canvas || document.body || window;
         const downEvt = createSyntheticKeyEvent('keydown', keyStr, codeStr, keyCodeNum);
-        window.dispatchEvent(downEvt);
-        document.dispatchEvent(downEvt);
-        document.body.dispatchEvent(downEvt);
-        if (canvas) canvas.dispatchEvent(downEvt);
+        target.dispatchEvent(downEvt);
 
         // Phaser Keyboard Injection หากตัวเกมมี instance บน window
         try {
@@ -1695,10 +1756,7 @@
 
         setTimeout(() => {
             const upEvt = createSyntheticKeyEvent('keyup', keyStr, codeStr, keyCodeNum);
-            window.dispatchEvent(upEvt);
-            document.dispatchEvent(upEvt);
-            document.body.dispatchEvent(upEvt);
-            if (canvas) canvas.dispatchEvent(upEvt);
+            target.dispatchEvent(upEvt);
 
             try {
                 const phaserGame = window.game || (window.Phaser && window.Phaser.GAMES && window.Phaser.GAMES[0]);
@@ -1826,36 +1884,41 @@
         console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋าเพื่ออ่านน้ำหนักและกดจัดเรียง...', 'color: #38bdf8;');
 
         // วิธี A: คลิกปุ่ม "กระเป๋า" จากหน้าจอเกม
-        const bagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span')).find(el => {
+        const bagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
             if (!isValidNonBotElement(el)) return false;
             const txt = (el.innerText || el.textContent || '').trim();
-            return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/'))) && el.offsetWidth > 0 && el.offsetHeight > 0;
+            return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
         });
 
         if (bagBtn) {
+            try { bagBtn.scrollIntoView(); } catch(e) {}
             triggerClick(bagBtn);
         } else {
             // ถ้าไม่เจอปุ่มกระเป๋า ให้คลิกปุ่ม "เมนู" เพื่อเปิดเมนูกริดออกมาก่อน
             const menuBtn = Array.from(document.querySelectorAll('button, div, [role="button"]')).find(el => {
                 if (!isValidNonBotElement(el)) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
-                return txt.includes('เมนู') && el.offsetWidth > 0;
+                return txt === '▲ เมนู' || txt === 'เมนู';
             });
             if (menuBtn) {
                 triggerClick(menuBtn);
                 setTimeout(() => {
-                    const subBagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span')).find(el => {
+                    const subBagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
                         if (!isValidNonBotElement(el)) return false;
                         const txt = (el.innerText || el.textContent || '').trim();
-                        return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/'))) && el.offsetWidth > 0;
+                        return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
                     });
-                    if (subBagBtn) triggerClick(subBagBtn);
+                    if (subBagBtn) {
+                        try { subBagBtn.scrollIntoView(); } catch(e) {}
+                        triggerClick(subBagBtn);
+                    }
                 }, 120);
             }
         }
 
-        // วิธี B: ส่งคำสั่ง Keyboard 'I' เสริมไปด้วย
+        // วิธี B: ส่งคำสั่ง Keyboard 'I' และ 'B'
         dispatchKeyAll('i', 'KeyI', 73);
+        dispatchKeyAll('b', 'KeyB', 66);
 
         // 3. Poll รอจนกว่าหน้าต่างกระเป๋าจะเปิดออกมา (เช็คทุก 50ms สูงสุด 30 รอบ = 1.5 วินาที)
         let pollCount = 0;
