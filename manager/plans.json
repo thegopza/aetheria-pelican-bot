@@ -1,0 +1,10 @@
+{
+  "profile_main": {
+    "name": "ลูปฟาร์มซากโบราณสถาน 24 ชม.",
+    "mode": "farm_loop",
+    "targetMap": "ซากโบราณสถาน",
+    "minAmmo": 200,
+    "maxWeight": 75,
+    "autoLoop": true
+  }
+}

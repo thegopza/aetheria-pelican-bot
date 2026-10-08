@@ -517,3 +517,80 @@ label {
   gap: 10px;
   margin-top: 22px;
 }
+
+/* ==========================================
+   ENHANCED REALTIME CHARACTER STATS & GAUGES
+   ========================================== */
+.char-gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.gauge-lbl {
+  width: 24px;
+  font-weight: 800;
+  font-size: 10px;
+}
+.gauge-lbl.hp { color: #f87171; }
+.gauge-lbl.sp { color: #60a5fa; }
+
+.gauge-track {
+  flex: 1;
+  height: 7px;
+  background: rgba(30, 41, 59, 0.9);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.35s ease;
+}
+.gauge-fill.hp { background: linear-gradient(90deg, #ef4444, #f87171); }
+.gauge-fill.sp { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+
+.gauge-val {
+  font-size: 10.5px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #cbd5e1;
+  min-width: 78px;
+  text-align: right;
+  font-weight: 600;
+}
+
+.char-live-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #d8b4fe;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.profile-card.is-main {
+  border-color: rgba(234, 179, 8, 0.45);
+  box-shadow: 0 8px 24px rgba(234, 179, 8, 0.12);
+}
+
+.profile-card.is-main::before {
+  background: linear-gradient(90deg, #eab308, #f59e0b) !important;
+}

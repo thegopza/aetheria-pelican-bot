@@ -6,6 +6,15 @@ const { spawn, exec } = require("child_process");
 const PORT = 3888;
 const BASE_DIR = path.resolve(__dirname, "..");
 const PROFILES_FILE = path.join(__dirname, "profiles.json");
+const PLANS_FILE = path.join(__dirname, "plans.json");
+function loadPlans() {
+  if (!fs.existsSync(PLANS_FILE)) return {};
+  try { return JSON.parse(fs.readFileSync(PLANS_FILE, "utf8")); } catch(e) { return {}; }
+}
+function savePlans(plans) {
+  fs.writeFileSync(PLANS_FILE, JSON.stringify(plans, null, 2), "utf8");
+}
+
 const SESSIONS_DIR = path.join(BASE_DIR, "sessions");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
@@ -71,22 +80,40 @@ function isProcessAlive(pid) {
 
 function queryClientState(port) {
   return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/api/state`, { timeout: 700 }, (res) => {
+    // 1. Try rich state via /api/eval if bot script has __getClientLiveState
+    const evalUrl = `http://127.0.0.1:${port}/api/eval?code=` + encodeURIComponent(`(typeof window.__getClientLiveState === 'function' ? window.__getClientLiveState() : null)`);
+    const req = http.get(evalUrl, { timeout: 800 }, (res) => {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          resolve(null);
-        }
+          const parsed = JSON.parse(data);
+          if (parsed && parsed.success && parsed.result) {
+            return resolve(parsed.result);
+          }
+        } catch (e) {}
+        queryStandardState(port).then(resolve);
+      });
+    });
+    req.on("error", () => queryStandardState(port).then(resolve));
+    req.on("timeout", () => {
+      req.destroy();
+      queryStandardState(port).then(resolve);
+    });
+  });
+}
+
+function queryStandardState(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/api/state`, { timeout: 700 }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
       });
     });
     req.on("error", () => resolve(null));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(null);
-    });
+    req.on("timeout", () => { req.destroy(); resolve(null); });
   });
 }
 
@@ -130,20 +157,26 @@ const server = http.createServer(async (req, res) => {
     const enriched = await Promise.all(
       profiles.map(async (p) => {
         const proc = runningProcesses[p.id];
-        const alive = proc && isProcessAlive(proc.pid);
+        let alive = proc && isProcessAlive(proc.pid);
         let liveState = null;
 
-        if (alive) {
+        // Auto-detect online state if debugPort is responding
+        if (p.debugPort) {
           liveState = await queryClientState(p.debugPort);
-        } else if (proc) {
+          if (liveState && !liveState.error) {
+            alive = true;
+          }
+        }
+
+        if (!alive && proc) {
           delete runningProcesses[p.id];
         }
 
         return {
           ...p,
           isRunning: alive,
-          pid: alive ? proc.pid : null,
-          uptime: alive ? Math.round((Date.now() - proc.startTime) / 1000) : 0,
+          pid: alive ? (proc ? proc.pid : null) : null,
+          uptime: alive ? (proc ? Math.round((Date.now() - proc.startTime) / 1000) : 0) : 0,
           liveState
         };
       })
@@ -379,6 +412,85 @@ const server = http.createServer(async (req, res) => {
 
     exec(`powershell -Command "${psScript.replace(/\r?\n/g, ' ')}"`, (err) => {
       sendJSON({ success: !err });
+    });
+    return;
+  }
+
+  // 9. GET /api/plans/:id
+  if (req.method === "GET" && pathname.match(/^\/api\/plans\/[^/]+$/)) {
+    const id = pathname.split("/")[3];
+    const plans = loadPlans();
+    return sendJSON({ success: true, plan: plans[id] || null });
+  }
+
+  // 10. POST /api/plans/:id
+  if (req.method === "POST" && pathname.match(/^\/api\/plans\/[^/]+$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const plan = JSON.parse(body);
+        const plans = loadPlans();
+        plans[id] = plan;
+        savePlans(plans);
+        return sendJSON({ success: true, plan });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // 11. POST /api/plans/:id/apply
+  if (req.method === "POST" && pathname.match(/^\/api\/plans\/[^/]+\/apply$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const plan = JSON.parse(body);
+        const plans = loadPlans();
+        plans[id] = plan;
+        savePlans(plans);
+
+        const profiles = loadProfiles();
+        const profile = profiles.find(p => p.id === id);
+        if (!profile || !profile.debugPort) {
+          return sendJSON({ success: true, warning: "Profile saved, but client debugPort not found", plan });
+        }
+
+        const code = `
+          if (typeof window.__applyScriptPlan === 'function') {
+            window.__applyScriptPlan(${JSON.stringify(plan)});
+          } else {
+            window.__currentScriptPlan = ${JSON.stringify(plan)};
+            console.log('[Pelican Plan] Plan loaded:', ${JSON.stringify(plan.name)});
+          }
+        `;
+        
+        try {
+          await new Promise((resolve) => {
+            const clientReq = http.request({
+              hostname: "127.0.0.1",
+              port: profile.debugPort,
+              path: `/api/eval?code=${encodeURIComponent(code)}`,
+              method: "GET",
+              timeout: 1500
+            }, (res) => {
+              res.resume();
+              resolve(true);
+            });
+            clientReq.on("error", () => resolve(false));
+            clientReq.on("timeout", () => { clientReq.destroy(); resolve(false); });
+            clientReq.end();
+          });
+        } catch (e) {}
+
+        return sendJSON({ success: true, message: "Plan applied successfully", plan });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
     });
     return;
   }

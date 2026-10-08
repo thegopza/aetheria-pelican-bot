@@ -197,18 +197,69 @@ function startDebugServer(port = DEBUG_PORT) {
         res.writeHead(503);
         return res.end(JSON.stringify({ error: "Game window not ready" }));
       }
-      win.webContents.executeJavaScript(`({
-        map: window.getCurrentMapName ? window.getCurrentMapName() : null,
-        pos: window.__currentPos,
-        ammo: window.__currentAmmo,
-        targetMap: window.__targetFarmMap,
-        navigating: window.__isNavigating,
-        recovering: window.__isRecovering,
-        shopping: window.__isShopping,
-        autoLoop: window.__autoLoopEnabled,
-        hasSocket: !!window.__gameSocket,
-        hasInventory: !!window.__latestInventory
-      })`)
+      win.webContents.executeJavaScript(`(typeof window.__getClientLiveState === 'function' ? window.__getClientLiveState() : (() => {
+        const nameEl = document.querySelector('.hud-name');
+        const classEl = document.querySelector('.hud-class');
+        const levelsEl = document.querySelector('.hud-levels');
+        const hpBar = document.querySelector('.bar-fill.bar-hp')?.closest('.bar');
+        const hpText = hpBar?.querySelector('.bar-num')?.innerText?.trim() || null;
+        const spBar = document.querySelector('.bar-fill.bar-sp')?.closest('.bar');
+        const spText = spBar?.querySelector('.bar-num')?.innerText?.trim() || null;
+        let hpCurrent = null, hpMax = null;
+        if (hpText) {
+          const m = hpText.match(/(\\d+)\\s*\\/\\s*(\\d+)/);
+          if (m) { hpCurrent = Number(m[1]); hpMax = Number(m[2]); }
+        }
+        let spCurrent = null, spMax = null;
+        if (spText) {
+          const m = spText.match(/(\\d+)\\s*\\/\\s*(\\d+)/);
+          if (m) { spCurrent = Number(m[1]); spMax = Number(m[2]); }
+        }
+        let mapName = null;
+        const footer = document.querySelector('.minimap-footer');
+        if (footer) {
+          const spans = Array.from(footer.querySelectorAll('span, div')).map(s => s.innerText.trim()).filter(Boolean);
+          const foundMap = spans.find(t => t.length > 2 && !t.includes(',') && !/^CH\\s*\\d+/i.test(t) && !/^\\d+%?$/.test(t));
+          if (foundMap) mapName = foundMap;
+        }
+        if (!mapName && typeof window.getCurrentMapName === 'function') mapName = window.getCurrentMapName();
+        const pos = window.__currentPos || { x: 0, y: 0, tileX: 0, tileY: 0 };
+        const ammo = (typeof window.__currentAmmo === 'number') ? window.__currentAmmo : 0;
+        const weightText = document.getElementById('p-quick-weight')?.innerText?.replace('⚖️', '')?.trim() || null;
+        const hudState = document.getElementById('p-char-state')?.innerText?.trim();
+        let activity = '🟢 ยืนรอ / แสตนด์บาย';
+        if (window.__isRecovering) activity = '⚠️ กำลังชุบชีวิต';
+        else if (window.__isShopping) activity = '🛒 ซื้อ/ขายของที่ NPC';
+        else if (window.__isNavigating) activity = '🚶 กำลังเดินทาง';
+        else if (window.__autoLoopEnabled || window.__isBotRunning) activity = '⚔️ Auto-Farm ทำงาน';
+        else if (hudState) activity = hudState;
+        return {
+          charName: nameEl?.innerText?.trim() || window.__charName || null,
+          charClass: classEl?.innerText?.trim() || 'Hunter',
+          levels: levelsEl?.innerText?.trim() || '',
+          hp: hpCurrent,
+          hpMax: hpMax,
+          hpText: hpText,
+          sp: spCurrent,
+          spMax: spMax,
+          spText: spText,
+          map: mapName || null,
+          targetMap: window.__targetFarmMap || null,
+          pos: pos,
+          coords: pos.tileX ? (pos.tileX + ', ' + pos.tileY + ' (' + pos.x + ', ' + pos.y + ')') : (pos.x ? (pos.x + ', ' + pos.y) : '--'),
+          ammo: ammo,
+          weight: weightText,
+          botStatus: activity,
+          navigating: !!window.__isNavigating,
+          recovering: !!window.__isRecovering,
+          shopping: !!window.__isShopping,
+          autoLoop: !!window.__autoLoopEnabled,
+          isBotRunning: !!window.__isBotRunning,
+          hasSocket: !!window.__gameSocket,
+          hasInventory: !!window.__latestInventory,
+          isOnline: true
+        };
+      })())`)
         .then(result => {
           res.writeHead(200);
           res.end(JSON.stringify(result, null, 2));

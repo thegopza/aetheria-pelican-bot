@@ -1,5 +1,17 @@
 [
   {
+    "id": "profile_main",
+    "name": "Main (G4YSuuuuu)",
+    "account": "thegopza (Main)",
+    "charClass": "Hunter",
+    "targetMap": "เมืองหลวงโซลเฮเวน",
+    "debugPort": 49876,
+    "autoStart": false,
+    "isMain": true,
+    "notes": "จอหลัก (Main Session)",
+    "createdAt": 1791448000000
+  },
+  {
     "id": "profile_2",
     "name": "Farmer Alt",
     "account": "Second Account",
