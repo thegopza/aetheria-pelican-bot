@@ -427,7 +427,11 @@
             let decoded = null;
             try {
                 if (window.msgpack && uint8.length > 2) {
-                    decoded = window.msgpack.decode(uint8.slice(1));
+                    if (uint8[0] === 0x0D && uint8[1] === 0xa9 && uint8.length > 12) {
+                        decoded = window.msgpack.decode(uint8.slice(11));
+                    } else {
+                        decoded = window.msgpack.decode(uint8.slice(1));
+                    }
                 }
             } catch(e) {}
 
@@ -1435,6 +1439,13 @@
 
     function getCharacterWeight() {
         try {
+            // Method 0 (PRIMARY & REALTIME): ข้อมูลตรงจาก Server Packet แบบเรียลไทม์ (ไม่ต้องเปิดกระเป๋า!)
+            if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.max > 0) {
+                window.__lastKnownWeight = window.__serverWeight;
+                updateWeightHUD(window.__serverWeight);
+                return window.__serverWeight;
+            }
+
             const bagInfo = getOpenBagInfo();
             const charHp = (typeof getCharacterHP === 'function') ? getCharacterHP() : null;
             const invalidMax = charHp && charHp.max > 0 ? charHp.max : null;
@@ -1879,6 +1890,14 @@
     window.__isRefreshingWeight = false;
 
     window.refreshInventoryAndWeight = function(callback) {
+        // ถ้ามีข้อมูลน้ำหนักจาก Server Packet แบบเรียลไทม์อยู่แล้ว ให้ใช้ทันทีโดยไม่ต้องเปิดกระเป๋า!
+        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.max > 0) {
+            window.__lastKnownWeight = window.__serverWeight;
+            updateWeightHUD(window.__serverWeight);
+            if (typeof callback === 'function') callback(window.__serverWeight);
+            return;
+        }
+
         if (window.__isRefreshingWeight) {
             if (typeof callback === 'function') callback(window.__lastKnownWeight);
             return;
@@ -1997,6 +2016,10 @@
         try {
             const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
             if (u[0] === 0x0D) {
+                // ตรวจสอบว่าคือแพ็กเก็ต 'inventory' หรือไม่ (0x0D + fixstr(9) 'inventory')
+                const isInventoryPacket = (u.length > 15 && u[1] === 0xa9 && u[2] === 0x69 && u[3] === 0x6e && u[4] === 0x76);
+                const targetOffset = isInventoryPacket ? 11 : -1;
+
                 let slotsPos = -1;
                 for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
                     if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
@@ -2005,8 +2028,15 @@
                     }
                 }
 
+                const offsetsToTry = targetOffset !== -1 ? [targetOffset] : [];
                 if (slotsPos !== -1) {
                     for (let offset = Math.max(0, slotsPos - 4); offset <= slotsPos; offset++) {
+                        if (!offsetsToTry.includes(offset)) offsetsToTry.push(offset);
+                    }
+                }
+
+                if (offsetsToTry.length > 0) {
+                    for (const offset of offsetsToTry) {
                         try {
                             const dec = window.msgpack.decode(u.slice(offset));
                             if (dec && typeof dec === 'object') {
@@ -2046,13 +2076,21 @@
 
                                 inspectObject(dec);
 
-                                // Detect weight if present in dec
+                                // Detect weight & weightLimit directly from server packet (Real-time Sync!)
                                 try {
-                                    const curW = dec.curWeight ?? dec.cur_weight ?? dec.weight ?? dec.currentWeight;
-                                    const maxW = dec.maxWeight ?? dec.max_weight ?? dec.weightMax ?? dec.totalWeight;
+                                    const curW = dec.weight ?? dec.curWeight ?? dec.cur_weight ?? dec.currentWeight;
+                                    const maxW = dec.weightLimit ?? dec.maxWeight ?? dec.max_weight ?? dec.weightMax ?? dec.totalWeight ?? dec.limitWeight ?? dec.weight_limit;
                                     if (typeof curW === 'number' && typeof maxW === 'number' && maxW > 0) {
                                         window.__serverWeight = { current: curW, max: maxW, percent: Math.round((curW / maxW) * 1000) / 10 };
+                                        window.__lastKnownWeight = window.__serverWeight;
+                                        try { localStorage.setItem('pelican_last_weight', JSON.stringify(window.__serverWeight)); } catch(e) {}
+                                        if (window.__serverWeight.percent < (window.__sellConfig?.weightThreshold || 80)) {
+                                            window.__isKnownOverweight = false;
+                                        } else {
+                                            window.__isKnownOverweight = true;
+                                        }
                                         updateWeightHUD(window.__serverWeight);
+                                        console.log(`%c[Pelican Weight Sync] ⚖️ Server Weight Realtime: ${curW.toLocaleString()} / ${maxW.toLocaleString()} (${window.__serverWeight.percent}%)`, 'color: #00ffcc; font-weight: bold;');
                                     }
                                 } catch(e) {}
 
@@ -3002,45 +3040,9 @@
     }
 
     window.equipArrowAndBow = function() {
-        console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่คันธนู & ลูกธนู...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ตรวจสอบและสวมใส่ "คันธนู" (Bow) เข้ามือหลักก่อนเสมอ! ป้องกันการไปถือมีดสั้น/ดาบ เช่น Damascus
-        let bowFound = false;
-        const bowInBag = findItemInServerInv(it => {
-            const name = (it.name || it.itemName || '').toLowerCase();
-            const slot = it.slot ?? it.idx;
-            const isBow = ((name.includes('bow') || name.includes('crossbow') || name.includes('gakkung') || name.includes('arbalest') || name.includes('คันธนู') || (name.includes('ธนู') && !name.includes('ลูกธนู'))) && !name.includes('arrow') && !name.includes('ลูกธนู'));
-            const isMelee = (name.includes('damascus') || name.includes('dagger') || name.includes('sword') || name.includes('knife') || name.includes('มีด') || name.includes('ดาบ'));
-            return isBow && !isMelee && typeof slot === 'number';
-        });
-
-        if (bowInBag) {
-            const slot = bowInBag.slot ?? bowInBag.idx;
-            console.log(`%c[Pelican Weapon] 🏹 พบคันธนูในกระเป๋า Slot ${slot} ("${bowInBag.name || 'Bow'}") -> ส่งคำสั่งสวมใส่คันธนูกลับเข้ามือ!`, 'color: #22c55e; font-weight: bold;');
-            window.sendEquip(slot);
-            bowFound = true;
-        }
-
-        // 2. ถ้าในหน้าต่างกระเป๋าเปิดอยู่ ให้ลองหา element ของ Bow และ double click
-        try {
-            const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
-            const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
-            for (const el of slots) {
-                const img = el.querySelector('img');
-                const src = img ? (img.src || '').toLowerCase() : '';
-                const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
-                const isBow = (src.includes('bow') || title.includes('bow') || title.includes('crossbow') || title.includes('gakkung') || title.includes('arbalest') || title.includes('คันธนู') || (title.includes('ธนู') && !title.includes('ลูกธนู'))) && !src.includes('arrow') && !title.includes('arrow') && !title.includes('ลูกธนู');
-                const isMelee = src.includes('dagger') || src.includes('sword') || src.includes('damascus') || title.includes('damascus') || title.includes('มีด') || title.includes('ดาบ');
-                if (isBow && !isMelee) {
-                    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
-                    console.log('%c[Pelican Weapon] 🏹 Double-click สวมใส่คันธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
-                    bowFound = true;
-                    break;
-                }
-            }
-        } catch(e) {}
-
-        // 3. ตรวจสอบการสวมใส่ "ลูกธนู" (Arrow) จากกระเป๋าเซิร์ฟเวอร์
+        // 1. ตรวจสอบการสวมใส่ "ลูกธนู" (Arrow) จากกระเป๋าเซิร์ฟเวอร์
         const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
         const arrowInBag = findItemInServerInv(it => {
             const id = it.itemId || it.id || it.item_id;
@@ -3058,7 +3060,7 @@
             }, 100);
         }
 
-        // 4. ถ้ามีกระเป๋าเปิดอยู่ ให้ double click ที่ลูกธนู
+        // 2. ถ้ามีกระเป๋าเปิดอยู่ ให้ double click ที่ลูกธนู
         try {
             const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
             const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
@@ -3077,30 +3079,26 @@
             }
         } catch(e) {}
 
-        // 5. สั่งกดคีย์ Hotbar สำหรับลูกธนู (เพื่อกระตุ้นให้ระบบเกมสวมใส่ลูกธนูเข้า Arrow Slot)
+        // 3. สั่งกดคีย์ Hotbar สำหรับลูกธนู (เฉพาะเมื่อเจอช่องลูกธนูจริง ห้าม fallback กดเลข 1 เด็ดขาด!)
         setTimeout(() => {
             const hotbarSlot = window.__archerConfig ? window.__archerConfig.arrowHotbarSlot : -1;
             if (typeof hotbarSlot === 'number' && hotbarSlot >= 0) {
                 window.pressKey((hotbarSlot + 1).toString());
             } else {
-                // ค้นหาช่อง Hotbar ที่มีรูปลูกธนูอัตโนมัติ
                 try {
                     const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
-                    let foundKey = '1';
                     for (let i = 0; i < hotbarSlots.length; i++) {
                         const s = hotbarSlots[i];
                         const img = s.querySelector('img');
                         const src = img ? (img.src || '').toLowerCase() : '';
                         const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
                         if (src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู')) {
-                            foundKey = (i === 9 ? '0' : (i + 1).toString());
+                            const foundKey = (i === 9 ? '0' : (i + 1).toString());
+                            window.pressKey(foundKey);
                             break;
                         }
                     }
-                    window.pressKey(foundKey);
-                } catch(e) {
-                    window.pressKey('1');
-                }
+                } catch(e) {}
             }
         }, 180);
     };
@@ -3192,9 +3190,8 @@
             }
         } catch(e) {}
 
-        // 5. Fallback: ส่ง Packet inv_use ช่องที่ 2 (Item 3 ในกระเป๋า) และช่อง 8
+        // 5. Fallback: ส่ง Packet inv_use ช่อง 8 (Hotbar Bwing)
         if (!bwingInBag && !domFound) {
-            window.sendInvUse(2);
             window.sendInvUse(8);
             dispatchKeyAll('8', 'Digit8', 56);
 

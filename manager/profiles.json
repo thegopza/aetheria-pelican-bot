@@ -1,16 +1,5 @@
 [
   {
-    "id": "profile_1",
-    "name": "Hunter Main",
-    "account": "Main Account",
-    "charClass": "Hunter",
-    "targetMap": "ซากโบราณสถาน Lv.45–55",
-    "debugPort": 49876,
-    "autoStart": true,
-    "notes": "ฟาร์มหลัก ธนูเพลิง / Arrow Crafting",
-    "createdAt": 1791448529579
-  },
-  {
     "id": "profile_2",
     "name": "Farmer Alt",
     "account": "Second Account",
@@ -20,5 +9,27 @@
     "autoStart": true,
     "notes": "ฟาร์มหาขยะและวัตถุดิบทำยา",
     "createdAt": 1791448529579
+  },
+  {
+    "id": "profile_1791448666985",
+    "name": "Client 3",
+    "account": "thegopza1",
+    "charClass": "Hunter",
+    "targetMap": "ถนนต้นหลิว",
+    "debugPort": 49878,
+    "autoStart": true,
+    "notes": "",
+    "createdAt": 1791448666985
+  },
+  {
+    "id": "profile_1791448851533",
+    "name": "Client 4",
+    "account": "thegopza2",
+    "charClass": "Hunter",
+    "targetMap": "ถนนต้นหลิว",
+    "debugPort": 49879,
+    "autoStart": true,
+    "notes": "",
+    "createdAt": 1791448851533
   }
 ]
