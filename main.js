@@ -209,6 +209,39 @@ function startDebugServer(port = DEBUG_PORT) {
       return;
     }
 
+    
+    if (parsedUrl.pathname === "/api/window") {
+      if (!win) {
+        res.writeHead(503);
+        return res.end(JSON.stringify({ error: "Game window not ready" }));
+      }
+      const action = parsedUrl.searchParams.get("action");
+      if (action === "hide") {
+        win.hide();
+      } else if (action === "show") {
+        win.show();
+      } else if (action === "minimize") {
+        win.minimize();
+      } else if (action === "restore") {
+        win.restore();
+      } else if (action === "set-bounds") {
+        const x = parseInt(parsedUrl.searchParams.get("x"));
+        const y = parseInt(parsedUrl.searchParams.get("y"));
+        const width = parseInt(parsedUrl.searchParams.get("w"));
+        const height = parseInt(parsedUrl.searchParams.get("h"));
+        if (!isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height)) {
+          win.setBounds({ x, y, width, height });
+        }
+      }
+      res.writeHead(200);
+      return res.end(JSON.stringify({
+        success: true,
+        visible: win.isVisible(),
+        minimized: win.isMinimized(),
+        bounds: win.getBounds()
+      }));
+    }
+
     if (parsedUrl.pathname === "/api/state") {
       if (!win || !win.webContents) {
         res.writeHead(503);

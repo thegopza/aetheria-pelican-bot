@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pelican Hub — Aetheria Online Multi-Client Manager</title>
+  <title>Pmhee Ma weaw — Aetheria Online Multi-Client Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1791501291466">
 </head>
 <body>
   <div class="app-container">
@@ -15,10 +15,10 @@
     <header class="app-header">
       <div class="brand">
         <div class="brand-logo">
-          <span>PELICAN</span>
+          <span>Pmhee Ma weaw</span>
         </div>
         <div class="brand-text">
-          <h1>Pelican Multi-Client Hub</h1>
+          <h1>Pmhee Ma weaw</h1>
           <span class="subtext">Aetheria Online • Isolated Sessions & Bot Manager v4.3.0</span>
         </div>
       </div>
@@ -71,8 +71,21 @@
     <!-- PROFILES GRID -->
     <main class="profiles-section">
       <div class="section-title-row">
-        <h2>🎮 รายชื่อจอเกมและบอท (Client Profiles)</h2>
-        <span class="badge badge-info" id="live-polling-badge">🟢 Realtime Sync (2s)</span>
+        <div class="section-title-left">
+          <h2>🎮 รายชื่อจอเกมและบอท (Client Profiles)</h2>
+          <span class="badge badge-info" id="live-polling-badge">🟢 Realtime Sync (2s)</span>
+        </div>
+        <div class="section-actions-row">
+          <button id="btn-auto-tile-shrink" class="btn btn-secondary btn-sm" title="จัดเรียงและย่อหน้าต่างเกมทุกจอเป็นขนาดกะทัดรัด (Compact Tiles)">
+            <span class="icon">📐</span> จัดเรียงจอย่อจออัตโนมัติ
+          </button>
+          <button id="btn-global-plan-setup" class="btn btn-primary btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
+            <span class="icon">📜</span> Setup Plan script
+          </button>
+          <button id="btn-toggle-all-windows" class="btn btn-dark btn-sm" title="ซ่อนหรือแสดงหน้าต่างเกมทุกจอ (Headless Mode)">
+            <span class="icon">👁️</span> <span id="lbl-toggle-all-windows">ซ่อนทุกจอ (Headless)</span>
+          </button>
+        </div>
       </div>
 
       <div class="profiles-grid" id="profiles-grid">
@@ -244,6 +257,8 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=1791501291466"></script>
+  <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
+  <div id="web-huds-container"></div>
 </body>
 </html>
