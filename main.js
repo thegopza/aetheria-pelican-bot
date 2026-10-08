@@ -10,8 +10,28 @@ const SITE = new URL(GAME).host;
 // URL สำหรับ Remote Auto-Update (เปลี่ยนเป็น URL ของคุณเมื่อสร้าง GitHub Repo เสร็จ)
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/bot.js";
 
-// One window: a second launch brings the first one forward
-if (!app.requestSingleInstanceLock()) app.quit();
+// Parse multi-client arguments
+const args = process.argv;
+let profileName = "";
+let debugPort = 49876;
+let isMulti = false;
+
+for (const arg of args) {
+  if (arg.startsWith("--profile-name=")) {
+    profileName = decodeURIComponent(arg.slice("--profile-name=".length));
+    isMulti = true;
+  } else if (arg.startsWith("--debug-port=")) {
+    debugPort = parseInt(arg.slice("--debug-port=".length)) || 49876;
+    isMulti = true;
+  } else if (arg.includes("--multi-instance") || arg.includes("--user-data-dir")) {
+    isMulti = true;
+  }
+}
+
+// Single instance lock only if running standalone without multi-client flag
+if (!isMulti) {
+  if (!app.requestSingleInstanceLock()) app.quit();
+}
 
 let win = null;
 function open() {
@@ -21,7 +41,7 @@ function open() {
     minWidth: 960,
     minHeight: 540,
     backgroundColor: "#0e1424",
-    title: "Aetheria Online",
+    title: profileName ? `Aetheria Online [${profileName}]` : "Aetheria Online",
     autoHideMenuBar: true,
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false },
@@ -143,10 +163,11 @@ Menu.setApplicationMenu(null);
 // Pelican Local Debug & State API Server
 // ==========================================
 const http = require("http");
-const DEBUG_PORT = 49876;
+let DEBUG_PORT = debugPort || 49876;
 let debugServer = null;
 
-function startDebugServer() {
+function startDebugServer(port = DEBUG_PORT) {
+  DEBUG_PORT = port;
   if (debugServer) return;
   debugServer = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -246,5 +267,5 @@ function startDebugServer() {
   });
 }
 
-app.whenReady().then(() => { open(); startDebugServer(); });
+app.whenReady().then(() => { open(); startDebugServer(debugPort); });
 app.on("window-all-closed", () => app.quit());
