@@ -3296,6 +3296,9 @@
                 rowText || ''
             ].join(' ').toLowerCase();
 
+            // กฎเหล็กสูงสุด: การ์ดมอนสเตอร์ทุกชนิด ถือเป็นระดับสูงสุด (999) เสมอ ห้ามคิดเป็นของขาวธรรมดาเด็ดขาด!
+            if (fullText.includes('card') || fullText.includes('การ์ด')) return 999;
+
             // 1. ตรวจสอบข้อความระดับ Rarity ภาษาไทย / อังกฤษ โดยตรงเป็นอันดับแรก (ป้องกันของหายาก/มหากาพย์/ตำนาน หลุดรอด 100%)
             if (fullText.includes('ตำนาน') || fullText.includes('legendary')) return 5;
             if (fullText.includes('มหากาพย์') || fullText.includes('epic')) return 4;
@@ -3362,18 +3365,19 @@
 
         function findCategoryTab(catName) {
             const shopModal = document.querySelector('.shop-window, [class*="shop"], .modal-body, .window') || document.body;
-            const candidates = Array.from(shopModal.querySelectorAll('button, [role="tab"], div, span, a, li')).filter(el => {
+            const candidates = Array.from(shopModal.querySelectorAll('button, [role="tab"], [class*="tab"], li, div, span, a')).filter(el => {
                 if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
                 if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
                 
                 const txt = (el.innerText || el.textContent || '').trim();
                 const searchKey = catName.includes('/') ? catName.split('/')[0] : catName;
                 if (!txt.includes(catName) && !txt.includes(searchKey)) return false;
+                if (txt.length > 25) return false;
 
                 // กรอง container แม่ทิ้ง: ถ้ามีชื่อแท็บหมวดอื่นปนอยู่ แสดงว่าเป็นแถบแท็บรวม ไม่ใช่ตัวปุ่มแท็บ
                 const knownTabs = ['ทั้งหมด', 'อาวุธ', 'ชุดเกราะ', 'ประดับ', 'ใช้ได้', 'การ์ด', 'แร่', 'วัตถุดิบ', 'อื่นๆ'];
                 const overlap = knownTabs.filter(t => {
-                    if (t === catName || catName.includes(t) || t.includes(catName)) return false;
+                    if (t === catName || catName.includes(t) || t.includes(catName) || t === searchKey) return false;
                     return txt.includes(t);
                 }).length;
                 if (overlap > 0) return false;
@@ -3475,18 +3479,32 @@
             console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}" (เกณฑ์ขายไม่เกิน: ${rankNames[maxRank] || maxRank})...`);
             
             const catBtn = findCategoryTab(catName);
-            if (catBtn) {
-                const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
-                console.log(`%c[Pelican Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
-                triggerClick(catBtn);
-                catBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                if (typeof catBtn.click === 'function') catBtn.click();
-            } else {
-                console.warn(`[Pelican Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า`);
+            if (!catBtn) {
+                console.warn(`[Pelican Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า -> ข้ามหมวดนี้ทันทีเพื่อความปลอดภัยเด็ดขาด!`);
+                onDone();
+                return;
             }
+
+            const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
+            console.log(`%c[Pelican Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
+            triggerClick(catBtn);
+            catBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+            catBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+            catBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            if (typeof catBtn.click === 'function') catBtn.click();
 
             // รอ 600ms ให้หน้าร้านค้าเปลี่ยนรายการตามแท็บที่เลือก
             setTimeout(() => {
+                const shopModal = document.querySelector('.shop-window, [class*="shop"]') || document.body;
+
+                // กฎเหล็ก: ป้องกันการขายมั่วในขณะที่หน้าร้านค้าเปิดค้างที่แท็บ 'การ์ด' หรือ 'ทั้งหมด'
+                const activeTab = shopModal.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"], .tab.active, button.active');
+                const activeText = (activeTab ? (activeTab.innerText || activeTab.textContent || '') : '').trim();
+                if (activeText.includes('การ์ด') || activeText.startsWith('ทั้งหมด')) {
+                    console.warn(`[Pelican Shop] 🛑 หน้าร้านค้ากำลังแสดงแท็บ "${activeText}" (ไม่ใช่หมวด ${catName}) -> ข้ามทันทีเพื่อความปลอดภัยเด็ดขาด!`);
+                    onDone();
+                    return;
+                }
                 if (!isItemByItem) {
                     // หมวด "วัตถุดิบ": คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า" (button.shop-sell-junk)
                     const putAllBtn = document.querySelector('button.shop-sell-junk') ||
@@ -3544,8 +3562,24 @@
                         const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label') || 
                                         Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
 
-                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู (Consumables / Ammo) เด็ดขาด
+                        // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
+                        const isCard = lower.includes('card') || lower.includes('การ์ด') || 
+                                       rowText.includes('การ์ด') || rowText.includes('card') ||
+                                       (row.querySelector('img') && (row.querySelector('img').src || '').includes('card'));
+                        const isOre = lower.includes('oridecon') || lower.includes('elunium') || lower.includes('steel') || lower.includes('iron') ||
+                                      lower.includes('โอริ') || lower.includes('อีลู') || lower.includes('แร่') || rowText.includes('แร่/ตีบวก');
+
+                        if (isCard) {
+                            console.log(`%c[Pelican Shop] 🛑 [การ์ดมีค่า!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #ef4444; font-weight: bold;');
+                            return;
+                        }
+                        if (isOre) {
+                            console.log(`%c[Pelican Shop] 🛑 [แร่ตีบวก!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #f59e0b; font-weight: bold;');
+                            return;
+                        }
+
+                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู (Consumables / Ammo) เด็ดขาด
                         const isGem = lower.includes('gem') || lower.includes('เจม') || catName.includes('ประดับ') || catName.includes('เจม');
                         const isTeleportWing = lower.includes('fly wing') || lower.includes('butterfly wing') || lower === 'wing' || lower.includes('ใบวาร์ป');
                         const isPotion = lower.includes('potion') || lower.includes('ขวดยา');
