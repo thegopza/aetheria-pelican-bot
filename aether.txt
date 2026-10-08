@@ -1358,8 +1358,16 @@
     // Helper: ค้นหาข้อมูลหน้าต่างกระเป๋าบนจอ
     function getOpenBagInfo() {
         try {
-            // 1. หาปุ่ม "จัดเรียง" หรือ "จัดเรียงไอเทม" บนหน้าจอเกม
-            const sortBtn = Array.from(document.querySelectorAll('button, div[role="button"], a, span, div')).find(el => {
+            // 1. Selector ตรงจากโครงสร้างจริงของเกม: .inventory.panel หรือ div[role="dialog"][aria-label="กระเป๋า"]
+            const bagPanel = document.querySelector('.inventory.panel, div[role="dialog"][aria-label="กระเป๋า"]');
+            if (bagPanel && bagPanel.offsetWidth > 0 && bagPanel.offsetHeight > 0) {
+                const sortBtn = bagPanel.querySelector('button.inv-sort') ||
+                                Array.from(bagPanel.querySelectorAll('button, div[role="button"]')).find(el => (el.innerText || '').trim() === 'จัดเรียง');
+                return { windowEl: bagPanel, sortBtn };
+            }
+
+            // 2. หาปุ่ม "จัดเรียง" หรือ "จัดเรียงไอเทม" บนหน้าจอเกม
+            const sortBtn = Array.from(document.querySelectorAll('button.inv-sort, button, div[role="button"], a, span, div')).find(el => {
                 if (!isValidNonBotElement(el)) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
                 return (txt === 'จัดเรียง' || txt === 'จัดเรียงไอเทม' || txt === 'Sort') && el.offsetWidth > 0 && el.offsetHeight > 0;
@@ -1377,7 +1385,7 @@
                 return { windowEl: sortBtn.parentElement?.parentElement || sortBtn.parentElement, sortBtn };
             }
 
-            // 2. หา Header "กระเป๋า x/y"
+            // 3. หา Header "กระเป๋า x/y"
             const allBagHeaders = Array.from(document.querySelectorAll('*')).filter(el => {
                 if (!isValidNonBotElement(el) || el.children.length > 3) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
@@ -1798,11 +1806,37 @@
         } catch(e) {}
     }
 
+    function closeCardBookIfOpen() {
+        try {
+            const cardBookModal = Array.from(document.querySelectorAll('.panel, [role="dialog"], .modal')).find(el => {
+                if (el.closest('#pelican-hud') || el.closest('.inventory')) return false;
+                const txt = (el.innerText || el.textContent || '');
+                return (txt.includes('สมุดการ์ด') || txt.includes('Card Album') || txt.includes('Card Book')) && el.offsetWidth > 0;
+            });
+            if (cardBookModal) {
+                const closeBtn = cardBookModal.querySelector('button.close, button[aria-label="ปิด"], button.inv-close') ||
+                                 Array.from(cardBookModal.querySelectorAll('button, span, div')).find(el => (el.innerText || '').trim() === '✕');
+                if (closeBtn) {
+                    triggerClick(closeBtn);
+                } else {
+                    dispatchKeyAll('Escape', 'Escape', 27);
+                }
+            }
+        } catch(e) {}
+    }
+
     window.clickSortBag = function() {
         try {
             const bagInfo = getOpenBagInfo();
             if (bagInfo && bagInfo.sortBtn) {
                 triggerClick(bagInfo.sortBtn);
+                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                return true;
+            }
+
+            const directSort = document.querySelector('button.inv-sort');
+            if (directSort && directSort.offsetWidth > 0) {
+                triggerClick(directSort);
                 console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return true;
             }
@@ -1825,12 +1859,14 @@
     };
 
     function closeOpenBagWindow() {
-        const bagInfo = getOpenBagInfo();
-        if (bagInfo && bagInfo.windowEl) {
-            const closeBtn = Array.from(bagInfo.windowEl.querySelectorAll('button, div, span, [aria-label="close"], [class*="close"]')).find(el => {
-                const txt = (el.innerText || el.textContent || '').trim();
-                return (txt === '✕' || txt === 'X' || txt === 'ปิด' || el.className.includes('close')) && el.offsetWidth > 0;
-            });
+        closeCardBookIfOpen();
+        const bagPanel = document.querySelector('.inventory.panel, div[role="dialog"][aria-label="กระเป๋า"]');
+        if (bagPanel) {
+            const closeBtn = bagPanel.querySelector('button.inv-close') ||
+                             Array.from(bagPanel.querySelectorAll('button, div, span, [aria-label="ปิด"], [class*="close"]')).find(el => {
+                                 const txt = (el.innerText || el.textContent || '').trim();
+                                 return (txt === '✕' || txt === 'X' || txt === 'ปิด') && el.offsetWidth > 0;
+                             });
             if (closeBtn) {
                 triggerClick(closeBtn);
                 return;
@@ -1850,6 +1886,9 @@
 
         window.__isRefreshingWeight = true;
 
+        // ปิดหน้าต่างสมุดการ์ดทันทีกรณีเคยถูกเปิดค้างไว้
+        closeCardBookIfOpen();
+
         const safetyTimer = setTimeout(() => {
             window.__isRefreshingWeight = false;
             if (typeof callback === 'function') callback(window.__lastKnownWeight);
@@ -1862,9 +1901,6 @@
                 window.__lastKnownWeight = w;
                 try { localStorage.setItem('pelican_last_weight', JSON.stringify(w)); } catch(e) {}
                 updateWeightHUD(w);
-            }
-            if (typeof window.dumpWeightDebug === 'function') {
-                window.dumpWeightDebug();
             }
             if (typeof callback === 'function') callback(w || window.__lastKnownWeight);
         };
@@ -1883,42 +1919,47 @@
         // 2. ถ้าหน้าต่างกระเป๋าปิดอยู่: ดำเนินการเปิดกระเป๋า
         console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋าเพื่ออ่านน้ำหนักและกดจัดเรียง...', 'color: #38bdf8;');
 
-        // วิธี A: คลิกปุ่ม "กระเป๋า" จากหน้าจอเกม
-        const bagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
-            if (!isValidNonBotElement(el)) return false;
-            const txt = (el.innerText || el.textContent || '').trim();
-            return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
-        });
-
-        if (bagBtn) {
-            try { bagBtn.scrollIntoView(); } catch(e) {}
-            triggerClick(bagBtn);
+        // วิธี A: คลิกปุ่มกระเป๋าจาก selector แท้ของเกม (button.menu-btn[title*="กระเป๋า"])
+        const directBagBtn = document.querySelector('button.menu-btn[title*="กระเป๋า"], button[title="กระเป๋า (I)"]');
+        if (directBagBtn) {
+            triggerClick(directBagBtn);
         } else {
-            // ถ้าไม่เจอปุ่มกระเป๋า ให้คลิกปุ่ม "เมนู" เพื่อเปิดเมนูกริดออกมาก่อน
-            const menuBtn = Array.from(document.querySelectorAll('button, div, [role="button"]')).find(el => {
+            const bagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
                 if (!isValidNonBotElement(el)) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
-                return txt === '▲ เมนู' || txt === 'เมนู';
+                return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
             });
-            if (menuBtn) {
-                triggerClick(menuBtn);
-                setTimeout(() => {
-                    const subBagBtn = Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
-                        if (!isValidNonBotElement(el)) return false;
-                        const txt = (el.innerText || el.textContent || '').trim();
-                        return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
-                    });
-                    if (subBagBtn) {
-                        try { subBagBtn.scrollIntoView(); } catch(e) {}
-                        triggerClick(subBagBtn);
-                    }
-                }, 120);
+
+            if (bagBtn) {
+                try { bagBtn.scrollIntoView(); } catch(e) {}
+                triggerClick(bagBtn);
+            } else {
+                // ถ้าไม่เจอปุ่มกระเป๋า ให้คลิกปุ่ม "เมนู" เพื่อเปิดเมนูกริดออกมาก่อน
+                const menuBtn = Array.from(document.querySelectorAll('button, div, [role="button"]')).find(el => {
+                    if (!isValidNonBotElement(el)) return false;
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    return txt === '▲ เมนู' || txt === 'เมนู';
+                });
+                if (menuBtn) {
+                    triggerClick(menuBtn);
+                    setTimeout(() => {
+                        const subBagBtn = document.querySelector('button.menu-btn[title*="กระเป๋า"]') ||
+                                          Array.from(document.querySelectorAll('button, div, [role="button"], a, span, li, p')).find(el => {
+                                              if (!isValidNonBotElement(el)) return false;
+                                              const txt = (el.innerText || el.textContent || '').trim();
+                                              return (txt === 'กระเป๋า' || (txt.includes('กระเป๋า') && txt.length <= 15 && !txt.includes('/')));
+                                          });
+                        if (subBagBtn) {
+                            try { subBagBtn.scrollIntoView(); } catch(e) {}
+                            triggerClick(subBagBtn);
+                        }
+                    }, 120);
+                }
             }
         }
 
-        // วิธี B: ส่งคำสั่ง Keyboard 'I' และ 'B'
+        // วิธี B: ส่งคำสั่ง Keyboard 'I' เท่านั้น (ห้ามส่ง 'B' เด็ดขาดเพราะใน Aetheria Online คือคีย์ลัดของ "สมุดการ์ด"!)
         dispatchKeyAll('i', 'KeyI', 73);
-        dispatchKeyAll('b', 'KeyB', 66);
 
         // 3. Poll รอจนกว่าหน้าต่างกระเป๋าจะเปิดออกมา (เช็คทุก 50ms สูงสุด 30 รอบ = 1.5 วินาที)
         let pollCount = 0;
@@ -1937,6 +1978,7 @@
                     if (currentBag) {
                         closeOpenBagWindow();
                     }
+                    closeCardBookIfOpen();
 
                     finish(w);
                 }, 350);
