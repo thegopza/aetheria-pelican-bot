@@ -857,6 +857,374 @@
     // ==========================================
     
     // ==========================================
+    // ==========================================
+    // IN-GAME STYLE ITEM TOOLTIP FOR INSPECTOR
+    // ==========================================
+    const ITEM_RARITY_MAP = {
+        'common': { th: 'ทั่วไป', color: '#cbd5e1' },
+        'normal': { th: 'ทั่วไป', color: '#cbd5e1' },
+        'uncommon': { th: 'ดี', color: '#4ade80' },
+        'good': { th: 'ดี', color: '#4ade80' },
+        'rare': { th: 'หายาก', color: '#38bdf8' },
+        'epic': { th: 'มหากาพย์', color: '#c084fc' },
+        'legendary': { th: 'ตำนาน', color: '#f59e0b' },
+        'mythic': { th: 'มายา', color: '#f43f5e' }
+    };
+
+    const ITEM_TYPE_TH = {
+        'Equipment': 'อุปกรณ์',
+        'Consumable': 'ไอเทมกดใช้',
+        'Card': 'การ์ดมอนสเตอร์',
+        'Material': 'วัตถุดิบ',
+        'Ore': 'แร่ธาตุ',
+        'Ammo': 'ลูกธนู / กระสุน',
+        'Quest': 'เควส',
+        'Etc': 'ทั่วไป'
+    };
+
+    const EQUIP_TYPE_TH = {
+        'Weapon': 'อาวุธ',
+        'Armor': 'ชุดเกราะ',
+        'Head': 'ส่วนหัว',
+        'Headgear': 'หมวก',
+        'Shield': 'โล่',
+        'Garment': 'ผ้าคลุม',
+        'Shoes': 'รองเท้า',
+        'Footwear': 'รองเท้า',
+        'Accessory': 'เครื่องประดับ',
+        'Ammo': 'กระสุน / ลูกธนู'
+    };
+
+    const WEAPON_TYPE_TH = {
+        'Bow': 'ธนู',
+        'Dagger': 'มีดสั้น',
+        'Sword': 'ดาบมือเดียว',
+        'OneHandSword': 'ดาบมือเดียว',
+        'TwoHandSword': 'ดาบสองมือ',
+        'Spear': 'หอก',
+        'Axe': 'ขวาน',
+        'Mace': 'กระบอง',
+        'Staff': 'คทา',
+        'Katar': 'กาตาร์',
+        'Knuckle': 'สนับมือ',
+        'Gun': 'ปืน',
+        'Wand': 'ไม้กายสิทธิ์'
+    };
+
+    const ATTR_NAME_TH = {
+        'RANGE_ATTACK': 'ATK (ระยะไกล)',
+        'RANGED_ATK': 'ATK (ระยะไกล)',
+        'MELEE_ATTACK': 'ATK (ประชิด)',
+        'MELEE_ATK': 'ATK (ประชิด)',
+        'ATTACK': 'ATK',
+        'ATK': 'ATK',
+        'MAGIC_ATTACK': 'MATK (เวท)',
+        'MATK': 'MATK (เวท)',
+        'DEFENSE': 'DEF (กายภาพ)',
+        'DEF': 'DEF',
+        'MAGIC_DEFENSE': 'MDEF (เวท)',
+        'MDEF': 'MDEF',
+        'STR': 'STR',
+        'AGI': 'AGI',
+        'VIT': 'VIT',
+        'INT': 'INT',
+        'DEX': 'DEX',
+        'LUK': 'LUK',
+        'MAX_HP': 'Max HP',
+        'MAX_SP': 'Max SP',
+        'HP': 'HP',
+        'SP': 'SP',
+        'HIT': 'HIT',
+        'FLEE': 'FLEE',
+        'CRITICAL': 'CRIT',
+        'CRIT': 'CRIT',
+        'CRIT_DAMAGE': 'ดาเมจคริ',
+        'CRIT_DMG': 'ดาเมจคริ',
+        'ATTACK_SPEED': 'ASPD',
+        'ASPD': 'ASPD',
+        'MOVE_SPEED': 'ความเร็วเคลื่อนที่'
+    };
+
+    function getItemIconEmoji(raw) {
+        if (!raw) return '📦';
+        const type = raw.type || '';
+        const equipType = raw.equipType || '';
+        const weaponType = raw.weaponType || '';
+        const name = (raw.name || '').toLowerCase();
+
+        if (type === 'Card' || name.includes('card')) return '🎴';
+        if (name.includes('arrow') || equipType === 'Ammo') return '🏹';
+        if (weaponType === 'Bow' || name.includes('bow')) return '🏹';
+        if (weaponType === 'Sword' || weaponType === 'TwoHandSword') return '⚔️';
+        if (weaponType === 'Dagger' || name.includes('dagger')) return '🗡️';
+        if (weaponType === 'Staff' || weaponType === 'Wand') return '🪄';
+        if (weaponType === 'Spear') return '🔱';
+        if (weaponType === 'Axe') return '🪓';
+        if (equipType === 'Armor' || name.includes('coat') || name.includes('mail')) return '🛡️';
+        if (equipType === 'Head' || equipType === 'Headgear' || name.includes('hat') || name.includes('cap')) return '🎩';
+        if (equipType === 'Garment' || name.includes('muffler') || name.includes('hood')) return '🧣';
+        if (equipType === 'Shoes' || equipType === 'Footwear' || name.includes('boots') || name.includes('shoes')) return '👢';
+        if (equipType === 'Accessory' || name.includes('ring') || name.includes('clip') || name.includes('glove')) return '💍';
+        if (name.includes('wing') || raw.itemId === 90311) return '🕊️';
+        if (name.includes('potion') || raw.autoPotion) return '🧪';
+        if (type === 'Material' || type === 'Ore' || name.includes('ore') || name.includes('phracon') || name.includes('elunium')) return '💎';
+        if (type === 'Consumable') return '🍎';
+        return '📦';
+    }
+
+    function getOrCreatePelicanItemTooltip() {
+        let tt = document.getElementById('pelican-item-tooltip');
+        if (!tt) {
+            tt = document.createElement('div');
+            tt.id = 'pelican-item-tooltip';
+            tt.style.cssText = `
+                position: fixed;
+                pointer-events: none;
+                z-index: 10000005;
+                width: 320px;
+                max-width: 92vw;
+                background: linear-gradient(180deg, #0e172a 0%, #0a0f1d 100%);
+                border: 2px solid #d97706;
+                border-radius: 12px;
+                box-shadow: 0 12px 36px rgba(0,0,0,0.85), 0 0 20px rgba(217, 119, 6, 0.25);
+                padding: 14px 16px;
+                font-family: 'Segoe UI', Tahoma, -apple-system, sans-serif;
+                color: #f1f5f9;
+                font-size: 11.5px;
+                line-height: 1.45;
+                display: none;
+                box-sizing: border-box;
+            `;
+            document.body.appendChild(tt);
+        }
+        return tt;
+    }
+
+    window.hidePelicanItemTooltip = function() {
+        const tt = document.getElementById('pelican-item-tooltip');
+        if (tt) {
+            tt.style.display = 'none';
+        }
+    };
+
+    window.movePelicanItemTooltip = function(e) {
+        const tt = document.getElementById('pelican-item-tooltip');
+        if (!tt || tt.style.display === 'none') return;
+
+        const offset = 16;
+        const padding = 12;
+        const rect = tt.getBoundingClientRect();
+        const width = rect.width || 320;
+        const height = rect.height || 220;
+
+        let x = e.clientX + offset;
+        let y = e.clientY + offset;
+
+        if (x + width > window.innerWidth - padding) {
+            x = e.clientX - width - offset;
+        }
+        if (y + height > window.innerHeight - padding) {
+            y = e.clientY - height - offset;
+        }
+
+        x = Math.max(padding, Math.min(x, window.innerWidth - width - padding));
+        y = Math.max(padding, Math.min(y, window.innerHeight - height - padding));
+
+        tt.style.left = `${Math.round(x)}px`;
+        tt.style.top = `${Math.round(y)}px`;
+    };
+
+    window.showPelicanItemTooltip = function(idx, e) {
+        if (!window.__modalFilteredItems || !window.__modalFilteredItems[idx]) return;
+        const it = window.__modalFilteredItems[idx];
+        const raw = it.raw || {};
+        const tt = getOrCreatePelicanItemTooltip();
+
+        // Rarity & Style
+        const rarityKey = (raw.rarity || 'common').toLowerCase();
+        const rarityInfo = ITEM_RARITY_MAP[rarityKey] || { th: raw.rarity || 'ทั่วไป', color: '#cbd5e1' };
+
+        // Types
+        const typeTH = ITEM_TYPE_TH[raw.type] || raw.type || 'ไอเทม';
+        const equipTypeTH = EQUIP_TYPE_TH[raw.equipType] || raw.equipType || '';
+        const weaponTypeTH = WEAPON_TYPE_TH[raw.weaponType] || raw.weaponType || '';
+
+        // Sockets [x]
+        const slotCount = raw.slots !== undefined ? raw.slots : (raw.maxSlots !== undefined ? raw.maxSlots : null);
+        const titleSlotSuffix = (slotCount !== null && slotCount > 0) ? ` [${slotCount}]` : '';
+
+        // Subtitle parts: อุปกรณ์ · อาวุธ · x1 · หายาก
+        const subParts = [];
+        if (typeTH) subParts.push(typeTH);
+        if (equipTypeTH && equipTypeTH !== typeTH) subParts.push(equipTypeTH);
+        else if (weaponTypeTH) subParts.push(weaponTypeTH);
+        subParts.push(`x${it.qty || raw.qty || 1}`);
+        subParts.push(`<span style="color: ${rarityInfo.color}; font-weight: 600;">${rarityInfo.th}</span>`);
+
+        // Category & Level requirement line
+        let categoryLine = '';
+        if (weaponTypeTH || equipTypeTH) {
+            categoryLine = `<div>ประเภท <span style="color: #fff; font-weight: 600;">${weaponTypeTH || equipTypeTH}</span> · ระดับ <span style="color: ${rarityInfo.color}; font-weight: bold;">${rarityInfo.th}</span></div>`;
+        } else if (raw.type) {
+            categoryLine = `<div>ประเภท <span style="color: #fff; font-weight: 600;">${typeTH}</span> · ระดับ <span style="color: ${rarityInfo.color}; font-weight: bold;">${rarityInfo.th}</span></div>`;
+        }
+
+        let levelReqLine = '';
+        const minLvl = raw.levelReq ?? raw.minLevel ?? raw.reqLevel;
+        if (minLvl !== undefined && minLvl > 0) {
+            levelReqLine = `<div style="margin-top: 2px;">ต้อง Base Lv.<span style="color: #fde047; font-weight: bold;">${minLvl}</span></div>`;
+        }
+
+        // Base Attributes & Stats
+        const statsList = [];
+        if (Array.isArray(raw.attributes)) {
+            raw.attributes.forEach(attr => {
+                const name = ATTR_NAME_TH[attr.type] || attr.type || 'ATTR';
+                const sign = (typeof attr.value === 'number' && attr.value > 0) ? '+' : '';
+                statsList.push(`<span>${name} <b style="color: #4ade80;">${sign}${attr.value}</b></span>`);
+            });
+        } else if (typeof raw.attributes === 'object' && raw.attributes !== null) {
+            for (const [k, v] of Object.entries(raw.attributes)) {
+                const name = ATTR_NAME_TH[k] || k;
+                const sign = (typeof v === 'number' && v > 0) ? '+' : '';
+                statsList.push(`<span>${name} <b style="color: #4ade80;">${sign}${v}</b></span>`);
+            }
+        }
+
+        // Primary & Secondary Affixes
+        const primaryAffixes = [];
+        const secondaryAffixes = [];
+        if (Array.isArray(raw.affixes)) {
+            raw.affixes.forEach(aff => {
+                const name = ATTR_NAME_TH[aff.type] || aff.type || 'Opt';
+                const isPercent = aff.type && (aff.type.includes('CRIT') || aff.type.includes('PERCENT') || aff.type.includes('RATE'));
+                const sign = (typeof aff.value === 'number' && aff.value > 0) ? '+' : '';
+                const valStr = `${sign}${aff.value}${isPercent ? '%' : ''}`;
+                const text = `<span>${name} <b style="color: #4ade80;">${valStr}</b></span>`;
+                if (aff.category === 'primary' || aff.pool === 'status') {
+                    primaryAffixes.push(text);
+                } else {
+                    secondaryAffixes.push(text);
+                }
+            });
+        }
+
+        // Combine base stats & primary affixes
+        let statBlockHtml = '';
+        if (statsList.length > 0 || primaryAffixes.length > 0) {
+            let leftStats = statsList.join('&nbsp;&nbsp;');
+            let rightAffixes = primaryAffixes.join('&nbsp;&nbsp;');
+            if (leftStats && rightAffixes) {
+                statBlockHtml = `<div style="margin-top: 5px; font-size: 11px; color: #cbd5e1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;">
+                    <div>${leftStats}</div>
+                    <span style="color: #475569;">|</span>
+                    <div>${rightAffixes}</div>
+                </div>`;
+            } else {
+                statBlockHtml = `<div style="margin-top: 5px; font-size: 11px; color: #cbd5e1; display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${leftStats || rightAffixes}
+                </div>`;
+            }
+        }
+
+        // Special affixes / Card sockets / Job restrictions (Orange left border accent)
+        const accentDetails = [];
+        if (secondaryAffixes.length > 0) {
+            accentDetails.push(secondaryAffixes.join('&nbsp;&nbsp;'));
+        }
+        if (slotCount !== null && slotCount > 0) {
+            const socketed = Array.isArray(raw.cards) ? raw.cards.length : 0;
+            accentDetails.push(`<span>ช่องการ์ด ${socketed}/${slotCount}</span>`);
+        }
+        if (Array.isArray(raw.jobs) && raw.jobs.length > 0) {
+            accentDetails.push(`<span>ใส่ได้: <span style="color: #f8fafc; font-weight: 500;">${raw.jobs.join(', ')}</span></span>`);
+        }
+
+        let accentBlockHtml = '';
+        if (accentDetails.length > 0) {
+            accentBlockHtml = `
+                <div style="margin-top: 6px; border-left: 3px solid #f59e0b; padding-left: 8px; font-size: 10.5px; color: #fde68a; display: flex; flex-direction: column; gap: 3px;">
+                    ${accentDetails.map(d => `<div>${d}</div>`).join('')}
+                </div>
+            `;
+        }
+
+        // Effects / Descriptions (for Consumables, Ores, Cards)
+        let effectsHtml = '';
+        if (Array.isArray(raw.effects) && raw.effects.length > 0) {
+            effectsHtml = `
+                <div style="margin-top: 6px; font-size: 11px; color: #38bdf8; display: flex; flex-direction: column; gap: 2px;">
+                    ${raw.effects.map(eff => `<div>✨ ${eff}</div>`).join('')}
+                </div>
+            `;
+        } else if (raw.description || raw.desc) {
+            effectsHtml = `
+                <div style="margin-top: 6px; font-size: 10.5px; color: #94a3b8; line-height: 1.35;">
+                    ${raw.description || raw.desc}
+                </div>
+            `;
+        }
+
+        // Weight & Economy
+        const weightVal = raw.weight !== undefined ? raw.weight : '-';
+        const sellVal = raw.sellPrice !== undefined ? raw.sellPrice : (raw.price || '-');
+        const econHtml = `
+            <div style="margin-top: 8px; font-size: 10.5px; color: #94a3b8;">
+                น้ำหนัก <span style="color: #e2e8f0; font-weight: 600;">${weightVal}</span> · ขาย <span style="color: #e2e8f0; font-weight: 600;">${sellVal} z</span>
+            </div>
+        `;
+
+        // Footer action hint
+        let footerText = 'ดับเบิลคลิกเพื่อสวม · ลากไปหน้าอุปกรณ์';
+        if (raw.type === 'Consumable') {
+            footerText = 'ดับเบิลคลิกเพื่อใช้ · ลากไปช่องคีย์ลัด';
+        } else if (raw.type === 'Card' || (it.name || '').includes('Card')) {
+            footerText = 'ดับเบิลคลิกเพื่อผสมการ์ดลงในอุปกรณ์';
+        } else if (raw.equipType === 'Ammo' || (it.name || '').includes('Arrow')) {
+            footerText = 'ดับเบิลคลิกเพื่อสวมใส่ลูกธนู';
+        } else if (raw.type === 'Material' || raw.type === 'Ore') {
+            footerText = 'วัตถุดิบสำหรับอัปเกรดและคราฟต์ไอเทม';
+        }
+
+        const iconEmoji = getItemIconEmoji(raw);
+
+        // Assemble Full Tooltip
+        tt.innerHTML = `
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
+                <div style="width: 44px; height: 44px; min-width: 44px; background: rgba(15, 23, 42, 0.85); border: 1.5px solid #d97706; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: inset 0 0 8px rgba(0,0,0,0.5);">
+                    ${iconEmoji}
+                </div>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 13.5px; font-weight: bold; color: #67e8f9; text-shadow: 0 1px 3px rgba(0,0,0,0.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${it.name || 'Unknown Item'}${titleSlotSuffix}
+                    </div>
+                    <div style="font-size: 10.5px; color: #94a3b8; margin-top: 2px;">
+                        ${subParts.join(' · ')}
+                    </div>
+                </div>
+            </div>
+
+            <div style="font-size: 11px; color: #cbd5e1; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid rgba(51, 65, 85, 0.5); padding-top: 6px;">
+                ${categoryLine}
+                ${levelReqLine}
+            </div>
+
+            ${statBlockHtml}
+            ${accentBlockHtml}
+            ${effectsHtml}
+            ${econHtml}
+
+            <div style="height: 1px; background: rgba(51, 65, 85, 0.6); margin: 8px 0 6px 0;"></div>
+            <div style="font-size: 10px; color: #38bdf8; font-weight: 500;">
+                ${footerText}
+            </div>
+        `;
+
+        tt.style.display = 'block';
+        window.movePelicanItemTooltip(e);
+    };
+
+    // ==========================================
     // IN-GAME DATA VIEWER MODAL & INSPECTOR
     // ==========================================
     window.__currentModalTab = 'items';
@@ -906,8 +1274,14 @@
             `;
             document.body.appendChild(modal);
 
-            document.getElementById('p-modal-close-btn').onclick = () => { modal.style.display = 'none'; };
-            document.getElementById('p-modal-backdrop').onclick = () => { modal.style.display = 'none'; };
+            document.getElementById('p-modal-close-btn').onclick = () => {
+                modal.style.display = 'none';
+                if (window.hidePelicanItemTooltip) window.hidePelicanItemTooltip();
+            };
+            document.getElementById('p-modal-backdrop').onclick = () => {
+                modal.style.display = 'none';
+                if (window.hidePelicanItemTooltip) window.hidePelicanItemTooltip();
+            };
 
             modal.querySelectorAll('.p-mod-tab-btn').forEach(btn => {
                 btn.onclick = () => {
@@ -948,6 +1322,7 @@
 
     window.renderModalTab = function(tabName, query = '') {
         window.__currentModalTab = tabName;
+        if (window.hidePelicanItemTooltip) window.hidePelicanItemTooltip();
         const modal = document.getElementById('pelican-data-modal');
         if (!modal) return;
 
@@ -971,14 +1346,12 @@
             const rawInv = window.__latestInventory;
             const items = [];
 
-            // Extract items from rawInv recursively
-            function scanRaw(obj) {
-                if (!obj) return;
-                if (Array.isArray(obj)) {
-                    obj.forEach(scanRaw);
-                } else if (typeof obj === 'object') {
-                    const id = obj.itemId || obj.id || obj.item_id || obj.code;
-                    const name = obj.name || obj.itemName || obj.title;
+            // Extract items: check rawInv.items first, else scan recursively
+            if (rawInv && Array.isArray(rawInv.items)) {
+                rawInv.items.forEach(obj => {
+                    if (!obj) return;
+                    const id = obj.itemId ?? obj.id ?? obj.item_id ?? obj.code;
+                    const name = obj.name ?? obj.itemName ?? obj.title;
                     if (id !== undefined || name !== undefined) {
                         items.push({
                             id: id,
@@ -988,23 +1361,53 @@
                             raw: obj
                         });
                     }
-                    for (const k in obj) {
-                        if (typeof obj[k] === 'object') scanRaw(obj[k]);
+                });
+            } else if (rawInv) {
+                function scanRaw(obj) {
+                    if (!obj) return;
+                    if (Array.isArray(obj)) {
+                        obj.forEach(scanRaw);
+                    } else if (typeof obj === 'object') {
+                        const id = obj.itemId ?? obj.id ?? obj.item_id ?? obj.code;
+                        const name = obj.name ?? obj.itemName ?? obj.title;
+                        if (id !== undefined || name !== undefined) {
+                            items.push({
+                                id: id,
+                                name: name || `Item_${id}`,
+                                qty: obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1,
+                                slot: obj.slot ?? obj.idx ?? '-',
+                                raw: obj
+                            });
+                        }
+                        for (const k in obj) {
+                            if (typeof obj[k] === 'object') scanRaw(obj[k]);
+                        }
                     }
                 }
+                scanRaw(rawInv);
             }
-            if (rawInv) scanRaw(rawInv);
 
-            // Also scan DOM slots
-            const domSlots = Array.from(document.querySelectorAll('[class*="item"], .inventory-slot, [data-item-id], [class*="slot"]'))
-                .filter(el => !el.closest('#pelican-hud') && !el.closest('#pelican-data-modal') && el.offsetWidth > 0 && el.innerText.trim().length > 0);
+            // Sort by bag slot
+            items.sort((a, b) => {
+                const sa = typeof a.slot === 'number' ? a.slot : parseInt(a.slot);
+                const sb = typeof b.slot === 'number' ? b.slot : parseInt(b.slot);
+                if (!isNaN(sa) && !isNaN(sb)) return sa - sb;
+                return 0;
+            });
 
             const filteredItems = items.filter(it => {
                 if (!query) return true;
                 return (String(it.name).toLowerCase().includes(query) || String(it.id).includes(query) || String(it.slot).includes(query));
             });
 
-            let html = '';
+            window.__modalFilteredItems = filteredItems;
+
+            let html = `
+                <style>
+                    .p-item-row:hover { background: rgba(56, 189, 248, 0.15) !important; }
+                </style>
+            `;
+
             if (!rawInv) {
                 html += `
                     <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
@@ -1017,7 +1420,7 @@
             html += `
                 <div style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: bold; color: #38bdf8;">📦 รายการไอเทมจากเซิร์ฟเวอร์ (ตรวจพบ ${items.length} รายการ):</span>
-                    <span style="color: #64748b; font-size: 11px;">(Arrow: 90030 / Bwing: 90311)</span>
+                    <span style="color: #eab308; font-size: 11px;">💡 ชี้เมาส์ที่แถวไอเทมเพื่อดูรายละเอียดและสเตตัสในเกม</span>
                 </div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px;">
                     <thead>
@@ -1026,7 +1429,7 @@
                             <th style="padding: 6px 8px; border: 1px solid #334155;">ชื่อไอเทม</th>
                             <th style="padding: 6px 8px; border: 1px solid #334155;">Item ID (Dec / Hex)</th>
                             <th style="padding: 6px 8px; border: 1px solid #334155;">จำนวน</th>
-                            <th style="padding: 6px 8px; border: 1px solid #334155;">Action</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">ประเภท</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1035,17 +1438,42 @@
             if (filteredItems.length === 0) {
                 html += `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #64748b;">ไม่พบไอเทมที่ตรงกับคำค้นหา</td></tr>`;
             } else {
-                filteredItems.forEach(it => {
+                filteredItems.forEach((it, idx) => {
                     const hexId = it.id ? '0x' + parseInt(it.id).toString(16) : '-';
                     const isArrow = it.id === 90030 || String(it.name).toLowerCase().includes('arrow');
+                    const icon = getItemIconEmoji(it.raw);
+
+                    let categoryBadge = '';
+                    if (isArrow) {
+                        categoryBadge = '<span style="color: #22c55e; font-weight: bold;">🏹 ลูกธนู</span>';
+                    } else if (it.raw?.type === 'Equipment') {
+                        if (it.raw?.equipType === 'Weapon') {
+                            categoryBadge = '<span style="color: #38bdf8; font-weight: 500;">⚔️ อาวุธ</span>';
+                        } else {
+                            categoryBadge = `<span style="color: #c084fc; font-weight: 500;">🛡️ ${EQUIP_TYPE_TH[it.raw?.equipType] || 'อุปกรณ์'}</span>`;
+                        }
+                    } else if (it.raw?.type === 'Consumable') {
+                        categoryBadge = '<span style="color: #f59e0b; font-weight: 500;">🧪 กดใช้</span>';
+                    } else if (it.raw?.type === 'Card' || String(it.name).includes('Card')) {
+                        categoryBadge = '<span style="color: #ec4899; font-weight: bold;">🎴 การ์ด</span>';
+                    } else if (it.raw?.type === 'Material' || it.raw?.type === 'Ore') {
+                        categoryBadge = '<span style="color: #94a3b8; font-weight: 500;">💎 วัตถุดิบ</span>';
+                    } else {
+                        categoryBadge = `<span style="color: #64748b;">${it.raw?.type || '-'}</span>`;
+                    }
+
                     html += `
-                        <tr style="border-bottom: 1px solid #1e293b; ${isArrow ? 'background: rgba(34, 197, 94, 0.1);' : ''}">
+                        <tr class="p-item-row" data-idx="${idx}"
+                            onmouseenter="window.showPelicanItemTooltip(${idx}, event)"
+                            onmousemove="window.movePelicanItemTooltip(event)"
+                            onmouseleave="window.hidePelicanItemTooltip()"
+                            style="border-bottom: 1px solid #1e293b; cursor: pointer; transition: background 0.15s ease; ${isArrow ? 'background: rgba(34, 197, 94, 0.08);' : ''}">
                             <td style="padding: 6px 8px; color: #94a3b8; border: 1px solid #334155;">${it.slot}</td>
-                            <td style="padding: 6px 8px; font-weight: bold; color: ${isArrow ? '#4ade80' : '#f8fafc'}; border: 1px solid #334155;">${it.name}</td>
+                            <td style="padding: 6px 8px; font-weight: bold; color: ${isArrow ? '#4ade80' : '#f8fafc'}; border: 1px solid #334155;">${icon} ${it.name}</td>
                             <td style="padding: 6px 8px; font-family: monospace; color: #38bdf8; border: 1px solid #334155;">${it.id || '-'} (${hexId})</td>
                             <td style="padding: 6px 8px; font-weight: bold; color: #f59e0b; border: 1px solid #334155;">${it.qty}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155;">
-                                ${isArrow ? '<span style="color: #22c55e; font-weight: bold;">🏹 ลูกธนู</span>' : ''}
+                                ${categoryBadge}
                             </td>
                         </tr>
                     `;
