@@ -1,0 +1,165 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pelican Hub — Aetheria Online Multi-Client Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- TOP HEADER -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <span>PELICAN</span>
+        </div>
+        <div class="brand-text">
+          <h1>Pelican Multi-Client Hub</h1>
+          <span class="subtext">Aetheria Online • Isolated Sessions & Bot Manager v4.3.0</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-add-profile" class="btn btn-primary">
+          <span class="icon">➕</span> เพิ่มโปรไฟล์
+        </button>
+        <button id="btn-launch-all" class="btn btn-success">
+          <span class="icon">🚀</span> เปิดทุกจอ (Launch All)
+        </button>
+        <button id="btn-stop-all" class="btn btn-danger">
+          <span class="icon">🛑</span> ปิดทุกจอ (Stop All)
+        </button>
+        <div class="dropdown">
+          <button id="btn-tile-menu" class="btn btn-secondary">
+            <span class="icon">📐</span> จัดหน้าต่าง ▾
+          </button>
+          <div class="dropdown-content">
+            <a href="#" id="tile-side">แบ่งครึ่งจอ (ซ้าย-ขวา)</a>
+            <a href="#" id="tile-grid">จัด 4 จอ (2x2 Grid)</a>
+          </div>
+        </div>
+        <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
+          <span class="icon">🔄</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- METRICS OVERVIEW BAR -->
+    <section class="metrics-bar">
+      <div class="metric-card">
+        <div class="metric-label">จำนวนโปรไฟล์ทั้งหมด</div>
+        <div class="metric-val" id="metric-total-profiles">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">จอที่กำลังรัน (Online)</div>
+        <div class="metric-val text-success" id="metric-online-profiles">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">กำลัง Auto-Farm</div>
+        <div class="metric-val text-cyan" id="metric-farming-profiles">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">สถานะ Game Executable</div>
+        <div class="metric-val text-emerald" style="font-size: 13px;" id="metric-exe-status">✅ ติดตั้งแล้ว</div>
+      </div>
+    </section>
+
+    <!-- PROFILES GRID -->
+    <main class="profiles-section">
+      <div class="section-title-row">
+        <h2>🎮 รายชื่อจอเกมและบอท (Client Profiles)</h2>
+        <span class="badge badge-info" id="live-polling-badge">🟢 Realtime Sync (2s)</span>
+      </div>
+
+      <div class="profiles-grid" id="profiles-grid">
+        <!-- Rendered via JS -->
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL: ADD / EDIT PROFILE -->
+  <div class="modal-overlay" id="profile-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">➕ เพิ่มโปรไฟล์จอใหม่</h3>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+
+      <form id="profile-form">
+        <input type="hidden" id="form-profile-id">
+
+        <div class="form-group">
+          <label>ชื่อจอ / โปรไฟล์ (Profile Name):</label>
+          <input type="text" id="form-name" required placeholder="เช่น Hunter 01, Mage Alt" class="form-input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>ไอดี / บัญชี (Account Memo):</label>
+            <input type="text" id="form-account" placeholder="เช่น Account 1 หรือ ID เกม" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>อาชีพตัวละคร (Class):</label>
+            <select id="form-class" class="form-select">
+              <option value="Hunter">🏹 Hunter (ยิงไกล/เติมธนู)</option>
+              <option value="Archer">🏹 Archer</option>
+              <option value="Rogue">🗡️ Rogue</option>
+              <option value="Assassin">🗡️ Assassin</option>
+              <option value="Knight">🛡️ Knight</option>
+              <option value="Crusader">🛡️ Crusader</option>
+              <option value="Wizard">🪄 Wizard</option>
+              <option value="Priest">✨ Priest</option>
+              <option value="Blacksmith">⚒️ Blacksmith</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>แมพเป้าหมาย (Target Farm Map):</label>
+            <select id="form-map" class="form-select">
+              <option value="ซากโบราณสถาน Lv.45–55">ซากโบราณสถาน Lv.45–55</option>
+              <option value="ถนนต้นหลิว">ถนนต้นหลิว</option>
+              <option value="ทะเลสาบอาซูร์">ทะเลสาบอาซูร์</option>
+              <option value="ทุ่งโคลเวอร์">ทุ่งโคลเวอร์</option>
+              <option value="ป่ามูนลีฟ">ป่ามูนลีฟ</option>
+              <option value="เส้นทางก็อบลิน">เส้นทางก็อบลิน</option>
+              <option value="ถ้ำเอมเบอร์">ถ้ำเอมเบอร์</option>
+              <option value="ที่ราบสูงเกล">ที่ราบสูงเกล</option>
+              <option value="แอ่งเวอร์แดนท์">แอ่งเวอร์แดนท์</option>
+              <option value="ชายฝั่งปะการัง">ชายฝั่งปะการัง</option>
+              <option value="สุสานเงา">สุสานเงา</option>
+              <option value="โบสถ์อเวจี">โบสถ์อเวจี</option>
+              <option value="บึงรากเน่า">บึงรากเน่า</option>
+              <option value="เนินทรายแผดเผา">เนินทรายแผดเผา</option>
+              <option value="พีระมิดจมทราย">พีระมิดจมทราย</option>
+              <option value="แกนลาวา">แกนลาวา</option>
+              <option value="ไร่ซันเกรน">ไร่ซันเกรน</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>พอร์ต Debug API (Auto Port):</label>
+            <input type="number" id="form-port" required min="40000" max="65000" class="form-input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>บันทึกช่วยจำ (Notes / Strategy):</label>
+          <input type="text" id="form-notes" placeholder="เช่น แบกธนูไฟ 2,000 ดอก / ขายขยะเมื่อเกิน 80%" class="form-input">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="modal-submit-btn">💾 บันทึกโปรไฟล์</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
