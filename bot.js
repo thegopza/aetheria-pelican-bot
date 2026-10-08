@@ -190,7 +190,53 @@
 
     function syncAmmoFromDOM() {
         try {
-            // 1. ตรวจจากช่อง ItemBar / Hotbar ด้านล่างจอ (ต้องมีรูปไอคอนธนูเท่านั้น ห้ามเดาจากช่องสุ่ม)
+            // 0. PRIORITY 1: ตรวจจาก Server Inventory Payload โดยตรง 100% (Real-time ไม่ต้องเปิดกระเป๋า และไม่ต้องเอาลง Hotbar)
+            if (window.__latestInventory) {
+                const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+                let foundQty = null;
+
+                function scanInv(obj, depth = 0) {
+                    if (!obj || depth > 5 || foundQty !== null) return;
+                    if (Array.isArray(obj)) {
+                        for (const it of obj) {
+                            if (it && typeof it === 'object') {
+                                const id = it.itemId || it.id || it.item_id || it.code;
+                                const name = (it.name || it.itemName || '').toLowerCase();
+                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                                if (isArrow) {
+                                    foundQty = it.qty ?? it.amount ?? it.count ?? it.val ?? 0;
+                                    return;
+                                }
+                                scanInv(it, depth + 1);
+                            }
+                        }
+                    } else if (typeof obj === 'object') {
+                        const id = obj.itemId || obj.id || obj.item_id || obj.code;
+                        const name = (obj.name || obj.itemName || '').toLowerCase();
+                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
+                        if (isArrow) {
+                            foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
+                            return;
+                        }
+                        for (const k in obj) {
+                            if (typeof obj[k] === 'object') scanInv(obj[k], depth + 1);
+                        }
+                    }
+                }
+                scanInv(window.__latestInventory);
+
+                if (foundQty !== null) {
+                    const parsed = parseInt(foundQty) || 0;
+                    if (window.__currentAmmo !== parsed) {
+                        window.__currentAmmo = parsed;
+                        localStorage.setItem('pelican_current_ammo', parsed);
+                        updateAmmoHUD();
+                    }
+                    return parsed;
+                }
+            }
+
+            // 1. Fallback รอง: ตรวจจากช่อง ItemBar / Hotbar ด้านล่างจอ
             const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
             let foundInHotbar = false;
 
@@ -3120,13 +3166,12 @@
 
         if (arrowInBag) {
             const slot = arrowInBag.slot ?? arrowInBag.idx;
-            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนูในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ลูกธนู!`, 'color: #22c55e; font-weight: bold;');
-            setTimeout(() => {
-                window.sendEquip(slot);
-            }, 100);
+            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนูในกระเป๋า Slot ${slot} (จำนวน: ${arrowInBag.qty || 1} ดอก) -> ส่งคำสั่งสวมใส่ลูกธนูทันที (ไม่ต้องพึ่งพา Hotbar)!`, 'color: #22c55e; font-weight: bold;');
+            window.sendEquip(slot);
+            return;
         }
 
-        // 2. ถ้ามีกระเป๋าเปิดอยู่ ให้ double click ที่ลูกธนู
+        // 2. ถ้าใน Server Inventory ยังไม่เจอ ให้ลองดูถ้ามีกระเป๋าเปิดอยู่
         try {
             const bagModal = document.querySelector('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]') || document.body;
             const slots = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]')).filter(el => !el.closest('#pelican-hud') && el.offsetWidth > 0);
@@ -3136,37 +3181,18 @@
                 const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
                 const isArrow = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
                 if (isArrow) {
-                    setTimeout(() => {
-                        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
-                        console.log('%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
-                    }, 120);
-                    break;
+                    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    console.log('%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    return;
                 }
             }
         } catch(e) {}
 
-        // 3. สั่งกดคีย์ Hotbar สำหรับลูกธนู (เฉพาะเมื่อเจอช่องลูกธนูจริง ห้าม fallback กดเลข 1 เด็ดขาด!)
-        setTimeout(() => {
-            const hotbarSlot = window.__archerConfig ? window.__archerConfig.arrowHotbarSlot : -1;
-            if (typeof hotbarSlot === 'number' && hotbarSlot >= 0) {
-                window.pressKey((hotbarSlot + 1).toString());
-            } else {
-                try {
-                    const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
-                    for (let i = 0; i < hotbarSlots.length; i++) {
-                        const s = hotbarSlots[i];
-                        const img = s.querySelector('img');
-                        const src = img ? (img.src || '').toLowerCase() : '';
-                        const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
-                        if (src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู')) {
-                            const foundKey = (i === 9 ? '0' : (i + 1).toString());
-                            window.pressKey(foundKey);
-                            break;
-                        }
-                    }
-                } catch(e) {}
-            }
-        }, 180);
+        // 3. Fallback สุดท้าย: ถ้าไม่มีทั้งข้อมูล Server และกระเป๋าไม่ได้เปิด จึงค่อยลองกด Hotbar สำรอง
+        const hotbarSlot = window.__archerConfig ? window.__archerConfig.arrowHotbarSlot : -1;
+        if (typeof hotbarSlot === 'number' && hotbarSlot >= 0) {
+            window.pressKey((hotbarSlot + 1).toString());
+        }
     };
 
     window.sendInvUse = function(slot = 8) {
