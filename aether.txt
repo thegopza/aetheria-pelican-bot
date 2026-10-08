@@ -573,6 +573,82 @@
         }
     };
 
+    window.dumpWeightDebug = function() {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`%c[Pelican Dump ${timestamp}] ================= WEIGHT & BAG DOM DUMP =================`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
+        
+        // 1. Check all elements with text "น้ำหนัก"
+        const weightEls = Array.from(document.querySelectorAll('*')).filter(el => {
+            if (!isValidNonBotElement(el)) return false;
+            const t = el.textContent || '';
+            return t.includes('น้ำหนัก') && el.children.length <= 4;
+        });
+        console.log(`[Pelican Dump] 🔎 Elements containing "น้ำหนัก" (count: ${weightEls.length}):`);
+        const weightSummary = weightEls.map((el, i) => {
+            const rect = el.getBoundingClientRect();
+            const parent = el.parentElement;
+            const item = {
+                index: i,
+                tag: el.tagName.toLowerCase(),
+                className: el.className,
+                rect: `${Math.round(rect.x)},${Math.round(rect.y)} (${Math.round(rect.width)}x${Math.round(rect.height)})`,
+                text: (el.innerText || el.textContent || '').trim(),
+                parentTag: parent?.tagName?.toLowerCase(),
+                parentClass: parent?.className,
+                parentText: (parent?.innerText || parent?.textContent || '').replace(/\s+/g, ' ').trim(),
+                parentHTML: parent?.outerHTML?.slice(0, 350)
+            };
+            console.log(`  [#${i}] <${item.tag} class="${item.className}"> rect=[${item.rect}] text="${item.text}"`);
+            console.log(`       parent: <${item.parentTag} class="${item.parentClass}"> text="${item.parentText}"`);
+            console.log(`       parentHTML:`, item.parentHTML);
+            return item;
+        });
+
+        // 2. Check all elements with text "จัดเรียง"
+        const sortEls = Array.from(document.querySelectorAll('*')).filter(el => {
+            if (!isValidNonBotElement(el)) return false;
+            const t = (el.innerText || el.textContent || '').trim();
+            return (t === 'จัดเรียง' || t.includes('จัดเรียง')) && el.offsetWidth > 0;
+        });
+        console.log(`[Pelican Dump] 🔄 Elements containing "จัดเรียง" (count: ${sortEls.length}):`);
+        const sortSummary = sortEls.map((el, i) => {
+            const rect = el.getBoundingClientRect();
+            const item = {
+                index: i,
+                tag: el.tagName.toLowerCase(),
+                className: el.className,
+                visible: el.offsetWidth > 0,
+                rect: `${Math.round(rect.x)},${Math.round(rect.y)} (${Math.round(rect.width)}x${Math.round(rect.height)})`,
+                text: (el.innerText || '').trim()
+            };
+            console.log(`  [#${i}] <${item.tag} class="${item.className}"> rect=[${item.rect}] text="${item.text}"`);
+            return item;
+        });
+
+        // 3. Bag Modal detection
+        const bagInfo = getOpenBagInfo();
+        const bagSummary = bagInfo ? {
+            windowTag: bagInfo.windowEl?.tagName,
+            windowClass: bagInfo.windowEl?.className,
+            windowRect: bagInfo.windowEl?.getBoundingClientRect(),
+            hasSortBtn: !!bagInfo.sortBtn,
+            sortBtnTag: bagInfo.sortBtn?.tagName,
+            sortBtnText: bagInfo.sortBtn?.innerText
+        } : null;
+        console.log(`[Pelican Dump] 🎒 getOpenBagInfo():`, bagSummary || 'null (BAG NOT DETECTED AS OPEN)');
+
+        // 4. Weight calculation trace
+        const currentW = getCharacterWeight();
+        console.log(`[Pelican Dump] ⚖️ Current Weight:`, currentW);
+        console.log(`[Pelican Dump] 💾 window.__lastKnownWeight:`, window.__lastKnownWeight);
+        console.log(`[Pelican Dump] 💾 localStorage('pelican_last_weight'):`, localStorage.getItem('pelican_last_weight'));
+        console.log(`[Pelican Dump] 🌐 window.__serverWeight:`, window.__serverWeight);
+        console.log(`[Pelican Dump] 🚨 isCharacterOverweight():`, typeof isCharacterOverweight === 'function' ? isCharacterOverweight() : 'N/A');
+        console.log(`%c[Pelican Dump] =====================================================================`, 'color: #f59e0b; font-weight: bold;');
+
+        return { timestamp, weightEls: weightSummary, sortEls: sortSummary, bagInfo: bagSummary, currentWeight: currentW, lastKnownWeight: window.__lastKnownWeight };
+    };
+
     // ==========================================
     // EQUIP SNIFFER & DEEP INVENTORY DUMPER
     // ==========================================
@@ -1337,32 +1413,7 @@
             const bagInfo = getOpenBagInfo();
             const searchScope = bagInfo && bagInfo.windowEl ? bagInfo.windowEl : document.body;
 
-            // Method 1: ค้นหา Node ทุกตัวที่มีตัวเลขรูปแบบ X / Y (เช่น "4,311/5,030")
-            const leafNodes = Array.from(searchScope.querySelectorAll('*')).filter(el => {
-                if (!isValidNonBotElement(el)) return false;
-                const txt = (el.textContent || '').trim();
-                if (!txt.includes('/')) return false;
-                return /^[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?$/.test(txt) ||
-                       /น้ำหนัก[^\d]*[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?/.test(txt);
-            });
-
-            for (const el of leafNodes) {
-                const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ').trim();
-                const m = txt.match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
-                if (m) {
-                    const cur = parseFloat(m[1].replace(/,/g, ''));
-                    const max = parseFloat(m[2].replace(/,/g, ''));
-                    if (max >= 500 && max <= 50000) {
-                        const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
-                        window.__lastKnownWeight = res;
-                        try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
-                        updateWeightHUD(res);
-                        return res;
-                    }
-                }
-            }
-
-            // Method 2: ค้นหาแถวข้อความที่มีคำว่า "น้ำหนัก"
+            // Method 1 (PRIMARY): ค้นหาแถวข้อความที่มีคำว่า "น้ำหนัก"
             const weightLabels = Array.from(searchScope.querySelectorAll('*')).filter(el => {
                 if (!isValidNonBotElement(el) || el.children.length > 5) return false;
                 const txt = (el.textContent || '').trim();
@@ -1370,7 +1421,7 @@
             });
 
             for (const label of weightLabels) {
-                const searchTargets = [label, label.parentElement, label.parentElement?.parentElement].filter(Boolean);
+                const searchTargets = [label, label.parentElement, label.parentElement?.parentElement, label.nextElementSibling].filter(Boolean);
                 for (const target of searchTargets) {
                     const cleanTxt = (target.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ');
                     const matches = Array.from(cleanTxt.matchAll(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/g));
@@ -1380,6 +1431,38 @@
                         if (max >= 500 && max <= 50000) {
                             const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             window.__lastKnownWeight = res;
+                            if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
+                                window.__isKnownOverweight = false;
+                            }
+                            try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
+                            updateWeightHUD(res);
+                            return res;
+                        }
+                    }
+                }
+            }
+
+            // Method 2: ค้นหา Node X / Y ภายในหน้าต่างกระเป๋าเท่านั้น (ห้ามหาบน document.body เพื่อป้องกันชนกับหลอดเลือด HP/MP)
+            if (bagInfo && bagInfo.windowEl) {
+                const leafNodes = Array.from(bagInfo.windowEl.querySelectorAll('*')).filter(el => {
+                    if (!isValidNonBotElement(el)) return false;
+                    const txt = (el.textContent || '').trim();
+                    if (!txt.includes('/')) return false;
+                    return /^[\d,]+(?:\.\d+)?\s*\/\s*[\d,]+(?:\.\d+)?$/.test(txt);
+                });
+
+                for (const el of leafNodes) {
+                    const txt = (el.textContent || '').replace(/[\u00a0\r\n\t]/g, ' ').trim();
+                    const m = txt.match(/([\d,]+(?:\.\d+)?)\s*\/\s*([\d,]+(?:\.\d+)?)/);
+                    if (m) {
+                        const cur = parseFloat(m[1].replace(/,/g, ''));
+                        const max = parseFloat(m[2].replace(/,/g, ''));
+                        if (max >= 500 && max <= 50000) {
+                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                            window.__lastKnownWeight = res;
+                            if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
+                                window.__isKnownOverweight = false;
+                            }
                             try { localStorage.setItem('pelican_last_weight', JSON.stringify(res)); } catch(e) {}
                             updateWeightHUD(res);
                             return res;
@@ -1395,23 +1478,32 @@
                 return window.__serverWeight;
             }
 
-            // Method 4: Fallback จาก Memory หรือ localStorage
+            // Method 4: Fallback จาก Memory หรือ localStorage (ล้างค่า 100% บั๊ก HP เก่าทิ้ง)
             if (window.__lastKnownWeight) {
-                updateWeightHUD(window.__lastKnownWeight);
-                return window.__lastKnownWeight;
-            } else {
-                try {
-                    const saved = localStorage.getItem('pelican_last_weight');
-                    if (saved) {
-                        const parsed = JSON.parse(saved);
-                        if (parsed && typeof parsed.percent === 'number') {
+                if (window.__lastKnownWeight.percent === 100 && window.__lastKnownWeight.current === window.__lastKnownWeight.max) {
+                    window.__lastKnownWeight = null;
+                    try { localStorage.removeItem('pelican_last_weight'); } catch(e) {}
+                } else {
+                    updateWeightHUD(window.__lastKnownWeight);
+                    return window.__lastKnownWeight;
+                }
+            }
+
+            try {
+                const saved = localStorage.getItem('pelican_last_weight');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed && typeof parsed.percent === 'number') {
+                        if (parsed.percent === 100 && parsed.current === parsed.max) {
+                            localStorage.removeItem('pelican_last_weight');
+                        } else {
                             window.__lastKnownWeight = parsed;
                             updateWeightHUD(parsed);
                             return parsed;
                         }
                     }
-                } catch(e) {}
-            }
+                }
+            } catch(e) {}
         } catch(e) {
             console.error('[Pelican Weight] getCharacterWeight error:', e);
         }
@@ -1712,6 +1804,9 @@
                 window.__lastKnownWeight = w;
                 try { localStorage.setItem('pelican_last_weight', JSON.stringify(w)); } catch(e) {}
                 updateWeightHUD(w);
+            }
+            if (typeof window.dumpWeightDebug === 'function') {
+                window.dumpWeightDebug();
             }
             if (typeof callback === 'function') callback(w || window.__lastKnownWeight);
         };
@@ -5113,6 +5208,9 @@
                             <button class="p-btn" id="p-btn-dump-packets" style="background: #e11d48; color: #fff; padding: 4px; font-size: 10px;">📜 Dump Packet</button>
                             <button class="p-btn" id="p-btn-dump-state" style="background: #059669; color: #fff; padding: 4px; font-size: 10px;">🕹️ Dump State</button>
                         </div>
+                        <div style="margin-top: 3px;">
+                            <button class="p-btn" id="p-btn-dump-weight" style="background: #f59e0b; color: #000; font-weight: bold; padding: 4px; font-size: 10px; width: 100%;">⚖️ Dump น้ำหนัก DOM & กระเป๋า</button>
+                        </div>
                     </div>
 
                     <button class="p-btn p-btn-copy-out" id="p-btn-copy-out" style="margin-top: 2px;">📋 คัดลอก Packet ขาออก (Hex เต็ม)</button>
@@ -5175,6 +5273,19 @@
 
         const dumpStateBtn = document.getElementById('p-btn-dump-state');
         if (dumpStateBtn) dumpStateBtn.onclick = () => { window.dumpGameState(); window.showDataViewerModal("state"); };
+
+        const dumpWeightBtn = document.getElementById('p-btn-dump-weight');
+        if (dumpWeightBtn) {
+            dumpWeightBtn.onclick = () => {
+                const res = window.dumpWeightDebug();
+                const modal = document.getElementById('pelican-data-modal');
+                if (modal) {
+                    document.getElementById('p-modal-title').innerText = '⚖️ DOM Weight Debug Dump';
+                    document.getElementById('p-modal-raw-json').value = JSON.stringify(res, null, 2);
+                    modal.style.display = 'flex';
+                }
+            };
+        }
 
         document.getElementById('p-btn-test-jump').onclick = () => {
             if (window.__monsterPos) {
