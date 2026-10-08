@@ -32,6 +32,65 @@
     window.__isKnownOverweight = false;
     window.__debugSnifferEnabled = false;
 
+    window.getMarketStatSelectOptionsHtml = function(currentVal) {
+        const options = [
+            { value: 'none', label: '-- ไม่ระบุ --' },
+            // สเตตัสหลัก (Primary Stats)
+            { value: 'DEX', label: 'DEX (ความแม่นยำ/ระยะไกล)' },
+            { value: 'STR', label: 'STR (พลังโจมตีประชิด/แบกน้ำหนัก)' },
+            { value: 'AGI', label: 'AGI (ความเร็วโจมตี/หลบหลีก)' },
+            { value: 'VIT', label: 'VIT (พลังป้องกัน/HP)' },
+            { value: 'INT', label: 'INT (พลังเวท/มานา)' },
+            { value: 'LUK', label: 'LUK (คริติคอล/โชคลาภ)' },
+            // กายภาพ / Physical (% และ Flat)
+            { value: 'ATK_PERCENT', label: 'ATK% (พลังโจมตีกายภาพ %)' },
+            { value: 'ATK_FLAT', label: 'ATK (พลังโจมตีกายภาพ หน่วยตรง)' },
+            { value: 'RANGED_DAMAGE_PERCENT', label: 'RANGED DMG% (ความแรงระยะไกล %)' },
+            { value: 'RANGE_ATTACK', label: 'RANGE ATK (พลังโจมตีระยะไกล หน่วยตรง)' },
+            { value: 'MELEE_DAMAGE_PERCENT', label: 'MELEE DMG% (ความแรงประชิด %)' },
+            { value: 'MELEE_ATTACK', label: 'MELEE ATK (พลังโจมตีประชิด หน่วยตรง)' },
+            // เวท / Magic (% และ Flat)
+            { value: 'MATK_PERCENT', label: 'MATK% (พลังโจมตีเวท %)' },
+            { value: 'MATK_FLAT', label: 'MATK (พลังโจมตีเวท หน่วยตรง)' },
+            { value: 'MAGIC_DAMAGE_PERCENT', label: 'MAGIC DMG% (ความแรงเวท %)' },
+            { value: 'MAGIC_ATTACK', label: 'MAGIC ATK (พลังโจมตีเวท หน่วยตรง)' },
+            // คริติคอล / Critical
+            { value: 'CRIT', label: 'CRIT (อัตราคริติคอล)' },
+            { value: 'CRIT_DAMAGE', label: 'CRIT DMG% (ความแรงคริ %)' },
+            // ความเร็ว & ความแม่นยำ
+            { value: 'ASPD', label: 'ASPD (ความเร็วโจมตี หน่วยตรง)' },
+            { value: 'ASPD_PERCENT', label: 'ASPD% (ความเร็วโจมตี %)' },
+            { value: 'HIT', label: 'HIT (ความแม่นยำ)' },
+            { value: 'FLEE', label: 'FLEE (การหลบหลีก)' },
+            { value: 'MOVE_SPEED', label: 'MOVE SPEED (ความเร็วเดิน)' },
+            { value: 'CAST_TIME_REDUCTION', label: 'CAST RED% (ลดเวลาร่าย %)' },
+            // ป้องกัน & เอาชีวิตรอด
+            { value: 'DEF', label: 'DEF (พลังป้องกันกายภาพ)' },
+            { value: 'MDEF', label: 'MDEF (พลังป้องกันเวท)' },
+            { value: 'DAMAGE_REDUCTION', label: 'DMG RED% (ลดดาเมจที่ได้รับ %)' },
+            { value: 'BLOCK_CHANCE', label: 'BLOCK% (โอกาสบล็อก %)' },
+            { value: 'MAXHP_PERCENT', label: 'Max HP% (เลือดสูงสุด %)' },
+            { value: 'MAXHP', label: 'Max HP (เลือดสูงสุด หน่วยตรง)' },
+            { value: 'MAXSP_PERCENT', label: 'Max SP% (มานาสูงสุด %)' },
+            { value: 'MAXSP', label: 'Max SP (มานาสูงสุด หน่วยตรง)' },
+            { value: 'HP_REGEN', label: 'HP REGEN (ฟื้นฟูเลือด)' },
+            { value: 'SP_REGEN', label: 'SP REGEN (ฟื้นฟูมานา)' },
+            { value: 'HEAL_POWER', label: 'HEAL% (พลังการฮีล %)' }
+        ];
+
+        return options.map(opt => {
+            let isSel = (currentVal === opt.value);
+            if (!isSel && currentVal === 'ATK' && opt.value === 'ATK_FLAT') isSel = true;
+            if (!isSel && currentVal === 'MATK' && opt.value === 'MATK_FLAT') isSel = true;
+            return `<option value="${opt.value}" ${isSel ? 'selected' : ''}>${opt.label}</option>`;
+        }).join('');
+    };
+
+    function getMarketStatSelectOptionsHtml(currentVal) {
+        return window.getMarketStatSelectOptionsHtml(currentVal);
+    }
+
+
     // Config & Map Name Migration
     const mapAliases = {
         'ทุ่งหญ้าเอลเดอร์': 'ทุ่งโคลเวอร์',
@@ -2169,7 +2228,7 @@
                         <div>
                             <span style="color: #f59e0b; font-size: 10px; font-weight: bold;">💎 Option 1 (Stat):</span>
                             <select id="p-mod-mk-stat1" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(245, 158, 11, 0.4); color: #fde047; padding: 3px; border-radius: 4px; font-size: 10.5px;">
-                                ${getMarketStatSelectOptionsHtml(cfg.statType1)}
+                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(cfg.statType1) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(cfg.statType1) : ''))}
                             </select>
                         </div>
                         <div>
@@ -2179,7 +2238,7 @@
                         <div>
                             <span style="color: #c084fc; font-size: 10px; font-weight: bold;">🔮 Option 2 (Stat):</span>
                             <select id="p-mod-mk-stat2" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(192, 132, 252, 0.4); color: #e9d5ff; padding: 3px; border-radius: 4px; font-size: 10.5px;">
-                                ${getMarketStatSelectOptionsHtml(cfg.statType2)}
+                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(cfg.statType2) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(cfg.statType2) : ''))}
                             </select>
                         </div>
                         <div>
@@ -7564,7 +7623,7 @@
                         <div class="p-row" style="margin-top: 2px;">
                             <span style="font-size: 9.5px; color: #fde047;">Opt 1:</span>
                             <select id="p-mk-stat1-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                ${getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1)}
+                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : ''))}
                             </select>
                             <input type="number" id="p-mk-stat1-min" value="${window.__marketFilterConfig.statMinVal1 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
                         </div>
@@ -7572,7 +7631,7 @@
                         <div class="p-row">
                             <span style="font-size: 9.5px; color: #c084fc;">Opt 2:</span>
                             <select id="p-mk-stat2-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                ${getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2)}
+                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : ''))}
                             </select>
                             <input type="number" id="p-mk-stat2-min" value="${window.__marketFilterConfig.statMinVal2 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
                         </div>
