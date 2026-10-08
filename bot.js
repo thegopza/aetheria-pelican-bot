@@ -6113,6 +6113,153 @@
         return matched;
     };
 
+    window.getGameRoom = function() {
+        if (window.__gameRoom && window.__gameRoom.connection?.isOpen) return window.__gameRoom;
+        let found = null;
+        const visited = new Set();
+        function search(obj, depth = 0) {
+            if (!obj || depth > 25 || visited.has(obj) || found) return;
+            visited.add(obj);
+            if (obj.roomId && obj.sessionId && typeof obj.send === 'function') {
+                found = obj;
+                return;
+            }
+            if (obj.memoizedState) {
+                let s = obj.memoizedState;
+                while (s) {
+                    if (s.memoizedState?.current?.roomId && typeof s.memoizedState.current.send === 'function') {
+                        found = s.memoizedState.current;
+                        return;
+                    }
+                    search(s.memoizedState, depth + 1);
+                    s = s.next;
+                }
+            }
+            if (obj.child) search(obj.child, depth + 1);
+            if (obj.sibling) search(obj.sibling, depth + 1);
+            if (obj.return) search(obj.return, depth + 1);
+        }
+        const all = document.querySelectorAll('.ui-root, .hud-status, .minimap, .chat, .hotbars, .market-window');
+        for (const el of all) {
+            const k = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+            if (k) {
+                search(el[k]);
+                if (found) break;
+            }
+        }
+        if (found) window.__gameRoom = found;
+        return found;
+    };
+
+    window.updateMarketDetailOverlay = function(listing) {
+        const detail = document.querySelector('.mk-detail');
+        if (!detail || !listing || !listing.item) return;
+
+        const facts = detail.querySelector('.mk-detail-facts');
+        if (!facts) return;
+
+        let box = detail.querySelector('.pelican-mk-affix-box');
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'pelican-mk-affix-box';
+            box.style.cssText = 'margin: 6px 0; padding: 7px 9px; background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 6px; font-size: 11px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);';
+            facts.insertAdjacentElement('beforebegin', box);
+        }
+
+        const it = listing.item;
+        let affHtml = '';
+        if (Array.isArray(it.affixes) && it.affixes.length > 0) {
+            affHtml = it.affixes.map(a => {
+                const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
+                const isSpec = a.category === 'special' || String(a.type).includes('CRIT');
+                const color = isSpec ? '#fef08a' : '#86efac';
+                const bg = isSpec ? 'rgba(234, 179, 8, 0.25)' : 'rgba(34, 197, 94, 0.2)';
+                const border = isSpec ? '#eab308' : '#22c55e';
+                const val = (a.mode === 'increasedPercent' || String(a.type).includes('PERCENT')) ? `+${a.value}%` : `+${a.value}`;
+                return `<span style="display: inline-block; background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin: 2px 3px 2px 0; font-weight: bold;">⭐ ${sInfo.short || a.type} ${val}</span>`;
+            }).join('');
+        }
+
+        let attrHtml = '';
+        if (Array.isArray(it.attributes) && it.attributes.length > 0) {
+            attrHtml = it.attributes.map(a => {
+                const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
+                return `<span style="display: inline-block; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin: 2px 3px 2px 0;">⚔️ ${sInfo.short || a.type}: +${a.value}</span>`;
+            }).join('');
+        }
+
+        let refineHtml = '';
+        if (it.refine) {
+            refineHtml = `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 4px;">ตีบวก +${it.refine}</span>`;
+        }
+
+        const isMatch = (typeof window.matchesMarketFilter === 'function') ? window.matchesMarketFilter(listing, window.__marketFilterConfig) : false;
+        const matchBadge = isMatch ? `<span style="background: rgba(234, 179, 8, 0.25); border: 1px solid #eab308; color: #fde047; padding: 1px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold;">🎯 ตรงสเปคที่ค้นหา!</span>` : '';
+
+        box.innerHTML = `
+            <div style="font-weight: bold; color: #f59e0b; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                <span>💎 คุณสมบัติไอเทม (Stats & Random Options)</span>
+                <div>${refineHtml}${matchBadge}</div>
+            </div>
+            <div>${attrHtml || '<span style="color: #64748b; font-size: 9.5px;">ไม่มีสเตตัสพื้นฐาน</span>'}</div>
+            <div style="margin-top: 3px;">${affHtml || '<span style="color: #64748b; font-size: 9.5px;">ไม่มี Option สุ่ม</span>'}</div>
+        `;
+    };
+
+    window.injectMarketOverlay = function() {
+        const win = document.querySelector('.market-window');
+        if (!win) return;
+
+        const latestListings = window.__latestMarketResults?.listings || [];
+        const rows = Array.from(win.querySelectorAll('.mk-row'));
+        const cfg = window.__marketFilterConfig || {};
+
+        rows.forEach((row, idx) => {
+            const listing = latestListings[idx];
+            if (!listing || !listing.item) return;
+            const it = listing.item;
+
+            let badgeContainer = row.querySelector('.pelican-row-affixes');
+            if (!badgeContainer) {
+                badgeContainer = document.createElement('div');
+                badgeContainer.className = 'pelican-row-affixes';
+                badgeContainer.style.cssText = 'display: inline-flex; gap: 3px; margin-left: 6px; flex-wrap: wrap; vertical-align: middle;';
+                const nameEl = row.querySelector('.mk-name, .mk-item');
+                if (nameEl) nameEl.appendChild(badgeContainer);
+            }
+
+            const affixes = it.affixes || [];
+            if (affixes.length > 0) {
+                badgeContainer.innerHTML = affixes.map(a => {
+                    const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
+                    const isSpec = a.category === 'special' || String(a.type).includes('CRIT');
+                    const color = isSpec ? '#fef08a' : '#86efac';
+                    const bg = isSpec ? 'rgba(234, 179, 8, 0.25)' : 'rgba(34, 197, 94, 0.2)';
+                    const border = isSpec ? '#eab308' : '#22c55e';
+                    const val = (a.mode === 'increasedPercent' || String(a.type).includes('PERCENT')) ? `+${a.value}%` : `+${a.value}`;
+                    return `<span style="background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: bold; line-height: 1.2;">${sInfo.short || a.type} ${val}</span>`;
+                }).join('');
+            }
+
+            const isMatch = (typeof window.matchesMarketFilter === 'function') ? window.matchesMarketFilter(listing, cfg) : false;
+            if (isMatch && (cfg.statType1 !== 'none' || cfg.statType2 !== 'none' || cfg.minRefine > 0)) {
+                row.style.outline = '1.5px solid #f59e0b';
+                row.style.background = 'rgba(245, 158, 11, 0.12)';
+            } else {
+                row.style.outline = '';
+            }
+
+            row.onclick = () => {
+                setTimeout(() => window.updateMarketDetailOverlay(listing), 50);
+            };
+        });
+
+        // Update right detail panel with first listing or selected
+        if (latestListings.length > 0) {
+            window.updateMarketDetailOverlay(latestListings[0]);
+        }
+    };
+
     window.handleIncomingMarketResults = function(dec) {
         if (!dec || !Array.isArray(dec.listings)) return;
         window.__latestMarketResults = dec;
@@ -6127,10 +6274,17 @@
                 existingMap.set(incoming.listingId, incoming);
             }
         }
-        window.__marketAllListings = Array.from(existingMap.values()).slice(-600);
+        window.__marketAllListings = Array.from(existingMap.values()).slice(-1000);
 
         const matched = window.applyMarketFilters();
         const cfg = window.__marketFilterConfig || {};
+
+        // In-Game Market Overlay Injection
+        setTimeout(() => {
+            if (typeof window.injectMarketOverlay === 'function') {
+                window.injectMarketOverlay();
+            }
+        }, 80);
 
         if (cfg.sniperAlert || cfg.autoBuy) {
             for (const item of dec.listings) {
@@ -6200,17 +6354,47 @@
 
     window.executeMarketSearch = function(filters) {
         filters = filters || window.__marketFilterConfig || {};
-        window.openMarketWindow((win) => {
-            if (!win) {
-                console.warn('[Pelican Market] ไม่สามารถเปิดหน้าต่างตลาดได้');
-                return;
+        const queryText = (filters.q !== undefined) ? filters.q : (document.getElementById('p-mk-search-query')?.value || document.getElementById('p-mod-mk-q')?.value || window.__marketFilterConfig?.q || '');
+        window.__marketFilterConfig.q = queryText.trim();
+        saveMarketFilterConfig();
+
+        // 1. Send direct search packet via Colyseus Room
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (room && room.connection?.isOpen) {
+            try {
+                room.send('market', {
+                    op: 'search',
+                    filters: {
+                        q: queryText.trim() || undefined,
+                        category: filters.category || undefined,
+                        kind: filters.kind || undefined,
+                        minRefine: Number(filters.minRefine) || undefined,
+                        maxPrice: Number(filters.maxPrice) || undefined,
+                        sort: 'price_asc',
+                        page: Number(filters.page) || 0
+                    }
+                });
+                console.log(`%c[Pelican Market] 🚀 ส่งคำสั่งค้นหาตลาดตรงสู่เซิร์ฟเวอร์: "${queryText || 'ทั้งหมด'}"`, 'color: #38bdf8; font-weight: bold;');
+            } catch(e) {
+                console.warn('[Pelican Market] room.send search failed:', e);
             }
+        }
+
+        // 2. Synchronize In-Game Market Window UI
+        window.openMarketWindow((win) => {
+            if (!win) return;
 
             const searchInput = win.querySelector('input[type="text"], input[type="search"]');
             if (searchInput) {
-                searchInput.value = filters.q || '';
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+                const k = Object.keys(searchInput).find(k => k.startsWith('__reactProps'));
+                if (searchInput[k]?.onChange) {
+                    searchInput[k].onChange({ target: { value: queryText.trim() } });
+                } else {
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                    if (nativeSetter) nativeSetter.call(searchInput, queryText.trim());
+                    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
 
             const selects = win.querySelectorAll('select');
@@ -6224,12 +6408,16 @@
             }
 
             setTimeout(() => {
-                const searchBtn = Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').trim() === 'ค้นหา');
-                if (searchBtn) {
-                    searchBtn.click();
-                    console.log(`%c[Pelican Market] 🔍 ส่งคำสั่งค้นหาตลาด: "${filters.q || 'ทั้งหมด'}" หมวด: ${filters.category || 'ทุกหมวด'}`, 'color: #38bdf8; font-weight: bold;');
+                const form = win.querySelector('form.mk-filters');
+                if (form) {
+                    const fk = Object.keys(form).find(k => k.startsWith('__reactProps'));
+                    if (form[fk]?.onSubmit) {
+                        form[fk].onSubmit({ preventDefault: () => {} });
+                    } else {
+                        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    }
                 }
-            }, 150);
+            }, 120);
         });
     };
 
@@ -6241,36 +6429,43 @@
         window.__isMarketScanning = true;
         console.log(`%c[Pelican Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติ ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
 
-        let curPage = 1;
-        window.executeMarketSearch();
+        let curPage = 0;
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const q = (window.__marketFilterConfig?.q || '').trim();
 
         const scanNext = () => {
             if (!window.__isMarketScanning) return;
             if (curPage >= maxPages) {
                 window.__isMarketScanning = false;
-                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! ตรวจพบไอเทมตรงสเปค: ${(window.__marketFilteredResults || []).length} รายการ`, 'color: #10b981; font-weight: bold;');
+                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! ตรวจพบไอเทมตรงสเปค: ${(window.__marketFilteredResults || []).length} รายการ (ในแคช ${(window.__marketAllListings || []).length})`, 'color: #10b981; font-weight: bold;');
                 if (typeof window.renderMarketHudTab === 'function') window.renderMarketHudTab();
                 return;
             }
 
-            const win = document.querySelector('.market-window');
-            if (!win) {
-                window.__isMarketScanning = false;
-                return;
-            }
-            const nextBtn = Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').includes('ถัดไป'));
-            if (nextBtn && !nextBtn.disabled) {
-                curPage++;
-                console.log(`%c[Pelican Market] 📄 กำลังสแกนหน้า ${curPage}/${maxPages}...`, 'color: #c084fc;');
-                nextBtn.click();
-                setTimeout(scanNext, 850);
+            curPage++;
+            console.log(`%c[Pelican Market] 📄 กำลังดึงข้อมูลหน้า ${curPage}/${maxPages}...`, 'color: #c084fc;');
+
+            if (room && room.connection?.isOpen) {
+                room.send('market', {
+                    op: 'search',
+                    filters: {
+                        q: q || undefined,
+                        category: window.__marketFilterConfig?.category || undefined,
+                        kind: window.__marketFilterConfig?.kind || undefined,
+                        sort: 'price_asc',
+                        page: curPage - 1
+                    }
+                });
             } else {
-                window.__isMarketScanning = false;
-                console.log(`%c[Pelican Market] 🏁 สิ้นสุดหน้ารายการ (ตรวจพบ ${curPage} หน้า)`, 'color: #38bdf8;');
+                const win = document.querySelector('.market-window');
+                const nextBtn = win ? Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').includes('ถัดไป')) : null;
+                if (nextBtn && !nextBtn.disabled) nextBtn.click();
             }
+
+            setTimeout(scanNext, 850);
         };
 
-        setTimeout(scanNext, 1000);
+        scanNext();
     };
 
     window.buyMarketListing = function(listingId, price, itemName, sellerName) {
@@ -7633,6 +7828,12 @@
         updateMasterBotUI();
         if (typeof getCharacterWeight === 'function') getCharacterWeight();
         setTimeout(() => { if (typeof getCharacterWeight === 'function') getCharacterWeight(); }, 800);
+
+        setInterval(() => {
+            if (document.querySelector('.market-window') && typeof window.injectMarketOverlay === 'function') {
+                window.injectMarketOverlay();
+            }
+        }, 600);
     }
 
     if (document.readyState === 'loading') {
