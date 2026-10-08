@@ -882,6 +882,8 @@
         'Card': 'การ์ดมอนสเตอร์',
         'Material': 'วัตถุดิบ',
         'Ore': 'แร่ธาตุ',
+        'Miscellaneous': 'วัตถุดิบ / ขยะ',
+        'Enchantment': 'หินออปชัน / รูน',
         'Ammo': 'ลูกธนู / กระสุน',
         'Quest': 'เควส',
         'Etc': 'ทั่วไป'
@@ -890,13 +892,18 @@
     const EQUIP_TYPE_TH = {
         'Weapon': 'อาวุธ',
         'Armor': 'ชุดเกราะ',
+        'Shield': 'โล่',
+        'Helmet': 'หมวก / ส่วนหัว',
         'Head': 'ส่วนหัว',
         'Headgear': 'หมวก',
-        'Shield': 'โล่',
+        'HeadMid': 'ส่วนใบหน้า / ตา',
+        'Cape': 'ผ้าคลุม',
         'Garment': 'ผ้าคลุม',
+        'Boot': 'รองเท้า',
         'Shoes': 'รองเท้า',
         'Footwear': 'รองเท้า',
         'Accessory': 'เครื่องประดับ',
+        'Gem': 'อัญมณี',
         'Ammo': 'กระสุน / ลูกธนู'
     };
 
@@ -907,6 +914,7 @@
         'OneHandSword': 'ดาบมือเดียว',
         'TwoHandSword': 'ดาบสองมือ',
         'Spear': 'หอก',
+        'TwoHandSpear': 'หอกสองมือ',
         'Axe': 'ขวาน',
         'Mace': 'กระบอง',
         'Staff': 'คทา',
@@ -917,6 +925,11 @@
     };
 
     const ATTR_NAME_TH = {
+        'MELEE_DEFENSE': 'DEF (กายภาพ)',
+        'MAGIC_DEFENSE': 'MDEF (เวท)',
+        'DEFENSE': 'DEF (กายภาพ)',
+        'DEF': 'DEF',
+        'MDEF': 'MDEF',
         'RANGE_ATTACK': 'ATK (ระยะไกล)',
         'RANGED_ATK': 'ATK (ระยะไกล)',
         'MELEE_ATTACK': 'ATK (ประชิด)',
@@ -925,29 +938,34 @@
         'ATK': 'ATK',
         'MAGIC_ATTACK': 'MATK (เวท)',
         'MATK': 'MATK (เวท)',
-        'DEFENSE': 'DEF (กายภาพ)',
-        'DEF': 'DEF',
-        'MAGIC_DEFENSE': 'MDEF (เวท)',
-        'MDEF': 'MDEF',
         'STR': 'STR',
         'AGI': 'AGI',
         'VIT': 'VIT',
         'INT': 'INT',
         'DEX': 'DEX',
         'LUK': 'LUK',
+        'MAXHP': 'Max HP',
         'MAX_HP': 'Max HP',
+        'MAXSP': 'Max SP',
         'MAX_SP': 'Max SP',
         'HP': 'HP',
         'SP': 'SP',
         'HIT': 'HIT',
         'FLEE': 'FLEE',
-        'CRITICAL': 'CRIT',
         'CRIT': 'CRIT',
+        'CRITICAL': 'CRIT',
         'CRIT_DAMAGE': 'ดาเมจคริ',
         'CRIT_DMG': 'ดาเมจคริ',
         'ATTACK_SPEED': 'ASPD',
         'ASPD': 'ASPD',
-        'MOVE_SPEED': 'ความเร็วเคลื่อนที่'
+        'MOVE_SPEED': 'ความเร็วเคลื่อนที่',
+        'HEAL_POWER': 'พลังฮีล',
+        'BLOCK_CHANCE': 'โอกาสบล็อก',
+        'DAMAGE_REDUCTION': 'ลดความเสียหาย',
+        'MELEE_DAMAGE_PERCENT': 'ดาเมจประชิด',
+        'RANGED_DAMAGE_PERCENT': 'ดาเมจระยะไกล',
+        'HP_DRAIN_ATTACK': 'ดูด HP',
+        'SP_DRAIN_ATTACK': 'ดูด SP'
     };
 
     function getItemIconEmoji(raw) {
@@ -957,23 +975,45 @@
         const weaponType = raw.weaponType || '';
         const name = (raw.name || '').toLowerCase();
 
-        if (type === 'Card' || name.includes('card')) return '🎴';
+        // 1. Cards (must match exact word 'card', not cardigan)
+        if (type === 'Card' || /\bcard\b/i.test(name)) return '🎴';
+
+        // 2. Ammunition
         if (name.includes('arrow') || equipType === 'Ammo') return '🏹';
+
+        // 3. Weapons
         if (weaponType === 'Bow' || name.includes('bow')) return '🏹';
-        if (weaponType === 'Sword' || weaponType === 'TwoHandSword') return '⚔️';
+        if (weaponType === 'TwoHandSword' || weaponType === 'Sword' || weaponType === 'OneHandSword') return '⚔️';
         if (weaponType === 'Dagger' || name.includes('dagger')) return '🗡️';
-        if (weaponType === 'Staff' || weaponType === 'Wand') return '🪄';
-        if (weaponType === 'Spear') return '🔱';
-        if (weaponType === 'Axe') return '🪓';
-        if (equipType === 'Armor' || name.includes('coat') || name.includes('mail')) return '🛡️';
-        if (equipType === 'Head' || equipType === 'Headgear' || name.includes('hat') || name.includes('cap')) return '🎩';
-        if (equipType === 'Garment' || name.includes('muffler') || name.includes('hood')) return '🧣';
-        if (equipType === 'Shoes' || equipType === 'Footwear' || name.includes('boots') || name.includes('shoes')) return '👢';
-        if (equipType === 'Accessory' || name.includes('ring') || name.includes('clip') || name.includes('glove')) return '💍';
+        if (weaponType === 'Spear' || weaponType === 'TwoHandSpear' || name.includes('spear') || name.includes('lance') || name.includes('halberd') || name.includes('pike')) return '🔱';
+        if (weaponType === 'Axe' || name.includes('axe')) return '🪓';
+        if (weaponType === 'Knuckle' || name.includes('knuckle') || name.includes('claw')) return '🥊';
+        if (weaponType === 'Staff' || weaponType === 'Wand' || weaponType === 'Rod' || name.includes('staff') || name.includes('wand')) return '🪄';
+        if (weaponType === 'Mace' || name.includes('mace') || name.includes('hammer')) return '🔨';
+        if (weaponType === 'Katar' || name.includes('katar')) return '🪒';
+        if (weaponType === 'Gun' || name.includes('gun') || name.includes('revolver')) return '🔫';
+        if (equipType === 'Weapon') return '⚔️';
+
+        // 4. Equipment by equipType
+        if (equipType === 'Shield' || name.includes('shield') || name.includes('guard') || name.includes('buckler')) return '🛡️';
+        if (equipType === 'Armor' || name.includes('armor') || name.includes('mail') || name.includes('coat') || name.includes('suit') || name.includes('robe') || name.includes('plate') || name.includes('cardigan') || name.includes('protection')) return '🦺';
+        if (equipType === 'Cape' || equipType === 'Garment' || name.includes('cape') || name.includes('muffler') || name.includes('hood') || name.includes('manteau') || name.includes('dragon breath') || name.includes('breath')) return '🧣';
+        if (equipType === 'Boot' || equipType === 'Shoes' || equipType === 'Footwear' || name.includes('boot') || name.includes('shoes') || name.includes('greave') || name.includes('reincarnation')) return '👢';
+        if (equipType === 'Helmet' || equipType === 'Head' || equipType === 'Headgear' || equipType === 'HeadMid' || name.includes('hat') || name.includes('cap') || name.includes('circlet') || name.includes('helm') || name.includes('ribbon') || name.includes('coronet') || name.includes('band') || name.includes('crown') || name.includes('glasses')) return '👑';
+        if (equipType === 'Accessory' || name.includes('ring') || name.includes('clip') || name.includes('earring') || name.includes('brooch') || name.includes('necklace') || name.includes('glove')) return '💍';
+        if (equipType === 'Gem' || name.includes('gem')) return '💎';
+
+        // 5. Consumables / Potions / Wings
         if (name.includes('wing') || raw.itemId === 90311) return '🕊️';
         if (name.includes('potion') || raw.autoPotion) return '🧪';
-        if (type === 'Material' || type === 'Ore' || name.includes('ore') || name.includes('phracon') || name.includes('elunium')) return '💎';
+        if (name.includes('scroll')) return '📜';
         if (type === 'Consumable') return '🍎';
+
+        // 6. Materials / Ores / Enchantments
+        if (type === 'Enchantment' || name.includes('rune') || name.includes('enchant')) return '🔮';
+        if (type === 'Material' || type === 'Ore' || name.includes('ore') || name.includes('phracon') || name.includes('elunium') || name.includes('stone') || name.includes('iron') || name.includes('steel')) return '💎';
+        if (type === 'Miscellaneous') return '🧩';
+
         return '📦';
     }
 
@@ -1102,7 +1142,7 @@
         if (Array.isArray(raw.affixes)) {
             raw.affixes.forEach(aff => {
                 const name = ATTR_NAME_TH[aff.type] || aff.type || 'Opt';
-                const isPercent = aff.type && (aff.type.includes('CRIT') || aff.type.includes('PERCENT') || aff.type.includes('RATE'));
+                const isPercent = aff.type && (aff.type.includes('CRIT') || aff.type.includes('PERCENT') || aff.type.includes('RATE') || aff.type.includes('HEAL') || aff.type.includes('REDUCTION') || aff.type.includes('BLOCK'));
                 const sign = (typeof aff.value === 'number' && aff.value > 0) ? '+' : '';
                 const valStr = `${sign}${aff.value}${isPercent ? '%' : ''}`;
                 const text = `<span>${name} <b style="color: #4ade80;">${valStr}</b></span>`;
@@ -1515,16 +1555,30 @@
                         categoryBadge = '<span style="color: #22c55e; font-weight: bold;">🏹 ลูกธนู</span>';
                     } else if (it.raw?.type === 'Equipment') {
                         if (it.raw?.equipType === 'Weapon') {
-                            categoryBadge = '<span style="color: #38bdf8; font-weight: 500;">⚔️ อาวุธ</span>';
+                            categoryBadge = `<span style="color: #38bdf8; font-weight: 500;">⚔️ ${WEAPON_TYPE_TH[it.raw?.weaponType] || 'อาวุธ'}</span>`;
+                        } else if (it.raw?.equipType === 'Shield') {
+                            categoryBadge = '<span style="color: #60a5fa; font-weight: 500;">🛡️ โล่</span>';
+                        } else if (it.raw?.equipType === 'Armor') {
+                            categoryBadge = '<span style="color: #c084fc; font-weight: 500;">🦺 ชุดเกราะ</span>';
+                        } else if (it.raw?.equipType === 'Helmet' || it.raw?.equipType === 'Head' || it.raw?.equipType === 'HeadMid') {
+                            categoryBadge = '<span style="color: #facc15; font-weight: 500;">👑 ส่วนหัว</span>';
+                        } else if (it.raw?.equipType === 'Cape') {
+                            categoryBadge = '<span style="color: #fb923c; font-weight: 500;">🧣 ผ้าคลุม</span>';
+                        } else if (it.raw?.equipType === 'Boot' || it.raw?.equipType === 'Shoes') {
+                            categoryBadge = '<span style="color: #a78bfa; font-weight: 500;">👢 รองเท้า</span>';
+                        } else if (it.raw?.equipType === 'Accessory') {
+                            categoryBadge = '<span style="color: #f472b6; font-weight: 500;">💍 เครื่องประดับ</span>';
                         } else {
-                            categoryBadge = `<span style="color: #c084fc; font-weight: 500;">🛡️ ${EQUIP_TYPE_TH[it.raw?.equipType] || 'อุปกรณ์'}</span>`;
+                            categoryBadge = `<span style="color: #c084fc; font-weight: 500;">🛡️ ${EQUIP_TYPE_TH[it.raw?.equipType] || it.raw?.equipType || 'อุปกรณ์'}</span>`;
                         }
                     } else if (it.raw?.type === 'Consumable') {
                         categoryBadge = '<span style="color: #f59e0b; font-weight: 500;">🧪 กดใช้</span>';
-                    } else if (it.raw?.type === 'Card' || String(it.name).includes('Card')) {
+                    } else if (it.raw?.type === 'Card' || (/\bcard\b/i.test(it.name || ''))) {
                         categoryBadge = '<span style="color: #ec4899; font-weight: bold;">🎴 การ์ด</span>';
-                    } else if (it.raw?.type === 'Material' || it.raw?.type === 'Ore') {
+                    } else if (it.raw?.type === 'Material' || it.raw?.type === 'Ore' || it.raw?.type === 'Miscellaneous') {
                         categoryBadge = '<span style="color: #94a3b8; font-weight: 500;">💎 วัตถุดิบ</span>';
+                    } else if (it.raw?.type === 'Enchantment') {
+                        categoryBadge = '<span style="color: #a855f7; font-weight: bold;">🔮 หินออปชัน</span>';
                     } else {
                         categoryBadge = `<span style="color: #64748b;">${it.raw?.type || '-'}</span>`;
                     }
