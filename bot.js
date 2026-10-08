@@ -3547,9 +3547,16 @@
                         const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label') || 
                                         Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
 
-                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู เด็ดขาด
+                        // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู (Consumables / Ammo) เด็ดขาด
                         const lower = itemName.toLowerCase();
-                        if (lower.includes('wing') || lower.includes('potion') || lower.includes('arrow') || lower.includes('ใบวาร์ป') || lower.includes('ลูกธนู') || lower.includes('ขวดยา')) {
+                        const isGem = lower.includes('gem') || lower.includes('เจม') || catName.includes('ประดับ') || catName.includes('เจม');
+                        const isTeleportWing = lower.includes('fly wing') || lower.includes('butterfly wing') || lower === 'wing' || lower.includes('ใบวาร์ป');
+                        const isPotion = lower.includes('potion') || lower.includes('ขวดยา');
+                        // ข้อสำคัญ: เจมของ Archer/Hunter มักมีชื่อสกิล เช่น "Dancing Arrow Gem", "Arrow Shower Gem" ห้ามกรองทิ้งเป็นลูกธนูจริง
+                        const isActualArrow = (lower.includes('arrow') || lower.includes('ลูกธนู')) && !isGem && !lower.includes('bow');
+
+                        if (isTeleportWing || isPotion || isActualArrow) {
+                            console.log(`[Pelican Shop] 🛑 [ของใช้/เสบียง] ข้าม: "${itemName}"`);
                             return;
                         }
 
