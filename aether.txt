@@ -22,7 +22,12 @@
     window.__lastBackflipTime = 0;
     window.__packetLogs = [];
     window.__outgoingLogs = [];
-    window.__latestInventory = null;
+    try {
+        const cachedInv = localStorage.getItem('pelican_latest_inventory');
+        window.__latestInventory = cachedInv ? JSON.parse(cachedInv) : null;
+    } catch(e) {
+        window.__latestInventory = null;
+    }
     window.__serverWeight = null;
     window.__isKnownOverweight = false;
     window.__debugSnifferEnabled = false;
@@ -1224,6 +1229,36 @@
         window.movePelicanItemTooltip(e);
     };
 
+    // Recovery function to scan packet logs for inventory payload if memory was reset
+    window.tryRecoverInventoryFromPackets = function() {
+        if (window.__latestInventory && (window.__latestInventory.slots !== undefined || Array.isArray(window.__latestInventory.items))) {
+            return window.__latestInventory;
+        }
+        if (!window.__packetLogs || window.__packetLogs.length === 0 || !window.msgpack) return null;
+
+        for (let i = window.__packetLogs.length - 1; i >= 0; i--) {
+            const p = window.__packetLogs[i];
+            if (p && p.dir === 'IN' && p.ascii && (p.ascii.includes('inventory') || p.ascii.includes('slots') || p.ascii.includes('weightLimit'))) {
+                try {
+                    const bytes = new Uint8Array(p.hex.split(' ').map(h => parseInt(h, 16)));
+                    const offsetsToScan = [11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15];
+                    for (const off of offsetsToScan) {
+                        if (off >= bytes.length - 10) continue;
+                        try {
+                            const dec = window.msgpack.decode(bytes.slice(off));
+                            if (dec && typeof dec === 'object' && (dec.slots !== undefined || Array.isArray(dec.items))) {
+                                window.__latestInventory = dec;
+                                try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
+                                return dec;
+                            }
+                        } catch(e) {}
+                    }
+                } catch(e) {}
+            }
+        }
+        return null;
+    };
+
     // ==========================================
     // IN-GAME DATA VIEWER MODAL & INSPECTOR
     // ==========================================
@@ -1317,6 +1352,25 @@
         }
 
         modal.style.display = 'block';
+
+        // Auto-recover or Auto-sync inventory if empty
+        if (activeTab === 'items' && !window.__latestInventory) {
+            try {
+                const cached = localStorage.getItem('pelican_latest_inventory');
+                if (cached) window.__latestInventory = JSON.parse(cached);
+            } catch(e) {}
+
+            if (!window.__latestInventory && typeof window.tryRecoverInventoryFromPackets === 'function') {
+                window.tryRecoverInventoryFromPackets();
+            }
+
+            if (!window.__latestInventory && typeof window.refreshInventoryAndWeight === 'function') {
+                window.refreshInventoryAndWeight(() => {
+                    if (window.__currentModalTab === 'items') window.renderModalTab('items');
+                }, true);
+            }
+        }
+
         window.renderModalTab(activeTab);
     };
 
@@ -1343,6 +1397,16 @@
         if (!container) return;
 
         if (tabName === 'items') {
+            if (!window.__latestInventory) {
+                try {
+                    const cached = localStorage.getItem('pelican_latest_inventory');
+                    if (cached) window.__latestInventory = JSON.parse(cached);
+                } catch(e) {}
+            }
+            if (!window.__latestInventory && typeof window.tryRecoverInventoryFromPackets === 'function') {
+                window.tryRecoverInventoryFromPackets();
+            }
+
             const rawInv = window.__latestInventory;
             const items = [];
 
@@ -1410,9 +1474,12 @@
 
             if (!rawInv) {
                 html += `
-                    <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
-                        <span style="color: #fde047;">⚠️ ยังไม่ได้รับ Packet กระเป๋าจากเซิร์ฟเวอร์ (ลองกดเปิด-ปิดกระเป๋าในเกม 1 ครั้ง)</span>
-                        <button onclick="window.pressKey('i')" style="background: #eab308; color: #000; border: none; padding: 5px 12px; border-radius: 6px; font-weight: bold; cursor: pointer;">🎒 กดเปิดกระเป๋า (I)</button>
+                    <div style="background: rgba(234, 179, 8, 0.15); border: 1px solid #eab308; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <span style="color: #fde047;">⚠️ ยังไม่พบ Packet กระเป๋าในหน่วยความจำ (กดดึงข้อมูลเพื่อเชื่อมต่อกับเซิร์ฟเวอร์อัตโนมัติ)</span>
+                        <div style="display: flex; gap: 6px;">
+                            <button onclick="window.refreshInventoryAndWeight(() => window.renderModalTab('items'), true)" style="background: #0284c7; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 11px;">🔄 ดึงข้อมูลอัตโนมัติ (Sync Bag)</button>
+                            <button onclick="window.pressKey('i')" style="background: #eab308; color: #000; border: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 11px;">🎒 เปิดกระเป๋า (I)</button>
+                        </div>
                     </div>
                 `;
             }
@@ -2363,9 +2430,9 @@
 
     window.__isRefreshingWeight = false;
 
-    window.refreshInventoryAndWeight = function(callback) {
-        // ถ้ามีข้อมูลน้ำหนักจาก Server Packet แบบเรียลไทม์อยู่แล้ว ให้ใช้ทันทีโดยไม่ต้องเปิดกระเป๋า!
-        if (window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.max > 0) {
+    window.refreshInventoryAndWeight = function(callback, forceOpen = false) {
+        // ถ้ามีข้อมูลน้ำหนักและกระเป๋าอยู่แล้ว และไม่ได้สั่ง forceOpen ให้ใช้ข้อมูลเดิมทันที
+        if (!forceOpen && window.__latestInventory && window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.max > 0) {
             window.__lastKnownWeight = window.__serverWeight;
             updateWeightHUD(window.__serverWeight);
             if (typeof callback === 'function') callback(window.__serverWeight);
@@ -2515,6 +2582,7 @@
                             const dec = window.msgpack.decode(u.slice(offset));
                             if (dec && typeof dec === 'object') {
                                 window.__latestInventory = dec;
+                                try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
                                 const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
                                 
                                 let foundQty = null;
