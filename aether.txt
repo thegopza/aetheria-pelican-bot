@@ -2560,14 +2560,13 @@
             window.walkToTargetMap(targetMap, true);
         }
 
-        // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋า เพื่อให้ได้ค่าน้ำหนักจริง 100% ก่อนตัดสินใจ
-        if (typeof window.refreshInventoryAndWeight === 'function') {
-            window.refreshInventoryAndWeight(() => {
-                continueStart();
-            });
-        } else {
-            continueStart();
+        // ตรวจสอบสถานะน้ำหนัก: ถ้ากระเป๋าเปิดอยู่แล้ว ให้จัดเรียงและอ่านน้ำหนัก
+        // ถ้ากระเป๋าปิดอยู่ ให้ใช้ค่าน้ำหนักจากแคชหรือสถานะ Debuff บนจอ เพื่อไม่ให้หน้าต่างเด้งรบกวนสายตา
+        if (typeof getOpenBagInfo === 'function' && getOpenBagInfo()) {
+            if (typeof window.clickSortBag === 'function') window.clickSortBag();
+            if (typeof getCharacterWeight === 'function') getCharacterWeight();
         }
+        continueStart();
     };
 
     window.stopMasterBot = function() {
@@ -4462,14 +4461,8 @@
             return;
         }
 
-        // 3.1 ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าเป็นระยะ (ทุกๆ 25 วินาที)
-        const now = Date.now();
-        if (now - lastPeriodicWeightRefresh > 25000 && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
-            lastPeriodicWeightRefresh = now;
-            if (typeof window.refreshInventoryAndWeight === 'function') {
-                window.refreshInventoryAndWeight();
-            }
-        }
+        // หมายเหตุ: ตัดระบบเปิดกระเป๋าอัตโนมัติเป็นระยะออกแล้ว เพื่อไม่ให้หน้าต่างกระเป๋าเด้งรบกวนผู้เล่น
+        // ระบบจะอ่านน้ำหนักจาก Debuff Status (.hud-status) บนหน้าจอแทนแบบ 100% Passive
 
         // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter
         if (window.__archerConfig && window.__archerConfig.requireArrow && !inCity) {
