@@ -2688,6 +2688,20 @@
         console.log(`%c[Pelican Shop] 🛒 ส่ง Packet 'npc_option' (Index: ${index})...`, 'color: #38bdf8;');
     };
 
+    window.sendRemoteNpcHeal = function() {
+        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
+        const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
+        const prefix = [0x0D, 0xAA, 0x6E, 0x70, 0x63, 0x5F, 0x6F, 0x70, 0x74, 0x69, 0x6F, 0x6E];
+        const suffix = [0x91, 0xA5, 0x69, 0x6E, 0x64, 0x65, 0x78, 0x03];
+
+        const buf = new Uint8Array(prefix.length + token.length + suffix.length);
+        buf.set(prefix, 0);
+        buf.set(token, prefix.length);
+        buf.set(suffix, prefix.length + token.length);
+        window.__gameSocket.send(buf.buffer);
+        console.log('%c[Pelican Heal] 💖 ส่ง Packet ฟื้นฟูเลือด/มานา (npc_option index: 3) สำเร็จ!', 'color: #ec4899; font-weight: bold;');
+    };
+
     window.sendNpcClose = function() {
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
@@ -2849,6 +2863,8 @@
         let attempts = 0;
         let lastPos = { x: 0, y: 0 };
         let stillCount = 0;
+        let hasHealed = false;
+        let hasRequestedMap = false;
         const maxAttempts = 35; // 35 * 600ms = 21 วินาที ให้เวลาเดินข้ามเมืองจากร้านค้ามาหา Alice อย่างสบายๆ
 
         if (window.__alicePollInterval) {
@@ -2887,10 +2903,41 @@
                 return (txt.includes('Alice Warp') || txt.includes('Warp Service') || txt.includes('วาร์ป')) && b.offsetWidth > 0;
             });
 
-            if (dialogOption) {
+            // ตรวจหาปุ่มตัวเลือก "Heal" หรือ "ฟื้นฟู" ในหน้าต่างสนทนา
+            const healOption = Array.from(document.querySelectorAll('button, .dialog-option, [class*="option"]')).find(b => {
+                if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
+                const txt = (b.innerText || '').trim();
+                return (txt.includes('ฟื้นฟู') || txt.toLowerCase().includes('heal')) && b.offsetWidth > 0;
+            });
+
+            // หากหน้าต่างสนทนาเปิดอยู่และยังไม่ได้กด Heal
+            if (!hasHealed && (dialogOption || healOption)) {
+                if (healOption) {
+                    console.log('%c[Pelican Warp] 💖 พบคลิกตัวเลือกฮีลบนจอ: ' + healOption.innerText, 'color: #ec4899; font-weight: bold;');
+                    triggerClick(healOption);
+                }
+                if (typeof window.sendRemoteNpcHeal === 'function') {
+                    window.sendRemoteNpcHeal();
+                } else {
+                    window.sendRemoteNpcOption(3);
+                }
+                hasHealed = true;
+
+                // รอ 350ms แล้วค่อยกดตัวเลือกเปิดหน้าต่างวาร์ป (index: 1)
+                setTimeout(() => {
+                    if (!window.__isBotRunning && !window.__isManualWarping) return;
+                    if (dialogOption) {
+                        console.log('%c[Pelican Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: ' + dialogOption.innerText, 'color: #00ffcc;');
+                        triggerClick(dialogOption);
+                    }
+                    window.sendRemoteNpcOption(1);
+                    hasRequestedMap = true;
+                }, 350);
+            } else if (hasHealed && dialogOption && !hasRequestedMap) {
                 console.log('%c[Pelican Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: ' + dialogOption.innerText, 'color: #00ffcc;');
                 triggerClick(dialogOption);
                 window.sendRemoteNpcOption(1);
+                hasRequestedMap = true;
             }
 
             // ตรวจสอบตำแหน่งการเดิน
@@ -2905,14 +2952,33 @@
                 window.sendRemoteNpcTalk('n6');
             }
 
-            // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice หรือยืนอยู่นิ่งๆ) ให้ส่ง Packet คุยและเลือกตัวเลือกวาร์ป
+            // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice หรือยืนอยู่นิ่งๆ) หรือ attempts เข้าจังหวะ
             if ((isStationary && stillCount >= 2) || attempts === 2) {
-                console.log('%c[Pelican Warp] 💬 ตัวละครเข้าใกล้ Alice -> ส่ง Packet คุยและเลือก Alice Warp Service...', 'color: #eab308;');
-                window.sendRemoteNpcTalk('n6');
-                setTimeout(() => {
-                    if (!window.__isBotRunning && !window.__isManualWarping) return;
+                if (!hasHealed) {
+                    console.log('%c[Pelican Warp] 💬 ตัวละครเข้าใกล้ Alice -> ส่ง Packet คุยและฮีลฟื้นฟูเลือด/มานาก่อน (index: 3)...', 'color: #ec4899; font-weight: bold;');
+                    window.sendRemoteNpcTalk('n6');
+                    setTimeout(() => {
+                        if (!window.__isBotRunning && !window.__isManualWarping) return;
+                        if (typeof window.sendRemoteNpcHeal === 'function') {
+                            window.sendRemoteNpcHeal();
+                        } else {
+                            window.sendRemoteNpcOption(3);
+                        }
+                        hasHealed = true;
+
+                        // หลังฮีลเสร็จ เว้นจังหวะ 350ms แล้วส่ง packet เลือกตัวเลือกวาร์ป / เปิดแมพ (index: 1)
+                        setTimeout(() => {
+                            if (!window.__isBotRunning && !window.__isManualWarping) return;
+                            console.log('%c[Pelican Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
+                            window.sendRemoteNpcOption(1);
+                            hasRequestedMap = true;
+                        }, 350);
+                    }, 250);
+                } else if (!hasRequestedMap) {
+                    console.log('%c[Pelican Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service ซ้ำ (index: 1)...', 'color: #38bdf8;');
                     window.sendRemoteNpcOption(1);
-                }, 300);
+                    hasRequestedMap = true;
+                }
             }
 
             // Timeout: ให้เวลาเดินอย่างน้อย 21 วินาที (35 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
