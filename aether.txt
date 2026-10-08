@@ -1650,7 +1650,15 @@
 
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
-        // 0. ตรวจสอบสถานะ Debuff บนแผง .hud-status ของตัวละครโดยตรง (เชื่อถือได้ 100% แม้ปิดกระเป๋า)
+        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM หรือ Server เป็นหลัก
+        const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
+        if (w && typeof w.percent === 'number' && w.percent > 0) {
+            if (w.percent >= threshold) return true;
+            // ถ้าน้ำหนักจริงอ่านได้แล้วและยังไม่ถึงเกณฑ์ที่ตั้งไว้ (เช่น 35% < 70%) ถือว่าปลอดภัย 100% ห้ามสั่งวาร์ปกลับเด็ดขาด!
+            return false;
+        }
+
+        // 2. ตรวจสอบสถานะ Debuff บนแผง .hud-status ของตัวละครโดยตรง (เฉพาะกรณีที่ยังไม่มีค่าน้ำหนักจริงหรือแคชเกินเกณฑ์)
         const statusPanel = document.querySelector('.hud-status');
         if (statusPanel) {
             const statusText = statusPanel.innerText || statusPanel.textContent || '';
@@ -1661,14 +1669,6 @@
             if (statusText.includes('น้ำหนักเกิน 70%') && threshold <= 70) {
                 return true;
             }
-        }
-
-        // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM หรือ Server
-        const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
-        if (w && typeof w.percent === 'number' && w.percent > 0) {
-            if (w.percent >= threshold) return true;
-            // ถ้าน้ำหนักจริงยังไม่ถึงเกณฑ์ที่ตั้งไว้ (เช่น 38.6% < 70%) ถือว่าปลอดภัย 100% ห้ามสั่งวาร์ปกลับเด็ดขาด!
-            return false;
         }
 
         // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้า 98 ช่องขึ้นไปถือว่ากระเป๋าเต็ม)
@@ -3854,9 +3854,18 @@
         });
     }
 
+    let lastAutoShopCompletionTime = 0;
+
     window.executeAutoShopRoutine = function() {
         if (window.__isShopping) {
             console.warn('[Pelican Shop] ⚠️ กำลังดำเนินการซื้อขายอยู่แล้ว');
+            return;
+        }
+
+        // Cooldown Guard: ป้องกันไม่ให้วนกลับมาเปิดร้านซ้ำทันทีหลังเพิ่งเสร็จสิ้น (Cooldown 20 วินาที)
+        const now = Date.now();
+        if (now - lastAutoShopCompletionTime < 20000) {
+            console.log('[Pelican Shop] ⏳ เพิ่งดำเนินการซื้อขายเสร็จสิ้นไป อยู่ในช่วงพักคูลดาวน์ (Cooldown 20s)');
             return;
         }
 
@@ -3950,13 +3959,33 @@
                             executeSellAndBuyActions(() => {
                                 if (!window.__isBotRunning) return;
                                 window.sendNpcClose();
-                                console.log(`%c[Pelican Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
-                                setTimeout(() => {
-                                    if (!window.__isBotRunning) return;
-                                    window.__isShopping = false;
+                                console.log('%c[Pelican Shop] 🔄 ซิงก์จัดเรียงกระเป๋าและอ่านน้ำหนักจริงหลังขาย...', 'color: #38bdf8; font-weight: bold;');
+
+                                // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าทันทีที่หน้า NPC ร้านค้า (~300ms)
+                                // เพื่อให้เกมคำนวณน้ำหนักจริงใหม่ ลบ Debuff 70% บนจอ และอัปเดตแคชตัวเลขจริงก่อนเริ่มเดินทางกลับ
+                                if (typeof window.refreshInventoryAndWeight === 'function') {
+                                    window.refreshInventoryAndWeight((newWeight) => {
+                                        lastAutoShopCompletionTime = Date.now();
+                                        window.__isKnownOverweight = false;
+                                        if (newWeight) {
+                                            window.__lastKnownWeight = newWeight;
+                                        }
+                                        console.log(`%c[Pelican Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
+                                        setTimeout(() => {
+                                            if (!window.__isBotRunning) return;
+                                            window.__isShopping = false;
+                                            window.walkToTargetMap(currentFarmMap);
+                                        }, 600);
+                                    });
+                                } else {
+                                    lastAutoShopCompletionTime = Date.now();
                                     window.__isKnownOverweight = false;
-                                    window.walkToTargetMap(currentFarmMap);
-                                }, 1000);
+                                    setTimeout(() => {
+                                        if (!window.__isBotRunning) return;
+                                        window.__isShopping = false;
+                                        window.walkToTargetMap(currentFarmMap);
+                                    }, 800);
+                                }
                             });
                         }, 1200);
 
