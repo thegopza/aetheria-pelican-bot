@@ -193,35 +193,104 @@
         }
     }
 
+    const ARROW_DATA = {
+        90030: { name: 'Arrow', th: 'ลูกธนูธรรมดา', icon: 'items/arrow.webp', price: 1 },
+        90031: { name: 'Fire Arrow', th: 'ลูกธนูไฟ', icon: 'items/fire-arrow.webp', price: 3 },
+        90032: { name: 'Crystal Arrow', th: 'ลูกธนูน้ำ', icon: 'items/crystal-arrow.webp', price: 3 },
+        90033: { name: 'Stone Arrow', th: 'ลูกธนูดิน', icon: 'items/stone-arrow.webp', price: 3 },
+        90034: { name: 'Arrow of Wind', th: 'ลูกธนูลม', icon: 'items/wind-arrow.webp', price: 3 },
+        90035: { name: 'Poison Arrow', th: 'ลูกธนูพิษ', icon: 'items/poison-arrow.webp', price: 3 },
+        90036: { name: 'Silver Arrow', th: 'ลูกธนูเงิน (ศักดิ์สิทธิ์)', icon: 'items/silver-arrow.webp', price: 3 },
+        90037: { name: 'Shadow Arrow', th: 'ลูกธนูเงา', icon: 'items/shadow-arrow.webp', price: 3 },
+        90038: { name: 'Immaterial Arrow', th: 'ลูกธนูวิญญาณ', icon: 'items/immaterial-arrow.webp', price: 3 },
+        90039: { name: 'Rotten Arrow', th: 'ลูกธนูเน่า', icon: 'items/rotten-arrow.webp', price: 3 }
+    };
+
+    function isTargetArrow(item, targetArrowId) {
+        if (!item) return false;
+        const id = parseInt(item.itemId || item.id || item.item_id || item.code);
+        const targetId = parseInt(targetArrowId) || 90030;
+
+        // 1. ถ้า Item ID ตรงกับ targetArrowId -> ใช่ 100%
+        if (!isNaN(id) && id === targetId) return true;
+
+        const name = (item.name || item.itemName || '').trim();
+        const lowerName = name.toLowerCase();
+        const info = ARROW_DATA[targetId];
+
+        // 2. ถ้าชื่อภาษาอังกฤษตรงกับลูกธนูชนิดนั้น
+        if (info) {
+            const targetLower = info.name.toLowerCase();
+            if (lowerName === targetLower || lowerName === `[${targetLower}]` || lowerName === targetLower.replace(/\s+/g, '')) return true;
+        }
+
+        // 3. ตรวจสอบชื่อเฉพาะของแต่ละชนิดเพื่อป้องกันการนับปนกัน
+        if (targetId === 90030) {
+            // Normal Arrow: ต้องเป็น "Arrow" หรือ "ลูกธนู" ธรรมดาเท่านั้น ห้ามชนกับ Silver Arrow หรือชนิดธาตุอื่น
+            const isOther = lowerName.includes('silver') || lowerName.includes('fire') || lowerName.includes('crystal') ||
+                            lowerName.includes('stone') || lowerName.includes('wind') || lowerName.includes('poison') ||
+                            lowerName.includes('shadow') || lowerName.includes('immaterial') || lowerName.includes('rotten') ||
+                            name.includes('เงิน') || name.includes('ศักดิ์สิทธิ์') || name.includes('ไฟ') ||
+                            name.includes('น้ำ') || name.includes('ดิน') || name.includes('ลม') || name.includes('พิษ') || name.includes('เงา');
+            if (isOther) return false;
+            return lowerName === 'arrow' || lowerName === '[arrow]' || name === 'ลูกธนู' || name === 'Arrow (ธรรมดา)';
+        }
+        if (targetId === 90031) return lowerName.includes('fire arrow') || name.includes('ลูกธนูไฟ');
+        if (targetId === 90032) return lowerName.includes('crystal arrow') || name.includes('ลูกธนูน้ำ');
+        if (targetId === 90033) return lowerName.includes('stone arrow') || name.includes('ลูกธนูดิน');
+        if (targetId === 90034) return lowerName.includes('arrow of wind') || lowerName.includes('wind arrow') || name.includes('ลูกธนูลม');
+        if (targetId === 90035) return lowerName.includes('poison arrow') || name.includes('ลูกธนูพิษ');
+        if (targetId === 90036) return lowerName.includes('silver arrow') || name.includes('ลูกธนูเงิน') || name.includes('ลูกธนูศักดิ์สิทธิ์');
+        if (targetId === 90037) return lowerName.includes('shadow arrow') || name.includes('ลูกธนูเงา');
+        if (targetId === 90038) return lowerName.includes('immaterial arrow') || name.includes('ลูกธนูวิญญาณ');
+        if (targetId === 90039) return lowerName.includes('rotten arrow') || name.includes('ลูกธนูเน่า');
+
+        return false;
+    }
+
+    function isTargetArrowDom(src, title, targetArrowId) {
+        const targetId = parseInt(targetArrowId) || 90030;
+        const arrowInfo = ARROW_DATA[targetId] || { name: 'Arrow' };
+        const iconSlug = arrowInfo.icon ? arrowInfo.icon.split('/').pop().replace('.webp', '') : 'arrow';
+
+        if (targetId === 90030) {
+            // Normal Arrow: ต้องไม่เป็นธาตุอื่น
+            const isOther = src.includes('fire-arrow') || src.includes('crystal-arrow') || src.includes('stone-arrow') ||
+                            src.includes('wind-arrow') || src.includes('poison-arrow') || src.includes('silver-arrow') ||
+                            src.includes('shadow-arrow') || src.includes('immaterial-arrow') || src.includes('rotten-arrow') ||
+                            title.includes('fire') || title.includes('crystal') || title.includes('stone') ||
+                            title.includes('wind') || title.includes('poison') || title.includes('silver') ||
+                            title.includes('shadow') || title.includes('ไฟ') || title.includes('น้ำ') ||
+                            title.includes('ดิน') || title.includes('ลม') || title.includes('พิษ') ||
+                            title.includes('เงิน') || title.includes('ศักดิ์สิทธิ์') || title.includes('เงา');
+            if (isOther) return false;
+            return src.includes('/arrow.') || src.endsWith('arrow.webp') || src.endsWith('arrow.png') || src.includes('90030') || title === 'arrow' || title.includes('ลูกธนู');
+        } else {
+            return src.includes(iconSlug) || src.includes(targetId.toString()) || title.includes(arrowInfo.name.toLowerCase()) || (arrowInfo.th && title.includes(arrowInfo.th));
+        }
+    }
+
     function syncAmmoFromDOM() {
         try {
-            // 0. PRIORITY 1: ตรวจจาก Server Inventory Payload โดยตรง 100% (Real-time ไม่ต้องเปิดกระเป๋า และไม่ต้องเอาลง Hotbar)
+            const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+            const arrowInfo = ARROW_DATA[targetArrowId] || { name: 'Arrow' };
+
+            // 0. PRIORITY 1: ตรวจจาก Server Inventory Payload โดยตรง 100% (รวมทุก Stack ของลูกธนูชนิดที่เลือก)
             if (window.__latestInventory) {
-                const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-                let foundQty = null;
+                let totalAmmo = 0;
+                let foundAny = false;
 
                 function scanInv(obj, depth = 0) {
-                    if (!obj || depth > 5 || foundQty !== null) return;
+                    if (!obj || depth > 5) return;
                     if (Array.isArray(obj)) {
                         for (const it of obj) {
-                            if (it && typeof it === 'object') {
-                                const id = it.itemId || it.id || it.item_id || it.code;
-                                const name = (it.name || it.itemName || '').toLowerCase();
-                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                if (isArrow) {
-                                    foundQty = it.qty ?? it.amount ?? it.count ?? it.val ?? 0;
-                                    return;
-                                }
-                                scanInv(it, depth + 1);
-                            }
+                            scanInv(it, depth + 1);
                         }
                     } else if (typeof obj === 'object') {
-                        const id = obj.itemId || obj.id || obj.item_id || obj.code;
-                        const name = (obj.name || obj.itemName || '').toLowerCase();
-                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                        if (isArrow) {
-                            foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
-                            return;
+                        if (isTargetArrow(obj, targetArrowId)) {
+                            foundAny = true;
+                            totalAmmo += parseInt(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 0;
+                            return; // เจอลูกธนูแล้ว ไม่ต้องลงลึกเข้าไปในคีย์ของไอเทม
                         }
                         for (const k in obj) {
                             if (typeof obj[k] === 'object') scanInv(obj[k], depth + 1);
@@ -230,29 +299,33 @@
                 }
                 scanInv(window.__latestInventory);
 
-                if (foundQty !== null) {
-                    const parsed = parseInt(foundQty) || 0;
-                    if (window.__currentAmmo !== parsed) {
-                        window.__currentAmmo = parsed;
-                        localStorage.setItem('pelican_current_ammo', parsed);
+                if (foundAny) {
+                    if (window.__currentAmmo !== totalAmmo) {
+                        window.__currentAmmo = totalAmmo;
+                        localStorage.setItem('pelican_current_ammo', totalAmmo);
                         updateAmmoHUD();
                     }
-                    return parsed;
+                    return totalAmmo;
+                } else if (window.__latestInventory.items && Array.isArray(window.__latestInventory.items)) {
+                    // ถ้ามี payload กระเป๋าจริงสมบูรณ์แล้วแต่ไม่มีลูกธนูชนิดที่เลือกเลย -> 0 ดอก
+                    if (window.__currentAmmo !== 0) {
+                        window.__currentAmmo = 0;
+                        localStorage.setItem('pelican_current_ammo', 0);
+                        updateAmmoHUD();
+                    }
+                    return 0;
                 }
             }
 
             // 1. Fallback รอง: ตรวจจากช่อง ItemBar / Hotbar ด้านล่างจอ
             const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
-            let foundInHotbar = false;
-
             for (const slot of hotbarSlots) {
                 const img = slot.querySelector('img');
                 const src = img ? (img.src || '').toLowerCase() : '';
                 const title = (slot.getAttribute('title') || slot.getAttribute('data-name') || '').toLowerCase();
-                const isArrowSlot = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
+                const isArrowSlot = isTargetArrowDom(src, title, targetArrowId);
 
                 if (isArrowSlot) {
-                    foundInHotbar = true;
                     const countEl = slot.querySelector('.count, .amount, .qty, [class*="count"], [class*="qty"], span, div');
                     const text = (countEl ? countEl.textContent : slot.textContent || '').trim();
                     const match = text.match(/(\d+)/);
@@ -285,8 +358,8 @@
                 for (const itemEl of bagItems) {
                     const img = itemEl.querySelector('img');
                     const src = img ? (img.src || '').toLowerCase() : '';
-                    const title = (itemEl.getAttribute('title') || itemEl.innerText || '').toLowerCase();
-                    const isArrow = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
+                    const title = (itemEl.getAttribute('title') || itemEl.getAttribute('data-name') || itemEl.innerText || '').toLowerCase();
+                    const isArrow = isTargetArrowDom(src, title, targetArrowId);
 
                     if (isArrow) {
                         arrowInBagFound = true;
@@ -297,10 +370,10 @@
                     }
                 }
 
-                // ถ้าเปิดหน้าต่างกระเป๋าอยู่ แล้วสแกนไม่เจอลูกธนูเลยสักช่อง -> ลูกธนู = 0 ทันที 100%!
+                // ถ้าเปิดหน้าต่างกระเป๋าอยู่ แล้วสแกนไม่เจอลูกธนูชนิดนี้เลย -> ลูกธนู = 0 ทันที 100%!
                 if (!arrowInBagFound) {
                     if (window.__currentAmmo !== 0) {
-                        console.log('%c[Pelican Ammo] 🎒 สแกนกระเป๋าแล้ว: ไม่พบลูกธนูในตัวเลย -> ปรับ Ammo = 0 ดอก', 'color: #ef4444; font-weight: bold;');
+                        console.log(`%c[Pelican Ammo] 🎒 สแกนกระเป๋าแล้ว: ไม่พบลูกธนู "${arrowInfo.name}" ในตัวเลย -> ปรับ Ammo = 0 ดอก`, 'color: #ef4444; font-weight: bold;');
                         window.__currentAmmo = 0;
                         localStorage.setItem('pelican_current_ammo', 0);
                         updateAmmoHUD();
@@ -316,7 +389,7 @@
                 }
             }
         } catch(e) {}
-        return null;
+        return window.__currentAmmo || 0;
     }
 
     setInterval(syncAmmoFromDOM, 600);
@@ -1604,7 +1677,7 @@
             } else {
                 filteredItems.forEach((it, idx) => {
                     const hexId = it.id ? '0x' + parseInt(it.id).toString(16) : '-';
-                    const isArrow = it.id === 90030 || String(it.name).toLowerCase().includes('arrow');
+                    const isArrow = (it.id >= 90030 && it.id <= 90039) || String(it.name).toLowerCase().includes('arrow') || String(it.name).includes('ลูกธนู');
                     const iconHtml = getItemIconHtml(it.raw, 20);
 
                     let categoryBadge = '';
@@ -2700,31 +2773,21 @@
                                 window.__latestInventory = dec;
                                 try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
                                 const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-                                
-                                let foundQty = null;
+                                const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
+                                let totalAmmo = 0;
+                                let foundAny = false;
 
                                 function inspectObject(obj, depth = 0) {
-                                    if (!obj || depth > 5 || foundQty !== null) return;
+                                    if (!obj || depth > 5) return;
                                     if (Array.isArray(obj)) {
                                         for (const item of obj) {
-                                            if (item && typeof item === 'object') {
-                                                const id = item.itemId || item.id || item.item_id || item.code;
-                                                const name = (item.name || item.itemName || '').toLowerCase();
-                                                const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                                if (isArrow) {
-                                                    foundQty = item.qty ?? item.amount ?? item.count ?? item.val ?? 0;
-                                                    return;
-                                                }
-                                                inspectObject(item, depth + 1);
-                                            }
+                                            inspectObject(item, depth + 1);
                                         }
                                     } else if (typeof obj === 'object') {
-                                        const id = obj.itemId || obj.id || obj.item_id || obj.code;
-                                        const name = (obj.name || obj.itemName || '').toLowerCase();
-                                        const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || (targetArrowId === 90030 && (id === 90030 || name.includes('ลูกธนู') || name === 'arrow')));
-                                        if (isArrow) {
-                                            foundQty = obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 0;
-                                            return;
+                                        if (typeof isTargetArrow === 'function' && isTargetArrow(obj, targetArrowId)) {
+                                            foundAny = true;
+                                            totalAmmo += parseInt(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 0;
+                                            return; // เจอลูกธนูแล้ว ไม่ต้องลงลึกต่อ
                                         }
                                         for (const k in obj) {
                                             inspectObject(obj[k], depth + 1);
@@ -2754,9 +2817,9 @@
 
                                 const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
                                 if (hasInventoryList) {
-                                    const realQty = foundQty !== null ? (parseInt(foundQty) || 0) : 0;
+                                    const realQty = foundAny ? totalAmmo : 0;
                                     if (window.__currentAmmo !== realQty) {
-                                        console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนูจริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+                                        console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
                                     }
                                     window.__currentAmmo = realQty;
                                     localStorage.setItem('pelican_current_ammo', realQty);
@@ -3801,19 +3864,19 @@
     window.equipArrowAndBow = function() {
         console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ตรวจสอบการสวมใส่ "ลูกธนู" (Arrow) จากกระเป๋าเซิร์ฟเวอร์
+        // 1. ตรวจสอบการสวมใส่ "ลูกธนู" ชนิดที่เลือกจากกระเป๋าเซิร์ฟเวอร์
         const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+        const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
+        console.log(`%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู "${arrowInfo.name}" (${targetArrowId})...`, 'color: #38bdf8; font-weight: bold;');
+
         const arrowInBag = findItemInServerInv(it => {
-            const id = it.itemId || it.id || it.item_id;
-            const name = (it.name || it.itemName || '').toLowerCase();
             const slot = it.slot ?? it.idx;
-            const isArrow = (id === targetArrowId || id === targetArrowId.toString() || name.includes('arrow') || name.includes('ลูกธนู'));
-            return isArrow && typeof slot === 'number';
+            return typeof isTargetArrow === 'function' && isTargetArrow(it, targetArrowId) && typeof slot === 'number';
         });
 
         if (arrowInBag) {
             const slot = arrowInBag.slot ?? arrowInBag.idx;
-            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนูในกระเป๋า Slot ${slot} (จำนวน: ${arrowInBag.qty || 1} ดอก) -> ส่งคำสั่งสวมใส่ลูกธนูทันที (ไม่ต้องพึ่งพา Hotbar)!`, 'color: #22c55e; font-weight: bold;');
+            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนู "${arrowInBag.name || arrowInfo.name}" ในกระเป๋า Slot ${slot} (จำนวน: ${arrowInBag.qty || 1} ดอก) -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
             window.sendEquip(slot);
             return;
         }
@@ -3826,10 +3889,10 @@
                 const img = el.querySelector('img');
                 const src = img ? (img.src || '').toLowerCase() : '';
                 const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
-                const isArrow = src.includes('arrow') || src.includes('90030') || title.includes('arrow') || title.includes('ลูกธนู');
+                const isArrow = isTargetArrowDom(src, title, targetArrowId);
                 if (isArrow) {
                     el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
-                    console.log('%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนูจากหน้าต่างกระเป๋าสำเร็จ!', 'color: #22c55e;');
+                    console.log(`%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนู "${arrowInfo.name}" จากหน้าต่างกระเป๋าสำเร็จ!`, 'color: #22c55e;');
                     return;
                 }
             }
@@ -5900,12 +5963,14 @@
                     <div>
                         <span style="font-size: 10px; color: #94a3b8;">ชนิดลูกธนู:</span>
                         <select id="p-archer-type" class="p-select">
-                            <option value="90030" ${window.__archerConfig.arrowType === 90030 ? 'selected' : ''}>Arrow (ธรรมดา - 1z)</option>
-                            <option value="90031" ${window.__archerConfig.arrowType === 90031 ? 'selected' : ''}>Fire Arrow (ไฟ - 3z)</option>
-                            <option value="90032" ${window.__archerConfig.arrowType === 90032 ? 'selected' : ''}>Crystal Arrow (น้ำ - 3z)</option>
-                            <option value="90033" ${window.__archerConfig.arrowType === 90033 ? 'selected' : ''}>Stone Arrow (ดิน - 3z)</option>
-                            <option value="90034" ${window.__archerConfig.arrowType === 90034 ? 'selected' : ''}>Arrow of Wind (ลม - 3z)</option>
-                            <option value="90036" ${window.__archerConfig.arrowType === 90036 ? 'selected' : ''}>Silver Arrow (ศักดิ์สิทธิ์ - 3z)</option>
+                            <option value="90030" ${parseInt(window.__archerConfig.arrowType) === 90030 ? 'selected' : ''}>Arrow (ธรรมดา - 1z)</option>
+                            <option value="90031" ${parseInt(window.__archerConfig.arrowType) === 90031 ? 'selected' : ''}>Fire Arrow (ไฟ - 3z)</option>
+                            <option value="90032" ${parseInt(window.__archerConfig.arrowType) === 90032 ? 'selected' : ''}>Crystal Arrow (น้ำ - 3z)</option>
+                            <option value="90033" ${parseInt(window.__archerConfig.arrowType) === 90033 ? 'selected' : ''}>Stone Arrow (ดิน - 3z)</option>
+                            <option value="90034" ${parseInt(window.__archerConfig.arrowType) === 90034 ? 'selected' : ''}>Arrow of Wind (ลม - 3z)</option>
+                            <option value="90035" ${parseInt(window.__archerConfig.arrowType) === 90035 ? 'selected' : ''}>Poison Arrow (พิษ - 3z)</option>
+                            <option value="90036" ${parseInt(window.__archerConfig.arrowType) === 90036 ? 'selected' : ''}>Silver Arrow (ศักดิ์สิทธิ์ - 3z)</option>
+                            <option value="90037" ${parseInt(window.__archerConfig.arrowType) === 90037 ? 'selected' : ''}>Shadow Arrow (เงา - 3z)</option>
                         </select>
                     </div>
 
@@ -6407,6 +6472,10 @@
         document.getElementById('p-archer-type').onchange = (e) => {
             window.__archerConfig.arrowType = parseInt(e.target.value);
             saveArcherConfig();
+            syncAmmoFromDOM();
+            updateAmmoHUD();
+            const arrowName = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[window.__archerConfig.arrowType]) ? ARROW_DATA[window.__archerConfig.arrowType].name : e.target.value;
+            console.log(`%c[Pelican Archer] 🏹 เปลี่ยนชนิดลูกธนูเป้าหมายเป็น: "${arrowName}" (ตรวจพบในตัว: ${window.__currentAmmo} ดอก)`, 'color: #38bdf8; font-weight: bold;');
         };
 
         document.getElementById('p-archer-qty').onchange = (e) => {
