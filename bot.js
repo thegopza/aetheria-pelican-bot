@@ -1460,34 +1460,118 @@
     // IN-GAME DATA VIEWER MODAL & INSPECTOR
     // ==========================================
     window.__currentModalTab = 'items';
+    window.__isInspectorCollapsed = false;
+    window.__inspectorBackdropActive = true;
+
+    window.toggleInspectorCollapse = function(forceState) {
+        const modalWin = document.getElementById('p-modal-window');
+        const toolbar = document.getElementById('p-modal-toolbar');
+        const content = document.getElementById('p-modal-content');
+        const collapseBtn = document.getElementById('p-modal-collapse-btn');
+        const backdrop = document.getElementById('p-modal-backdrop');
+        if (!modalWin) return;
+
+        const shouldCollapse = (typeof forceState === 'boolean') ? forceState : !window.__isInspectorCollapsed;
+        window.__isInspectorCollapsed = shouldCollapse;
+
+        if (shouldCollapse) {
+            if (toolbar) toolbar.style.display = 'none';
+            if (content) content.style.display = 'none';
+            modalWin.style.height = 'auto';
+            modalWin.style.maxHeight = '48px';
+            modalWin.style.width = '520px';
+            if (collapseBtn) {
+                collapseBtn.innerHTML = '➕';
+                collapseBtn.title = 'ขยายหน้าต่าง (ดับเบิ้ลคลิกแถบหัว)';
+            }
+            if (backdrop) backdrop.style.display = 'none';
+        } else {
+            if (toolbar) toolbar.style.display = 'flex';
+            if (content) content.style.display = 'block';
+            modalWin.style.height = '580px';
+            modalWin.style.maxHeight = '90vh';
+            modalWin.style.width = '800px';
+            if (collapseBtn) {
+                collapseBtn.innerHTML = '−';
+                collapseBtn.title = 'พับหน้าต่างเก็บ (ดับเบิ้ลคลิกแถบหัว)';
+            }
+            if (backdrop && window.__inspectorBackdropActive) {
+                backdrop.style.display = 'block';
+            }
+        }
+    };
+
+    window.toggleInspectorBackdrop = function() {
+        window.__inspectorBackdropActive = !window.__inspectorBackdropActive;
+        const backdrop = document.getElementById('p-modal-backdrop');
+        const btn = document.getElementById('p-modal-backdrop-btn');
+        if (backdrop) {
+            if (!window.__inspectorBackdropActive || window.__isInspectorCollapsed) {
+                backdrop.style.display = 'none';
+            } else {
+                backdrop.style.display = 'block';
+            }
+        }
+        if (btn) {
+            btn.innerHTML = window.__inspectorBackdropActive ? '👁️ ม่านดำ: เปิด' : '🕶️ ม่านดำ: ปิด';
+            btn.style.color = window.__inspectorBackdropActive ? '#38bdf8' : '#94a3b8';
+            btn.style.borderColor = window.__inspectorBackdropActive ? '#0284c7' : '#334155';
+        }
+        try {
+            localStorage.setItem('pelican_inspector_backdrop', window.__inspectorBackdropActive ? '1' : '0');
+        } catch(e) {}
+    };
 
     window.showDataViewerModal = function(activeTab = 'items') {
         let modal = document.getElementById('pelican-data-modal');
         if (!modal) {
+            let savedPos = null;
+            try {
+                savedPos = JSON.parse(localStorage.getItem('pelican_inspector_pos') || 'null');
+                const storedB = localStorage.getItem('pelican_inspector_backdrop');
+                if (storedB !== null) window.__inspectorBackdropActive = (storedB === '1');
+            } catch(e) {}
+
+            const winW = window.innerWidth || document.documentElement.clientWidth || 1024;
+            const winH = window.innerHeight || document.documentElement.clientHeight || 768;
+            let initLeft = Math.max(10, Math.floor((winW - 800) / 2));
+            let initTop = Math.max(10, Math.floor((winH - 580) / 2));
+            if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
+                initLeft = Math.max(5, Math.min(winW - 120, savedPos.left));
+                initTop = Math.max(5, Math.min(winH - 50, savedPos.top));
+            }
+
             modal = document.createElement('div');
             modal.id = 'pelican-data-modal';
             modal.innerHTML = `
-                <div id="p-modal-backdrop" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); z-index: 999998;"></div>
-                <div id="p-modal-window" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 800px; max-width: 95vw; height: 580px; max-height: 90vh; background: #0b1329; border: 1.5px solid #38bdf8; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 20px rgba(56,189,248,0.25); z-index: 999999; display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; color: #f8fafc; overflow: hidden;">
-                    <!-- Header -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #1e293b; border-bottom: 1px solid #334155;">
+                <div id="p-modal-backdrop" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(3px); z-index: 999998; display: ${window.__inspectorBackdropActive ? 'block' : 'none'};"></div>
+                <div id="p-modal-window" style="position: fixed; left: ${initLeft}px; top: ${initTop}px; width: 800px; max-width: 95vw; height: 580px; max-height: 90vh; background: #0b1329; border: 1.5px solid #38bdf8; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 20px rgba(56,189,248,0.25); z-index: 999999; display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; color: #f8fafc; overflow: hidden;">
+                    <!-- Header (Drag Handle) -->
+                    <div id="p-modal-header" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #1e293b; border-bottom: 1px solid #334155; cursor: grab; user-select: none;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 16px;">🔍</span>
-                            <span style="font-weight: bold; font-size: 13.5px; color: #38bdf8; letter-spacing: 0.5px;">Aetheria Data & Packet Inspector</span>
+                            <span style="font-weight: bold; font-size: 13px; color: #38bdf8; letter-spacing: 0.5px;">Aetheria Data & Packet Inspector</span>
                             <span style="font-size: 10px; background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-weight: bold;">LIVE</span>
+                            <span style="font-size: 10px; color: #64748b; margin-left: 2px;">(ลากขยับ / ดับเบิ้ลคลิกเพื่อพับ)</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <button id="p-modal-copy-btn" style="background: #0284c7; color: white; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: bold;">
-                                📋 คัดลอก JSON ทั้งหมด
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <button id="p-modal-copy-btn" title="คัดลอกข้อมูล JSON แท็บปัจจุบัน" style="background: #0284c7; color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: bold;">
+                                📋 คัดลอก JSON
                             </button>
-                            <button id="p-modal-close-btn" style="background: #ef4444; color: white; border: none; width: 28px; height: 28px; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer;">
+                            <button id="p-modal-backdrop-btn" title="สลับม่านดำพื้นหลัง (เปิด/ปิดเพื่อให้มองทะลุเกมและคลิกเกมได้)" style="background: #0f172a; color: ${window.__inspectorBackdropActive ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${window.__inspectorBackdropActive ? '#0284c7' : '#334155'}; padding: 4px 8px; border-radius: 6px; font-size: 11px; cursor: pointer; font-weight: 500;">
+                                ${window.__inspectorBackdropActive ? '👁️ ม่านดำ: เปิด' : '🕶️ ม่านดำ: ปิด'}
+                            </button>
+                            <button id="p-modal-collapse-btn" title="พับหน้าต่างเก็บ (ดับเบิ้ลคลิกแถบหัวได้ด้วย)" style="background: #334155; color: #38bdf8; border: 1px solid #475569; width: 28px; height: 28px; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1;">
+                                −
+                            </button>
+                            <button id="p-modal-close-btn" title="ปิดหน้าต่าง" style="background: #ef4444; color: white; border: none; width: 28px; height: 28px; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer;">
                                 ✖
                             </button>
                         </div>
                     </div>
 
                     <!-- Toolbar -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0f172a; border-bottom: 1px solid #1e293b; gap: 10px; flex-wrap: wrap;">
+                    <div id="p-modal-toolbar" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0f172a; border-bottom: 1px solid #1e293b; gap: 10px; flex-wrap: wrap;">
                         <div style="display: flex; gap: 6px;">
                             <button class="p-mod-tab-btn" data-tab="items" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📦 กระเป๋า & อุปกรณ์</button>
                             <button class="p-mod-tab-btn" data-tab="market" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🛒 ตลาดกลาง (Market)</button>
@@ -1506,6 +1590,59 @@
                 </div>
             `;
             document.body.appendChild(modal);
+
+            // Drag Handle Logic
+            const header = document.getElementById('p-modal-header');
+            const modalWin = document.getElementById('p-modal-window');
+            let isDragging = false;
+            let startOffsetX = 0;
+            let startOffsetY = 0;
+
+            header.addEventListener('mousedown', (e) => {
+                if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+                isDragging = true;
+                header.style.cursor = 'grabbing';
+                startOffsetX = e.clientX - modalWin.offsetLeft;
+                startOffsetY = e.clientY - modalWin.offsetTop;
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const winW = window.innerWidth || document.documentElement.clientWidth || 1024;
+                const winH = window.innerHeight || document.documentElement.clientHeight || 768;
+                const newLeft = Math.max(5, Math.min(winW - 100, e.clientX - startOffsetX));
+                const newTop = Math.max(5, Math.min(winH - 45, e.clientY - startOffsetY));
+                modalWin.style.left = newLeft + 'px';
+                modalWin.style.top = newTop + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    header.style.cursor = 'grab';
+                    try {
+                        localStorage.setItem('pelican_inspector_pos', JSON.stringify({
+                            left: parseInt(modalWin.style.left, 10),
+                            top: parseInt(modalWin.style.top, 10)
+                        }));
+                    } catch(e) {}
+                }
+            });
+
+            // Double click header to fold/unfold
+            header.addEventListener('dblclick', (e) => {
+                if (e.target.closest('button')) return;
+                window.toggleInspectorCollapse();
+            });
+
+            document.getElementById('p-modal-collapse-btn').onclick = () => {
+                window.toggleInspectorCollapse();
+            };
+
+            document.getElementById('p-modal-backdrop-btn').onclick = () => {
+                window.toggleInspectorBackdrop();
+            };
 
             document.getElementById('p-modal-close-btn').onclick = () => {
                 modal.style.display = 'none';
@@ -1572,6 +1709,33 @@
         }
 
         window.renderModalTab(activeTab);
+    };
+
+    window.syncMarketFiltersFromUI = function() {
+        const qInput = document.getElementById('p-mod-mk-q') || document.getElementById('p-mk-search-query');
+        const catSelect = document.getElementById('p-mod-mk-cat');
+        const refInput = document.getElementById('p-mod-mk-refine');
+        const priceInput = document.getElementById('p-mod-mk-price');
+        const stat1Select = document.getElementById('p-mod-mk-stat1');
+        const stat1MinInput = document.getElementById('p-mod-mk-stat1-min');
+        const stat2Select = document.getElementById('p-mod-mk-stat2');
+        const stat2MinInput = document.getElementById('p-mod-mk-stat2-min');
+        const modeSelect = document.getElementById('p-mod-mk-mode');
+
+        if (!window.__marketFilterConfig) window.__marketFilterConfig = {};
+        if (qInput) window.__marketFilterConfig.q = qInput.value.trim();
+        if (catSelect) window.__marketFilterConfig.category = catSelect.value;
+        if (refInput) window.__marketFilterConfig.minRefine = parseInt(refInput.value) || 0;
+        if (priceInput) window.__marketFilterConfig.maxPrice = parseInt(priceInput.value) || 0;
+        if (stat1Select) window.__marketFilterConfig.statType1 = stat1Select.value;
+        if (stat1MinInput) window.__marketFilterConfig.statMinVal1 = parseInt(stat1MinInput.value) || 1;
+        if (stat2Select) window.__marketFilterConfig.statType2 = stat2Select.value;
+        if (stat2MinInput) window.__marketFilterConfig.statMinVal2 = parseInt(stat2MinInput.value) || 1;
+        if (modeSelect) window.__marketFilterConfig.statMatchMode = modeSelect.value;
+
+        saveMarketFilterConfig();
+        const matched = window.applyMarketFilters();
+        return matched;
     };
 
     window.renderModalTab = function(tabName, query = '') {
@@ -1963,7 +2127,8 @@
                             <span style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">Server: ${totalServer} รายการ</span>
                         </div>
                         <div style="display: flex; gap: 6px;">
-                            <button onclick="window.executeMarketSearch();" style="background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🔍 ค้นหา</button>
+                            <button id="p-mod-btn-search" onclick="window.executeMarketSearch();" style="background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🔍 ค้นหา</button>
+                            <button onclick="window.claimMarketDeliveries();" title="กดรับของทั้งหมดที่ซื้อแล้วเข้ากระเป๋าตัวละครทันที" style="background: #eab308; color: #000; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🎁 รับของเข้าตัว</button>
                             <button onclick="window.startMarketMultiPageScan(5);" style="background: #9333ea; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">⚡ สแกน 5 หน้าต่อเนื่อง</button>
                             <button onclick="window.safeCopyToClipboard(JSON.stringify(window.dumpMarketData(), null, 2), '📋 คัดลอก Dump ตลาดสำเร็จ!');" style="background: #059669; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">📋 Dump JSON</button>
                         </div>
@@ -2154,31 +2319,35 @@
 
             container.innerHTML = html;
 
+            // Wire live auto-filtering listeners on all inputs & selects
+            const filterInputIds = [
+                'p-mod-mk-q', 'p-mod-mk-cat', 'p-mod-mk-refine', 'p-mod-mk-price',
+                'p-mod-mk-stat1', 'p-mod-mk-stat1-min', 'p-mod-mk-stat2', 'p-mod-mk-stat2-min', 'p-mod-mk-mode'
+            ];
+            filterInputIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    const evt = (el.tagName === 'SELECT') ? 'change' : 'input';
+                    el.addEventListener(evt, () => {
+                        window.syncMarketFiltersFromUI();
+                        if (evt === 'change') {
+                            window.renderModalTab('market');
+                        }
+                    });
+                    if (el.tagName === 'INPUT') {
+                        el.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                window.executeMarketSearch();
+                            }
+                        });
+                    }
+                }
+            });
+
             const applyBtn = document.getElementById('p-mod-btn-apply-filters');
             if (applyBtn) {
                 applyBtn.onclick = () => {
-                    const qInput = document.getElementById('p-mod-mk-q');
-                    const catSelect = document.getElementById('p-mod-mk-cat');
-                    const refInput = document.getElementById('p-mod-mk-refine');
-                    const priceInput = document.getElementById('p-mod-mk-price');
-                    const stat1Select = document.getElementById('p-mod-mk-stat1');
-                    const stat1MinInput = document.getElementById('p-mod-mk-stat1-min');
-                    const stat2Select = document.getElementById('p-mod-mk-stat2');
-                    const stat2MinInput = document.getElementById('p-mod-mk-stat2-min');
-                    const modeSelect = document.getElementById('p-mod-mk-mode');
-
-                    window.__marketFilterConfig.q = qInput ? qInput.value.trim() : '';
-                    window.__marketFilterConfig.category = catSelect ? catSelect.value : '';
-                    window.__marketFilterConfig.minRefine = refInput ? parseInt(refInput.value) || 0 : 0;
-                    window.__marketFilterConfig.maxPrice = priceInput ? parseInt(priceInput.value) || 0 : 0;
-                    window.__marketFilterConfig.statType1 = stat1Select ? stat1Select.value : 'none';
-                    window.__marketFilterConfig.statMinVal1 = stat1MinInput ? parseInt(stat1MinInput.value) || 1 : 1;
-                    window.__marketFilterConfig.statType2 = stat2Select ? stat2Select.value : 'none';
-                    window.__marketFilterConfig.statMinVal2 = stat2MinInput ? parseInt(stat2MinInput.value) || 1 : 1;
-                    window.__marketFilterConfig.statMatchMode = modeSelect ? modeSelect.value : 'AND';
-
-                    saveMarketFilterConfig();
-                    window.applyMarketFilters();
+                    window.syncMarketFiltersFromUI();
                     window.renderModalTab('market');
                 };
             }
@@ -6312,9 +6481,11 @@
         }
 
         const modal = document.getElementById('pelican-data-modal');
-        if (modal && modal.style.display === 'flex' && window.__currentModalTab === 'market') {
+        if (modal && modal.style.display !== 'none' && window.__currentModalTab === 'market') {
             window.renderModalTab('market');
         }
+        const searchBtn = document.getElementById('p-mod-btn-search');
+        if (searchBtn) searchBtn.innerText = '🔍 ค้นหา';
     };
 
     window.dumpMarketData = function() {
@@ -6353,10 +6524,16 @@
     };
 
     window.executeMarketSearch = function(filters) {
-        filters = filters || window.__marketFilterConfig || {};
-        const queryText = (filters.q !== undefined) ? filters.q : (document.getElementById('p-mk-search-query')?.value || document.getElementById('p-mod-mk-q')?.value || window.__marketFilterConfig?.q || '');
-        window.__marketFilterConfig.q = queryText.trim();
+        window.syncMarketFiltersFromUI();
+        filters = Object.assign({}, window.__marketFilterConfig, filters || {});
+        const queryText = (filters.q || '').trim();
+        window.__marketFilterConfig.q = queryText;
         saveMarketFilterConfig();
+
+        // กรองข้อมูลในแคชทันทีและอัปเดตสถานะปุ่ม
+        window.applyMarketFilters();
+        const searchBtn = document.getElementById('p-mod-btn-search');
+        if (searchBtn) searchBtn.innerText = '🔍 กำลังค้นหา...';
 
         // 1. Send direct search packet via Colyseus Room
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
@@ -6468,43 +6645,109 @@
         scanNext();
     };
 
+    window.claimMarketDeliveries = function(callback) {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (room && room.connection?.isOpen) {
+            try {
+                room.send('market', { op: 'collect_all' });
+                console.log('%c[Pelican Market] 🎁 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all) สู่เซิร์ฟเวอร์!', 'color: #10b981; font-weight: bold;');
+            } catch(e) {
+                console.warn('[Pelican Market] room.send collect_all error:', e);
+            }
+        }
+
+        const win = document.querySelector('.market-window');
+        if (win) {
+            const tabs = Array.from(win.querySelectorAll('nav.mk-tabs button, .mk-tabs button'));
+            const collectTab = tabs.find(t => (t.innerText || '').includes('รับของ'));
+            if (collectTab) {
+                collectTab.click();
+                setTimeout(() => {
+                    const collectBtns = Array.from(win.querySelectorAll('.mk-body button, .mk-list button, button.collect-all, button.primary')).filter(b => {
+                        const txt = (b.innerText || '').trim();
+                        return txt === 'รับ' || txt === 'รับทั้งหมด' || txt.includes('รับ');
+                    });
+                    for (const btn of collectBtns) {
+                        try { btn.click(); } catch(e) {}
+                    }
+                    if (typeof callback === 'function') callback();
+                }, 250);
+            } else if (typeof callback === 'function') {
+                callback();
+            }
+        } else if (typeof callback === 'function') {
+            callback();
+        }
+
+        setTimeout(() => {
+            if (typeof window.refreshInventoryAndWeight === 'function') {
+                window.refreshInventoryAndWeight();
+            }
+        }, 500);
+    };
+
     window.buyMarketListing = function(listingId, price, itemName, sellerName) {
+        console.log(`%c[Pelican Market] 🛒 ดำเนินการสั่งซื้อ: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName}...`, 'color: #38bdf8; font-weight: bold;');
+
+        // 1. ส่งแพ็กเก็ตซื้อตรงสู่เซิร์ฟเวอร์ทันที
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (room && room.connection?.isOpen && listingId) {
+            try {
+                room.send('market', {
+                    op: 'buy',
+                    listingId: Number(listingId),
+                    price: Number(price)
+                });
+                console.log(`%c[Pelican Market] ⚡ ยิงแพ็กเก็ตสั่งซื้อ { op: 'buy', listingId: ${listingId}, price: ${price} } สำเร็จ!`, 'color: #10b981; font-weight: bold;');
+            } catch(e) {
+                console.warn('[Pelican Market] direct buy send failed:', e);
+            }
+        }
+
+        // 2. ซิงก์หน้าต่างตลาดในเกมและกดยืนยันอัตโนมัติ
         window.openMarketWindow((win) => {
-            if (!win) {
-                console.warn('[Pelican Market] ไม่สามารถเปิดหน้าต่างตลาดเพื่อซื้อของได้');
-                return;
-            }
-
-            const rows = Array.from(win.querySelectorAll('.mk-row'));
-            let targetRow = null;
-
-            if (sellerName) {
-                targetRow = rows.find(r => (r.innerText || '').includes(sellerName) && (r.innerText || '').includes(Number(price).toLocaleString()));
-            }
-            if (!targetRow && itemName) {
-                targetRow = rows.find(r => (r.innerText || '').includes(itemName) && (r.innerText || '').includes(Number(price).toLocaleString()));
-            }
-
-            if (targetRow) {
-                const buyBtn = targetRow.querySelector('button.primary');
-                if (buyBtn) {
-                    const btnText = (buyBtn.innerText || '').trim();
-                    if (btnText === 'ซื้อ') {
-                        buyBtn.click();
-                        console.log(`%c[Pelican Market] 🛒 สั่งซื้อไอเทม: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName} เรียบร้อย!`, 'color: #10b981; font-weight: bold;');
-                        setTimeout(() => {
-                            const confirmBtn = Array.from(document.querySelectorAll('.modal button, .dialog button, .confirm button')).find(b => (b.innerText || '').includes('ยืนยัน') || (b.innerText || '').includes('ตกลง'));
-                            if (confirmBtn) confirmBtn.click();
-                        }, 200);
-                    } else if (btnText === 'ประมูล') {
-                        console.warn(`[Pelican Market] ⚠️ รายการนี้อยู่ในช่วงประมูล 5 นาทีแรก (กดประมูลแทนการซื้อตรง)`);
+            if (win) {
+                const rows = Array.from(win.querySelectorAll('.mk-row'));
+                let targetRow = null;
+                if (sellerName) {
+                    targetRow = rows.find(r => (r.innerText || '').includes(sellerName) && (r.innerText || '').includes(Number(price).toLocaleString()));
+                }
+                if (!targetRow && itemName) {
+                    targetRow = rows.find(r => (r.innerText || '').includes(itemName) && (r.innerText || '').includes(Number(price).toLocaleString()));
+                }
+                if (targetRow) {
+                    const buyBtn = targetRow.querySelector('button.primary');
+                    if (buyBtn) {
                         buyBtn.click();
                     }
                 }
-            } else {
-                console.warn(`[Pelican Market] ⚠️ ไม่พบแถวไอเทม ${itemName} (${Number(price).toLocaleString()} z) ในหน้าต่างตลาดปัจจุบัน (ลองเปิดหน้ารายการนั้น)`);
             }
+
+            // กดยืนยันในกล่องถามของเกมทันที (ปุ่ม 'ซื้อ' สีเหลืองใน dialog)
+            const tryConfirm = () => {
+                const allBtns = Array.from(document.querySelectorAll('.modal button, .dialog button, [class*="dialog"] button, [class*="modal"] button, [role="dialog"] button, .confirm button'));
+                const confirmBtn = allBtns.find(b => {
+                    const txt = (b.innerText || '').trim();
+                    return txt === 'ซื้อ' || txt === 'ยืนยัน' || txt === 'ตกลง';
+                });
+                if (confirmBtn) {
+                    confirmBtn.click();
+                    console.log('%c[Pelican Market] ✅ กดยืนยันการสั่งซื้อในหน้าต่างเกมเรียบร้อย!', 'color: #10b981; font-weight: bold;');
+                }
+            };
+
+            setTimeout(tryConfirm, 80);
+            setTimeout(tryConfirm, 220);
+            setTimeout(tryConfirm, 450);
         });
+
+        // 3. กดรับของเข้ากระเป๋าอัตโนมัติ (Auto-Claim Deliveries)
+        setTimeout(() => {
+            console.log(`%c[Pelican Market] 🎁 ดำเนินการกดรับของ (${itemName}) เข้ากระเป๋าอัตโนมัติ...`, 'color: #f59e0b; font-weight: bold;');
+            window.claimMarketDeliveries(() => {
+                console.log(`%c[Pelican Market] 🎉 ซื้อและรับของ ${itemName} เข้ากระเป๋าเรียบร้อยแล้ว!`, 'color: #10b981; font-weight: bold; font-size: 13px;');
+            });
+        }, 550);
     };
 
     window.showPelicanMarketItemTooltip = function(itemData, e) {
