@@ -2169,22 +2169,7 @@
                         <div>
                             <span style="color: #f59e0b; font-size: 10px; font-weight: bold;">💎 Option 1 (Stat):</span>
                             <select id="p-mod-mk-stat1" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(245, 158, 11, 0.4); color: #fde047; padding: 3px; border-radius: 4px; font-size: 10.5px;">
-                                <option value="none" ${cfg.statType1 === 'none' ? 'selected' : ''}>-- ไม่ระบุ Option 1 --</option>
-                                <option value="DEX" ${cfg.statType1 === 'DEX' ? 'selected' : ''}>DEX (ความแม่นยำ/ระยะไกล)</option>
-                                <option value="STR" ${cfg.statType1 === 'STR' ? 'selected' : ''}>STR (พลังโจมตีประชิด)</option>
-                                <option value="AGI" ${cfg.statType1 === 'AGI' ? 'selected' : ''}>AGI (ความเร็วโจมตี/หลบหลีก)</option>
-                                <option value="VIT" ${cfg.statType1 === 'VIT' ? 'selected' : ''}>VIT (พลังป้องกัน/HP)</option>
-                                <option value="INT" ${cfg.statType1 === 'INT' ? 'selected' : ''}>INT (พลังเวท/มานา)</option>
-                                <option value="LUK" ${cfg.statType1 === 'LUK' ? 'selected' : ''}>LUK (คริติคอล/โชคลาภ)</option>
-                                <option value="CRIT_DAMAGE" ${cfg.statType1 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG% (ความแรงคริ)</option>
-                                <option value="MATK" ${cfg.statType1 === 'MATK' ? 'selected' : ''}>MATK (พลังโจมตีเวท)</option>
-                                <option value="ATK" ${cfg.statType1 === 'ATK' ? 'selected' : ''}>ATK (พลังโจมตีกายภาพ)</option>
-                                <option value="HIT" ${cfg.statType1 === 'HIT' ? 'selected' : ''}>HIT (ความแม่นยำ)</option>
-                                <option value="FLEE" ${cfg.statType1 === 'FLEE' ? 'selected' : ''}>FLEE (การหลบหลีก)</option>
-                                <option value="DEF" ${cfg.statType1 === 'DEF' ? 'selected' : ''}>DEF (พลังป้องกัน)</option>
-                                <option value="MELEE_DAMAGE_PERCENT" ${cfg.statType1 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG% (แรงประชิด)</option>
-                                <option value="MAGIC_DAMAGE_PERCENT" ${cfg.statType1 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG% (แรงเวท)</option>
-                                <option value="DAMAGE_REDUCTION" ${cfg.statType1 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED% (ลดดาเมจ)</option>
+                                ${getMarketStatSelectOptionsHtml(cfg.statType1)}
                             </select>
                         </div>
                         <div>
@@ -2194,22 +2179,7 @@
                         <div>
                             <span style="color: #c084fc; font-size: 10px; font-weight: bold;">🔮 Option 2 (Stat):</span>
                             <select id="p-mod-mk-stat2" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(192, 132, 252, 0.4); color: #e9d5ff; padding: 3px; border-radius: 4px; font-size: 10.5px;">
-                                <option value="none" ${cfg.statType2 === 'none' ? 'selected' : ''}>-- ไม่ระบุ Option 2 --</option>
-                                <option value="DEX" ${cfg.statType2 === 'DEX' ? 'selected' : ''}>DEX (ความแม่นยำ/ระยะไกล)</option>
-                                <option value="STR" ${cfg.statType2 === 'STR' ? 'selected' : ''}>STR (พลังโจมตีประชิด)</option>
-                                <option value="AGI" ${cfg.statType2 === 'AGI' ? 'selected' : ''}>AGI (ความเร็วโจมตี/หลบหลีก)</option>
-                                <option value="VIT" ${cfg.statType2 === 'VIT' ? 'selected' : ''}>VIT (พลังป้องกัน/HP)</option>
-                                <option value="INT" ${cfg.statType2 === 'INT' ? 'selected' : ''}>INT (พลังเวท/มานา)</option>
-                                <option value="LUK" ${cfg.statType2 === 'LUK' ? 'selected' : ''}>LUK (คริติคอล/โชคลาภ)</option>
-                                <option value="CRIT_DAMAGE" ${cfg.statType2 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG% (ความแรงคริ)</option>
-                                <option value="MATK" ${cfg.statType2 === 'MATK' ? 'selected' : ''}>MATK (พลังโจมตีเวท)</option>
-                                <option value="ATK" ${cfg.statType2 === 'ATK' ? 'selected' : ''}>ATK (พลังโจมตีกายภาพ)</option>
-                                <option value="HIT" ${cfg.statType2 === 'HIT' ? 'selected' : ''}>HIT (ความแม่นยำ)</option>
-                                <option value="FLEE" ${cfg.statType2 === 'FLEE' ? 'selected' : ''}>FLEE (การหลบหลีก)</option>
-                                <option value="DEF" ${cfg.statType2 === 'DEF' ? 'selected' : ''}>DEF (พลังป้องกัน)</option>
-                                <option value="MELEE_DAMAGE_PERCENT" ${cfg.statType2 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG% (แรงประชิด)</option>
-                                <option value="MAGIC_DAMAGE_PERCENT" ${cfg.statType2 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG% (แรงเวท)</option>
-                                <option value="DAMAGE_REDUCTION" ${cfg.statType2 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED% (ลดดาเมจ)</option>
+                                ${getMarketStatSelectOptionsHtml(cfg.statType2)}
                             </select>
                         </div>
                         <div>
@@ -6149,9 +6119,15 @@
         'INT': { th: 'INT (พลังเวท/มานาสูงสุด)', short: 'INT' },
         'LUK': { th: 'LUK (คริติคอล/โชคลาภ)', short: 'LUK' },
         'ATK': { th: 'ATK (พลังโจมตีกายภาพ)', short: 'ATK' },
+        'ATK_PERCENT': { th: 'ATK% (พลังโจมตีกายภาพ %)', short: 'ATK%' },
+        'ATK_FLAT': { th: 'ATK (พลังโจมตีกายภาพ)', short: 'ATK' },
         'MATK': { th: 'MATK (พลังโจมตีเวท)', short: 'MATK' },
+        'MATK_PERCENT': { th: 'MATK% (พลังโจมตีเวท %)', short: 'MATK%' },
+        'MATK_FLAT': { th: 'MATK (พลังโจมตีเวท)', short: 'MATK' },
         'DEF': { th: 'DEF (พลังป้องกันกายภาพ)', short: 'DEF' },
         'MDEF': { th: 'MDEF (พลังป้องกันเวท)', short: 'MDEF' },
+        'MELEE_DEFENSE': { th: 'พลังป้องกันประชิด', short: 'DEF' },
+        'MAGIC_DEFENSE': { th: 'พลังป้องกันเวท', short: 'MDEF' },
         'HIT': { th: 'HIT (ความแม่นยำ)', short: 'HIT' },
         'FLEE': { th: 'FLEE (การหลบหลีก)', short: 'FLEE' },
         'CRIT': { th: 'CRIT (อัตราคริติคอล)', short: 'CRIT' },
@@ -6159,16 +6135,23 @@
         'MELEE_ATTACK': { th: 'พลังโจมตีประชิด', short: 'MELEE_ATK' },
         'RANGE_ATTACK': { th: 'พลังโจมตีระยะไกล', short: 'RANGE_ATK' },
         'MAGIC_ATTACK': { th: 'พลังโจมตีเวท', short: 'MAGIC_ATK' },
+        'PHYSICAL_ATTACK': { th: 'พลังโจมตีกายภาพ', short: 'ATK' },
         'MELEE_DAMAGE_PERCENT': { th: 'ความแรงกายภาพประชิด%', short: 'MELEE_DMG%' },
+        'RANGED_DAMAGE_PERCENT': { th: 'ความแรงระยะไกล%', short: 'RANGED_DMG%' },
         'MAGIC_DAMAGE_PERCENT': { th: 'ความแรงเวท%', short: 'MAGIC_DMG%' },
         'DAMAGE_REDUCTION': { th: 'ลดดาเมจที่ได้รับ%', short: 'DMG_RED%' },
         'BLOCK_CHANCE': { th: 'โอกาสบล็อก%', short: 'BLOCK%' },
         'HEAL_POWER': { th: 'พลังการฮีล%', short: 'HEAL%' },
         'MAXHP': { th: 'Max HP (เลือดสูงสุด)', short: 'MAX_HP' },
+        'MAXHP_PERCENT': { th: 'Max HP% (เลือดสูงสุด %)', short: 'MAX_HP%' },
         'MAXSP': { th: 'Max SP (มานาสูงสุด)', short: 'MAX_SP' },
+        'MAXSP_PERCENT': { th: 'Max SP% (มานาสูงสุด %)', short: 'MAX_SP%' },
         'HP_REGEN': { th: 'ฟื้นฟูเลือด HP', short: 'HP_REGEN' },
         'SP_REGEN': { th: 'ฟื้นฟูมานา SP', short: 'SP_REGEN' },
         'ATTACK_SPEED': { th: 'ความเร็วโจมตี ASPD', short: 'ASPD' },
+        'ASPD': { th: 'ความเร็วโจมตี ASPD', short: 'ASPD' },
+        'ASPD_PERCENT': { th: 'ความเร็วโจมตี ASPD%', short: 'ASPD%' },
+        'MOVE_SPEED': { th: 'ความเร็วเคลื่อนที่', short: 'SPEED' },
         'CAST_TIME_REDUCTION': { th: 'ลดระยะเวลาร่ายเวท%', short: 'CAST_RED%' }
     };
 
@@ -6219,23 +6202,134 @@
         // 6. Deep Stat Filters
         const checkStat = (targetType, minVal) => {
             if (!targetType || targetType === 'none') return true;
-            targetType = targetType.toUpperCase();
+            targetType = String(targetType).toUpperCase();
             minVal = Number(minVal) || 1;
+
+            const matchAffix = (aff) => {
+                if (!aff) return false;
+                const affType = String(aff.type).toUpperCase();
+                const affVal = Number(aff.value) || 0;
+                if (affVal < minVal) return false;
+
+                const isPercentMode = aff.mode === 'increasedPercent' || String(aff.type).includes('PERCENT');
+
+                if (targetType === 'ATK_PERCENT') {
+                    return (affType === 'ATK' && isPercentMode) || affType === 'ATK_PERCENT';
+                }
+                if (targetType === 'ATK_FLAT') {
+                    return affType === 'ATK' && !isPercentMode;
+                }
+                if (targetType === 'MATK_PERCENT') {
+                    return (affType === 'MATK' && isPercentMode) || affType === 'MATK_PERCENT';
+                }
+                if (targetType === 'MATK_FLAT') {
+                    return affType === 'MATK' && !isPercentMode;
+                }
+                if (targetType === 'RANGED_DAMAGE_PERCENT' || targetType === 'RANGE_DMG%') {
+                    return affType === 'RANGED_DAMAGE_PERCENT' || (affType === 'RANGE_ATTACK' && isPercentMode);
+                }
+                if (targetType === 'RANGE_ATTACK' || targetType === 'RANGE_ATK') {
+                    return affType === 'RANGE_ATTACK' && !isPercentMode;
+                }
+                if (targetType === 'MELEE_DAMAGE_PERCENT' || targetType === 'MELEE_DMG%') {
+                    return affType === 'MELEE_DAMAGE_PERCENT' || (affType === 'MELEE_ATTACK' && isPercentMode);
+                }
+                if (targetType === 'MELEE_ATTACK' || targetType === 'MELEE_ATK') {
+                    return affType === 'MELEE_ATTACK' && !isPercentMode;
+                }
+                if (targetType === 'MAGIC_DAMAGE_PERCENT' || targetType === 'MAGIC_DMG%') {
+                    return affType === 'MAGIC_DAMAGE_PERCENT' || (affType === 'MAGIC_ATTACK' && isPercentMode);
+                }
+                if (targetType === 'MAGIC_ATTACK' || targetType === 'MAGIC_ATK') {
+                    return affType === 'MAGIC_ATTACK' && !isPercentMode;
+                }
+                if (targetType === 'MAXHP_PERCENT') {
+                    return (affType === 'MAXHP' || affType === 'MAX_HP' || affType === 'HP') && isPercentMode;
+                }
+                if (targetType === 'MAXHP' || targetType === 'MAX_HP') {
+                    return (affType === 'MAXHP' || affType === 'MAX_HP' || affType === 'HP') && !isPercentMode;
+                }
+                if (targetType === 'MAXSP_PERCENT') {
+                    return (affType === 'MAXSP' || affType === 'MAX_SP' || affType === 'SP') && isPercentMode;
+                }
+                if (targetType === 'MAXSP' || targetType === 'MAX_SP') {
+                    return (affType === 'MAXSP' || affType === 'MAX_SP' || affType === 'SP') && !isPercentMode;
+                }
+                if (targetType === 'ASPD_PERCENT') {
+                    return (affType === 'ASPD' || affType === 'ATTACK_SPEED') && isPercentMode;
+                }
+                if (targetType === 'ASPD' || targetType === 'ATTACK_SPEED') {
+                    return (affType === 'ASPD' || affType === 'ATTACK_SPEED') && !isPercentMode;
+                }
+                if (targetType === 'CRIT_DAMAGE') {
+                    return affType === 'CRIT_DAMAGE' || affType === 'CRIT_DMG';
+                }
+                if (targetType === 'CRIT') {
+                    return affType === 'CRIT' && affType !== 'CRIT_DAMAGE';
+                }
+                if (targetType === 'DAMAGE_REDUCTION') {
+                    return affType === 'DAMAGE_REDUCTION' || affType === 'DMG_RED';
+                }
+                if (targetType === 'BLOCK_CHANCE') {
+                    return affType === 'BLOCK_CHANCE' || affType === 'BLOCK';
+                }
+                if (targetType === 'HEAL_POWER') {
+                    return affType === 'HEAL_POWER' || affType === 'HEAL';
+                }
+                if (targetType === 'CAST_TIME_REDUCTION') {
+                    return affType === 'CAST_TIME_REDUCTION' || affType === 'CAST_RED';
+                }
+                if (targetType === 'MOVE_SPEED') {
+                    return affType === 'MOVE_SPEED' || affType === 'SPEED';
+                }
+
+                if (targetType === 'ATK') {
+                    return affType === 'ATK';
+                }
+                if (targetType === 'MATK') {
+                    return affType === 'MATK';
+                }
+                return affType === targetType;
+            };
+
+            const matchAttribute = (attr) => {
+                if (!attr) return false;
+                const attrType = String(attr.type).toUpperCase();
+                const attrVal = Number(attr.value) || 0;
+                if (attrVal < minVal) return false;
+
+                if (targetType === 'RANGE_ATTACK' || targetType === 'RANGE_ATK') {
+                    return attrType === 'RANGE_ATTACK' || attrType === 'RANGE_ATK';
+                }
+                if (targetType === 'MELEE_ATTACK' || targetType === 'MELEE_ATK') {
+                    return attrType === 'MELEE_ATTACK' || attrType === 'MELEE_ATK';
+                }
+                if (targetType === 'MAGIC_ATTACK' || targetType === 'MAGIC_ATK') {
+                    return attrType === 'MAGIC_ATTACK' || attrType === 'MAGIC_ATK';
+                }
+                if (targetType === 'ATK_FLAT' || targetType === 'ATK') {
+                    return attrType === 'ATK' || attrType === 'PHYSICAL_ATTACK';
+                }
+                if (targetType === 'MATK_FLAT' || targetType === 'MATK') {
+                    return attrType === 'MATK' || attrType === 'MAGIC_ATTACK';
+                }
+                if (targetType === 'DEF') {
+                    return attrType === 'DEF' || attrType === 'MELEE_DEFENSE';
+                }
+                if (targetType === 'MDEF') {
+                    return attrType === 'MDEF' || attrType === 'MAGIC_DEFENSE';
+                }
+                return attrType === targetType;
+            };
 
             if (Array.isArray(it.affixes)) {
                 for (const aff of it.affixes) {
-                    if (aff && String(aff.type).toUpperCase() === targetType) {
-                        const val = Number(aff.value) || 0;
-                        if (val >= minVal) return true;
-                    }
+                    if (matchAffix(aff)) return true;
                 }
             }
             if (Array.isArray(it.attributes)) {
                 for (const attr of it.attributes) {
-                    if (attr && String(attr.type).toUpperCase() === targetType) {
-                        const val = Number(attr.value) || 0;
-                        if (val >= minVal) return true;
-                    }
+                    if (matchAttribute(attr)) return true;
                 }
             }
             return false;
@@ -6322,7 +6416,17 @@
 
     window.updateMarketDetailOverlay = function(listing) {
         const detail = document.querySelector('.mk-detail');
-        if (!detail || !listing || !listing.item) return;
+        if (!detail) return;
+
+        // If listing is not provided, try to find from selected row or fallback
+        if (!listing) {
+            const win = document.querySelector('.market-window');
+            const rows = win ? Array.from(win.querySelectorAll('.mk-row')) : [];
+            const selIdx = rows.findIndex(r => r.classList.contains('selected'));
+            const latestListings = window.__latestMarketResults?.listings || [];
+            listing = (selIdx >= 0 && latestListings[selIdx]) ? latestListings[selIdx] : (window.__currentSelectedMarketListing || latestListings[0]);
+        }
+        if (!listing || !listing.item) return;
 
         const facts = detail.querySelector('.mk-detail-facts');
         if (!facts) return;
@@ -6340,7 +6444,7 @@
         if (Array.isArray(it.affixes) && it.affixes.length > 0) {
             affHtml = it.affixes.map(a => {
                 const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
-                const isSpec = a.category === 'special' || String(a.type).includes('CRIT');
+                const isSpec = a.category === 'special' || String(a.type).includes('CRIT') || a.mode === 'increasedPercent' || String(a.type).includes('PERCENT');
                 const color = isSpec ? '#fef08a' : '#86efac';
                 const bg = isSpec ? 'rgba(234, 179, 8, 0.25)' : 'rgba(34, 197, 94, 0.2)';
                 const border = isSpec ? '#eab308' : '#22c55e';
@@ -6375,6 +6479,28 @@
         `;
     };
 
+    // Attach click listener on market window rows once with event delegation (capture phase)
+    if (!window.__marketRowClickListenerAttached) {
+        window.__marketRowClickListenerAttached = true;
+        document.addEventListener('click', (e) => {
+            const row = e.target.closest('.mk-row');
+            if (!row) return;
+            const win = document.querySelector('.market-window');
+            if (!win || !win.contains(row)) return;
+
+            const allRows = Array.from(win.querySelectorAll('.mk-row'));
+            const clickedIdx = allRows.indexOf(row);
+            const latestListings = window.__latestMarketResults?.listings || [];
+            if (clickedIdx >= 0 && latestListings[clickedIdx]) {
+                const clickedListing = latestListings[clickedIdx];
+                window.__currentSelectedMarketListing = clickedListing;
+                window.updateMarketDetailOverlay(clickedListing);
+                setTimeout(() => window.updateMarketDetailOverlay(clickedListing), 30);
+                setTimeout(() => window.updateMarketDetailOverlay(clickedListing), 100);
+            }
+        }, true);
+    }
+
     window.injectMarketOverlay = function() {
         const win = document.querySelector('.market-window');
         if (!win) return;
@@ -6401,13 +6527,15 @@
             if (affixes.length > 0) {
                 badgeContainer.innerHTML = affixes.map(a => {
                     const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
-                    const isSpec = a.category === 'special' || String(a.type).includes('CRIT');
+                    const isSpec = a.category === 'special' || String(a.type).includes('CRIT') || a.mode === 'increasedPercent' || String(a.type).includes('PERCENT');
                     const color = isSpec ? '#fef08a' : '#86efac';
                     const bg = isSpec ? 'rgba(234, 179, 8, 0.25)' : 'rgba(34, 197, 94, 0.2)';
                     const border = isSpec ? '#eab308' : '#22c55e';
                     const val = (a.mode === 'increasedPercent' || String(a.type).includes('PERCENT')) ? `+${a.value}%` : `+${a.value}`;
                     return `<span style="background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: bold; line-height: 1.2;">${sInfo.short || a.type} ${val}</span>`;
                 }).join('');
+            } else {
+                badgeContainer.innerHTML = '';
             }
 
             const isMatch = (typeof window.matchesMarketFilter === 'function') ? window.matchesMarketFilter(listing, cfg) : false;
@@ -6419,13 +6547,27 @@
             }
 
             row.onclick = () => {
-                setTimeout(() => window.updateMarketDetailOverlay(listing), 50);
+                window.__currentSelectedMarketListing = listing;
+                setTimeout(() => window.updateMarketDetailOverlay(listing), 20);
+                setTimeout(() => window.updateMarketDetailOverlay(listing), 80);
             };
         });
 
-        // Update right detail panel with first listing or selected
-        if (latestListings.length > 0) {
-            window.updateMarketDetailOverlay(latestListings[0]);
+        // Determine currently selected listing from .selected row or state
+        const selectedIdx = rows.findIndex(r => r.classList.contains('selected'));
+        let targetListing = null;
+        if (selectedIdx >= 0 && latestListings[selectedIdx]) {
+            targetListing = latestListings[selectedIdx];
+            window.__currentSelectedMarketListing = targetListing;
+        } else if (window.__currentSelectedMarketListing) {
+            targetListing = window.__currentSelectedMarketListing;
+        } else if (latestListings.length > 0) {
+            targetListing = latestListings[0];
+            window.__currentSelectedMarketListing = targetListing;
+        }
+
+        if (targetListing) {
+            window.updateMarketDetailOverlay(targetListing);
         }
     };
 
@@ -7422,22 +7564,7 @@
                         <div class="p-row" style="margin-top: 2px;">
                             <span style="font-size: 9.5px; color: #fde047;">Opt 1:</span>
                             <select id="p-mk-stat1-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                <option value="none" ${window.__marketFilterConfig.statType1 === 'none' ? 'selected' : ''}>-- ไม่ระบุ --</option>
-                                <option value="DEX" ${window.__marketFilterConfig.statType1 === 'DEX' ? 'selected' : ''}>DEX</option>
-                                <option value="STR" ${window.__marketFilterConfig.statType1 === 'STR' ? 'selected' : ''}>STR</option>
-                                <option value="AGI" ${window.__marketFilterConfig.statType1 === 'AGI' ? 'selected' : ''}>AGI</option>
-                                <option value="VIT" ${window.__marketFilterConfig.statType1 === 'VIT' ? 'selected' : ''}>VIT</option>
-                                <option value="INT" ${window.__marketFilterConfig.statType1 === 'INT' ? 'selected' : ''}>INT</option>
-                                <option value="LUK" ${window.__marketFilterConfig.statType1 === 'LUK' ? 'selected' : ''}>LUK</option>
-                                <option value="CRIT_DAMAGE" ${window.__marketFilterConfig.statType1 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG%</option>
-                                <option value="MATK" ${window.__marketFilterConfig.statType1 === 'MATK' ? 'selected' : ''}>MATK</option>
-                                <option value="ATK" ${window.__marketFilterConfig.statType1 === 'ATK' ? 'selected' : ''}>ATK</option>
-                                <option value="HIT" ${window.__marketFilterConfig.statType1 === 'HIT' ? 'selected' : ''}>HIT</option>
-                                <option value="FLEE" ${window.__marketFilterConfig.statType1 === 'FLEE' ? 'selected' : ''}>FLEE</option>
-                                <option value="DEF" ${window.__marketFilterConfig.statType1 === 'DEF' ? 'selected' : ''}>DEF</option>
-                                <option value="MELEE_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType1 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG%</option>
-                                <option value="MAGIC_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType1 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG%</option>
-                                <option value="DAMAGE_REDUCTION" ${window.__marketFilterConfig.statType1 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED%</option>
+                                ${getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1)}
                             </select>
                             <input type="number" id="p-mk-stat1-min" value="${window.__marketFilterConfig.statMinVal1 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
                         </div>
@@ -7445,22 +7572,7 @@
                         <div class="p-row">
                             <span style="font-size: 9.5px; color: #c084fc;">Opt 2:</span>
                             <select id="p-mk-stat2-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                <option value="none" ${window.__marketFilterConfig.statType2 === 'none' ? 'selected' : ''}>-- ไม่ระบุ --</option>
-                                <option value="DEX" ${window.__marketFilterConfig.statType2 === 'DEX' ? 'selected' : ''}>DEX</option>
-                                <option value="STR" ${window.__marketFilterConfig.statType2 === 'STR' ? 'selected' : ''}>STR</option>
-                                <option value="AGI" ${window.__marketFilterConfig.statType2 === 'AGI' ? 'selected' : ''}>AGI</option>
-                                <option value="VIT" ${window.__marketFilterConfig.statType2 === 'VIT' ? 'selected' : ''}>VIT</option>
-                                <option value="INT" ${window.__marketFilterConfig.statType2 === 'INT' ? 'selected' : ''}>INT</option>
-                                <option value="LUK" ${window.__marketFilterConfig.statType2 === 'LUK' ? 'selected' : ''}>LUK</option>
-                                <option value="CRIT_DAMAGE" ${window.__marketFilterConfig.statType2 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG%</option>
-                                <option value="MATK" ${window.__marketFilterConfig.statType2 === 'MATK' ? 'selected' : ''}>MATK</option>
-                                <option value="ATK" ${window.__marketFilterConfig.statType2 === 'ATK' ? 'selected' : ''}>ATK</option>
-                                <option value="HIT" ${window.__marketFilterConfig.statType2 === 'HIT' ? 'selected' : ''}>HIT</option>
-                                <option value="FLEE" ${window.__marketFilterConfig.statType2 === 'FLEE' ? 'selected' : ''}>FLEE</option>
-                                <option value="DEF" ${window.__marketFilterConfig.statType2 === 'DEF' ? 'selected' : ''}>DEF</option>
-                                <option value="MELEE_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType2 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG%</option>
-                                <option value="MAGIC_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType2 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG%</option>
-                                <option value="DAMAGE_REDUCTION" ${window.__marketFilterConfig.statType2 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED%</option>
+                                ${getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2)}
                             </select>
                             <input type="number" id="p-mk-stat2-min" value="${window.__marketFilterConfig.statMinVal2 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
                         </div>

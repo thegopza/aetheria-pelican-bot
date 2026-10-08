@@ -175,20 +175,37 @@ function startDebugServer(port = DEBUG_PORT) {
     const parsedUrl = new URL(req.url, `http://localhost:${DEBUG_PORT}`);
 
     if (parsedUrl.pathname === "/api/eval") {
-      const code = parsedUrl.searchParams.get("code");
-      if (!code || !win || !win.webContents) {
-        res.writeHead(400);
-        return res.end(JSON.stringify({ error: "Missing code or game window" }));
-      }
-      win.webContents.executeJavaScript(code)
-        .then(result => {
-          res.writeHead(200);
-          res.end(JSON.stringify({ success: true, result }));
-        })
-        .catch(err => {
-          res.writeHead(500);
-          res.end(JSON.stringify({ success: false, error: err.message }));
+      const handleEval = (evalCode) => {
+        if (!evalCode || !win || !win.webContents) {
+          res.writeHead(400);
+          return res.end(JSON.stringify({ error: "Missing code or game window" }));
+        }
+        win.webContents.executeJavaScript(evalCode)
+          .then(result => {
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, result }));
+          })
+          .catch(err => {
+            res.writeHead(500);
+            res.end(JSON.stringify({ success: false, error: err.message }));
+          });
+      };
+
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", chunk => body += chunk);
+        req.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            handleEval(data.code || body);
+          } catch(e) {
+            handleEval(body);
+          }
         });
+        return;
+      }
+
+      handleEval(parsedUrl.searchParams.get("code"));
       return;
     }
 
