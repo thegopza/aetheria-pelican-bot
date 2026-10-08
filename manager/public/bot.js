@@ -2319,19 +2319,31 @@
                     const buyBtnText = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '🔨 ประมูล' : '🛒 ซื้อ';
                     const buyBtnBg = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '#eab308' : '#0284c7';
 
+                    const qty = listing.qty || listing.quantity || listing.amount || it.qty || it.amount || 1;
+                    const qtyBadge = (qty > 1) ? `<b class="mk-qty" style="color: #fde047; font-size: 11px; margin-left: 2px; font-weight: bold; background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.45); padding: 1px 5px; border-radius: 4px;">×${qty.toLocaleString()}</b>` : '';
+                    const unitPrice = (qty > 1) ? Math.round(Number(listing.price) / qty) : null;
+                    const priceHtml = (unitPrice !== null) ? `
+                        <div style="font-weight: bold; color: #00ffcc; line-height: 1.2;">${Number(listing.price).toLocaleString()} z</div>
+                        <div style="font-size: 9px; color: #94a3b8; font-weight: normal; margin-top: 1px;">(${unitPrice.toLocaleString()} z ต่อชิ้น)</div>
+                    ` : `
+                        <span style="font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</span>
+                    `;
+                    const tooltipData = { ...it, qty, price: listing.price, sellerName: listing.sellerName };
+
                     html += `
-                        <tr style="${bg} border-bottom: 1px solid #1e293b;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
+                        <tr style="${bg} border-bottom: 1px solid #1e293b;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(tooltipData).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
                             <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center; color: #64748b;">${idx + 1}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155;">
                                 <div style="display: flex; align-items: center; gap: 6px;">
                                     ${getItemIconHtml(it, 22)}
                                     <span style="font-weight: bold; color: ${rarityInfo.color};">${it.name || 'ไอเทม'}${slotSuffix}</span>
+                                    ${qtyBadge}
                                     <span style="font-size: 9.5px; color: ${rarityInfo.color}; opacity: 0.85;">(${rarityInfo.th})</span>
                                 </div>
                             </td>
                             <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">${refBadge}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155;">${affHtml}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right; font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right;">${priceHtml}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155; color: #cbd5e1;">${listing.sellerName || '-'}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">
                                 <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}', this)" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
@@ -6525,13 +6537,19 @@
             refineHtml = `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 4px;">ตีบวก +${it.refine}</span>`;
         }
 
+        const qty = listing.qty || listing.quantity || listing.amount || it.qty || it.amount || 1;
+        let qtyHtml = '';
+        if (qty > 1) {
+            qtyHtml = `<span style="background: rgba(234, 179, 8, 0.25); border: 1px solid #eab308; color: #fde047; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 4px;">จำนวน ×${qty.toLocaleString()}</span>`;
+        }
+
         const isMatch = (typeof window.matchesMarketFilter === 'function') ? window.matchesMarketFilter(listing, window.__marketFilterConfig) : false;
         const matchBadge = isMatch ? `<span style="background: rgba(234, 179, 8, 0.25); border: 1px solid #eab308; color: #fde047; padding: 1px 6px; border-radius: 4px; font-size: 9.5px; font-weight: bold;">🎯 ตรงสเปคที่ค้นหา!</span>` : '';
 
         box.innerHTML = `
             <div style="font-weight: bold; color: #f59e0b; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
                 <span>💎 คุณสมบัติไอเทม (Stats & Random Options)</span>
-                <div>${refineHtml}${matchBadge}</div>
+                <div>${refineHtml}${qtyHtml}${matchBadge}</div>
             </div>
             <div>${attrHtml || '<span style="color: #64748b; font-size: 9.5px;">ไม่มีสเตตัสพื้นฐาน</span>'}</div>
             <div style="margin-top: 3px;">${affHtml || '<span style="color: #64748b; font-size: 9.5px;">ไม่มี Option สุ่ม</span>'}</div>
@@ -7047,7 +7065,7 @@
                 </div>
                 <div style="flex: 1;">
                     <div style="color: ${rarityInfo.color}; font-size: 13px; font-weight: bold;">
-                        ${refinePrefix}${raw.name || 'ไอเทม'}${titleSlotSuffix}
+                        ${refinePrefix}${raw.name || 'ไอเทม'}${titleSlotSuffix}${(raw.qty && raw.qty > 1) ? ` <b style="color: #fde047;">×${raw.qty.toLocaleString()}</b>` : ''}
                     </div>
                     <div style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
                         ${weaponTypeTH || equipTypeTH || typeTH} · <span style="color: ${rarityInfo.color};">${rarityInfo.th}</span>
@@ -7106,18 +7124,26 @@
                 }).join('');
             }
 
+            const qty = item.qty || item.quantity || item.amount || it.qty || it.amount || 1;
+            const qtyBadge = (qty > 1) ? ` <b style="color: #fde047; font-size: 10.5px;">×${qty.toLocaleString()}</b>` : '';
+            const unitPrice = (qty > 1) ? Math.round(Number(item.price) / qty) : null;
+            const tooltipData = { ...it, qty, price: item.price, sellerName: item.sellerName };
+
             html += `
-                <div class="p-card" style="margin-bottom: 4px; border-color: rgba(255, 255, 255, 0.12); padding: 5px;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
+                <div class="p-card" style="margin-bottom: 4px; border-color: rgba(255, 255, 255, 0.12); padding: 5px;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(tooltipData).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div style="display: flex; align-items: center; gap: 4px; overflow: hidden; flex: 1;">
                             ${getItemIconHtml(it, 18)}
                             <span style="font-weight: bold; color: ${rarityInfo.color}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ${refBadge}${it.name || 'ไอเทม'}
+                                ${refBadge}${it.name || 'ไอเทม'}${qtyBadge}
                             </span>
                         </div>
-                        <span style="font-weight: bold; color: #00ffcc; font-size: 11px; margin-left: 4px;">
-                            ${Number(item.price).toLocaleString()} z
-                        </span>
+                        <div style="text-align: right; margin-left: 4px;">
+                            <div style="font-weight: bold; color: #00ffcc; font-size: 11px;">
+                                ${Number(item.price).toLocaleString()} z
+                            </div>
+                            ${unitPrice ? `<div style="font-size: 8.5px; color: #94a3b8; line-height: 1;">(${unitPrice.toLocaleString()} z/ชิ้น)</div>` : ''}
+                        </div>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
                         <div style="display: flex; flex-wrap: wrap; gap: 2px; flex: 1;">
