@@ -2305,7 +2305,7 @@
                             <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right; font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155; color: #cbd5e1;">${listing.sellerName || '-'}</td>
                             <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">
-                                <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}')" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
+                                <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}', this)" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
                             </td>
                         </tr>
                     `;
@@ -6557,11 +6557,10 @@
             }
         }
 
-        // 2. Synchronize In-Game Market Window UI
-        window.openMarketWindow((win) => {
-            if (!win) return;
-
-            const searchInput = win.querySelector('input[type="text"], input[type="search"]');
+        // 2. Synchronize In-Game Market Window UI (เฉพาะกรณีที่หน้าต่างตลาดในเกมเปิดอยู่แล้วเท่านั้น จะไม่เปิดหน้าต่างขึ้นมาเอง)
+        const inGameWin = document.querySelector('.market-window');
+        if (inGameWin && inGameWin.offsetWidth > 0) {
+            const searchInput = inGameWin.querySelector('input[type="text"], input[type="search"]');
             if (searchInput) {
                 const k = Object.keys(searchInput).find(k => k.startsWith('__reactProps'));
                 if (searchInput[k]?.onChange) {
@@ -6574,7 +6573,7 @@
                 }
             }
 
-            const selects = win.querySelectorAll('select');
+            const selects = inGameWin.querySelectorAll('select');
             if (selects.length >= 1 && filters.category !== undefined) {
                 selects[0].value = filters.category || '';
                 selects[0].dispatchEvent(new Event('change', { bubbles: true }));
@@ -6585,7 +6584,7 @@
             }
 
             setTimeout(() => {
-                const form = win.querySelector('form.mk-filters');
+                const form = inGameWin.querySelector('form.mk-filters');
                 if (form) {
                     const fk = Object.keys(form).find(k => k.startsWith('__reactProps'));
                     if (form[fk]?.onSubmit) {
@@ -6595,7 +6594,7 @@
                     }
                 }
             }, 120);
-        });
+        }
     };
 
     window.startMarketMultiPageScan = function(maxPages = 5) {
@@ -6686,10 +6685,18 @@
         }, 500);
     };
 
-    window.buyMarketListing = function(listingId, price, itemName, sellerName) {
+    window.buyMarketListing = function(listingId, price, itemName, sellerName, btnEl) {
         console.log(`%c[Pelican Market] 🛒 ดำเนินการสั่งซื้อ: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName}...`, 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ส่งแพ็กเก็ตซื้อตรงสู่เซิร์ฟเวอร์ทันที
+        // อัปเดตสถานะปุ่มใน UI ทันที
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.style.opacity = '0.7';
+            btnEl.innerText = '⏳ กำลังซื้อ...';
+        }
+
+        // 1. ส่งแพ็กเก็ตซื้อตรงผ่านระบบ Colyseus Network โดยอ้างอิง listingId เท่านั้น
+        // (ปลอดภัย 100%: ไม่เปิดหรือแตะหน้าต่างตลาดในเกมเด็ดขาด เพื่อป้องกันไม่ให้เผลอไปกดซื้อไอเทมแถวแรกของตลาดอย่าง Arrow)
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (room && room.connection?.isOpen && listingId) {
             try {
@@ -6698,56 +6705,94 @@
                     listingId: Number(listingId),
                     price: Number(price)
                 });
-                console.log(`%c[Pelican Market] ⚡ ยิงแพ็กเก็ตสั่งซื้อ { op: 'buy', listingId: ${listingId}, price: ${price} } สำเร็จ!`, 'color: #10b981; font-weight: bold;');
+                console.log(`%c[Pelican Market] ⚡ ส่งแพ็กเก็ตซื้อตรงสำเร็จ: { op: 'buy', listingId: ${listingId}, price: ${price} } `, 'color: #10b981; font-weight: bold;');
             } catch(e) {
                 console.warn('[Pelican Market] direct buy send failed:', e);
             }
+        } else {
+            console.error('[Pelican Market] ❌ ไม่พบการเชื่อมต่อเกม หรือ listingId ไม่ถูกต้อง');
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.style.opacity = '1';
+                btnEl.innerText = '🛒 ซื้อ';
+            }
+            return;
         }
 
-        // 2. ซิงก์หน้าต่างตลาดในเกมและกดยืนยันอัตโนมัติ
-        window.openMarketWindow((win) => {
-            if (win) {
-                const rows = Array.from(win.querySelectorAll('.mk-row'));
-                let targetRow = null;
-                if (sellerName) {
-                    targetRow = rows.find(r => (r.innerText || '').includes(sellerName) && (r.innerText || '').includes(Number(price).toLocaleString()));
-                }
-                if (!targetRow && itemName) {
-                    targetRow = rows.find(r => (r.innerText || '').includes(itemName) && (r.innerText || '').includes(Number(price).toLocaleString()));
-                }
-                if (targetRow) {
-                    const buyBtn = targetRow.querySelector('button.primary');
-                    if (buyBtn) {
-                        buyBtn.click();
+        // 2. Safety Dialog Guard: ตรวจจับกล่องยืนยันในเกม
+        // หากมีกล่องถามยืนยันเปิดอยู่ ให้ตรวจว่าชื่อไอเทมตรงกันหรือไม่
+        // ถ้าตรงกันให้กดยืนยัน แต่ถ้าไม่ตรง (เช่น เด้งเป็น Arrow) ให้กดยกเลิกหรือปิดทิ้งทันที!
+        const safeguardConfirmDialog = () => {
+            const confirmDialog = document.querySelector('.qty-dialog.confirm-dialog, [role="alertdialog"]');
+            if (confirmDialog) {
+                const titleText = (confirmDialog.querySelector('.qty-title, h3, h4, p')?.innerText || confirmDialog.innerText || '');
+                if (itemName && titleText.includes(itemName)) {
+                    const confirmBtn = Array.from(confirmDialog.querySelectorAll('button')).find(b => {
+                        const t = (b.innerText || '').trim();
+                        return t === 'ซื้อ' || t === 'ยืนยัน' || t === 'ตกลง';
+                    });
+                    if (confirmBtn) {
+                        confirmBtn.click();
+                        console.log('%c[Pelican Market] ✅ ยืนยันการสั่งซื้อในหน้าต่าง Dialog สำเร็จ!', 'color: #10b981;');
+                    }
+                } else if (titleText.length > 0 && !titleText.includes(itemName)) {
+                    console.warn(`[Pelican Market Guard] ⚠️ พบ Dialog ซื้อไอเทมไม่ตรง ("${titleText.slice(0, 40)}") -> สั่งยกเลิก/ปิดทันที`);
+                    const cancelBtn = Array.from(confirmDialog.querySelectorAll('button')).find(b => {
+                        const t = (b.innerText || '').trim();
+                        return t === 'ยกเลิก' || t === 'ปิด' || t === 'Cancel';
+                    });
+                    if (cancelBtn) {
+                        cancelBtn.click();
+                    } else {
+                        confirmDialog.remove();
                     }
                 }
             }
-
-            // กดยืนยันในกล่องถามของเกมทันที (ปุ่ม 'ซื้อ' สีเหลืองใน dialog)
-            const tryConfirm = () => {
-                const allBtns = Array.from(document.querySelectorAll('.modal button, .dialog button, [class*="dialog"] button, [class*="modal"] button, [role="dialog"] button, .confirm button'));
-                const confirmBtn = allBtns.find(b => {
-                    const txt = (b.innerText || '').trim();
-                    return txt === 'ซื้อ' || txt === 'ยืนยัน' || txt === 'ตกลง';
-                });
-                if (confirmBtn) {
-                    confirmBtn.click();
-                    console.log('%c[Pelican Market] ✅ กดยืนยันการสั่งซื้อในหน้าต่างเกมเรียบร้อย!', 'color: #10b981; font-weight: bold;');
-                }
-            };
-
-            setTimeout(tryConfirm, 80);
-            setTimeout(tryConfirm, 220);
-            setTimeout(tryConfirm, 450);
-        });
+        };
+        setTimeout(safeguardConfirmDialog, 80);
+        setTimeout(safeguardConfirmDialog, 200);
 
         // 3. กดรับของเข้ากระเป๋าอัตโนมัติ (Auto-Claim Deliveries)
         setTimeout(() => {
             console.log(`%c[Pelican Market] 🎁 ดำเนินการกดรับของ (${itemName}) เข้ากระเป๋าอัตโนมัติ...`, 'color: #f59e0b; font-weight: bold;');
-            window.claimMarketDeliveries(() => {
-                console.log(`%c[Pelican Market] 🎉 ซื้อและรับของ ${itemName} เข้ากระเป๋าเรียบร้อยแล้ว!`, 'color: #10b981; font-weight: bold; font-size: 13px;');
-            });
-        }, 550);
+            if (room && room.connection?.isOpen) {
+                try {
+                    room.send('market', { op: 'collect_all' });
+                    console.log('%c[Pelican Market] 🎁 ยิงแพ็กเก็ต collect_all สำเร็จ!', 'color: #10b981;');
+                } catch(e) {}
+            }
+
+            if (typeof window.claimMarketDeliveries === 'function') {
+                window.claimMarketDeliveries(() => {
+                    console.log(`%c[Pelican Market] 🎉 ซื้อและรับของ ${itemName} เรียบร้อยแล้ว!`, 'color: #10b981; font-weight: bold; font-size: 13px;');
+                });
+            }
+
+            // ลบ listingId นี้ออกจากแคชเพื่อไม่ให้กดซ้ำ และอัปเดต UI ทันที
+            if (Array.isArray(window.__marketAllListings)) {
+                window.__marketAllListings = window.__marketAllListings.filter(l => l.listingId !== listingId);
+            }
+            if (Array.isArray(window.__marketFilteredResults)) {
+                window.__marketFilteredResults = window.__marketFilteredResults.filter(l => l.listingId !== listingId);
+            }
+
+            if (btnEl) {
+                btnEl.style.background = '#10b981';
+                btnEl.innerText = '✅ ซื้อแล้ว!';
+                setTimeout(() => {
+                    if (typeof window.renderModalContent === 'function') {
+                        window.renderModalContent('market');
+                    }
+                }, 1200);
+            }
+
+            // รีเฟรชกระเป๋าและน้ำหนักของตัวละคร
+            setTimeout(() => {
+                if (typeof window.refreshInventoryAndWeight === 'function') {
+                    window.refreshInventoryAndWeight();
+                }
+            }, 600);
+        }, 450);
     };
 
     window.showPelicanMarketItemTooltip = function(itemData, e) {
@@ -6877,7 +6922,7 @@
                         <div style="display: flex; flex-wrap: wrap; gap: 2px; flex: 1;">
                             ${affHtml || '<span style="color: #64748b; font-size: 9px;">ไม่มี Option</span>'}
                         </div>
-                        <button onclick="window.buyMarketListing(${item.listingId}, ${item.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(item.sellerName || '').replace(/'/g, "\\'")}')" style="background: #0284c7; color: white; border: none; padding: 2px 7px; border-radius: 4px; font-size: 9.5px; font-weight: bold; cursor: pointer; white-space: nowrap; margin-left: 4px; transition: all 0.15s ease;">🛒 ซื้อ</button>
+                        <button onclick="window.buyMarketListing(${item.listingId}, ${item.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(item.sellerName || '').replace(/'/g, "\\'")}', this)" style="background: #0284c7; color: white; border: none; padding: 2px 7px; border-radius: 4px; font-size: 9.5px; font-weight: bold; cursor: pointer; white-space: nowrap; margin-left: 4px; transition: all 0.15s ease;">🛒 ซื้อ</button>
                     </div>
                 </div>
             `;
