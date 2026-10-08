@@ -176,6 +176,33 @@
         localStorage.setItem('pelican_archer_cfg', JSON.stringify(window.__archerConfig));
     }
 
+    // Market Finder & Stat Sniper Config
+    const defaultMarketFilterConfig = {
+        q: '',
+        category: '',
+        kind: '',
+        minRefine: 0,
+        maxPrice: 0,
+        statType1: 'none',
+        statMinVal1: 1,
+        statType2: 'none',
+        statMinVal2: 1,
+        statMatchMode: 'AND',
+        sniperAlert: true,
+        autoBuy: false,
+        maxAutoBuyPrice: 100000
+    };
+    try {
+        const storedMarket = JSON.parse(localStorage.getItem('pelican_market_filter_cfg') || '{}');
+        window.__marketFilterConfig = Object.assign({}, defaultMarketFilterConfig, storedMarket);
+    } catch(e) {
+        window.__marketFilterConfig = defaultMarketFilterConfig;
+    }
+
+    function saveMarketFilterConfig() {
+        localStorage.setItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig));
+    }
+
     function updateAmmoHUD() {
         const threshold = (window.__archerConfig && window.__archerConfig.ammoThreshold) ? window.__archerConfig.ammoThreshold : 50;
         const isLow = window.__currentAmmo <= threshold;
@@ -1463,6 +1490,7 @@
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #0f172a; border-bottom: 1px solid #1e293b; gap: 10px; flex-wrap: wrap;">
                         <div style="display: flex; gap: 6px;">
                             <button class="p-mod-tab-btn" data-tab="items" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📦 กระเป๋า & อุปกรณ์</button>
+                            <button class="p-mod-tab-btn" data-tab="market" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🛒 ตลาดกลาง (Market)</button>
                             <button class="p-mod-tab-btn" data-tab="maps" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🗺️ แผนที่โลก (25 โซน)</button>
                             <button class="p-mod-tab-btn" data-tab="packets" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📜 Packets ล่าสุด</button>
                             <button class="p-mod-tab-btn" data-tab="state" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🕹️ สถานะตัวละคร</button>
@@ -1503,6 +1531,8 @@
                 let dataToCopy = null;
                 if (window.__currentModalTab === 'items') {
                     dataToCopy = window.dumpDeepInventory();
+                } else if (window.__currentModalTab === 'market') {
+                    dataToCopy = window.dumpMarketData ? window.dumpMarketData() : [];
                 } else if (window.__currentModalTab === 'maps') {
                     dataToCopy = window.dumpMapData();
                 } else if (window.__currentModalTab === 'packets') {
@@ -1918,6 +1948,240 @@
                 </div>
             `;
             container.innerHTML = html;
+        } else if (tabName === 'market') {
+            const cfg = window.__marketFilterConfig || {};
+            const totalServer = window.__latestMarketResults?.total ?? 'รอสแกน';
+            const cachedListings = window.__marketAllListings || [];
+            const results = (window.__marketFilteredResults && window.__marketFilteredResults.length > 0) ? window.__marketFilteredResults : cachedListings;
+
+            let html = `
+                <div style="margin-bottom: 12px; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 15px;">🛒</span>
+                            <span style="font-weight: bold; color: #38bdf8; font-size: 13px;">ระบบตลาดกลาง & ดักจับ Option สเตตัส (Market Sniper)</span>
+                            <span style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">Server: ${totalServer} รายการ</span>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button onclick="window.executeMarketSearch();" style="background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🔍 ค้นหา</button>
+                            <button onclick="window.startMarketMultiPageScan(5);" style="background: #9333ea; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">⚡ สแกน 5 หน้าต่อเนื่อง</button>
+                            <button onclick="window.safeCopyToClipboard(JSON.stringify(window.dumpMarketData(), null, 2), '📋 คัดลอก Dump ตลาดสำเร็จ!');" style="background: #059669; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">📋 Dump JSON</button>
+                        </div>
+                    </div>
+
+                    <!-- Filter Controls Bar -->
+                    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 6px; font-size: 11px; align-items: center;">
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">ชื่อไอเทม:</span>
+                            <input type="text" id="p-mod-mk-q" value="${cfg.q || ''}" placeholder="เช่น Bow, Ring, Dagger..." style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #fff; padding: 3px 6px; border-radius: 4px; font-size: 11px;">
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">หมวดหมู่:</span>
+                            <select id="p-mod-mk-cat" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #38bdf8; padding: 3px; border-radius: 4px; font-size: 11px;">
+                                <option value="" ${cfg.category === '' ? 'selected' : ''}>ทุกหมวด</option>
+                                <option value="Weapon" ${cfg.category === 'Weapon' ? 'selected' : ''}>อาวุธ</option>
+                                <option value="Armor" ${cfg.category === 'Armor' ? 'selected' : ''}>ชุดเกราะ</option>
+                                <option value="Accessory" ${cfg.category === 'Accessory' ? 'selected' : ''}>ประดับ/เจม</option>
+                                <option value="Card" ${cfg.category === 'Card' ? 'selected' : ''}>การ์ด</option>
+                                <option value="Ammo" ${cfg.category === 'Ammo' ? 'selected' : ''}>ลูกธนู</option>
+                            </select>
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">ตีบวก ≥:</span>
+                            <input type="number" id="p-mod-mk-refine" value="${cfg.minRefine || 0}" min="0" max="15" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #c084fc; text-align: center; padding: 3px; border-radius: 4px; font-size: 11px;">
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">งบสูงสุด (z):</span>
+                            <input type="number" id="p-mod-mk-price" value="${cfg.maxPrice || 0}" placeholder="0 = ไม่จำกัด" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #00ffcc; text-align: right; padding: 3px; border-radius: 4px; font-size: 11px;">
+                        </div>
+                        <div style="display: flex; gap: 4px; padding-top: 14px;">
+                            <button id="p-mod-btn-apply-filters" style="width: 100%; background: #2563eb; color: #fff; border: none; padding: 4px; border-radius: 4px; font-weight: bold; cursor: pointer;">⚡ กรองผล</button>
+                        </div>
+                    </div>
+
+                    <!-- Deep Stat Filters Row -->
+                    <div style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed #1e293b; display: grid; grid-template-columns: 2fr 1fr 2fr 1fr 1fr; gap: 6px; align-items: center;">
+                        <div>
+                            <span style="color: #f59e0b; font-size: 10px; font-weight: bold;">💎 Option 1 (Stat):</span>
+                            <select id="p-mod-mk-stat1" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(245, 158, 11, 0.4); color: #fde047; padding: 3px; border-radius: 4px; font-size: 10.5px;">
+                                <option value="none" ${cfg.statType1 === 'none' ? 'selected' : ''}>-- ไม่ระบุ Option 1 --</option>
+                                <option value="DEX" ${cfg.statType1 === 'DEX' ? 'selected' : ''}>DEX (ความแม่นยำ/ระยะไกล)</option>
+                                <option value="STR" ${cfg.statType1 === 'STR' ? 'selected' : ''}>STR (พลังโจมตีประชิด)</option>
+                                <option value="AGI" ${cfg.statType1 === 'AGI' ? 'selected' : ''}>AGI (ความเร็วโจมตี/หลบหลีก)</option>
+                                <option value="VIT" ${cfg.statType1 === 'VIT' ? 'selected' : ''}>VIT (พลังป้องกัน/HP)</option>
+                                <option value="INT" ${cfg.statType1 === 'INT' ? 'selected' : ''}>INT (พลังเวท/มานา)</option>
+                                <option value="LUK" ${cfg.statType1 === 'LUK' ? 'selected' : ''}>LUK (คริติคอล/โชคลาภ)</option>
+                                <option value="CRIT_DAMAGE" ${cfg.statType1 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG% (ความแรงคริ)</option>
+                                <option value="MATK" ${cfg.statType1 === 'MATK' ? 'selected' : ''}>MATK (พลังโจมตีเวท)</option>
+                                <option value="ATK" ${cfg.statType1 === 'ATK' ? 'selected' : ''}>ATK (พลังโจมตีกายภาพ)</option>
+                                <option value="HIT" ${cfg.statType1 === 'HIT' ? 'selected' : ''}>HIT (ความแม่นยำ)</option>
+                                <option value="FLEE" ${cfg.statType1 === 'FLEE' ? 'selected' : ''}>FLEE (การหลบหลีก)</option>
+                                <option value="DEF" ${cfg.statType1 === 'DEF' ? 'selected' : ''}>DEF (พลังป้องกัน)</option>
+                                <option value="MELEE_DAMAGE_PERCENT" ${cfg.statType1 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG% (แรงประชิด)</option>
+                                <option value="MAGIC_DAMAGE_PERCENT" ${cfg.statType1 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG% (แรงเวท)</option>
+                                <option value="DAMAGE_REDUCTION" ${cfg.statType1 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED% (ลดดาเมจ)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">ค่าขั้นต่ำ:</span>
+                            <input type="number" id="p-mod-mk-stat1-min" value="${cfg.statMinVal1 || 1}" min="1" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(245, 158, 11, 0.4); color: #fff; text-align: center; padding: 3px; border-radius: 4px; font-size: 11px;">
+                        </div>
+                        <div>
+                            <span style="color: #c084fc; font-size: 10px; font-weight: bold;">🔮 Option 2 (Stat):</span>
+                            <select id="p-mod-mk-stat2" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(192, 132, 252, 0.4); color: #e9d5ff; padding: 3px; border-radius: 4px; font-size: 10.5px;">
+                                <option value="none" ${cfg.statType2 === 'none' ? 'selected' : ''}>-- ไม่ระบุ Option 2 --</option>
+                                <option value="DEX" ${cfg.statType2 === 'DEX' ? 'selected' : ''}>DEX (ความแม่นยำ/ระยะไกล)</option>
+                                <option value="STR" ${cfg.statType2 === 'STR' ? 'selected' : ''}>STR (พลังโจมตีประชิด)</option>
+                                <option value="AGI" ${cfg.statType2 === 'AGI' ? 'selected' : ''}>AGI (ความเร็วโจมตี/หลบหลีก)</option>
+                                <option value="VIT" ${cfg.statType2 === 'VIT' ? 'selected' : ''}>VIT (พลังป้องกัน/HP)</option>
+                                <option value="INT" ${cfg.statType2 === 'INT' ? 'selected' : ''}>INT (พลังเวท/มานา)</option>
+                                <option value="LUK" ${cfg.statType2 === 'LUK' ? 'selected' : ''}>LUK (คริติคอล/โชคลาภ)</option>
+                                <option value="CRIT_DAMAGE" ${cfg.statType2 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG% (ความแรงคริ)</option>
+                                <option value="MATK" ${cfg.statType2 === 'MATK' ? 'selected' : ''}>MATK (พลังโจมตีเวท)</option>
+                                <option value="ATK" ${cfg.statType2 === 'ATK' ? 'selected' : ''}>ATK (พลังโจมตีกายภาพ)</option>
+                                <option value="HIT" ${cfg.statType2 === 'HIT' ? 'selected' : ''}>HIT (ความแม่นยำ)</option>
+                                <option value="FLEE" ${cfg.statType2 === 'FLEE' ? 'selected' : ''}>FLEE (การหลบหลีก)</option>
+                                <option value="DEF" ${cfg.statType2 === 'DEF' ? 'selected' : ''}>DEF (พลังป้องกัน)</option>
+                                <option value="MELEE_DAMAGE_PERCENT" ${cfg.statType2 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG% (แรงประชิด)</option>
+                                <option value="MAGIC_DAMAGE_PERCENT" ${cfg.statType2 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG% (แรงเวท)</option>
+                                <option value="DAMAGE_REDUCTION" ${cfg.statType2 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED% (ลดดาเมจ)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">ค่าขั้นต่ำ:</span>
+                            <input type="number" id="p-mod-mk-stat2-min" value="${cfg.statMinVal2 || 1}" min="1" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid rgba(192, 132, 252, 0.4); color: #fff; text-align: center; padding: 3px; border-radius: 4px; font-size: 11px;">
+                        </div>
+                        <div>
+                            <span style="color: #94a3b8; font-size: 10px;">เงื่อนไข:</span>
+                            <select id="p-mod-mk-mode" style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #38bdf8; padding: 3px; border-radius: 4px; font-size: 11px;">
+                                <option value="AND" ${cfg.statMatchMode === 'AND' ? 'selected' : ''}>AND (ครบทุก Opt)</option>
+                                <option value="OR" ${cfg.statMatchMode === 'OR' ? 'selected' : ''}>OR (มี Opt ใด Opt หนึ่ง)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold; color: #38bdf8; font-size: 12px;">
+                        📋 ผลลัพธ์ในตลาดที่พบ (${results.length} รายการ จากทั้งหมด ${cachedListings.length} ในแคช):
+                    </span>
+                    <span style="color: #eab308; font-size: 11px;">💡 ชี้เมาส์ที่แถวเพื่อดูรายละเอียด Tooltip ในเกมเต็มรูปแบบ</span>
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 6px 8px; border: 1px solid #334155; width: 40px; text-align: center;">#</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">ไอเทม</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155; width: 65px; text-align: center;">ตีบวก</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155;">สเตตัส / Options (Affixes)</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155; width: 90px; text-align: right;">ราคา</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155; width: 100px;">ผู้ขาย</th>
+                            <th style="padding: 6px 8px; border: 1px solid #334155; width: 80px; text-align: center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            if (results.length === 0) {
+                html += `
+                    <tr>
+                        <td colspan="7" style="padding: 24px; text-align: center; color: #64748b; border: 1px solid #1e293b; background: rgba(15, 23, 42, 0.4);">
+                            ⚠️ ไม่พบรายการไอเทมที่ตรงเงื่อนไข<br/>
+                            <span style="font-size: 10px; color: #475569;">ลองกดปุ่ม "🔍 ค้นหา" หรือ "⚡ สแกน 5 หน้าต่อเนื่อง" เพื่อดึงข้อมูลใหม่จากตลาด</span>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                results.slice(0, 80).forEach((listing, idx) => {
+                    const it = listing.item || {};
+                    const rarityKey = (it.rarity || 'common').toLowerCase();
+                    const rarityInfo = ITEM_RARITY_MAP[rarityKey] || { th: 'ทั่วไป', color: '#cbd5e1' };
+                    const refBadge = it.refine ? `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 11px;">+${it.refine}</span>` : '<span style="color: #64748b;">+0</span>';
+
+                    const slotCount = it.slots !== undefined ? it.slots : null;
+                    const slotSuffix = (slotCount !== null && slotCount > 0) ? ` [${slotCount}]` : '';
+
+                    let affHtml = '';
+                    if (Array.isArray(it.affixes) && it.affixes.length > 0) {
+                        affHtml = it.affixes.map(aff => {
+                            const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[aff.type]) ? STAT_NAMES_MAP[aff.type] : { short: aff.type };
+                            const valStr = (aff.mode === 'increasedPercent' || String(aff.type).includes('PERCENT') || String(aff.type).includes('DAMAGE')) ? `+${aff.value}%` : `+${aff.value}`;
+                            const isMatch = (cfg.statType1 && cfg.statType1 !== 'none' && String(aff.type).toUpperCase() === cfg.statType1.toUpperCase()) ||
+                                            (cfg.statType2 && cfg.statType2 !== 'none' && String(aff.type).toUpperCase() === cfg.statType2.toUpperCase());
+
+                            const bg = isMatch ? 'rgba(234, 179, 8, 0.25)' : (aff.category === 'special' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(34, 197, 94, 0.15)');
+                            const border = isMatch ? '#eab308' : (aff.category === 'special' ? '#c084fc' : '#22c55e');
+                            const color = isMatch ? '#fef08a' : (aff.category === 'special' ? '#e9d5ff' : '#86efac');
+                            const glow = isMatch ? 'box-shadow: 0 0 6px rgba(234, 179, 8, 0.5);' : '';
+
+                            return `<span style="display: inline-block; background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 1px 5px; border-radius: 4px; font-size: 10px; margin: 1px 3px 1px 0; font-weight: 500; ${glow}">${sInfo.short || aff.type} <b>${valStr}</b></span>`;
+                        }).join('');
+                    } else {
+                        affHtml = '<span style="color: #64748b; font-size: 10px;">-</span>';
+                    }
+
+                    const bg = idx % 2 === 0 ? 'background: rgba(15, 23, 42, 0.6);' : 'background: rgba(30, 41, 59, 0.4);';
+                    const buyBtnText = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '🔨 ประมูล' : '🛒 ซื้อ';
+                    const buyBtnBg = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '#eab308' : '#0284c7';
+
+                    html += `
+                        <tr style="${bg} border-bottom: 1px solid #1e293b;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
+                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center; color: #64748b;">${idx + 1}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    ${getItemIconHtml(it, 22)}
+                                    <span style="font-weight: bold; color: ${rarityInfo.color};">${it.name || 'ไอเทม'}${slotSuffix}</span>
+                                    <span style="font-size: 9.5px; color: ${rarityInfo.color}; opacity: 0.85;">(${rarityInfo.th})</span>
+                                </div>
+                            </td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">${refBadge}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155;">${affHtml}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right; font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155; color: #cbd5e1;">${listing.sellerName || '-'}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">
+                                <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}')" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = html;
+
+            const applyBtn = document.getElementById('p-mod-btn-apply-filters');
+            if (applyBtn) {
+                applyBtn.onclick = () => {
+                    const qInput = document.getElementById('p-mod-mk-q');
+                    const catSelect = document.getElementById('p-mod-mk-cat');
+                    const refInput = document.getElementById('p-mod-mk-refine');
+                    const priceInput = document.getElementById('p-mod-mk-price');
+                    const stat1Select = document.getElementById('p-mod-mk-stat1');
+                    const stat1MinInput = document.getElementById('p-mod-mk-stat1-min');
+                    const stat2Select = document.getElementById('p-mod-mk-stat2');
+                    const stat2MinInput = document.getElementById('p-mod-mk-stat2-min');
+                    const modeSelect = document.getElementById('p-mod-mk-mode');
+
+                    window.__marketFilterConfig.q = qInput ? qInput.value.trim() : '';
+                    window.__marketFilterConfig.category = catSelect ? catSelect.value : '';
+                    window.__marketFilterConfig.minRefine = refInput ? parseInt(refInput.value) || 0 : 0;
+                    window.__marketFilterConfig.maxPrice = priceInput ? parseInt(priceInput.value) || 0 : 0;
+                    window.__marketFilterConfig.statType1 = stat1Select ? stat1Select.value : 'none';
+                    window.__marketFilterConfig.statMinVal1 = stat1MinInput ? parseInt(stat1MinInput.value) || 1 : 1;
+                    window.__marketFilterConfig.statType2 = stat2Select ? stat2Select.value : 'none';
+                    window.__marketFilterConfig.statMinVal2 = stat2MinInput ? parseInt(stat2MinInput.value) || 1 : 1;
+                    window.__marketFilterConfig.statMatchMode = modeSelect ? modeSelect.value : 'AND';
+
+                    saveMarketFilterConfig();
+                    window.applyMarketFilters();
+                    window.renderModalTab('market');
+                };
+            }
         }
     };
 
@@ -2746,6 +3010,18 @@
         try {
             const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
             if (u[0] === 0x0D) {
+                // ตรวจสอบแพ็กเก็ต 'market_results' (0x0D + fixstr 14 'market_results')
+                if (u.length > 20 && u[1] === 0xae && u[2] === 0x6d && u[3] === 0x61 && u[4] === 0x72 && u[5] === 0x6b && u[6] === 0x65 && u[7] === 0x74 && u[8] === 0x5f && u[9] === 0x72) {
+                    try {
+                        const marketDec = window.msgpack.decode(u.slice(16));
+                        if (marketDec && Array.isArray(marketDec.listings)) {
+                            window.handleIncomingMarketResults(marketDec);
+                        }
+                    } catch(err) {
+                        console.warn('[Pelican Market] Error parsing market_results packet:', err);
+                    }
+                }
+
                 // ตรวจสอบว่าคือแพ็กเก็ต 'inventory' หรือไม่ (0x0D + fixstr(9) 'inventory')
                 const isInventoryPacket = (u.length > 15 && u[1] === 0xa9 && u[2] === 0x69 && u[3] === 0x6e && u[4] === 0x76);
                 const targetOffset = isInventoryPacket ? 11 : -1;
@@ -5687,6 +5963,490 @@
         }
     }
 
+    // ==========================================
+    // 8. MARKET FINDER & STAT SNIPER SUITE
+    // ==========================================
+    window.__latestMarketResults = null;
+    window.__marketAllListings = [];
+    window.__marketFilteredResults = [];
+    window.__alertedMarketIds = new Set();
+    window.__isMarketScanning = false;
+
+    const STAT_NAMES_MAP = {
+        'DEX': { th: 'DEX (ความแม่นยำ/ระยะไกล)', short: 'DEX' },
+        'STR': { th: 'STR (พลังโจมตีประชิด/แบกน้ำหนัก)', short: 'STR' },
+        'AGI': { th: 'AGI (ความเร็วโจมตี/หลบหลีก)', short: 'AGI' },
+        'VIT': { th: 'VIT (พลังป้องกัน/เลือดสูงสุด)', short: 'VIT' },
+        'INT': { th: 'INT (พลังเวท/มานาสูงสุด)', short: 'INT' },
+        'LUK': { th: 'LUK (คริติคอล/โชคลาภ)', short: 'LUK' },
+        'ATK': { th: 'ATK (พลังโจมตีกายภาพ)', short: 'ATK' },
+        'MATK': { th: 'MATK (พลังโจมตีเวท)', short: 'MATK' },
+        'DEF': { th: 'DEF (พลังป้องกันกายภาพ)', short: 'DEF' },
+        'MDEF': { th: 'MDEF (พลังป้องกันเวท)', short: 'MDEF' },
+        'HIT': { th: 'HIT (ความแม่นยำ)', short: 'HIT' },
+        'FLEE': { th: 'FLEE (การหลบหลีก)', short: 'FLEE' },
+        'CRIT': { th: 'CRIT (อัตราคริติคอล)', short: 'CRIT' },
+        'CRIT_DAMAGE': { th: 'CRIT DMG% (ความแรงคริ)', short: 'CRIT_DMG%' },
+        'MELEE_ATTACK': { th: 'พลังโจมตีประชิด', short: 'MELEE_ATK' },
+        'RANGE_ATTACK': { th: 'พลังโจมตีระยะไกล', short: 'RANGE_ATK' },
+        'MAGIC_ATTACK': { th: 'พลังโจมตีเวท', short: 'MAGIC_ATK' },
+        'MELEE_DAMAGE_PERCENT': { th: 'ความแรงกายภาพประชิด%', short: 'MELEE_DMG%' },
+        'MAGIC_DAMAGE_PERCENT': { th: 'ความแรงเวท%', short: 'MAGIC_DMG%' },
+        'DAMAGE_REDUCTION': { th: 'ลดดาเมจที่ได้รับ%', short: 'DMG_RED%' },
+        'BLOCK_CHANCE': { th: 'โอกาสบล็อก%', short: 'BLOCK%' },
+        'HEAL_POWER': { th: 'พลังการฮีล%', short: 'HEAL%' },
+        'MAXHP': { th: 'Max HP (เลือดสูงสุด)', short: 'MAX_HP' },
+        'MAXSP': { th: 'Max SP (มานาสูงสุด)', short: 'MAX_SP' },
+        'HP_REGEN': { th: 'ฟื้นฟูเลือด HP', short: 'HP_REGEN' },
+        'SP_REGEN': { th: 'ฟื้นฟูมานา SP', short: 'SP_REGEN' },
+        'ATTACK_SPEED': { th: 'ความเร็วโจมตี ASPD', short: 'ASPD' },
+        'CAST_TIME_REDUCTION': { th: 'ลดระยะเวลาร่ายเวท%', short: 'CAST_RED%' }
+    };
+
+    window.matchesMarketFilter = function(listing, cfg) {
+        if (!listing || !listing.item) return false;
+        cfg = cfg || window.__marketFilterConfig || {};
+        const it = listing.item;
+
+        // 1. Max Price
+        if (cfg.maxPrice && cfg.maxPrice > 0) {
+            const price = Number(listing.price) || 0;
+            if (price > cfg.maxPrice) return false;
+        }
+
+        // 2. Min Refine
+        if (cfg.minRefine && cfg.minRefine > 0) {
+            const ref = Number(it.refine) || 0;
+            if (ref < cfg.minRefine) return false;
+        }
+
+        // 3. Name Query
+        if (cfg.q && cfg.q.trim()) {
+            const qLower = cfg.q.trim().toLowerCase();
+            const nameLower = (it.name || '').toLowerCase();
+            if (!nameLower.includes(qLower)) return false;
+        }
+
+        // 4. Category
+        if (cfg.category && cfg.category !== '') {
+            const cat = cfg.category;
+            const equipType = it.equipType || '';
+            const type = it.type || '';
+            if (cat === 'Weapon' && equipType !== 'Weapon') return false;
+            if (cat === 'Armor' && !['Armor', 'Shield', 'Cape', 'Garment', 'Boot', 'Shoes', 'Helmet', 'Headgear'].includes(equipType)) return false;
+            if (cat === 'Accessory' && !['Accessory', 'Gem'].includes(equipType)) return false;
+            if (cat === 'Card' && type !== 'Card') return false;
+            if (cat === 'Ammo' && equipType !== 'Ammo') return false;
+        }
+
+        // 5. Kind
+        if (cfg.kind && cfg.kind !== '') {
+            const kind = cfg.kind.toLowerCase();
+            const weapType = (it.weaponType || '').toLowerCase();
+            const equipType = (it.equipType || '').toLowerCase();
+            if (!weapType.includes(kind) && !equipType.includes(kind)) return false;
+        }
+
+        // 6. Deep Stat Filters
+        const checkStat = (targetType, minVal) => {
+            if (!targetType || targetType === 'none') return true;
+            targetType = targetType.toUpperCase();
+            minVal = Number(minVal) || 1;
+
+            if (Array.isArray(it.affixes)) {
+                for (const aff of it.affixes) {
+                    if (aff && String(aff.type).toUpperCase() === targetType) {
+                        const val = Number(aff.value) || 0;
+                        if (val >= minVal) return true;
+                    }
+                }
+            }
+            if (Array.isArray(it.attributes)) {
+                for (const attr of it.attributes) {
+                    if (attr && String(attr.type).toUpperCase() === targetType) {
+                        const val = Number(attr.value) || 0;
+                        if (val >= minVal) return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        const hasStat1 = cfg.statType1 && cfg.statType1 !== 'none';
+        const hasStat2 = cfg.statType2 && cfg.statType2 !== 'none';
+
+        if (hasStat1 && hasStat2) {
+            const m1 = checkStat(cfg.statType1, cfg.statMinVal1);
+            const m2 = checkStat(cfg.statType2, cfg.statMinVal2);
+            if (cfg.statMatchMode === 'OR') {
+                if (!m1 && !m2) return false;
+            } else {
+                if (!m1 || !m2) return false;
+            }
+        } else if (hasStat1) {
+            if (!checkStat(cfg.statType1, cfg.statMinVal1)) return false;
+        } else if (hasStat2) {
+            if (!checkStat(cfg.statType2, cfg.statMinVal2)) return false;
+        }
+
+        return true;
+    };
+
+    window.applyMarketFilters = function() {
+        const pool = window.__marketAllListings || [];
+        const cfg = window.__marketFilterConfig || {};
+        const matched = [];
+
+        for (const item of pool) {
+            if (window.matchesMarketFilter(item, cfg)) {
+                matched.push(item);
+            }
+        }
+
+        matched.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+        window.__marketFilteredResults = matched;
+
+        if (typeof window.renderMarketHudTab === 'function') {
+            window.renderMarketHudTab();
+        }
+
+        return matched;
+    };
+
+    window.handleIncomingMarketResults = function(dec) {
+        if (!dec || !Array.isArray(dec.listings)) return;
+        window.__latestMarketResults = dec;
+
+        if (!window.__marketAllListings) window.__marketAllListings = [];
+        const existingMap = new Map();
+        for (const item of window.__marketAllListings) {
+            if (item && item.listingId !== undefined) existingMap.set(item.listingId, item);
+        }
+        for (const incoming of dec.listings) {
+            if (incoming && incoming.listingId !== undefined) {
+                existingMap.set(incoming.listingId, incoming);
+            }
+        }
+        window.__marketAllListings = Array.from(existingMap.values()).slice(-600);
+
+        const matched = window.applyMarketFilters();
+        const cfg = window.__marketFilterConfig || {};
+
+        if (cfg.sniperAlert || cfg.autoBuy) {
+            for (const item of dec.listings) {
+                if (window.matchesMarketFilter(item, cfg)) {
+                    const id = item.listingId;
+                    if (!window.__alertedMarketIds.has(id)) {
+                        window.__alertedMarketIds.add(id);
+                        const it = item.item || {};
+                        const refStr = it.refine ? `+${it.refine} ` : '';
+                        console.log(`%c[Pelican Sniper] 🎯 พบไอเทมเป้าหมาย! ${refStr}${it.name} | ราคา ${Number(item.price).toLocaleString()} z จาก ${item.sellerName}`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
+                        if (typeof playWarningChime === 'function') playWarningChime();
+
+                        if (cfg.autoBuy) {
+                            const maxBuy = Number(cfg.maxAutoBuyPrice) || Number(cfg.maxPrice) || 0;
+                            if (maxBuy <= 0 || (Number(item.price) || 0) <= maxBuy) {
+                                console.log(`%c[Pelican Sniper] ⚡ สั่งซื้ออัตโนมัติทันที: ${refStr}${it.name} (${Number(item.price).toLocaleString()} z)...`, 'color: #10b981; font-weight: bold;');
+                                setTimeout(() => {
+                                    window.buyMarketListing(item.listingId, item.price, it.name, item.sellerName);
+                                }, 150);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const modal = document.getElementById('pelican-data-modal');
+        if (modal && modal.style.display === 'flex' && window.__currentModalTab === 'market') {
+            window.renderModalTab('market');
+        }
+    };
+
+    window.dumpMarketData = function() {
+        return {
+            timestamp: new Date().toISOString(),
+            totalServerListings: window.__latestMarketResults?.total ?? null,
+            cachedListingsCount: (window.__marketAllListings || []).length,
+            filteredCount: (window.__marketFilteredResults || []).length,
+            filters: window.__marketFilterConfig,
+            results: window.__marketFilteredResults || []
+        };
+    };
+
+    window.openMarketWindow = function(callback) {
+        let win = document.querySelector('.market-window');
+        if (win && win.offsetWidth > 0) {
+            if (typeof callback === 'function') callback(win);
+            return;
+        }
+        const marketBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').includes('ตลาดกลาง'));
+        if (marketBtn) {
+            marketBtn.click();
+            let attempts = 0;
+            const timer = setInterval(() => {
+                attempts++;
+                win = document.querySelector('.market-window');
+                if ((win && win.offsetWidth > 0) || attempts > 15) {
+                    clearInterval(timer);
+                    if (typeof callback === 'function') callback(win);
+                }
+            }, 100);
+        } else {
+            console.warn('[Pelican Market] ⚠️ ไม่พบปุ่มตลาดกลางในหน้าจอ');
+            if (typeof callback === 'function') callback(null);
+        }
+    };
+
+    window.executeMarketSearch = function(filters) {
+        filters = filters || window.__marketFilterConfig || {};
+        window.openMarketWindow((win) => {
+            if (!win) {
+                console.warn('[Pelican Market] ไม่สามารถเปิดหน้าต่างตลาดได้');
+                return;
+            }
+
+            const searchInput = win.querySelector('input[type="text"], input[type="search"]');
+            if (searchInput) {
+                searchInput.value = filters.q || '';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            const selects = win.querySelectorAll('select');
+            if (selects.length >= 1 && filters.category !== undefined) {
+                selects[0].value = filters.category || '';
+                selects[0].dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (selects.length >= 2 && filters.kind !== undefined) {
+                selects[1].value = filters.kind || '';
+                selects[1].dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
+            setTimeout(() => {
+                const searchBtn = Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').trim() === 'ค้นหา');
+                if (searchBtn) {
+                    searchBtn.click();
+                    console.log(`%c[Pelican Market] 🔍 ส่งคำสั่งค้นหาตลาด: "${filters.q || 'ทั้งหมด'}" หมวด: ${filters.category || 'ทุกหมวด'}`, 'color: #38bdf8; font-weight: bold;');
+                }
+            }, 150);
+        });
+    };
+
+    window.startMarketMultiPageScan = function(maxPages = 5) {
+        if (window.__isMarketScanning) {
+            console.log('[Pelican Market] การสแกนกำลังทำงานอยู่แล้ว');
+            return;
+        }
+        window.__isMarketScanning = true;
+        console.log(`%c[Pelican Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติ ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
+
+        let curPage = 1;
+        window.executeMarketSearch();
+
+        const scanNext = () => {
+            if (!window.__isMarketScanning) return;
+            if (curPage >= maxPages) {
+                window.__isMarketScanning = false;
+                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! ตรวจพบไอเทมตรงสเปค: ${(window.__marketFilteredResults || []).length} รายการ`, 'color: #10b981; font-weight: bold;');
+                if (typeof window.renderMarketHudTab === 'function') window.renderMarketHudTab();
+                return;
+            }
+
+            const win = document.querySelector('.market-window');
+            if (!win) {
+                window.__isMarketScanning = false;
+                return;
+            }
+            const nextBtn = Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').includes('ถัดไป'));
+            if (nextBtn && !nextBtn.disabled) {
+                curPage++;
+                console.log(`%c[Pelican Market] 📄 กำลังสแกนหน้า ${curPage}/${maxPages}...`, 'color: #c084fc;');
+                nextBtn.click();
+                setTimeout(scanNext, 850);
+            } else {
+                window.__isMarketScanning = false;
+                console.log(`%c[Pelican Market] 🏁 สิ้นสุดหน้ารายการ (ตรวจพบ ${curPage} หน้า)`, 'color: #38bdf8;');
+            }
+        };
+
+        setTimeout(scanNext, 1000);
+    };
+
+    window.buyMarketListing = function(listingId, price, itemName, sellerName) {
+        window.openMarketWindow((win) => {
+            if (!win) {
+                console.warn('[Pelican Market] ไม่สามารถเปิดหน้าต่างตลาดเพื่อซื้อของได้');
+                return;
+            }
+
+            const rows = Array.from(win.querySelectorAll('.mk-row'));
+            let targetRow = null;
+
+            if (sellerName) {
+                targetRow = rows.find(r => (r.innerText || '').includes(sellerName) && (r.innerText || '').includes(Number(price).toLocaleString()));
+            }
+            if (!targetRow && itemName) {
+                targetRow = rows.find(r => (r.innerText || '').includes(itemName) && (r.innerText || '').includes(Number(price).toLocaleString()));
+            }
+
+            if (targetRow) {
+                const buyBtn = targetRow.querySelector('button.primary');
+                if (buyBtn) {
+                    const btnText = (buyBtn.innerText || '').trim();
+                    if (btnText === 'ซื้อ') {
+                        buyBtn.click();
+                        console.log(`%c[Pelican Market] 🛒 สั่งซื้อไอเทม: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName} เรียบร้อย!`, 'color: #10b981; font-weight: bold;');
+                        setTimeout(() => {
+                            const confirmBtn = Array.from(document.querySelectorAll('.modal button, .dialog button, .confirm button')).find(b => (b.innerText || '').includes('ยืนยัน') || (b.innerText || '').includes('ตกลง'));
+                            if (confirmBtn) confirmBtn.click();
+                        }, 200);
+                    } else if (btnText === 'ประมูล') {
+                        console.warn(`[Pelican Market] ⚠️ รายการนี้อยู่ในช่วงประมูล 5 นาทีแรก (กดประมูลแทนการซื้อตรง)`);
+                        buyBtn.click();
+                    }
+                }
+            } else {
+                console.warn(`[Pelican Market] ⚠️ ไม่พบแถวไอเทม ${itemName} (${Number(price).toLocaleString()} z) ในหน้าต่างตลาดปัจจุบัน (ลองเปิดหน้ารายการนั้น)`);
+            }
+        });
+    };
+
+    window.showPelicanMarketItemTooltip = function(itemData, e) {
+        if (!itemData) return;
+        const raw = itemData.raw || itemData;
+        const tt = getOrCreatePelicanItemTooltip();
+
+        const rarityKey = (raw.rarity || 'common').toLowerCase();
+        const rarityInfo = ITEM_RARITY_MAP[rarityKey] || { th: raw.rarity || 'ทั่วไป', color: '#cbd5e1' };
+
+        const typeTH = ITEM_TYPE_TH[raw.type] || raw.type || 'ไอเทม';
+        const equipTypeTH = EQUIP_TYPE_TH[raw.equipType] || raw.equipType || '';
+        const weaponTypeTH = WEAPON_TYPE_TH[raw.weaponType] || raw.weaponType || '';
+
+        const slotCount = raw.slots !== undefined ? raw.slots : null;
+        const titleSlotSuffix = (slotCount !== null && slotCount > 0) ? ` [${slotCount}]` : '';
+        const refinePrefix = raw.refine ? `+${raw.refine} ` : '';
+
+        let affixesHtml = '';
+        if (Array.isArray(raw.affixes) && raw.affixes.length > 0) {
+            affixesHtml = `
+                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.12);">
+                    <div style="font-size: 10px; color: #38bdf8; font-weight: bold; margin-bottom: 3px;">✨ คุณสมบัติพิเศษ (Options):</div>
+                    ${raw.affixes.map(aff => {
+                        const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[aff.type]) ? STAT_NAMES_MAP[aff.type] : { th: aff.type };
+                        const valStr = (aff.mode === 'increasedPercent' || String(aff.type).includes('PERCENT') || String(aff.type).includes('DAMAGE')) ? `+${aff.value}%` : `+${aff.value}`;
+                        const isSpecial = aff.category === 'special' || String(aff.type).includes('CRIT');
+                        const color = isSpecial ? '#f59e0b' : '#34d399';
+                        return `<div style="color: ${color}; font-size: 11px; margin-bottom: 1px;">• ${sInfo.th || aff.type} <b style="color: #fff;">${valStr}</b></div>`;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        let attrsHtml = '';
+        if (Array.isArray(raw.attributes) && raw.attributes.length > 0) {
+            attrsHtml = `
+                <div style="margin-top: 4px; font-size: 11px; color: #94a3b8;">
+                    ${raw.attributes.map(attr => {
+                        const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[attr.type]) ? STAT_NAMES_MAP[attr.type] : { th: attr.type };
+                        return `<div>${sInfo.th || attr.type}: <b style="color: #fff;">+${attr.value}</b></div>`;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        tt.innerHTML = `
+            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                <div style="width: 36px; height: 36px; min-width: 36px; background: rgba(15, 23, 42, 0.8); border: 1.5px solid ${rarityInfo.color}; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    ${getItemIconHtml(raw, 28)}
+                </div>
+                <div style="flex: 1;">
+                    <div style="color: ${rarityInfo.color}; font-size: 13px; font-weight: bold;">
+                        ${refinePrefix}${raw.name || 'ไอเทม'}${titleSlotSuffix}
+                    </div>
+                    <div style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
+                        ${weaponTypeTH || equipTypeTH || typeTH} · <span style="color: ${rarityInfo.color};">${rarityInfo.th}</span>
+                    </div>
+                </div>
+            </div>
+            ${attrsHtml}
+            ${affixesHtml}
+            <div style="margin-top: 6px; font-size: 9.5px; color: #64748b; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 4px;">
+                💡 คลิก 'ซื้อทันที' เพื่อส่งคำสั่งซื้อผ่านตลาดกลาง
+            </div>
+        `;
+
+        tt.style.display = 'block';
+        window.movePelicanItemTooltip(e);
+    };
+
+    window.renderMarketHudTab = function() {
+        const hudTab = document.getElementById('p-tab-market');
+        if (!hudTab) return;
+
+        const countEl = document.getElementById('p-mk-result-count');
+        const listEl = document.getElementById('p-mk-hud-results');
+        const results = window.__marketFilteredResults || [];
+
+        if (countEl) countEl.innerText = results.length;
+        if (!listEl) return;
+
+        if (results.length === 0) {
+            listEl.innerHTML = `
+                <div style="text-align: center; color: #64748b; padding: 14px 6px; font-size: 10.5px;">
+                    ยังไม่พบรายการที่ตรงเงื่อนไข<br/>
+                    <span style="font-size: 9.5px; color: #475569;">กดปุ่ม '🔍 ค้นหา' หรือ '⚡ สแกนหลายหน้า' เพื่อดึงข้อมูล</span>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        for (const item of results.slice(0, 30)) {
+            const it = item.item || {};
+            const refBadge = it.refine ? `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 0 4px; border-radius: 3px; font-weight: bold; font-size: 9.5px; margin-right: 3px;">+${it.refine}</span>` : '';
+            const rarityKey = (it.rarity || 'common').toLowerCase();
+            const rarityInfo = ITEM_RARITY_MAP[rarityKey] || { th: 'ทั่วไป', color: '#cbd5e1' };
+
+            let affHtml = '';
+            if (Array.isArray(it.affixes)) {
+                affHtml = it.affixes.map(a => {
+                    const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[a.type]) ? STAT_NAMES_MAP[a.type] : { short: a.type };
+                    const isSpec = a.category === 'special' || String(a.type).includes('CRIT');
+                    const bg = isSpec ? 'rgba(234, 179, 8, 0.25)' : 'rgba(34, 197, 94, 0.2)';
+                    const border = isSpec ? 'rgba(234, 179, 8, 0.5)' : 'rgba(34, 197, 94, 0.4)';
+                    const color = isSpec ? '#fef08a' : '#86efac';
+                    const val = (a.mode === 'increasedPercent' || String(a.type).includes('PERCENT')) ? `+${a.value}%` : `+${a.value}`;
+                    return `<span style="background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 0 3px; border-radius: 3px; font-size: 9px; margin-right: 2px;">${sInfo.short || a.type} ${val}</span>`;
+                }).join('');
+            }
+
+            html += `
+                <div class="p-card" style="margin-bottom: 4px; border-color: rgba(255, 255, 255, 0.12); padding: 5px;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 4px; overflow: hidden; flex: 1;">
+                            ${getItemIconHtml(it, 18)}
+                            <span style="font-weight: bold; color: ${rarityInfo.color}; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${refBadge}${it.name || 'ไอเทม'}
+                            </span>
+                        </div>
+                        <span style="font-weight: bold; color: #00ffcc; font-size: 11px; margin-left: 4px;">
+                            ${Number(item.price).toLocaleString()} z
+                        </span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 2px; flex: 1;">
+                            ${affHtml || '<span style="color: #64748b; font-size: 9px;">ไม่มี Option</span>'}
+                        </div>
+                        <button onclick="window.buyMarketListing(${item.listingId}, ${item.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(item.sellerName || '').replace(/'/g, "\\'")}')" style="background: #0284c7; color: white; border: none; padding: 2px 7px; border-radius: 4px; font-size: 9.5px; font-weight: bold; cursor: pointer; white-space: nowrap; margin-left: 4px; transition: all 0.15s ease;">🛒 ซื้อ</button>
+                    </div>
+                </div>
+            `;
+        }
+        listEl.innerHTML = html;
+    };
+
     function createUI() {
         if (document.getElementById('pelican-hud')) return;
 
@@ -5698,7 +6458,7 @@
                     position: fixed;
                     top: 180px;
                     right: 20px;
-                    width: 270px;
+                    width: 285px;
                     background: rgba(15, 23, 42, 0.96);
                     border: 1px solid rgba(0, 255, 204, 0.35);
                     border-radius: 10px;
@@ -5871,7 +6631,8 @@
                 <div class="p-tabs">
                     <button class="p-tab-btn active" data-tab="farm">🚀 ฟาร์ม</button>
                     <button class="p-tab-btn" data-tab="ammo">🏹 ธนู</button>
-                    <button class="p-tab-btn" data-tab="sell">💰 ขายของ</button>
+                    <button class="p-tab-btn" data-tab="sell">💰 ขาย</button>
+                    <button class="p-tab-btn" data-tab="market">🛒 ตลาด</button>
                     <button class="p-tab-btn" data-tab="system">⚙️ ตั้งค่า</button>
                 </div>
 
@@ -6121,7 +6882,151 @@
                     <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
                 </div>
 
-                <!-- TAB 4: SYSTEM & TOOLS -->
+                <!-- TAB 4: MARKET & STAT SNIPER -->
+                <div class="p-tab-pane" id="p-tab-market">
+                    <!-- Quick Search Card -->
+                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(56, 189, 248, 0.2); padding-bottom: 2px; margin-bottom: 3px;">
+                            <span style="font-size: 10px; font-weight: bold; color: #38bdf8;">🔍 ค้นหาไอเทมตลาดกลาง</span>
+                            <span id="p-mk-server-count-badge" style="font-size: 8.5px; color: #94a3b8;">Server Sync</span>
+                        </div>
+                        <div>
+                            <input type="text" id="p-mk-search-query" value="${window.__marketFilterConfig.q || ''}" placeholder="ค้นหาชื่อไอเทม (เช่น Bow, Ring, Dagger)..." style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
+                            <select id="p-mk-cat-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
+                                <option value="" ${window.__marketFilterConfig.category === '' ? 'selected' : ''}>ทุกหมวดหมู่</option>
+                                <option value="Weapon" ${window.__marketFilterConfig.category === 'Weapon' ? 'selected' : ''}>⚔️ อาวุธ</option>
+                                <option value="Armor" ${window.__marketFilterConfig.category === 'Armor' ? 'selected' : ''}>🛡️ ชุดเกราะ</option>
+                                <option value="Accessory" ${window.__marketFilterConfig.category === 'Accessory' ? 'selected' : ''}>💍 ประดับ/เจม</option>
+                                <option value="Card" ${window.__marketFilterConfig.category === 'Card' ? 'selected' : ''}>🎴 การ์ด</option>
+                                <option value="Ammo" ${window.__marketFilterConfig.category === 'Ammo' ? 'selected' : ''}>🏹 ลูกธนู</option>
+                            </select>
+                            <select id="p-mk-kind-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
+                                <option value="" ${window.__marketFilterConfig.kind === '' ? 'selected' : ''}>ทุกประเภท</option>
+                                <option value="bow" ${window.__marketFilterConfig.kind === 'bow' ? 'selected' : ''}>ธนู (Bow)</option>
+                                <option value="dagger" ${window.__marketFilterConfig.kind === 'dagger' ? 'selected' : ''}>มีด (Dagger)</option>
+                                <option value="sword" ${window.__marketFilterConfig.kind === 'sword' ? 'selected' : ''}>ดาบ (Sword)</option>
+                                <option value="spear" ${window.__marketFilterConfig.kind === 'spear' ? 'selected' : ''}>หอก (Spear)</option>
+                                <option value="axe" ${window.__marketFilterConfig.kind === 'axe' ? 'selected' : ''}>ขวาน (Axe)</option>
+                                <option value="staff" ${window.__marketFilterConfig.kind === 'staff' ? 'selected' : ''}>คทา (Staff)</option>
+                                <option value="shield" ${window.__marketFilterConfig.kind === 'shield' ? 'selected' : ''}>โล่ (Shield)</option>
+                                <option value="armor" ${window.__marketFilterConfig.kind === 'armor' ? 'selected' : ''}>ชุดเกราะ (Armor)</option>
+                                <option value="boot" ${window.__marketFilterConfig.kind === 'boot' ? 'selected' : ''}>รองเท้า (Boots)</option>
+                                <option value="cape" ${window.__marketFilterConfig.kind === 'cape' ? 'selected' : ''}>ผ้าคลุม (Cape)</option>
+                                <option value="ring" ${window.__marketFilterConfig.kind === 'ring' ? 'selected' : ''}>แหวน (Ring)</option>
+                            </select>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
+                            <div class="p-row">
+                                <span style="font-size: 9.5px; color: #cbd5e1;">ตีบวก ≥:</span>
+                                <input type="number" id="p-mk-min-refine" min="0" max="15" value="${window.__marketFilterConfig.minRefine || 0}" style="width: 42px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                            </div>
+                            <div class="p-row">
+                                <span style="font-size: 9.5px; color: #cbd5e1;">งบสูงสุด:</span>
+                                <input type="number" id="p-mk-max-price" value="${window.__marketFilterConfig.maxPrice || 0}" placeholder="0=ไม่จำกัด" style="width: 58px; background: #0f172a; border: 1px solid #00ffcc; color: #00ffcc; text-align: right; border-radius: 4px; font-size: 10px; padding: 1px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Deep Stat & Affix Filter Card -->
+                    <div class="p-card" style="border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.05);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(234, 179, 8, 0.2); padding-bottom: 2px;">
+                            <span style="font-size: 10px; font-weight: bold; color: #f59e0b;">💎 ตัวกรอง Option (Stat Filter)</span>
+                            <span style="font-size: 8.5px; color: #94a3b8;">ลึกถึง Option สุ่ม</span>
+                        </div>
+                        <!-- Option 1 -->
+                        <div class="p-row" style="margin-top: 2px;">
+                            <span style="font-size: 9.5px; color: #fde047;">Opt 1:</span>
+                            <select id="p-mk-stat1-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
+                                <option value="none" ${window.__marketFilterConfig.statType1 === 'none' ? 'selected' : ''}>-- ไม่ระบุ --</option>
+                                <option value="DEX" ${window.__marketFilterConfig.statType1 === 'DEX' ? 'selected' : ''}>DEX</option>
+                                <option value="STR" ${window.__marketFilterConfig.statType1 === 'STR' ? 'selected' : ''}>STR</option>
+                                <option value="AGI" ${window.__marketFilterConfig.statType1 === 'AGI' ? 'selected' : ''}>AGI</option>
+                                <option value="VIT" ${window.__marketFilterConfig.statType1 === 'VIT' ? 'selected' : ''}>VIT</option>
+                                <option value="INT" ${window.__marketFilterConfig.statType1 === 'INT' ? 'selected' : ''}>INT</option>
+                                <option value="LUK" ${window.__marketFilterConfig.statType1 === 'LUK' ? 'selected' : ''}>LUK</option>
+                                <option value="CRIT_DAMAGE" ${window.__marketFilterConfig.statType1 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG%</option>
+                                <option value="MATK" ${window.__marketFilterConfig.statType1 === 'MATK' ? 'selected' : ''}>MATK</option>
+                                <option value="ATK" ${window.__marketFilterConfig.statType1 === 'ATK' ? 'selected' : ''}>ATK</option>
+                                <option value="HIT" ${window.__marketFilterConfig.statType1 === 'HIT' ? 'selected' : ''}>HIT</option>
+                                <option value="FLEE" ${window.__marketFilterConfig.statType1 === 'FLEE' ? 'selected' : ''}>FLEE</option>
+                                <option value="DEF" ${window.__marketFilterConfig.statType1 === 'DEF' ? 'selected' : ''}>DEF</option>
+                                <option value="MELEE_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType1 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG%</option>
+                                <option value="MAGIC_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType1 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG%</option>
+                                <option value="DAMAGE_REDUCTION" ${window.__marketFilterConfig.statType1 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED%</option>
+                            </select>
+                            <input type="number" id="p-mk-stat1-min" value="${window.__marketFilterConfig.statMinVal1 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                        </div>
+                        <!-- Option 2 -->
+                        <div class="p-row">
+                            <span style="font-size: 9.5px; color: #c084fc;">Opt 2:</span>
+                            <select id="p-mk-stat2-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
+                                <option value="none" ${window.__marketFilterConfig.statType2 === 'none' ? 'selected' : ''}>-- ไม่ระบุ --</option>
+                                <option value="DEX" ${window.__marketFilterConfig.statType2 === 'DEX' ? 'selected' : ''}>DEX</option>
+                                <option value="STR" ${window.__marketFilterConfig.statType2 === 'STR' ? 'selected' : ''}>STR</option>
+                                <option value="AGI" ${window.__marketFilterConfig.statType2 === 'AGI' ? 'selected' : ''}>AGI</option>
+                                <option value="VIT" ${window.__marketFilterConfig.statType2 === 'VIT' ? 'selected' : ''}>VIT</option>
+                                <option value="INT" ${window.__marketFilterConfig.statType2 === 'INT' ? 'selected' : ''}>INT</option>
+                                <option value="LUK" ${window.__marketFilterConfig.statType2 === 'LUK' ? 'selected' : ''}>LUK</option>
+                                <option value="CRIT_DAMAGE" ${window.__marketFilterConfig.statType2 === 'CRIT_DAMAGE' ? 'selected' : ''}>CRIT DMG%</option>
+                                <option value="MATK" ${window.__marketFilterConfig.statType2 === 'MATK' ? 'selected' : ''}>MATK</option>
+                                <option value="ATK" ${window.__marketFilterConfig.statType2 === 'ATK' ? 'selected' : ''}>ATK</option>
+                                <option value="HIT" ${window.__marketFilterConfig.statType2 === 'HIT' ? 'selected' : ''}>HIT</option>
+                                <option value="FLEE" ${window.__marketFilterConfig.statType2 === 'FLEE' ? 'selected' : ''}>FLEE</option>
+                                <option value="DEF" ${window.__marketFilterConfig.statType2 === 'DEF' ? 'selected' : ''}>DEF</option>
+                                <option value="MELEE_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType2 === 'MELEE_DAMAGE_PERCENT' ? 'selected' : ''}>MELEE DMG%</option>
+                                <option value="MAGIC_DAMAGE_PERCENT" ${window.__marketFilterConfig.statType2 === 'MAGIC_DAMAGE_PERCENT' ? 'selected' : ''}>MAGIC DMG%</option>
+                                <option value="DAMAGE_REDUCTION" ${window.__marketFilterConfig.statType2 === 'DAMAGE_REDUCTION' ? 'selected' : ''}>DMG RED%</option>
+                            </select>
+                            <input type="number" id="p-mk-stat2-min" value="${window.__marketFilterConfig.statMinVal2 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                        </div>
+                        <div class="p-row">
+                            <span style="font-size: 9px; color: #94a3b8;">เงื่อนไข:</span>
+                            <select id="p-mk-stat-mode" class="p-select" style="width: 90px; font-size: 9px; padding: 1px 3px;">
+                                <option value="AND" ${window.__marketFilterConfig.statMatchMode === 'AND' ? 'selected' : ''}>AND (ครบทุก Opt)</option>
+                                <option value="OR" ${window.__marketFilterConfig.statMatchMode === 'OR' ? 'selected' : ''}>OR (อย่างน้อย 1 Opt)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Sniper & Auto-Buy Card -->
+                    <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
+                        <label class="p-check-box" style="color: #f59e0b;">
+                            <input type="checkbox" id="p-mk-sniper-alert" ${window.__marketFilterConfig.sniperAlert ? 'checked' : ''}>
+                            <b>🎯 เสียงเตือนเมื่อพบของตรงสเปค</b>
+                        </label>
+                        <label class="p-check-box" style="color: #4ade80; margin-top: 2px;">
+                            <input type="checkbox" id="p-mk-auto-buy" ${window.__marketFilterConfig.autoBuy ? 'checked' : ''}>
+                            <b>⚡ Auto-Buy Sniper (ซื้อทันทีเมื่อพบ)</b>
+                        </label>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="p-btn" id="p-btn-mk-search" style="background: #0284c7; color: #fff; font-size: 10.5px; padding: 5px;">🔍 ค้นหาตลาด</button>
+                        <button class="p-btn" id="p-btn-mk-scan" style="background: #9333ea; color: #fff; font-size: 10.5px; padding: 5px;">⚡ สแกน 5 หน้า</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="p-btn" id="p-btn-mk-open-modal" style="background: #0d9488; color: #fff; font-size: 10px; padding: 4px;">🔎 ตลาดเต็มจอ</button>
+                        <button class="p-btn" id="p-btn-mk-copy-json" style="background: #334155; color: #38bdf8; font-size: 10px; padding: 4px; border: 1px solid rgba(56,189,248,0.3);">📋 Dump JSON</button>
+                    </div>
+
+                    <!-- Live Results Section -->
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 4px;">
+                        <div style="font-size: 10px; color: #38bdf8; font-weight: bold; display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>📦 รายการตรงสเปค (<span id="p-mk-result-count" style="color: #00ffcc;">0</span>)</span>
+                            <span style="font-size: 9px; color: #94a3b8;">1-Click Buy</span>
+                        </div>
+                        <div id="p-mk-hud-results" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+                            <div style="text-align: center; color: #64748b; padding: 12px 6px; font-size: 10px;">
+                                ยังไม่มีผลการค้นหา<br/><span style="color: #475569;">กดปุ่ม '🔍 ค้นหาตลาด' เพื่อเริ่ม</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 5: SYSTEM & TOOLS -->
                 <div class="p-tab-pane" id="p-tab-system">
                     <!-- Auto-Login & Account Card -->
                     <div class="p-card" style="border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.06); margin-bottom: 6px;">
@@ -6177,8 +7082,9 @@
                             <button class="p-btn" id="p-btn-dump-packets" style="background: #e11d48; color: #fff; padding: 4px; font-size: 10px;">📜 Dump Packet</button>
                             <button class="p-btn" id="p-btn-dump-state" style="background: #059669; color: #fff; padding: 4px; font-size: 10px;">🕹️ Dump State</button>
                         </div>
-                        <div style="margin-top: 3px;">
-                            <button class="p-btn" id="p-btn-dump-weight" style="background: #f59e0b; color: #000; font-weight: bold; padding: 4px; font-size: 10px; width: 100%;">⚖️ Dump น้ำหนัก DOM & กระเป๋า</button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
+                            <button class="p-btn" id="p-btn-dump-market" style="background: #ec4899; color: #fff; font-weight: bold; padding: 4px; font-size: 10px;">🛒 Dump ตลาดกลาง</button>
+                            <button class="p-btn" id="p-btn-dump-weight" style="background: #f59e0b; color: #000; font-weight: bold; padding: 4px; font-size: 10px;">⚖️ Dump น้ำหนัก DOM & กระเป๋า</button>
                         </div>
                     </div>
 
@@ -6462,6 +7368,150 @@
         document.getElementById('p-btn-test-sell-only').onclick = () => {
             window.testSellTrash();
         };
+
+        // Market Finder Event Listeners
+        const mkSearchQueryEl = document.getElementById('p-mk-search-query');
+        if (mkSearchQueryEl) {
+            mkSearchQueryEl.onchange = (e) => {
+                window.__marketFilterConfig.q = e.target.value.trim();
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkCatSelectEl = document.getElementById('p-mk-cat-select');
+        if (mkCatSelectEl) {
+            mkCatSelectEl.onchange = (e) => {
+                window.__marketFilterConfig.category = e.target.value;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkKindSelectEl = document.getElementById('p-mk-kind-select');
+        if (mkKindSelectEl) {
+            mkKindSelectEl.onchange = (e) => {
+                window.__marketFilterConfig.kind = e.target.value;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkMinRefineEl = document.getElementById('p-mk-min-refine');
+        if (mkMinRefineEl) {
+            mkMinRefineEl.onchange = (e) => {
+                window.__marketFilterConfig.minRefine = parseInt(e.target.value) || 0;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkMaxPriceEl = document.getElementById('p-mk-max-price');
+        if (mkMaxPriceEl) {
+            mkMaxPriceEl.onchange = (e) => {
+                window.__marketFilterConfig.maxPrice = parseInt(e.target.value) || 0;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkStat1TypeEl = document.getElementById('p-mk-stat1-type');
+        if (mkStat1TypeEl) {
+            mkStat1TypeEl.onchange = (e) => {
+                window.__marketFilterConfig.statType1 = e.target.value;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkStat1MinEl = document.getElementById('p-mk-stat1-min');
+        if (mkStat1MinEl) {
+            mkStat1MinEl.onchange = (e) => {
+                window.__marketFilterConfig.statMinVal1 = parseInt(e.target.value) || 1;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkStat2TypeEl = document.getElementById('p-mk-stat2-type');
+        if (mkStat2TypeEl) {
+            mkStat2TypeEl.onchange = (e) => {
+                window.__marketFilterConfig.statType2 = e.target.value;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkStat2MinEl = document.getElementById('p-mk-stat2-min');
+        if (mkStat2MinEl) {
+            mkStat2MinEl.onchange = (e) => {
+                window.__marketFilterConfig.statMinVal2 = parseInt(e.target.value) || 1;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkStatModeEl = document.getElementById('p-mk-stat-mode');
+        if (mkStatModeEl) {
+            mkStatModeEl.onchange = (e) => {
+                window.__marketFilterConfig.statMatchMode = e.target.value;
+                saveMarketFilterConfig();
+                window.applyMarketFilters();
+            };
+        }
+
+        const mkSniperAlertEl = document.getElementById('p-mk-sniper-alert');
+        if (mkSniperAlertEl) {
+            mkSniperAlertEl.onchange = (e) => {
+                window.__marketFilterConfig.sniperAlert = e.target.checked;
+                saveMarketFilterConfig();
+            };
+        }
+
+        const mkAutoBuyEl = document.getElementById('p-mk-auto-buy');
+        if (mkAutoBuyEl) {
+            mkAutoBuyEl.onchange = (e) => {
+                window.__marketFilterConfig.autoBuy = e.target.checked;
+                saveMarketFilterConfig();
+            };
+        }
+
+        const btnMkSearch = document.getElementById('p-btn-mk-search');
+        if (btnMkSearch) {
+            btnMkSearch.onclick = () => {
+                window.executeMarketSearch();
+            };
+        }
+
+        const btnMkScan = document.getElementById('p-btn-mk-scan');
+        if (btnMkScan) {
+            btnMkScan.onclick = () => {
+                window.startMarketMultiPageScan(5);
+            };
+        }
+
+        const btnMkOpenModal = document.getElementById('p-btn-mk-open-modal');
+        if (btnMkOpenModal) {
+            btnMkOpenModal.onclick = () => {
+                window.showDataViewerModal('market');
+            };
+        }
+
+        const btnMkCopyJson = document.getElementById('p-btn-mk-copy-json');
+        if (btnMkCopyJson) {
+            btnMkCopyJson.onclick = () => {
+                const dump = window.dumpMarketData();
+                window.safeCopyToClipboard(JSON.stringify(dump, null, 2), `📋 คัดลอกผลการค้นหาตลาด (${dump.filteredCount} รายการ) สำเร็จ!`);
+            };
+        }
+
+        const dumpMarketBtn = document.getElementById('p-btn-dump-market');
+        if (dumpMarketBtn) {
+            dumpMarketBtn.onclick = () => {
+                window.dumpMarketData();
+                window.showDataViewerModal('market');
+            };
+        }
 
         // Hunter / Archer Event Listeners
         document.getElementById('p-archer-req').onchange = (e) => {
