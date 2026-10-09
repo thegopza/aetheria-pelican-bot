@@ -279,6 +279,7 @@
   border: 1px solid rgba(139, 92, 246, 0.28);
 }
 .im-mk-mine .item-stat-groups { margin: 0; }
+.im-mk-mine .isr-label { display: none; }
 .im-mk-mine-lbl { font-size: 11px; font-weight: 800; color: #c4b5fd; }
 
 .im-mk-cols {

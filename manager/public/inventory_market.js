@@ -140,6 +140,7 @@
   }
   const categoryLabel = c => (BAG_TABS.find(t => t[0] === c) || [, 'อื่นๆ'])[1];
   const fmtZ = n => `${Math.round(Number(n) || 0).toLocaleString()} z`;
+  const fmtShort = n => { n = Number(n) || 0; return n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n.toLocaleString(); };
   const esc = s => escapeHTML(s == null ? '' : String(s));
 
   function timeLeft(ts) {
@@ -509,8 +510,11 @@
         <form class="im-mk-sell" data-role="sell"></form>
       </div>`;
     document.body.appendChild(el);
-    el.style.left = `${Math.max(20, window.innerWidth - 820)}px`;
-    el.style.top = '70px';
+    // Open beside the bag panel (to its left) so the grid stays clickable
+    const bagRect = bag.el && bag.el.getBoundingClientRect();
+    const left = bagRect && bagRect.width ? bagRect.left - el.offsetWidth - 10 : window.innerWidth - el.offsetWidth - 20;
+    el.style.left = `${Math.max(12, left)}px`;
+    el.style.top = `${Math.max(12, bagRect && bagRect.width ? bagRect.top : 70)}px`;
     makeDraggable(el, el.querySelector('[data-role="drag"]'));
 
     el.addEventListener('click', e => {
@@ -754,7 +758,7 @@
       <div class="im-mk-summary">
         <div class="im-tile hl"><small>ราคากลาง</small><b>${s.median ? fmtZ(s.median) : '--'}</b></div>
         <div class="im-tile"><small>เฉลี่ย</small><b>${s.avg ? fmtZ(s.avg) : '--'}</b></div>
-        <div class="im-tile"><small>ต่ำ / สูง</small><b>${s.low != null ? `${s.low.toLocaleString()} / ${s.high.toLocaleString()}` : '--'}</b></div>
+        <div class="im-tile"><small>ต่ำ / สูง</small><b title="${s.low != null ? `${s.low.toLocaleString()} / ${s.high.toLocaleString()} z` : ''}">${s.low != null ? `${fmtShort(s.low)} / ${fmtShort(s.high)}` : '--'}</b></div>
         <div class="im-tile"><small>ขายไป</small><b>${s.pieces.toLocaleString()} ชิ้น</b></div>
       </div>
       ${renderHistoryChart(h)}
