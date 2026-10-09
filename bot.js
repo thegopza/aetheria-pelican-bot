@@ -10438,14 +10438,222 @@
         }
     };
 
-    // Auto-check plan triggers every 5 seconds
-    setInterval(() => {
+    // -------------------------------------------------------------
+    // LIVE CHARACTER DATA & PLAN AUTOMATION ENGINE
+    // -------------------------------------------------------------
+    window.getLiveCharacterData = function() {
+        const root = document.querySelector('#root');
+        let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
+        let charData = null;
+        function walk(n, depth = 0) {
+            if (!n || depth > 40 || charData) return;
+            if (n.memoizedProps) {
+                if (n.memoizedProps.character && n.memoizedProps.character.stats) charData = n.memoizedProps.character;
+                else if (n.memoizedProps.stats && n.memoizedProps.skills) charData = n.memoizedProps;
+            }
+            if (n.memoizedState) {
+                let s = n.memoizedState;
+                while (s) {
+                    if (s.memoizedState && typeof s.memoizedState === 'object') {
+                        if (s.memoizedState.character && s.memoizedState.character.stats) charData = s.memoizedState.character;
+                        else if (s.memoizedState.stats && s.memoizedState.skills) charData = s.memoizedState;
+                    }
+                    s = s.next;
+                }
+            }
+            if (n.child) walk(n.child, depth + 1);
+            if (n.sibling) walk(n.sibling, depth + 1);
+        }
+        if (fiber) walk(fiber);
+        return charData;
+    };
+
+    // 1. Automated Skill Allocation Engine (Sequential Points)
+    window.autoAllocateSkills = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan || !plan.skillBuild || !Array.isArray(plan.skillBuild.skillPointQueue) || plan.skillBuild.skillPointQueue.length === 0) return;
+        
+        const charData = window.getLiveCharacterData();
+        if (!charData || !charData.skillPoints || charData.skillPoints <= 0) return;
+
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (!room) return;
+
+        const queue = plan.skillBuild.skillPointQueue;
+        const currentSkills = charData.skills || {};
+
+        const targetCounts = {};
+        let skillToUpgrade = null;
+
+        for (const skillId of queue) {
+            targetCounts[skillId] = (targetCounts[skillId] || 0) + 1;
+            const curLv = currentSkills[skillId] || 0;
+            if (curLv < targetCounts[skillId]) {
+                skillToUpgrade = skillId;
+                break;
+            }
+        }
+
+        if (skillToUpgrade) {
+            console.log(`%c[Pelican Plan] ⚡ อัปสกิลอัตโนมัติตามลำดับแผน: "${skillToUpgrade}" (แต้มคงเหลือ: ${charData.skillPoints})`, 'color: #a855f7; font-weight: bold;');
+            try {
+                room.send('skill_up', { skillId: skillToUpgrade });
+            } catch(err) {
+                console.warn('[Pelican Plan] Error sending skill_up packet:', err);
+            }
+        }
+    };
+
+    // 2. Automated Stat Allocation Engine
+    window.autoAllocateStats = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan || !plan.statBuild || !plan.statBuild.targets) return;
+
+        const charData = window.getLiveCharacterData();
+        if (!charData || !charData.statusPoints || charData.statusPoints <= 0) return;
+
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (!room) return;
+
+        const targets = plan.statBuild.targets;
+        const priority = plan.statBuild.priorityOrder || ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
+        const currentStats = charData.stats || {};
+
+        let statToUpgrade = null;
+        for (const st of priority) {
+            const key = st.toUpperCase();
+            const targetVal = targets[key] || 1;
+            const curVal = currentStats[key] || 1;
+            if (curVal < targetVal) {
+                statToUpgrade = key;
+                break;
+            }
+        }
+
+        if (statToUpgrade) {
+            console.log(`%c[Pelican Plan] 📊 อัปสเตตัสอัตโนมัติตามแผน: "${statToUpgrade}" (แต้มคงเหลือ: ${charData.statusPoints})`, 'color: #38bdf8; font-weight: bold;');
+            try {
+                room.send('stat_up', { stat: statToUpgrade, amount: 1 });
+            } catch(err) {
+                console.warn('[Pelican Plan] Error sending stat_up packet:', err);
+            }
+        }
+    };
+
+    window.getCharacterName = function() {
+        const hud = (document.querySelector('.hud-name')?.innerText || '').trim();
+        if (hud) return hud;
+        const r = window.__colyseusRoom || (window.getColyseusRoom ? window.getColyseusRoom() : null);
+        if (r && r.state && r.state.players) {
+            const p = r.state.players.get ? r.state.players.get(r.sessionId) : r.state.players[r.sessionId];
+            if (p && p.name) return p.name;
+        }
+        return 'default_char';
+    };
+
+    // 3. Automated Class 1 & Class 2 Promotion Engine (Per-Character Storage)
+    window.checkAndExecuteAutoJobChange = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan) return false;
+
+        const charName = window.getCharacterName();
+        if (!charName || charName === 'default_char') return false;
+
+        let jobState = { class1Done: false, class2Done: false };
         try {
+            const s = localStorage.getItem(`pelican_job_state_${charName}`);
+            if (s) jobState = JSON.parse(s);
+        } catch(e) {}
+
+        const curClass = ((charData && charData.classId) || document.querySelector('.hud-class')?.innerText || '').trim().toLowerCase();
+        const curJob = (charData && charData.jobLevel) || (() => {
+            const text = document.querySelector('.hud-levels')?.innerText || '';
+            const m = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
+            return m ? parseInt(m[1], 10) : 1;
+        })();
+
+        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist'];
+
+        // If current class is already not Novice, mark class 1 as completed
+        if (curClass && !curClass.includes('novice')) {
+            if (!jobState.class1Done) {
+                jobState.class1Done = true;
+                localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
+            }
+        }
+
+        // If current class is already Class 2, mark class 2 as completed
+        if (secondClasses.some(sc => curClass.includes(sc))) {
+            if (!jobState.class2Done) {
+                jobState.class2Done = true;
+                localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
+            }
+        }
+
+        // Check Class 1 auto-change (Novice reaching Job Lv >= 10)
+        if (!jobState.class1Done && (curClass.includes('novice') || curClass === '')) {
+            if (curJob >= 10 && !window.__isChangingJob) {
+                const targetC1 = plan.class1Target || 'archer';
+                console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 1! (Job Lv.${curJob} >= 10) -> ดำเนินการเปลี่ยนเป็น "${targetC1}"... `, 'color: #38bdf8; font-weight: bold;');
+                window.__isChangingJob = true;
+                try {
+                    if (typeof window.executeAutoJobChange === 'function') {
+                        const ok = await window.executeAutoJobChange(targetC1);
+                        if (ok) {
+                            jobState.class1Done = true;
+                            localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
+                        }
+                    }
+                } finally {
+                    window.__isChangingJob = false;
+                }
+                return true;
+            }
+        }
+
+        // Check Class 2 auto-change (Class 1 reaching Job Lv >= 50)
+        if (jobState.class1Done && !jobState.class2Done) {
+            const isClass2 = secondClasses.some(sc => curClass.includes(sc));
+            if (!isClass2 && curJob >= 50 && !window.__isChangingJob) {
+                const targetC2 = plan.class2Target || 'hunter';
+                console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 2! (Job Lv.${curJob} >= 50) -> ดำเนินการเปลี่ยนเป็น "${targetC2}"... `, 'color: #a855f7; font-weight: bold;');
+                window.__isChangingJob = true;
+                try {
+                    if (typeof window.executeAutoJobChange === 'function') {
+                        const ok = await window.executeAutoJobChange(targetC2);
+                        if (ok) {
+                            jobState.class2Done = true;
+                            localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
+                        }
+                    }
+                } finally {
+                    window.__isChangingJob = false;
+                }
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    // Auto-check plan triggers, auto-job change, skills & stats every 4 seconds
+    setInterval(async () => {
+        try {
+            if (typeof window.checkAndExecuteAutoJobChange === 'function') {
+                const isBusy = await window.checkAndExecuteAutoJobChange();
+                if (isBusy) return;
+            }
+            if (typeof window.autoAllocateSkills === 'function') {
+                await window.autoAllocateSkills();
+            }
+            if (typeof window.autoAllocateStats === 'function') {
+                await window.autoAllocateStats();
+            }
             if (typeof window.checkAndExecutePlanTriggers === 'function') {
-                window.checkAndExecutePlanTriggers();
+                await window.checkAndExecutePlanTriggers();
             }
         } catch(e) {}
-    }, 5000);
+    }, 4000);
 
     // MULTI-CLIENT HUB REAL-TIME STATE SYNC
     // ==========================================

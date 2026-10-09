@@ -1121,6 +1121,10 @@ const server = http.createServer(async (req, res) => {
           id: "plan_" + Date.now(),
           name: (payload.name || "New Plan").trim(),
           description: payload.description || "",
+          class1Target: payload.class1Target || "archer",
+          class2Target: payload.class2Target || "hunter",
+          skillBuild: payload.skillBuild || null,
+          statBuild: payload.statBuild || null,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : [],
           createdAt: Date.now(),
           updatedAt: Date.now()
@@ -1151,6 +1155,10 @@ const server = http.createServer(async (req, res) => {
           ...plansData.profiles[idx],
           name: payload.name !== undefined ? payload.name.trim() : plansData.profiles[idx].name,
           description: payload.description !== undefined ? payload.description : plansData.profiles[idx].description,
+          class1Target: payload.class1Target !== undefined ? payload.class1Target : (plansData.profiles[idx].class1Target || "archer"),
+          class2Target: payload.class2Target !== undefined ? payload.class2Target : (plansData.profiles[idx].class2Target || "hunter"),
+          skillBuild: payload.skillBuild !== undefined ? payload.skillBuild : plansData.profiles[idx].skillBuild,
+          statBuild: payload.statBuild !== undefined ? payload.statBuild : plansData.profiles[idx].statBuild,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : plansData.profiles[idx].triggers,
           updatedAt: Date.now()
         };
@@ -1281,6 +1289,10 @@ const server = http.createServer(async (req, res) => {
               id: "plan_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
               name: p.name.trim(),
               description: p.description || "",
+              class1Target: p.class1Target || "archer",
+              class2Target: p.class2Target || "hunter",
+              skillBuild: p.skillBuild || null,
+              statBuild: p.statBuild || null,
               triggers: Array.isArray(p.triggers) ? p.triggers : [],
               createdAt: Date.now(),
               updatedAt: Date.now()

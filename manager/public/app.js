@@ -1704,6 +1704,19 @@ function renderPlanProfilesList() {
         <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 14px; font-weight: 700; color: #f8fafc;">${escapeHTML(plan.name)}</span>
+            <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 10px; padding: 1px 6px;">
+              🏹 ${escapeHTML(plan.class1Target || 'Archer')} ➔ 👑 ${escapeHTML(plan.class2Target || 'Hunter')}
+            </span>
+            ${(plan.skillBuild?.skillPointQueue?.length > 0) ? `
+              <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-size: 10px; padding: 1px 6px;">
+                ⚡ ${plan.skillBuild.skillPointQueue.length} แต้ม
+              </span>
+            ` : ''}
+            ${plan.statBuild ? `
+              <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35); font-size: 10px; padding: 1px 6px;">
+                📊 Stat Build
+              </span>
+            ` : ''}
             ${isAssigned ? `
               <span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 4px;">
                 ⚡ กำลังใช้งานกับจอนี้
@@ -1844,11 +1857,23 @@ function openPlanWorkflowEditor(planId) {
   if (!plan) return;
 
   activeEditingPlan = JSON.parse(JSON.stringify(plan));
+  if (!activeEditingPlan.class1Target) activeEditingPlan.class1Target = 'archer';
+  if (!activeEditingPlan.class2Target) activeEditingPlan.class2Target = 'hunter';
+  if (!activeEditingPlan.skillBuild) activeEditingPlan.skillBuild = { skillPointQueue: [], plannedLevels: {} };
+  if (!activeEditingPlan.statBuild) activeEditingPlan.statBuild = { targets: { STR: 1, AGI: 50, VIT: 1, INT: 1, DEX: 99, LUK: 30 }, priorityOrder: ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'] };
 
   const titleInput = document.getElementById("plan-editor-title");
   const descInput = document.getElementById("plan-editor-desc");
   if (titleInput) titleInput.value = activeEditingPlan.name || "Untitled Plan";
   if (descInput) descInput.value = activeEditingPlan.description || "";
+
+  // Initialize Class Selectors and Badges
+  if (typeof updateClassDropdownsInEditor === 'function') {
+    updateClassDropdownsInEditor();
+  }
+  if (typeof updatePlanEditorBadges === 'function') {
+    updatePlanEditorBadges();
+  }
 
   renderPlanWorkflowCanvas();
   switchPlanModalView('editor');
@@ -2092,8 +2117,13 @@ async function saveActivePlan(applyLive = false) {
 
   const titleInput = document.getElementById("plan-editor-title");
   const descInput = document.getElementById("plan-editor-desc");
+  const c1Sel = document.getElementById("plan-editor-class1");
+  const c2Sel = document.getElementById("plan-editor-class2");
+
   if (titleInput && titleInput.value.trim()) activeEditingPlan.name = titleInput.value.trim();
   if (descInput) activeEditingPlan.description = descInput.value.trim();
+  if (c1Sel) activeEditingPlan.class1Target = c1Sel.value;
+  if (c2Sel) activeEditingPlan.class2Target = c2Sel.value;
 
   try {
     const res = await fetch(`${API_BASE}/api/plan-profiles/${activeEditingPlan.id}`, {

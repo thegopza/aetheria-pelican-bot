@@ -195,6 +195,50 @@
           </div>
         </div>
 
+        <!-- Class Progression & Build Config Bar (ระบบเลือกสายอาชีพและ Build สกิล/สเตตัส) -->
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <!-- Left: Class 1 & Class 2 Selectors -->
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">🏹 Class 1 (Job 10):</span>
+                <select id="plan-editor-class1" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
+                  <option value="archer">Archer (นักธนู)</option>
+                  <option value="swordsman">Swordsman (นักดาบ)</option>
+                  <option value="mage">Mage (นักเวท)</option>
+                  <option value="thief">Thief (โจร)</option>
+                  <option value="acolyte">Acolyte (นักบวชฝึกหัด)</option>
+                  <option value="merchant">Merchant (พ่อค้า)</option>
+                </select>
+              </div>
+
+              <span style="color: #64748b; font-size: 12px;">➔</span>
+
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 11px; font-weight: 700; color: #a855f7;">👑 Class 2 (Job 50):</span>
+                <select id="plan-editor-class2" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
+                  <!-- Dynamic options populated in app.js -->
+                </select>
+              </div>
+            </div>
+
+            <!-- Right: Open Skill & Stat Builder Buttons -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-open-skill-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.12); color: #d8b4fe;">
+                <span>⚡</span> จัดการสกิล (Skill Build)
+                <span id="plan-skill-count-badge" class="badge" style="background: rgba(168, 85, 247, 0.3); color: #fff; font-size: 10px; margin-left: 4px;">0 แต้ม</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-open-stat-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.12); color: #7dd3fc;">
+                <span>📊</span> จัดการสเตตัส (Stat Build)
+                <span id="plan-stat-summary-badge" class="badge" style="background: rgba(56, 189, 248, 0.3); color: #fff; font-size: 10px; margin-left: 4px;">Default</span>
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 10.5px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+            <span>ℹ️ <b>Auto Progression:</b> เมื่อ Job Lv.10 และเป็น Novice บอทจะกลับเมืองไปคุยกับ Valkyrie เปลี่ยนเป็น Class 1 ทันที และเมื่อ Job Lv.50 จะเปลี่ยนเป็น Class 2 อัตโนมัติ (บันทึกสถานะตามชื่อตัวละคร)</span>
+          </div>
+        </div>
+
         <!-- Canvas Controls & Info -->
         <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 11.5px; color: #c7d2fe; display: flex; justify-content: space-between; align-items: center;">
           <span>💡 <b>One-Shot Triggers:</b> บอทจะเช็คและประมวลผล Action เมื่อตัวละครถึงเลเวลนั้นพอดี และทำเพียง 1 ครั้ง ไม่ทำซ้ำเมื่อเลเวลเกิน</span>
@@ -539,7 +583,185 @@
     </div>
   </div>
 
+
+  <!-- MODAL: SKILL BUILDER (ระบบวางแผนอัปสกิลตามลำดับแต้ม) -->
+  <div class="modal-overlay" id="skill-builder-modal">
+    <div class="modal-card" style="max-width: 900px; width: 95%; max-height: 92vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            ⚡
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนอัปสกิลตามลำดับแต้ม (Skill Point Queue)</h3>
+            <span style="font-size: 11px; color: #94a3b8;">คลิกสกิลตามลำดับความสำคัญ บอทจะบันทึกทุกแต้มและอัปตามลำดับที่คลิกทันทีเมื่อมีแต้มสกิล</span>
+          </div>
+        </div>
+        <button class="modal-close" id="skill-builder-close-btn">&times;</button>
+      </div>
+
+      <!-- Budget Status Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin: 10px 0 6px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; gap: 14px; align-items: center; font-size: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">🐣 โนวิซ:</span>
+            <span id="skill-budget-novice" class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold;">0 / 9 แต้ม</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">🏹 Class 1:</span>
+            <span id="skill-budget-class1" class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: bold;">0 / 49 แต้ม</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">👑 Class 2:</span>
+            <span id="skill-budget-class2" class="badge" style="background: rgba(234, 179, 8, 0.2); color: #facc15; font-weight: bold;">0 / 49 แต้ม</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-skill-apply-preset" style="font-size: 11px; padding: 4px 10px;">
+            <span>⭐</span> แนะนำ (Standard Build)
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" id="btn-skill-reset" style="font-size: 11px; padding: 4px 10px;">
+            <span>🔄</span> ล้างแต้มทั้งหมด
+          </button>
+        </div>
+      </div>
+
+      <!-- Tier Tabs -->
+      <div style="display: flex; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 10px;">
+        <button type="button" class="btn btn-primary btn-sm skill-tab-btn" data-tab="novice" id="skill-tab-novice">
+          🐣 Novice (โนวิซ - 9 แต้ม)
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm skill-tab-btn" data-tab="class1" id="skill-tab-class1">
+          🏹 Class 1 (<span id="skill-tab-class1-name">Archer</span> - 49 แต้ม)
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm skill-tab-btn" data-tab="class2" id="skill-tab-class2">
+          👑 Class 2 (<span id="skill-tab-class2-name">Hunter</span> - 49 แต้ม)
+        </button>
+      </div>
+
+      <!-- Skills Grid Container -->
+      <div id="skill-cards-grid" style="flex: 1; overflow-y: auto; max-height: 340px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; padding: 4px 2px;">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Queue Sequence Display -->
+      <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">📋 ลำดับการอัปสกิลตามคิว (<span id="skill-queue-total-count">0</span> แต้ม):</span>
+          <span style="font-size: 10px; color: #94a3b8;">*บอทจะอัปสกิลแรกในคิวที่ยังไม่เต็มทันทีเมื่อมีแต้มสกิล</span>
+        </div>
+        <div id="skill-queue-chips-container" style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; max-height: 60px; flex-wrap: wrap;">
+          <!-- Skill chips -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" id="skill-builder-cancel-btn">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="skill-builder-save-btn">💾 ยืนยันบันทึกสกิล</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: STAT BUILDER (ระบบวางแผนอัปสเตตัสอัตโนมัติ) -->
+  <div class="modal-overlay" id="stat-builder-modal">
+    <div class="modal-card" style="max-width: 640px; width: 95%; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            📊
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนอัปสเตตัสอัตโนมัติ (Auto Stat Allocation)</h3>
+            <span style="font-size: 11px; color: #94a3b8;">กำหนดค่าสเตตัสเป้าหมายและลำดับความสำคัญ บอทจะอัปสเตตัสอัตโนมัติเมื่อมี Status Points</span>
+          </div>
+        </div>
+        <button class="modal-close" id="stat-builder-close-btn">&times;</button>
+      </div>
+
+      <!-- Presets Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 11px; font-weight: 700; color: #cbd5e1;">⭐ เลือก Preset สำเร็จรูป:</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-agi-dex" style="font-size: 10.5px; padding: 3px 8px;">🎯 AGI-DEX (ธนู/ฟันไว)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-blitz" style="font-size: 10.5px; padding: 3px 8px;">🦅 Auto-Blitz (DEX-LUK-AGI)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-str-agi" style="font-size: 10.5px; padding: 3px 8px;">🗡️ STR-AGI (ดาบ/มีด)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-int-dex" style="font-size: 10.5px; padding: 3px 8px;">🧙 INT-DEX (เวท/ฮีล)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-vit-tank" style="font-size: 10.5px; padding: 3px 8px;">🛡️ Full VIT (แทงค์)</button>
+        </div>
+      </div>
+
+      <!-- Stats Grid Form -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0;">
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #f87171;">💪 STR (กายภาพ / แบกน้ำหนัก):</span>
+            <input type="number" id="stat-target-str" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-str" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #34d399;">⚡ AGI (ความเร็วโจมตี / หลบหลีก):</span>
+            <input type="number" id="stat-target-agi" class="form-input" min="1" max="99" value="50" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-agi" min="1" max="99" value="50" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fbbf24;">🛡️ VIT (HP สูงสุด / ป้องกัน):</span>
+            <input type="number" id="stat-target-vit" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-vit" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #60a5fa;">🔮 INT (SP สูงสุด / เวท):</span>
+            <input type="number" id="stat-target-int" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-int" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">🏹 DEX (แม่นยำ / โจมตีไกล / ร่ายไว):</span>
+            <input type="number" id="stat-target-dex" class="form-input" min="1" max="99" value="99" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-dex" min="1" max="99" value="99" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #c084fc;">🍀 LUK (คริติคอล / นกออกบ่อย):</span>
+            <input type="number" id="stat-target-luk" class="form-input" min="1" max="99" value="30" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-luk" min="1" max="99" value="30" style="width: 100%;">
+        </div>
+      </div>
+
+      <!-- Stat Priority Selector -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">🎯 ลำดับการอัปก่อน-หลัง (Priority Order):</span>
+        <select id="stat-priority-order-select" class="form-select" style="font-size: 11.5px; padding: 3px 8px; width: auto; font-weight: 600;">
+          <option value="DEX,AGI,LUK,VIT,INT,STR">1. DEX ➔ 2. AGI ➔ 3. LUK ➔ อื่นๆ</option>
+          <option value="AGI,DEX,LUK,VIT,INT,STR">1. AGI ➔ 2. DEX ➔ 3. LUK ➔ อื่นๆ</option>
+          <option value="STR,AGI,VIT,DEX,LUK,INT">1. STR ➔ 2. AGI ➔ 3. VIT ➔ อื่นๆ</option>
+          <option value="INT,DEX,VIT,AGI,LUK,STR">1. INT ➔ 2. DEX ➔ 3. VIT ➔ อื่นๆ</option>
+          <option value="VIT,INT,DEX,AGI,STR,LUK">1. VIT ➔ 2. INT ➔ 3. DEX ➔ อื่นๆ</option>
+        </select>
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" id="stat-builder-cancel-btn">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="stat-builder-save-btn">💾 ยืนยันบันทึกสเตตัส</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js?v=1791535335343"></script>
+  <script src="builder_module.js?v=1791535335343"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
   <div id="web-huds-container"></div>
 </body>
