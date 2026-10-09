@@ -1,4 +1,4 @@
-﻿const http = require("http");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { spawn, exec } = require("child_process");
@@ -137,14 +137,6 @@ function normalizePlansData(raw) {
   ];
 
   const assignments = {};
-  if (raw && typeof raw === 'object') {
-    Object.keys(raw).forEach(k => {
-      if (k !== 'profiles' && k !== 'assignments') {
-        assignments[k] = "plan_starter_archer";
-      }
-    });
-  }
-
   return { profiles: defaultProfiles, assignments };
 }
 

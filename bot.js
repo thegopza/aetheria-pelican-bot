@@ -164,27 +164,39 @@
     // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
     // ==========================================
     window.executeAutoJobChange = async function(targetClass) {
+        if (!window.__planScriptEnabled) return false;
         if (!targetClass) return false;
         const targetClean = targetClass.trim().toLowerCase();
-        console.log(`%c[Pelican Plan] 🏹 เริ่มต้นกระบวนการเปลี่ยนอาชีพเป็น: "${targetClass}"`, 'color: #a855f7; font-weight: bold;');
 
-        const char = window.__latestCharacter || {};
-        const curClass = (char.class || window.__charClass || '').toLowerCase();
+        const char = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const curClass = (char.classId || char.class || window.__charClass || '').toLowerCase();
+        const baseLv = char.baseLevel || char.level || 1;
 
-        // 1. ถ้าเปลี่ยนอาชีพเป็นอาชีพนี้แล้ว ให้ผ่านทันที
+        // 1. ถ้าตัวละครเลเวลสูง (>= 50) หรือเป็นอาชีพ Class 2 อยู่แล้ว ห้ามเปลี่ยนอาชีพซ้ำ
+        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist', 'sniper', 'paladin'];
+        if (baseLv >= 50 || secondClasses.some(sc => curClass.includes(sc))) {
+            return true;
+        }
+
+        // 2. ถ้าเปลี่ยนอาชีพเป็นอาชีพนี้แล้ว ให้ผ่านทันที
         if (curClass.includes(targetClean)) {
             console.log(`%c[Pelican Plan] ✅ ตัวละครเป็นอาชีพ "${targetClass}" เรียบร้อยแล้ว`, 'color: #22c55e; font-weight: bold;');
             return true;
         }
 
-        // 2. ตรวจสอบเงื่อนไข Job Level
+        // 3. ตรวจสอบเงื่อนไข Job Level
         const curJob = char.jobLevel || 1;
         if (curJob < 10 && curClass === 'novice') {
             console.warn(`[Pelican Plan] ⚠️ Job Level ยังไม่ถึง 10 (ปัจจุบัน: Lv.${curJob}/10) ยังไม่สามารถเปลี่ยนอาชีพได้`);
             return false;
         }
 
-        // 3. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
+        // 4. หากกำลังเดินทางกลับแมพฟาร์มผ่าน Alice Service ห้ามแทรกแซง
+        if (window.__isWalkingToMap) {
+            return false;
+        }
+
+        // 5. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
         const curMap = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : (char.map || '');
         if (!curMap.includes('โซลเฮเวน') && !curMap.includes('เมืองหลวง')) {
             console.log(`%c[Pelican Plan] 🏛️ ตัวละครไม่ได้อยู่ในเมืองหลวง -> กำลังเดินทางกลับเมืองหลวงโซลเฮเวน...`, 'color: #38bdf8;');
@@ -194,7 +206,7 @@
             return false;
         }
 
-        // 4. เดินไปที่หน้าปราสาท (พิกัดหน้า Valkyrie: x 1680, y 1008)
+        // 6. เดินไปที่หน้าปราสาท (พิกัดหน้า Valkyrie: x 1680, y 1008)
         const pos = window.__currentPos || { x: 0, y: 0 };
         const dist = Math.hypot(pos.x - 1680, pos.y - 1008);
         if (dist > 80) {
@@ -3620,9 +3632,39 @@
                                     quickZeny.innerText = `🪙 ${charDec.zeny.toLocaleString()} z`;
                                 }
                             }
+                            // Auto-configure combat & settings when character loads (Only when Plan Script is active)
+                            if (window.__planScriptEnabled && window.__currentScriptPlan) {
+                                setTimeout(() => {
+                                    if (typeof window.autoConfigureCombat === 'function') {
+                                        window.autoConfigureCombat();
+                                    }
+                                    if (typeof window.applyPelicanSettings === 'function') {
+                                        window.applyPelicanSettings();
+                                    }
+                                }, 500);
+                            }
                         }
                     } catch(err) {
                         console.warn('[Pelican Character] Error parsing character packet:', err);
+                    }
+                }
+
+                // ตรวจสอบแพ็กเก็ต 'skill_catalog' (0x0D + fixstr 13 'skill_catalog')
+                if (u.length > 20 && u[1] === 0xad && u[2] === 0x73 && u[3] === 0x6b && u[4] === 0x69 && u[5] === 0x6c && u[6] === 0x6c && u[7] === 0x5f && u[8] === 0x63 && u[9] === 0x61 && u[10] === 0x74 && u[11] === 0x61 && u[12] === 0x6c && u[13] === 0x6f && u[14] === 0x67) {
+                    try {
+                        const catDec = window.msgpack.decode(u.slice(15));
+                        if (catDec && typeof catDec === 'object') {
+                            window.__skillCatalog = catDec;
+                            if (window.__planScriptEnabled && window.__currentScriptPlan) {
+                                setTimeout(() => {
+                                    if (typeof window.autoConfigureCombat === 'function') {
+                                        window.autoConfigureCombat();
+                                    }
+                                }, 300);
+                            }
+                        }
+                    } catch(err) {
+                        console.warn('[Pelican Skills] Error parsing skill_catalog packet:', err);
                     }
                 }
 
@@ -9071,6 +9113,14 @@
                         <b>เปิดลูป 24 ชม. (ตาย -> ชุบ -> กลับแมพ)</b>
                     </label>
 
+                    <label class="p-check-box" style="color: #c084fc; margin-top: 2px;">
+                        <input type="checkbox" id="p-plan-script-enabled" ${window.__planScriptEnabled ? 'checked' : ''}>
+                        <b>📜 เปิดใช้งาน Plan Script (ค่าเริ่มต้น: ปิด)</b>
+                    </label>
+                    <div style="font-size: 9.5px; color: #94a3b8; margin-left: 20px; margin-bottom: 4px;">
+                        แผน: <span id="p-plan-name-display" style="color: #38bdf8; font-weight: bold;">${window.__currentScriptPlan ? window.__currentScriptPlan.name : '(ยังไม่เลือกแผน)'}</span>
+                    </div>
+
                     <div>
                         <span style="font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px;">แมพฟาร์มเป้าหมาย:</span>
                         <select id="p-target-map-select" class="p-select">
@@ -9538,6 +9588,19 @@
                     </div>
 
                     
+                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.05);">
+                        <span style="font-size: 10.5px; font-weight: bold; color: #38bdf8;">🎮 ตั้งค่าอัตโนมัติใน Plan Script (Auto-Battle & Display)</span>
+                        <label class="p-check-box" style="margin-top: 2px;">
+                            <input type="checkbox" id="p-auto-config-char" ${window.__autoConfigCharEnabled !== false ? 'checked' : ''}>
+                            <b>ตั้งค่าตัวใหม่อัตโนมัติ (ตีทั้งแมพ + ติ๊กทุกสกิล Auto)</b>
+                        </label>
+                        <label class="p-check-box" style="margin-top: 1px;">
+                            <input type="checkbox" id="p-auto-mute-display" ${window.__autoMuteDisplayEnabled !== false ? 'checked' : ''}>
+                            <b>ปิดประกาศบนจอ & ปิดข่าวสารเข้าเกม</b>
+                        </label>
+                        <button class="p-btn" id="p-btn-apply-autoconfig" style="background: linear-gradient(135deg, #0284c7, #0284c7); color: #fff; font-size: 10px; font-weight: bold; padding: 5px; margin-top: 3px;">⚡ ปรับใช้ทั้งแมพ & สกิล Auto ทันที</button>
+                    </div>
+
                     <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
                         <span style="font-size: 10.5px; font-weight: bold; color: #c084fc;">💾 สำรอง & ถ่ายโอนการตั้งค่า (Settings & Config)</span>
                         <div style="font-size: 9px; color: #94a3b8; margin: 2px 0 5px 0;">
@@ -9677,6 +9740,19 @@
             window.toggleMasterBot();
         };
 
+        const planScriptCb = document.getElementById('p-plan-script-enabled');
+        if (planScriptCb) {
+            planScriptCb.onchange = (e) => {
+                window.__planScriptEnabled = e.target.checked;
+                try { localStorage.setItem('pelican_plan_script_enabled', String(e.target.checked)); } catch(err) {}
+                console.log('%c[Pelican Plan] สลับสถานะ Plan Script:', 'color: #c084fc; font-weight: bold;', e.target.checked ? 'เปิดใช้งาน' : 'ปิดการทำงาน');
+                if (e.target.checked) {
+                    if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat();
+                }
+            };
+        }
+
         document.getElementById('p-shop-enabled').onchange = (e) => {
             window.__shopConfig.enabled = e.target.checked;
             saveShopConfig();
@@ -9689,6 +9765,48 @@
 
         document.getElementById('p-btn-test-shop').onclick = () => {
             window.executeAutoShopRoutine();
+        };
+
+        const autoConfigCharCb = document.getElementById('p-auto-config-char');
+        if (autoConfigCharCb) {
+            autoConfigCharCb.onchange = (e) => {
+                window.__autoConfigCharEnabled = e.target.checked;
+                try { localStorage.setItem('pelican_auto_config_char_enabled', String(e.target.checked)); } catch(err) {}
+                if (e.target.checked && typeof window.autoConfigureCombat === 'function') {
+                    window.autoConfigureCombat(true);
+                }
+            };
+        }
+
+        const autoMuteDisplayCb = document.getElementById('p-auto-mute-display');
+        if (autoMuteDisplayCb) {
+            autoMuteDisplayCb.onchange = (e) => {
+                window.__autoMuteDisplayEnabled = e.target.checked;
+                try { localStorage.setItem('pelican_auto_mute_display_enabled', String(e.target.checked)); } catch(err) {}
+                if (e.target.checked && typeof window.applyPelicanSettings === 'function') {
+                    window.applyPelicanSettings(true);
+                }
+            };
+        }
+
+        const btnApplyAutoConfig = document.getElementById('p-btn-apply-autoconfig');
+        if (btnApplyAutoConfig) {
+            btnApplyAutoConfig.onclick = async () => {
+                btnApplyAutoConfig.disabled = true;
+                btnApplyAutoConfig.innerText = '⏳ กำลังตั้งค่า...';
+                if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings(true);
+                let ok = false;
+                if (typeof window.autoConfigureCombat === 'function') {
+                    ok = await window.autoConfigureCombat(true);
+                }
+                setTimeout(() => {
+                    btnApplyAutoConfig.disabled = false;
+                    btnApplyAutoConfig.innerText = ok ? '✅ ปรับค่าเรียบร้อยแล้ว' : '⚡ ปรับใช้ทั้งแมพ & สกิล Auto ทันที';
+                    setTimeout(() => {
+                        btnApplyAutoConfig.innerText = '⚡ ปรับใช้ทั้งแมพ & สกิล Auto ทันที';
+                    }, 2000);
+                }, 400);
+            };
         };
 
         // Auto-Login Event Listeners
@@ -10290,21 +10408,30 @@
     // PELICAN SCRIPT PLAN EXECUTION ENGINE
     // ==========================================
     window.__currentScriptPlan = null;
+    window.__planScriptEnabled = false; // ค่าเริ่มต้นเป็นปิด (Disabled) เสมอ
     window.__executedPlanTriggers = {};
 
     try {
+        const savedEnabled = localStorage.getItem('pelican_plan_script_enabled');
+        window.__planScriptEnabled = (savedEnabled === 'true'); // ต้องเปิดอย่างชัดเจนเท่านั้น
         const savedPlan = localStorage.getItem('pelican_script_plan');
         if (savedPlan) window.__currentScriptPlan = JSON.parse(savedPlan);
         const savedExec = localStorage.getItem('pelican_executed_triggers');
         if (savedExec) window.__executedPlanTriggers = JSON.parse(savedExec);
     } catch(e) {}
 
-    window.__applyScriptPlan = function(plan) {
+    window.__applyScriptPlan = function(plan, enable = true) {
         window.__currentScriptPlan = plan;
+        if (enable !== undefined) {
+            window.__planScriptEnabled = !!enable;
+            try {
+                localStorage.setItem('pelican_plan_script_enabled', String(window.__planScriptEnabled));
+            } catch(e) {}
+        }
         try {
             localStorage.setItem('pelican_script_plan', JSON.stringify(plan));
         } catch(e) {}
-        console.log('%c[Pelican Plan] 📜 โหลดแผนการเล่นใหม่เรียบร้อย:', 'color: #38bdf8; font-weight: bold;', plan ? plan.name : 'None');
+        console.log('%c[Pelican Plan] 📜 โหลดแผนการเล่น (สถานะ: ' + (window.__planScriptEnabled ? 'เปิดใช้งาน' : 'ปิดอยู่') + '):', 'color: #38bdf8; font-weight: bold;', plan ? plan.name : 'None');
         if (plan && Array.isArray(plan.triggers)) {
             console.log(`[Pelican Plan] แผนมีทั้งหมด ${plan.triggers.length} เงื่อนไขเลเวล`);
         }
@@ -10553,10 +10680,14 @@
 
     // 3. Automated Class 1 & Class 2 Promotion Engine (Per-Character Storage)
     window.checkAndExecuteAutoJobChange = async function() {
+        if (!window.__planScriptEnabled) return false;
         const plan = window.__currentScriptPlan;
         if (!plan) return false;
 
-        const charName = window.getCharacterName();
+        const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
+        if (!charData) return false;
+
+        const charName = charData.name || (typeof window.getCharacterName === 'function' ? window.getCharacterName() : 'default_char');
         if (!charName || charName === 'default_char') return false;
 
         let jobState = { class1Done: false, class2Done: false };
@@ -10565,33 +10696,42 @@
             if (s) jobState = JSON.parse(s);
         } catch(e) {}
 
-        const curClass = ((charData && charData.classId) || document.querySelector('.hud-class')?.innerText || '').trim().toLowerCase();
-        const curJob = (charData && charData.jobLevel) || (() => {
+        const curClass = (charData.classId || charData.class || '').trim().toLowerCase();
+        const baseLv = charData.baseLevel || charData.level || 1;
+        const curJob = charData.jobLevel || (() => {
             const text = document.querySelector('.hud-levels')?.innerText || '';
             const m = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
             return m ? parseInt(m[1], 10) : 1;
         })();
 
-        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist'];
+        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist', 'sniper', 'paladin'];
+        const firstClasses = ['archer', 'swordsman', 'mage', 'thief', 'acolyte', 'merchant'];
 
-        // If current class is already not Novice, mark class 1 as completed
-        if (curClass && !curClass.includes('novice')) {
+        // ถ้าเป็น Class 2 อยู่แล้ว หรือ Base Level >= 50 ถือว่าผ่านทุกคลาสแล้ว ไม่ต้องเปลี่ยนอาชีพ
+        const isSecondClass = secondClasses.some(sc => curClass.includes(sc)) || baseLv >= 50;
+        if (isSecondClass) {
+            if (!jobState.class1Done || !jobState.class2Done) {
+                jobState.class1Done = true;
+                jobState.class2Done = true;
+                try { localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState)); } catch(e) {}
+            }
+            return false;
+        }
+
+        // ถ้าเป็น Class 1 แล้ว
+        const isFirstClass = firstClasses.some(fc => curClass.includes(fc)) || (curClass && curClass !== 'novice' && !curClass.includes('novice'));
+        if (isFirstClass) {
             if (!jobState.class1Done) {
                 jobState.class1Done = true;
-                localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
+                try { localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState)); } catch(e) {}
             }
         }
 
-        // If current class is already Class 2, mark class 2 as completed
-        if (secondClasses.some(sc => curClass.includes(sc))) {
-            if (!jobState.class2Done) {
-                jobState.class2Done = true;
-                localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
-            }
-        }
+        // หากบอทกำลังเดินกลับแมพฟาร์มผ่าน Alice Service ห้ามแทรกแซง
+        if (window.__isWalkingToMap) return false;
 
         // Check Class 1 auto-change (Novice reaching Job Lv >= 10)
-        if (!jobState.class1Done && (curClass.includes('novice') || curClass === '')) {
+        if (!jobState.class1Done && (curClass === 'novice' || curClass.includes('novice'))) {
             if (curJob >= 10 && !window.__isChangingJob) {
                 const targetC1 = plan.class1Target || 'archer';
                 console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 1! (Job Lv.${curJob} >= 10) -> ดำเนินการเปลี่ยนเป็น "${targetC1}"... `, 'color: #38bdf8; font-weight: bold;');
@@ -10612,9 +10752,8 @@
         }
 
         // Check Class 2 auto-change (Class 1 reaching Job Lv >= 50)
-        if (jobState.class1Done && !jobState.class2Done) {
-            const isClass2 = secondClasses.some(sc => curClass.includes(sc));
-            if (!isClass2 && curJob >= 50 && !window.__isChangingJob) {
+        if (jobState.class1Done && !jobState.class2Done && isFirstClass) {
+            if (curJob >= 50 && !window.__isChangingJob) {
                 const targetC2 = plan.class2Target || 'hunter';
                 console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 2! (Job Lv.${curJob} >= 50) -> ดำเนินการเปลี่ยนเป็น "${targetC2}"... `, 'color: #a855f7; font-weight: bold;');
                 window.__isChangingJob = true;
@@ -10636,21 +10775,236 @@
         return false;
     };
 
-    // Auto-check plan triggers, auto-job change, skills & stats every 4 seconds
+    // ==========================================
+    // 4. AUTOMATED COMBAT & GAME DISPLAY CONFIGURATION
+    // ==========================================
+    const KNOWN_ACTIVE_SKILLS = new Set([
+        "first-aid","whirlwind","starfall","angel-starfall","berserk","earthquake",
+        "bash","provoke","magnum-break","endure","fire-bolt","cold-bolt","lightning-bolt",
+        "soul-strike","napalm-beat","frost-diver","sight","arcane-surge","double-strafe",
+        "arrow-shower","improve-concentration","focus-shooting","heal","blessing","increase-agi",
+        "holy-light","mammonite","loud-exclamation","steal","back-slide","envenom","pierce",
+        "bowling-bash","brandish-spear","two-hand-quicken","parry","charge-attack","holy-cross",
+        "grand-cross","shield-charge","shield-boomerang","auto-guard","safety-wall","jupitel-thunder",
+        "heavens-drive","quagmire","storm-gust","meteor-storm","lord-of-vermilion","earth-spike",
+        "endow-blaze","endow-tsunami","endow-tornado","endow-quake","auto-spell","create-converter",
+        "land-protector","blitz-beat","land-mine","ankle-snare","claymore-trap","detecting",
+        "musical-strike","frost-joke","poem-of-bragi","assassin-cross-of-sunset","apple-of-idun",
+        "throw-arrow","service-for-you","fortune-kiss","scream","magnus-exorcismus","kyrie-eleison",
+        "impositio-manus","gloria","sanctuary","aspersio","pneuma","resurrection","call-spirits",
+        "finger-offensive","six-saint","investigate","asura-strike","hammer-fall","adrenaline-rush",
+        "over-thrust","weapon-perfection","acid-terror","demonstration","potion-pitcher",
+        "chemical-protection","sonic-blow","grimtooth","enchant-poison","venom-dust","back-stab",
+        "raid","strip-armor","snatcher","dragon-breath"
+    ]);
+
+    window.__autoConfigCharEnabled = true;
+    try {
+        const savedAuto = localStorage.getItem('pelican_auto_config_char_enabled');
+        if (savedAuto !== null) window.__autoConfigCharEnabled = (savedAuto === 'true');
+    } catch(e) {}
+
+    window.__autoMuteDisplayEnabled = true;
+    try {
+        const savedMute = localStorage.getItem('pelican_auto_mute_display_enabled');
+        if (savedMute !== null) window.__autoMuteDisplayEnabled = (savedMute === 'true');
+    } catch(e) {}
+
+    // 4.1 Automated Combat Config: Sets huntRadiusTiles to 'all' and ticks all auto skills (ทำงานเฉพาะเมื่อรัน Plan Script)
+    window.autoConfigureCombat = async function(force = false) {
+        // ต้องเปิดใช้งาน Plan Script และมีแผนการเล่นที่เลือกไว้เท่านั้น (ยกเว้นกดปุ่ม Force Apply จาก UI)
+        if (!force && (!window.__planScriptEnabled || !window.__currentScriptPlan)) return false;
+        if (!window.__autoConfigCharEnabled && !force) return false;
+
+        const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
+        if (!charData) return false;
+
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (!room) return false;
+
+        const charName = charData.name || (typeof window.getCharacterName === 'function' ? window.getCharacterName() : 'default_char');
+        if (!charName || charName === 'default_char') return false;
+
+        const currentAuto = charData.auto || {};
+        const currentConfig = currentAuto.config || {};
+        const curRadius = currentConfig.huntRadiusTiles;
+        const currentSkills = Array.isArray(currentConfig.skills) ? [...currentConfig.skills] : [];
+        const learnedSkills = charData.skills || {};
+
+        // รวบรวมสกิลที่มี autoUse ที่ตัวละครได้อัปเลเวลไว้ (> 0)
+        let autoUsableSkills = [];
+
+        // ลำดับที่ 1: ดึงจาก skill_catalog ที่เซิร์ฟเวอร์ส่งมา
+        if (window.__skillCatalog && Array.isArray(window.__skillCatalog.skills)) {
+            autoUsableSkills = window.__skillCatalog.skills
+                .filter(s => s && s.autoUse && (learnedSkills[s.id] || 0) > 0)
+                .map(s => s.id);
+        }
+
+        // ลำดับที่ 2: ดึงจาก React Fiber state หาก catalog ยังไม่ได้ถูกแคชในตัวแปร
+        if (autoUsableSkills.length === 0) {
+            try {
+                const root = document.querySelector('#root');
+                let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
+                function walkFiber(n, depth = 0) {
+                    if (!n || depth > 40 || autoUsableSkills.length > 0) return;
+                    const cat = n.memoizedProps?.catalog || n.memoizedState?.memoizedState?.catalog || n.memoizedState?.memoizedState?.value?.catalog;
+                    if (cat && Array.isArray(cat.skills)) {
+                        autoUsableSkills = cat.skills
+                            .filter(s => s && s.autoUse && (learnedSkills[s.id] || 0) > 0)
+                            .map(s => s.id);
+                        return;
+                    }
+                    if (n.child) walkFiber(n.child, depth + 1);
+                    if (n.sibling) walkFiber(n.sibling, depth + 1);
+                }
+                if (fiber) walkFiber(fiber);
+            } catch(e) {}
+        }
+
+        // ลำดับที่ 3: ใช้ฐานข้อมูลสกิล Active สากล (Fallback)
+        if (autoUsableSkills.length === 0) {
+            autoUsableSkills = Object.keys(learnedSkills).filter(skillId => {
+                return (learnedSkills[skillId] || 0) > 0 && KNOWN_ACTIVE_SKILLS.has(skillId);
+            });
+        }
+
+        // จัดเตรียมรายการสกิลเป้าหมาย: คงลำดับสกิลเดิมไว้ และเพิ่มสกิล Auto ที่ยังไม่ได้ติ๊กต่อท้าย (สูงสุด 9 สกิล)
+        const targetSkills = [...currentSkills];
+        for (const skillId of autoUsableSkills) {
+            if (!targetSkills.includes(skillId) && targetSkills.length < 9) {
+                targetSkills.push(skillId);
+            }
+        }
+
+        // ตรวจสอบว่าต้องอัปเดตหรือไม่
+        // 1. ระยะล่าไม่เป็น 'all' (เช่น ค่าเริ่มต้น 12 ช่อง หรือตัวเลขอื่นๆ)
+        // 2. มีสกิล Auto ที่ยังไม่ได้ถูกติ๊กใน config
+        const needsRadiusUpdate = curRadius !== 'all';
+        const needsSkillsUpdate = targetSkills.length > currentSkills.length;
+
+        if (!needsRadiusUpdate && !needsSkillsUpdate && !force) {
+            return false;
+        }
+
+        // ป้องกันการส่งแพ็กเก็ตซ้ำเร็วเกินไป (Throttle 5 วินาทีต่อครั้งสำหรับตัวละครเดียวกัน ถ้าไม่ใช่ force)
+        const now = Date.now();
+        window.__lastAutoSetTime = window.__lastAutoSetTime || {};
+        if (!force && (now - (window.__lastAutoSetTime[charName] || 0)) < 5000) {
+            return false;
+        }
+        window.__lastAutoSetTime[charName] = now;
+
+        console.log(`%c[Pelican Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
+
+        const newConfig = {
+            skills: targetSkills,
+            monsters: currentConfig.monsters || [],
+            hpPercent: typeof currentConfig.hpPercent === 'number' ? currentConfig.hpPercent : 40,
+            spPercent: typeof currentConfig.spPercent === 'number' ? currentConfig.spPercent : 20,
+            pickupLoot: currentConfig.pickupLoot !== false,
+            huntRadiusTiles: 'all',
+            basicAttack: currentConfig.basicAttack !== false,
+            buffParty: currentConfig.buffParty !== false,
+            flyWing: currentConfig.flyWing === true
+        };
+
+        try {
+            room.send('auto_set', { config: newConfig });
+            if (charData.auto) {
+                charData.auto.config = { ...charData.auto.config, ...newConfig };
+            }
+            return true;
+        } catch(err) {
+            console.warn('[Pelican Auto] Error sending auto_set packet:', err);
+            return false;
+        }
+    };
+
+    // 4.2 Automated Display & News Settings (Mute screen banners & Disable news on enter) (ทำงานเฉพาะเมื่อรัน Plan Script)
+    window.applyPelicanSettings = function(force = false) {
+        // ต้องเปิดใช้งาน Plan Script และมีแผนการเล่นที่เลือกไว้เท่านั้น (ยกเว้นกดปุ่ม Force Apply จาก UI)
+        if (!force && (!window.__planScriptEnabled || !window.__currentScriptPlan)) return;
+        if (!window.__autoMuteDisplayEnabled && !force) return;
+
+        // 1. บันทึกปิดประกาศบนจอ (banners: false) ลงใน webgame.camera
+        try {
+            const rawCam = localStorage.getItem('webgame.camera');
+            const cam = rawCam ? JSON.parse(rawCam) : {};
+            if (cam.banners !== false) {
+                cam.banners = false;
+                localStorage.setItem('webgame.camera', JSON.stringify(cam));
+                console.log('%c[Pelican Settings] 🔕 บันทึกตั้งค่า: ปิดประกาศบนจอ (banners: false)', 'color: #38bdf8; font-weight: bold;');
+            }
+        } catch(e) {}
+
+        // 2. บันทึกปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false) ลงใน webgame.mobile
+        try {
+            const rawMob = localStorage.getItem('webgame.mobile');
+            const mob = rawMob ? JSON.parse(rawMob) : {};
+            if (mob.newsOnEnter !== false) {
+                mob.newsOnEnter = false;
+                localStorage.setItem('webgame.mobile', JSON.stringify(mob));
+                console.log('%c[Pelican Settings] 📰 บันทึกตั้งค่า: ปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false)', 'color: #38bdf8; font-weight: bold;');
+            }
+        } catch(e) {}
+
+        // 3. ซิงค์กับหน้าต่างตั้งค่า (Settings Dialog) หากเปิดอยู่บนหน้าจอ
+        try {
+            const settingsBody = document.querySelector('.settings-body');
+            if (settingsBody) {
+                const checks = settingsBody.querySelectorAll('label.settings-check');
+                checks.forEach(lbl => {
+                    const text = lbl.innerText || '';
+                    const cb = lbl.querySelector('input[type="checkbox"]');
+                    if (!cb) return;
+                    if (text.includes('แสดงประกาศบนจอ') && cb.checked) {
+                        cb.click();
+                    }
+                    if (text.includes('เปิดหน้าข่าวสารเองเมื่อเข้าเกม') && cb.checked) {
+                        cb.click();
+                    }
+                });
+            }
+        } catch(e) {}
+
+        // 4. ปิดหน้าต่างข่าวสารอัปเดต (News Window) หากเปิดค้างหรือเผลอเด้งขึ้นมา
+        try {
+            const newsWindow = document.querySelector('.news-window');
+            if (newsWindow) {
+                const closeBtn = newsWindow.querySelector('.win-close');
+                if (closeBtn) {
+                    closeBtn.click();
+                    console.log('%c[Pelican Settings] ❎ ปิดหน้าต่างข่าวสารอัตโนมัติ', 'color: #38bdf8;');
+                }
+            }
+        } catch(e) {}
+    };
+
+    // Auto-check plan triggers, auto-job change, skills, stats, auto-combat & settings every 4 seconds
     setInterval(async () => {
         try {
-            if (typeof window.checkAndExecuteAutoJobChange === 'function') {
-                const isBusy = await window.checkAndExecuteAutoJobChange();
-                if (isBusy) return;
-            }
-            if (typeof window.autoAllocateSkills === 'function') {
-                await window.autoAllocateSkills();
-            }
-            if (typeof window.autoAllocateStats === 'function') {
-                await window.autoAllocateStats();
-            }
-            if (typeof window.checkAndExecutePlanTriggers === 'function') {
-                await window.checkAndExecutePlanTriggers();
+            // Only execute Plan Script actions if explicitly enabled by user
+            if (window.__planScriptEnabled && window.__currentScriptPlan) {
+                if (typeof window.applyPelicanSettings === 'function') {
+                    window.applyPelicanSettings();
+                }
+                if (typeof window.autoConfigureCombat === 'function') {
+                    await window.autoConfigureCombat();
+                }
+                if (typeof window.checkAndExecuteAutoJobChange === 'function') {
+                    const isBusy = await window.checkAndExecuteAutoJobChange();
+                    if (isBusy) return;
+                }
+                if (typeof window.autoAllocateSkills === 'function') {
+                    await window.autoAllocateSkills();
+                }
+                if (typeof window.autoAllocateStats === 'function') {
+                    await window.autoAllocateStats();
+                }
+                if (typeof window.checkAndExecutePlanTriggers === 'function') {
+                    await window.checkAndExecutePlanTriggers();
+                }
             }
         } catch(e) {}
     }, 4000);
