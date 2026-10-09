@@ -138,6 +138,7 @@ const gridEl = document.getElementById("profiles-grid");
 const totalEl = document.getElementById("metric-total-profiles");
 const onlineEl = document.getElementById("metric-online-profiles");
 const farmingEl = document.getElementById("metric-farming-profiles");
+const zenyEl = document.getElementById("metric-total-zeny");
 
 // Profile Modal Elements
 const modalEl = document.getElementById("profile-modal");
@@ -202,6 +203,14 @@ function updateMetrics() {
   if (onlineEl) onlineEl.innerText = onlineCount;
   const farmingCount = currentProfiles.filter(p => p.liveState && (p.liveState.autoLoop || p.liveState.isBotRunning)).length;
   if (farmingEl) farmingEl.innerText = farmingCount;
+
+  const totalZeny = currentProfiles.reduce((sum, p) => {
+    const z = p.liveState && typeof p.liveState.zeny === 'number' ? p.liveState.zeny : 0;
+    return sum + z;
+  }, 0);
+  if (zenyEl) {
+    zenyEl.innerText = `${totalZeny.toLocaleString()} z`;
+  }
 }
 
 // ==========================================
@@ -231,6 +240,7 @@ function renderProfiles() {
     const curAmmo = state && typeof state.ammo === 'number' ? `${state.ammo.toLocaleString()} ดอก` : '--';
     const curPos = state && state.coords ? state.coords : (state && state.pos && state.pos.x ? `${state.pos.tileX || 0}, ${state.pos.tileY || 0} (${state.pos.x}, ${state.pos.y})` : '--');
     const curWeight = state?.weight ? `${state.weight}` : '--';
+    const curZeny = (state && typeof state.zeny === 'number') ? `${state.zeny.toLocaleString()} z` : '--';
     
     // HP & SP
     const hpCur = state?.hp;
@@ -336,6 +346,10 @@ function renderProfiles() {
           <div class="stat-item">
             <span class="stat-lbl">สถานะบอท:</span>
             <span class="stat-val" style="color: ${activityColor}; font-weight: 700;">${activityText}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-lbl">เงินในตัว (Zeny):</span>
+            <span class="stat-val" style="color: #facc15; font-weight: 700;">🪙 ${curZeny}</span>
           </div>
         </div>
 
@@ -583,6 +597,7 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                     <span class="p-header-title">${escapeHTML(charDisplayName)}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
+                    <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">🪙 ${typeof clientData?.state?.zeny === 'number' ? clientData.state.zeny.toLocaleString() + ' z' : '-- z'}</span>
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${clientData?.currentAmmo ?? 0}</span>
                     <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
                     <span class="pelican-toggle" onclick="toggleWebHudCollapse('${profileId}')" style="cursor: pointer; font-size: 15px; padding: 0 4px; color: #94a3b8; font-weight: bold;">−</span>
@@ -1411,6 +1426,12 @@ function populateWebHudData(profileId, data) {
   if (titleEl && charName) titleEl.innerText = charName;
 
   // Header quick badges
+  const quickZeny = hud.querySelector('#p-quick-zeny');
+  if (quickZeny) {
+    const z = data.state?.zeny;
+    quickZeny.innerText = '🪙 ' + (typeof z === 'number' ? z.toLocaleString() + ' z' : '-- z');
+  }
+
   const quickAmmo = hud.querySelector('#p-quick-ammo');
   if (quickAmmo) quickAmmo.innerText = '🏹 ' + (data.currentAmmo ?? '--');
 

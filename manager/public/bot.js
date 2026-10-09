@@ -1539,6 +1539,37 @@
         return null;
     };
 
+    // Recovery function to scan packet logs for character / zeny payload
+    window.tryRecoverCharacterFromPackets = function() {
+        if (typeof window.__currentZeny === 'number') {
+            return window.__currentZeny;
+        }
+        const cached = localStorage.getItem('pelican_current_zeny');
+        if (cached && !isNaN(Number(cached))) {
+            window.__currentZeny = Number(cached);
+        }
+        if (!window.__packetLogs || window.__packetLogs.length === 0 || !window.msgpack) {
+            return (typeof window.__currentZeny === 'number') ? window.__currentZeny : null;
+        }
+
+        for (let i = window.__packetLogs.length - 1; i >= 0; i--) {
+            const p = window.__packetLogs[i];
+            if (p && p.dir === 'IN' && p.ascii && p.ascii.includes('character') && p.ascii.includes('pets')) {
+                try {
+                    const bytes = new Uint8Array(p.hex.split(' ').map(h => parseInt(h, 16)));
+                    const dec = window.msgpack.decode(bytes.slice(11));
+                    if (dec && typeof dec === 'object' && typeof dec.zeny === 'number') {
+                        window.__latestCharacterData = dec;
+                        window.__currentZeny = dec.zeny;
+                        try { localStorage.setItem('pelican_current_zeny', String(dec.zeny)); } catch(e) {}
+                        return dec.zeny;
+                    }
+                } catch(e) {}
+            }
+        }
+        return (typeof window.__currentZeny === 'number') ? window.__currentZeny : null;
+    };
+
     // ==========================================
     // IN-GAME DATA VIEWER MODAL & INSPECTOR
     // ==========================================
@@ -3336,6 +3367,26 @@
         try {
             const u = new Uint8Array(rawData instanceof ArrayBuffer ? rawData : rawData.buffer);
             if (u[0] === 0x0D) {
+                // ตรวจสอบแพ็กเก็ต 'character' (0x0D + fixstr 9 'character')
+                if (u.length > 20 && u[1] === 0xa9 && u[2] === 0x63 && u[3] === 0x68 && u[4] === 0x61 && u[5] === 0x72 && u[6] === 0x61 && u[7] === 0x63 && u[8] === 0x74 && u[9] === 0x65 && u[10] === 0x72) {
+                    try {
+                        const charDec = window.msgpack.decode(u.slice(11));
+                        if (charDec && typeof charDec === 'object') {
+                            window.__latestCharacterData = charDec;
+                            if (typeof charDec.zeny === 'number') {
+                                window.__currentZeny = charDec.zeny;
+                                try { localStorage.setItem('pelican_current_zeny', String(charDec.zeny)); } catch(e) {}
+                                const quickZeny = document.getElementById('p-quick-zeny');
+                                if (quickZeny) {
+                                    quickZeny.innerText = `🪙 ${charDec.zeny.toLocaleString()} z`;
+                                }
+                            }
+                        }
+                    } catch(err) {
+                        console.warn('[Pelican Character] Error parsing character packet:', err);
+                    }
+                }
+
                 // ตรวจสอบแพ็กเก็ต 'market_results' (0x0D + fixstr 14 'market_results')
                 if (u.length > 20 && u[1] === 0xae && u[2] === 0x6d && u[3] === 0x61 && u[4] === 0x72 && u[5] === 0x6b && u[6] === 0x65 && u[7] === 0x74 && u[8] === 0x5f && u[9] === 0x72) {
                     try {
@@ -8746,6 +8797,7 @@
                     <span id="p-hud-title-text">Aetheria Bot v4.3.0</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
+                    <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">🪙 ${typeof window.__currentZeny === 'number' ? window.__currentZeny.toLocaleString() + ' z' : '-- z'}</span>
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${window.__currentAmmo}</span>
                     <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
                     <span id="pelican-toggle" style="cursor: pointer; font-size: 15px; padding: 0 4px; color: #94a3b8; font-weight: bold;">−</span>
@@ -10161,9 +10213,13 @@
         // 4. Pos
         const pos = window.__currentPos || { x: 0, y: 0, tileX: 0, tileY: 0 };
         
-        // 5. Ammo & Weight
+        // 5. Ammo, Weight & Zeny
         const ammo = (typeof window.__currentAmmo === 'number') ? window.__currentAmmo : 0;
         const weightText = document.getElementById('p-quick-weight')?.innerText?.replace('⚖️', '')?.trim() || null;
+        let currentZeny = window.__currentZeny;
+        if (typeof currentZeny !== 'number' && typeof window.tryRecoverCharacterFromPackets === 'function') {
+            currentZeny = window.tryRecoverCharacterFromPackets();
+        }
 
         // 6. Bot Status & Actions
         const hudState = document.getElementById('p-char-state')?.innerText?.trim();
@@ -10190,6 +10246,8 @@
             coords: pos.tileX ? (pos.tileX + ', ' + pos.tileY + ' (' + pos.x + ', ' + pos.y + ')') : (pos.x ? (pos.x + ', ' + pos.y) : '--'),
             ammo: ammo,
             weight: weightText,
+            zeny: (typeof currentZeny === 'number') ? currentZeny : null,
+            zenyText: (typeof currentZeny === 'number') ? (currentZeny.toLocaleString() + ' z') : '--',
             botStatus: activity,
             navigating: !!window.__isNavigating,
             recovering: !!window.__isRecovering,
