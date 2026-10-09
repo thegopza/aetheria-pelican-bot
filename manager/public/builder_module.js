@@ -372,6 +372,8 @@ const SKILLS_DATABASE = { "novice": [
   ], "desc": "ฟันพร้อมฉกไอเทมจากมอน (ขโมยได้ครั้งเดียวต่อมอน)" } ] };
 
 let currentSkillBuilderTab = 'novice';
+let skillBuilderSnapshot = null;
+let skillBuilderNotice = '';
 
 // 1. Update Class 1 and Class 2 Dropdowns in Plan Editor
 function updateClassDropdownsInEditor() {
@@ -461,6 +463,16 @@ function openSkillBuilderModal() {
     c2NameEl.innerText = (sc?.name || c2).split(' ')[0];
   }
 
+  skillBuilderSnapshot = JSON.stringify(activeEditingPlan.skillBuild);
+  const before = activeEditingPlan.skillBuild.skillPointQueue;
+  const fixed = repairSkillQueue(before, true);
+  applySkillQueue(fixed.queue);
+  const notes = [];
+  if (fixed.added.length) notes.push(`เติมสกิลเงื่อนไขที่ขาดให้: ${summarizeSkillIds(fixed.added)}`);
+  if (fixed.dropped.length) notes.push(`ตัดแต้มที่อัปไม่ได้ออก: ${summarizeSkillIds(fixed.dropped)}`);
+  if (!notes.length && fixed.queue.join() !== before.join()) notes.push('จัดลำดับใหม่ให้สกิลเงื่อนไขมาก่อน');
+  skillBuilderNotice = notes.length ? `🔧 ปรับคิวเดิมให้ตรงเงื่อนไขของเกมแล้ว — ${notes.join(' · ')} (กด "ยกเลิก" เพื่อไม่ใช้การปรับนี้)` : '';
+
   currentSkillBuilderTab = 'novice';
   renderSkillBuilderUI();
 
@@ -534,11 +546,30 @@ function renderSkillBuilderUI() {
 
   const grid = document.getElementById("skill-cards-grid");
   if (grid) {
+    let notice = document.getElementById('skill-builder-notice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'skill-builder-notice';
+      notice.className = 'skill-notice';
+      grid.parentNode.insertBefore(notice, grid);
+    }
+    notice.textContent = skillBuilderNotice;
+    notice.style.display = skillBuilderNotice ? '' : 'none';
+  }
+  if (grid) {
     grid.innerHTML = activeList.map(skill => {
       const curLv = planned[skill.id] || 0;
       const isMaxed = curLv >= skill.maxLevel;
-      const canAdd = !isMaxed && (tierSpent < tierMaxBudget);
+      const preview = isMaxed ? { ok: false, why: 'max' } : skillAddPreview(skill.id);
+      const canAdd = preview.ok;
       const canMinus = curLv > 0;
+      const plusTitle = canAdd
+        ? (preview.added.length ? `+1 แต้ม — จะอัป ${summarizeSkillIds(preview.added)} ให้ก่อนอัตโนมัติ (ใช้ทั้งหมด ${preview.cost} แต้ม)` : '+1 แต้ม')
+        : (preview.why === 'max' ? 'สกิลเต็มแล้ว' : preview.why === 'budget' ? 'แต้มของสายนี้ไม่พอ (รวมสกิลเงื่อนไข)' : 'อัปไม่ได้');
+      const reqHtml = (skill.prereq || []).map(p => {
+        const met = (planned[p.skill] || 0) >= p.level;
+        return `<span class="skill-req ${met ? 'met' : ''}">${met ? '✔' : '🔒'} ${escapeHTML(skillMetaName(p.skill))} Lv.${p.level}</span>`;
+      }).join('');
 
       // Find all step indexes in queue where this skill was picked
       const stepIndexes = [];
@@ -561,9 +592,7 @@ function renderSkillBuilderUI() {
             </div>
           </div>
 
-          ${skill.req ? `
-            <div style="font-size: 10px; color: #f59e0b; margin-top: -4px;">↳ เงื่อนไข: ${escapeHTML(skill.req)}</div>
-          ` : ''}
+          ${reqHtml ? `<div class="skill-req-row">ต้องมี: ${reqHtml}</div>` : ''}
 
           <div class="skill-card-controls">
             <div class="skill-level-indicator ${isMaxed ? 'maxed' : ''}">
@@ -571,7 +600,7 @@ function renderSkillBuilderUI() {
             </div>
             <div class="skill-btn-group">
               <button type="button" class="btn-skill-adjust" onclick="removeSkillPoint('${skill.id}')" ${!canMinus ? 'disabled' : ''}>-</button>
-              <button type="button" class="btn-skill-adjust btn-plus" onclick="addSkillPoint('${skill.id}')" ${!canAdd ? 'disabled' : ''}>+</button>
+              <button type="button" class="btn-skill-adjust btn-plus" onclick="addSkillPoint('${skill.id}')" ${!canAdd ? 'disabled' : ''} title="${escapeHTML(plusTitle)}">+</button>
             </div>
           </div>
 
@@ -614,102 +643,172 @@ function renderSkillBuilderUI() {
   }
 }
 
-// 5. Add / Remove Skill Points
-function addSkillPoint(skillId, silent = false) {
-  if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
-  const queue = activeEditingPlan.skillBuild.skillPointQueue;
-  const planned = activeEditingPlan.skillBuild.plannedLevels;
-
-  let skillMeta = null;
-  let skillTier = 'novice';
-  for (const t in SKILLS_DATABASE) {
-    const f = SKILLS_DATABASE[t].find(s => s.id === skillId);
-    if (f) { skillMeta = f; skillTier = t; break; }
+// 5. Skill rules: every change goes through repairSkillQueue so the queue always matches the game
+//    (prerequisites before the skill, max level, 9 / 49 / 49 points per tier, only the plan's classes)
+let skillMetaCache = null;
+function getSkillMeta(skillId) {
+  if (!skillMetaCache) {
+    skillMetaCache = {};
+    for (const t in SKILLS_DATABASE) SKILLS_DATABASE[t].forEach(s => { skillMetaCache[s.id] = Object.assign({ tier: t }, s); });
   }
-  if (!skillMeta) return;
-
-  const curLv = planned[skillId] || 0;
-  if (curLv >= skillMeta.maxLevel) return;
-
-  // Prerequisites first (the game refuses a skill whose required skills aren't high enough)
-  for (const p of (skillMeta.prereq || [])) {
-    while ((planned[p.skill] || 0) < p.level) {
-      const before = queue.length;
-      addSkillPoint(p.skill, true);
-      if (queue.length === before) {
-        alert(`ต้องอัป ${skillMetaName(p.skill)} ให้ถึง Lv.${p.level} ก่อน แต่แต้มของสายนั้นไม่พอ`);
-        renderSkillBuilderUI();
-        return;
-      }
-    }
-  }
-
-  const tierBudget = (skillTier === 'novice') ? 9 : 49;
-  const tierSkills = SKILLS_DATABASE[skillTier] || [];
-  const tierSpent = queue.filter(id => tierSkills.some(s => s.id === id)).length;
-  if (tierSpent >= tierBudget) {
-    if (!silent) alert(`แต้มสกิลของสายนี้เต็มแล้ว (${tierBudget}/${tierBudget} แต้ม)!`);
-    return;
-  }
-
-  queue.push(skillId);
-  planned[skillId] = curLv + 1;
-  if (!silent) renderSkillBuilderUI();
+  return skillMetaCache[skillId] || null;
 }
 
 function skillMetaName(skillId) {
-  for (const t in SKILLS_DATABASE) {
-    const f = SKILLS_DATABASE[t].find(x => x.id === skillId);
-    if (f) return f.thai || f.name;
-  }
-  return skillId;
+  const m = getSkillMeta(skillId);
+  return m ? (m.thai || m.name) : skillId;
 }
 
-// Queue positions whose prerequisites aren't met yet at that point (e.g. after removing points)
-function findQueuePrereqProblems(queue) {
-  const meta = {};
-  for (const t in SKILLS_DATABASE) SKILLS_DATABASE[t].forEach(x => { meta[x.id] = x; });
-  const lv = {};
-  const bad = new Set();
-  queue.forEach((id, idx) => {
-    const m = meta[id];
-    if (m && (m.prereq || []).some(p => (lv[p.skill] || 0) < p.level)) bad.add(idx);
+function planSkillTiers() {
+  const c1 = activeEditingPlan?.class1Target || 'archer';
+  const c2 = activeEditingPlan?.class2Target || 'hunter';
+  return { novice: 9, [c1]: 49, [c2]: 49 };
+}
+
+// Rebuild a queue that the game would accept.
+//  - a point whose prerequisites come later in the queue is moved to right after them
+//  - insertMissing: prerequisites that never appear are inserted just before the point that needs them
+//  - anything still impossible (max level, tier full, prerequisite missing, other class) is dropped
+function repairSkillQueue(queue, insertMissing) {
+  const budgets = planSkillTiers();
+  const lv = {}, spent = {};
+  const out = [], dropped = [], added = [];
+
+  const prereqMet = m => (m.prereq || []).every(p => (lv[p.skill] || 0) >= p.level);
+  const check = id => {
+    const m = getSkillMeta(id);
+    if (!m || budgets[m.tier] === undefined) return 'class';
+    if ((lv[id] || 0) >= m.maxLevel) return 'max';
+    if ((spent[m.tier] || 0) >= budgets[m.tier]) return 'budget';
+    return prereqMet(m) ? 'ok' : 'prereq';
+  };
+  const place = id => {
+    const m = getSkillMeta(id);
+    out.push(id);
     lv[id] = (lv[id] || 0) + 1;
+    spent[m.tier] = (spent[m.tier] || 0) + 1;
+  };
+  // Will the rest of the queue raise every prerequisite high enough by itself?
+  const laterSatisfies = (m, rest) => (m.prereq || []).every(p =>
+    (lv[p.skill] || 0) + rest.filter(x => x === p.skill).length >= p.level);
+  const insertPrereqs = (id, depth) => {
+    const m = getSkillMeta(id);
+    for (const p of (m.prereq || [])) {
+      while ((lv[p.skill] || 0) < p.level) {
+        if (depth > 6) return false;
+        const pm = getSkillMeta(p.skill);
+        if (!pm) return false;
+        if (!prereqMet(pm) && !insertPrereqs(p.skill, depth + 1)) return false;
+        if (check(p.skill) !== 'ok') return false;
+        place(p.skill);
+        added.push(p.skill);
+      }
+    }
+    return true;
+  };
+
+  const pending = [];
+  const flush = () => {
+    for (let i = 0; i < pending.length; i++) {
+      if (check(pending[i]) === 'ok') { place(pending.splice(i, 1)[0]); i = -1; }
+    }
+  };
+
+  queue.forEach((id, idx) => {
+    const r = check(id);
+    if (r === 'ok') { place(id); flush(); return; }
+    if (r !== 'prereq') { dropped.push({ id, why: r }); return; }
+    const m = getSkillMeta(id);
+    if (insertMissing && !laterSatisfies(m, queue.slice(idx + 1))) {
+      const snap = { out: out.length, added: added.length, lv: Object.assign({}, lv), spent: Object.assign({}, spent) };
+      if (insertPrereqs(id, 0) && check(id) === 'ok') { place(id); flush(); return; }
+      out.length = snap.out; added.length = snap.added;
+      Object.keys(lv).forEach(k => delete lv[k]); Object.assign(lv, snap.lv);
+      Object.keys(spent).forEach(k => delete spent[k]); Object.assign(spent, snap.spent);
+    }
+    pending.push(id);
   });
-  return bad;
+  pending.forEach(id => dropped.push({ id, why: check(id) === 'budget' ? 'budget' : 'prereq' }));
+
+  return { queue: out, levels: lv, dropped, added };
+}
+
+function applySkillQueue(newQueue) {
+  activeEditingPlan.skillBuild.skillPointQueue = newQueue;
+  const levels = {};
+  newQueue.forEach(id => { levels[id] = (levels[id] || 0) + 1; });
+  activeEditingPlan.skillBuild.plannedLevels = levels;
+}
+
+function summarizeSkillIds(list) {
+  const count = {};
+  list.forEach(x => { const id = x.id || x; count[id] = (count[id] || 0) + 1; });
+  return Object.keys(count).map(id => `${skillMetaName(id)} ${count[id]} แต้ม`).join(', ');
+}
+
+// Cost of one more point of this skill right now (the point + prerequisites it pulls in), or why it can't be added
+function skillAddPreview(skillId) {
+  const queue = activeEditingPlan.skillBuild.skillPointQueue;
+  const res = repairSkillQueue(queue.concat(skillId), true);
+  const ok = res.queue.length > queue.length && !res.dropped.length;
+  if (ok) return { ok: true, cost: res.queue.length - queue.length, added: res.added };
+  const why = (res.dropped[res.dropped.length - 1] || {}).why;
+  return { ok: false, why };
+}
+
+function addSkillPoint(skillId, silent = false) {
+  if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
+  const queue = activeEditingPlan.skillBuild.skillPointQueue;
+  const res = repairSkillQueue(queue.concat(skillId), true);
+  if (res.dropped.length || res.queue.length <= queue.length) {
+    if (!silent) {
+      const why = (res.dropped[res.dropped.length - 1] || {}).why;
+      alert(why === 'max' ? 'สกิลนี้เต็มแล้ว'
+        : why === 'class' ? 'สกิลนี้ไม่ได้อยู่ในอาชีพของแผนนี้'
+        : 'แต้มสกิลของสายนี้ไม่พอ (รวมสกิลเงื่อนไขที่ต้องอัปก่อน)');
+    }
+    return;
+  }
+  applySkillQueue(res.queue);
+  if (!silent) renderSkillBuilderUI();
+}
+
+// Remove one point, then drop/move whatever no longer meets its prerequisites (asks first)
+function removeSkillPointsAndRepair(newQueue) {
+  const res = repairSkillQueue(newQueue, false);
+  if (res.dropped.length) {
+    const msg = `การลดแต้มนี้ทำให้สกิลต่อไปนี้ไม่ผ่านเงื่อนไข และจะถูกลบออกด้วย:\n\n${summarizeSkillIds(res.dropped)}\n\nยืนยันหรือไม่?`;
+    if (!confirm(msg)) return;
+  }
+  applySkillQueue(res.queue);
+  renderSkillBuilderUI();
 }
 
 function removeSkillPoint(skillId) {
   if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
   const queue = activeEditingPlan.skillBuild.skillPointQueue;
-  const planned = activeEditingPlan.skillBuild.plannedLevels;
-
-  // Find last index
-  let lastIdx = -1;
-  for (let i = queue.length - 1; i >= 0; i--) {
-    if (queue[i] === skillId) { lastIdx = i; break; }
-  }
+  const lastIdx = queue.lastIndexOf(skillId);
   if (lastIdx === -1) return;
-
-  queue.splice(lastIdx, 1);
-  planned[skillId] = Math.max(0, (planned[skillId] || 1) - 1);
-  if (planned[skillId] === 0) delete planned[skillId];
-
-  renderSkillBuilderUI();
+  removeSkillPointsAndRepair(queue.filter((_, i) => i !== lastIdx));
 }
 
 function removeSkillPointAtIndex(idx) {
   if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
   const queue = activeEditingPlan.skillBuild.skillPointQueue;
-  const planned = activeEditingPlan.skillBuild.plannedLevels;
-
   if (idx < 0 || idx >= queue.length) return;
-  const sId = queue[idx];
-  queue.splice(idx, 1);
-  planned[sId] = Math.max(0, (planned[sId] || 1) - 1);
-  if (planned[sId] === 0) delete planned[sId];
+  removeSkillPointsAndRepair(queue.filter((_, i) => i !== idx));
+}
 
-  renderSkillBuilderUI();
+// Queue positions whose prerequisites aren't met yet at that point
+function findQueuePrereqProblems(queue) {
+  const lv = {};
+  const bad = new Set();
+  queue.forEach((id, idx) => {
+    const m = getSkillMeta(id);
+    if (m && (m.prereq || []).some(p => (lv[p.skill] || 0) < p.level)) bad.add(idx);
+    lv[id] = (lv[id] || 0) + 1;
+  });
+  return bad;
 }
 
 function resetSkillQueue() {
@@ -732,33 +831,34 @@ function applySkillPreset() {
 
   // 1. Novice: 9x basic-skill
   for (let i = 0; i < 9; i++) {
-    addSkillPoint('basic-skill');
+    addSkillPoint('basic-skill', true);
   }
 
   // 2. Class 1 Archer preset
   if (c1 === 'archer') {
-    for (let i = 0; i < 10; i++) addSkillPoint('owl-eye');
-    for (let i = 0; i < 10; i++) addSkillPoint('vulture-eye');
-    for (let i = 0; i < 10; i++) addSkillPoint('double-strafe');
-    for (let i = 0; i < 10; i++) addSkillPoint('improve-concentration');
-    for (let i = 0; i < 9; i++) addSkillPoint('arrow-shower');
+    for (let i = 0; i < 10; i++) addSkillPoint('owl-eye', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('vulture-eye', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('double-strafe', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('improve-concentration', true);
+    for (let i = 0; i < 9; i++) addSkillPoint('arrow-shower', true);
   }
 
   // 3. Class 2 Hunter preset
   if (c2 === 'hunter') {
-    addSkillPoint('falconry-mastery');
-    for (let i = 0; i < 10; i++) addSkillPoint('blitz-beat');
-    for (let i = 0; i < 10; i++) addSkillPoint('steel-crow');
-    for (let i = 0; i < 5; i++) addSkillPoint('auto-blitz-beat');
-    for (let i = 0; i < 10; i++) addSkillPoint('land-mine');
-    for (let i = 0; i < 10; i++) addSkillPoint('ankle-snare');
-    for (let i = 0; i < 3; i++) addSkillPoint('claymore-trap');
+    addSkillPoint('falconry-mastery', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('blitz-beat', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('steel-crow', true);
+    for (let i = 0; i < 5; i++) addSkillPoint('auto-blitz-beat', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('land-mine', true);
+    for (let i = 0; i < 10; i++) addSkillPoint('ankle-snare', true);
+    for (let i = 0; i < 3; i++) addSkillPoint('claymore-trap', true);
   }
 
   renderSkillBuilderUI();
 }
 
 function saveSkillBuild() {
+  skillBuilderSnapshot = null;
   const modal = document.getElementById("skill-builder-modal");
   if (modal) modal.style.display = 'none';
   if (typeof markPlanDirty === 'function') markPlanDirty();
@@ -869,9 +969,15 @@ function setupPlanBuilderEventListeners() {
 
   // Skill Builder Controls
   const btnSkillClose = document.getElementById("skill-builder-close-btn");
-  if (btnSkillClose) btnSkillClose.onclick = () => { document.getElementById("skill-builder-modal").style.display = 'none'; };
+  const cancelSkillBuilder = () => {
+    if (skillBuilderSnapshot && activeEditingPlan) activeEditingPlan.skillBuild = JSON.parse(skillBuilderSnapshot);
+    skillBuilderSnapshot = null;
+    document.getElementById("skill-builder-modal").style.display = 'none';
+    updatePlanEditorBadges();
+  };
+  if (btnSkillClose) btnSkillClose.onclick = cancelSkillBuilder;
   const btnSkillCancel = document.getElementById("skill-builder-cancel-btn");
-  if (btnSkillCancel) btnSkillCancel.onclick = () => { document.getElementById("skill-builder-modal").style.display = 'none'; };
+  if (btnSkillCancel) btnSkillCancel.onclick = cancelSkillBuilder;
   const btnSkillSave = document.getElementById("skill-builder-save-btn");
   if (btnSkillSave) btnSkillSave.onclick = saveSkillBuild;
   const btnSkillReset = document.getElementById("btn-skill-reset");
