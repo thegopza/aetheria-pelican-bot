@@ -454,3 +454,10 @@
   #char-detail-modal.has-bag .char-modal-card { width: min(1040px, 96vw) !important; }
   .im-bag-panel { width: min(1040px, 96vw); height: auto !important; max-height: none; }
 }
+
+/* ---------- Market: option filter for other sellers ---------- */
+.im-mk-optrow { display: flex; gap: 5px; }
+.im-mk-optrow .im-input { flex: 1; min-width: 0; padding: 6px 9px; }
+.im-mk-optrow .im-input:focus { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18); }
+.im-qchip.bad { color: #fca5a5; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); }
+.im-tile.wide { grid-column: span 2; }

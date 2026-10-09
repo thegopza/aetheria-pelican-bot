@@ -460,10 +460,19 @@
     range: '7d',
     sort: 'similar',
     sameRefine: true,
+    optText: '',           // option filter for other sellers' listings, e.g. "dex>=5, matk%"
     reqToken: 0,
     cache: new Map(),
     form: { qty: 1, unit: '', hours: 24 }
   };
+
+  // The game's market search filters one option server-side (affix + affixMin, ATK also matches ATK%).
+  // Use the most restrictive typed term there; the rest are applied client-side in visibleListings().
+  function marketOptQuery() {
+    const parsed = parseOptionQuery(market.optText);
+    const lead = parsed.terms.slice().sort((a, b) => b.min - a.min)[0] || null;
+    return { terms: parsed.terms, lead };
+  }
 
   function ensureMarketWindow() {
     if (market.el && market.el.isConnected) return market.el;
@@ -492,6 +501,11 @@
                 </select>
               </div>
             </div>
+            <div class="im-mk-optrow">
+              <input type="text" class="im-input" data-mk="opt" placeholder="หาคนขายที่มีออฟ เช่น dex, matk>=5, melee dmg" autocomplete="off">
+              <button type="button" class="im-btn ghost sm" data-mk="opt-go" title="ค้นหาในตลาดตามออฟที่พิมพ์">ค้นหา</button>
+            </div>
+            <div class="im-query-hint" data-role="opt-hint"></div>
             <div class="im-mk-summary" data-role="list-summary"></div>
             <div class="im-mk-list" data-role="listings"></div>
           </section>
@@ -523,6 +537,7 @@
       if (b.dataset.mk === 'close') return closeMarket();
       if (b.dataset.mk === 'collapse') { el.classList.toggle('collapsed'); b.textContent = el.classList.contains('collapsed') ? '+' : '−'; return; }
       if (b.dataset.mk === 'reload') { market.cache.clear(); return loadMarketData(true); }
+      if (b.dataset.mk === 'opt-go') { clearTimeout(market.optTimer); return loadMarketData(false); }
       if (b.dataset.range) { market.range = b.dataset.range; return loadHistory(); }
       if (b.dataset.quick) { e.preventDefault(); applyQuickPrice(b.dataset.quick); }
     });
@@ -531,12 +546,28 @@
       if (e.target.dataset.mk === 'same-refine') { market.sameRefine = e.target.checked; renderListings(); }
     });
     el.addEventListener('input', e => {
+      if (e.target.dataset.mk === 'opt') {
+        market.optText = e.target.value;
+        renderOptHint();
+        renderListings();
+        // Re-query the market once typing settles (the server needs the leading option)
+        clearTimeout(market.optTimer);
+        market.optTimer = setTimeout(() => loadMarketData(false), 800);
+        return;
+      }
       const f = e.target.dataset.form;
       if (!f) return;
       if (f === 'hours') market.form.hours = Number(e.target.value);
       else market.form[f] = e.target.value.replace(/[^\d]/g, '');
       if (f !== 'hours' && e.target.value !== market.form[f]) e.target.value = market.form[f];
       renderSellSummary();
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.target.dataset.mk === 'opt') {
+        e.preventDefault();
+        clearTimeout(market.optTimer);
+        loadMarketData(false);
+      }
     });
     el.addEventListener('submit', e => { e.preventDefault(); submitListing(); });
     market.el = el;
@@ -561,6 +592,13 @@
       market.listings = null;
       market.history = null;
     }
+    // Carry over options typed in the bag search ("dex, matk") so the market searches the same thing
+    if (!market.optText.trim()) {
+      market.optText = parseOptionQuery(bag.query).terms.map(t => t.raw).join(', ');
+    }
+    const optInput = el.querySelector('[data-mk="opt"]');
+    if (optInput && optInput.value !== market.optText) optInput.value = market.optText;
+    renderOptHint();
     renderMarketHeader();
     renderListings();
     renderHistory();
@@ -584,17 +622,22 @@
   async function loadMarketData(force) {
     const it = market.item;
     if (!it) return;
-    const key = `${bag.profileId}:${it.itemId}:${it.name}`;
+    const { lead } = marketOptQuery();
+    const key = `${bag.profileId}:${it.itemId}:${it.name}:${lead ? `${lead.type}>=${lead.min}` : ''}`;
     const cached = market.cache.get(key);
     if (!force && cached && Date.now() - cached.at < 60000) {
       market.listings = cached.listings;
       renderListings();
-      return loadHistory();
+      renderMarketSellForm();
+      if (!market.history) loadHistory();
+      return;
     }
     const token = ++market.reqToken;
     market.listings = null;
     renderListings();
-    const r = await api(`/api/profiles/${encodeURIComponent(bag.profileId)}/market`, { op: 'search', q: it.name, pages: 3 });
+    const body = { op: 'search', q: it.name, pages: lead ? 6 : 3 };
+    if (lead) { body.affix = lead.type; if (lead.min) body.affixMin = lead.min; }
+    const r = await api(`/api/profiles/${encodeURIComponent(bag.profileId)}/market`, body);
     if (token !== market.reqToken) return;
     if (r.success) {
       // Search is "contains"; keep only the exact item (Slayer must not include Doom Slayer)
@@ -605,8 +648,19 @@
     }
     renderListings();
     renderMarketSellForm();
+    if (market.history && !market.history.error) return;  // sold-price history doesn't depend on the option filter
     await new Promise(res => setTimeout(res, 400));  // the game server ignores back-to-back market requests
     if (token === market.reqToken) loadHistory();
+  }
+
+  function renderOptHint() {
+    const box = market.el && market.el.querySelector('[data-role="opt-hint"]');
+    if (!box) return;
+    const parsed = parseOptionQuery(market.optText);
+    box.innerHTML = [
+      ...parsed.terms.map(t => `<span class="im-qchip opt">✓ ${esc(describeTerm(t))}</span>`),
+      ...parsed.names.map(n => `<span class="im-qchip bad" title="ไม่รู้จักออฟชั่นนี้">? ${esc(n)}</span>`)
+    ].join('');
   }
 
   async function loadHistory() {
@@ -639,8 +693,11 @@
   function visibleListings() {
     if (!Array.isArray(market.listings)) return [];
     const refine = market.item.refine || 0;
+    const { terms } = marketOptQuery();
+    const optFilter = { terms, names: [] };
     return market.listings
       .filter(l => !market.sameRefine || (l.item.refine || 0) === refine)
+      .filter(l => terms.length === 0 || itemMatchesOptionQuery(l.item, optFilter, 'all'))
       .map(l => ({ l, unit: Math.round(l.price / Math.max(1, l.qty)), sim: similarity(l) }))
       .sort((a, b) => market.sort === 'similar' ? (b.sim.score - a.sim.score || a.unit - b.unit) : a.unit - b.unit);
   }
@@ -663,16 +720,23 @@
       return;
     }
     const rows = visibleListings();
-    const mineTypes = (market.item.affixes || []).map(o => o.type);
+    const { terms } = marketOptQuery();
+    const mineTypes = [...(market.item.affixes || []).map(o => o.type), ...terms.map(t => t.type)];
     const cheapest = rows.length ? Math.min(...rows.map(r => r.unit)) : null;
     const fullMatch = rows.filter(r => r.sim.total > 0 && r.sim.hits === r.sim.total);
     const cheapestMatch = fullMatch.length ? Math.min(...fullMatch.map(r => r.unit)) : null;
-    sum.innerHTML = `
+    const optLabel = terms.map(describeTerm).join(' + ');
+    sum.innerHTML = terms.length ? `
+      <div class="im-tile"><small>มีออฟนี้ขายอยู่</small><b>${rows.length}</b></div>
+      <div class="im-tile hl wide"><small>ถูกสุดที่มี ${esc(optLabel)}</small><b>${cheapest !== null ? fmtZ(cheapest) : 'ไม่มีคนขาย'}</b></div>
+      <div class="im-tile"><small>ถูกสุดที่ออฟตรงทุกข้อของฉัน</small><b>${cheapestMatch !== null ? fmtZ(cheapestMatch) : '--'}</b></div>` : `
       <div class="im-tile"><small>ขายอยู่</small><b>${rows.length}</b></div>
       <div class="im-tile"><small>ถูกสุด</small><b>${cheapest !== null ? fmtZ(cheapest) : '--'}</b></div>
       <div class="im-tile hl"><small>ถูกสุดที่ออฟตรงทุกข้อ</small><b>${cheapestMatch !== null ? fmtZ(cheapestMatch) : '--'}</b></div>`;
     if (rows.length === 0) {
-      box.innerHTML = '<div class="im-empty">ยังไม่มีใครตั้งขายไอเทมนี้ (ตามเงื่อนไขที่เลือก)</div>';
+      box.innerHTML = terms.length
+        ? `<div class="im-empty">ยังไม่มีใครตั้งขาย ${esc(market.item.name)} ที่มี ${esc(optLabel)}</div>`
+        : '<div class="im-empty">ยังไม่มีใครตั้งขายไอเทมนี้ (ตามเงื่อนไขที่เลือก)</div>';
       return;
     }
     box.innerHTML = rows.slice(0, 60).map(({ l, unit, sim }) => {
