@@ -2,3 +2,4 @@ sessions/
 *.log
 scratch/
 manager/data/portraits/
+manager/data/bot_update_state.json

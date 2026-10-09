@@ -11,6 +11,7 @@ const PLANS_FILE = path.join(__dirname, "plans.json");
 const PRESETS_FILE = path.join(__dirname, "presets.json");
 const installer = require("./installer");
 const { handleInventoryMarketRoute } = require("./inventory_market_api");
+const { createBotAutoUpdater } = require("./bot_auto_update");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -658,6 +659,13 @@ function runPowerShell(script) {
   });
 }
 
+const botAutoUpdater = createBotAutoUpdater({
+  loadProfiles,
+  evalProfilePort,
+  getGameDir: () => installer.getEffectiveGamePath(),
+  dataDir: path.join(__dirname, "data")
+});
+
 const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -681,6 +689,9 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+
+  // Auto-reload game clients when bot.js changes on GitHub — see bot_auto_update.js
+  if (await botAutoUpdater.handleRoute(req, res, pathname, sendJSON)) return;
 
   // Bag (inventory) & market endpoints — see inventory_market_api.js
   if (await handleInventoryMarketRoute(req, res, pathname, { loadProfiles, evalProfilePort, sendJSON })) return;
@@ -2376,6 +2387,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
+  botAutoUpdater.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);
