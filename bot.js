@@ -4703,10 +4703,50 @@
 
         const rawWhitelist = (sellCfg.whitelist || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
+        function normalizeItemBaseName(name) {
+            if (!name) return '';
+            return name
+                .replace(/^\+\s*\d+\s*/, '')                          // ตัดค่าตีบวก (+7, +10)
+                .replace(/\s*\[\s*\d+\s*\]\s*$/, '')                  // ตัดจำนวนรูการ์ด ([1], [2], [3], [4])
+                .replace(/\s*\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '') // ตัดป้ายระดับความหายาก
+                .replace(/มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt).*/i, '')
+                .replace(/\b(?:option|options|ออฟชั่น|ออปชั่น)\b.*/i, '')
+                .replace(/มี\s*\d+.*/, '')
+                .replace(/\bx\s*\d+\b.*/i, '')
+                .replace(/\b\d+[\s,]*z\b.*/i, '')
+                .trim();
+        }
+
         function isWhitelisted(itemName) {
             if (!itemName) return false;
-            const lower = itemName.toLowerCase();
-            return rawWhitelist.some(w => lower.includes(w) || w.includes(lower));
+            const baseName = normalizeItemBaseName(itemName).toLowerCase();
+            const fullName = itemName.toLowerCase();
+
+            return rawWhitelist.some(w => {
+                const target = w.trim().toLowerCase();
+                if (!target) return false;
+
+                // 1. ตรงกับชื่อหลัก หรือชื่อเต็มแบบเป๊ะๆ (เช่น 'bow' === 'bow', 'hunter bow' === 'hunter bow')
+                if (baseName === target || fullName === target) return true;
+
+                // กรณีพิเศษ: ถ้าพิมพ์ 'bow' ใน Whitelist จะหมายถึงธนูธรรมดา 'Bow' เท่านั้น ไม่ครอบคลุม 'Hunter Bow' หรือ 'Crossbow'
+                if (target === 'bow') {
+                    return baseName === 'bow';
+                }
+
+                // 2. คำใน Whitelist เป็นวลีระบุเฉพาะที่ตรงกับชื่อไอเทม (เช่น 'hunter bow' ตรงกับ 'Hunter Bow [1]')
+                // สำคัญ: ห้ามใช้ target.includes(baseName) เด็ดขาด เพราะจะทำให้ 'Hunter Bow' ไปครอบคลุมไอเทมสั้นอย่าง 'Bow'
+                if (baseName.includes(target) || fullName.includes(target)) {
+                    return true;
+                }
+
+                // 3. ป้องกันการพิมพ์ผิดยอดฮิต เช่น 'angrelic protection' -> 'angelic protection'
+                if ((target.includes('angrelic') || target.includes('angelic')) && (baseName.includes('angelic') || baseName.includes('angrelic'))) {
+                    return true;
+                }
+
+                return false;
+            });
         }
 
         function parseOptionCount(text) {
@@ -4926,7 +4966,6 @@
                           .replace(/มี\s*\d+.*/, '')
                           .replace(/\bx\s*\d+\b.*/i, '')
                           .replace(/\b\d+[\s,]*z\b.*/i, '')
-                          .replace(/[\[\]]/g, '')
                           .trim();
             }
 
