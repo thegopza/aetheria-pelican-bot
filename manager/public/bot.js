@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.5.0
+// @version      4.5.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.5.0';
+    const PELICAN_BOT_VERSION = '4.5.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -5769,25 +5769,41 @@
                     console.log(`[PmheeAether Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
 
                     const itemsToSell = [];
-                    const usedBagSlots = new Set();
-                    function findMatchingBagItem(targetName, rText, tEl) {
+                    // The game renders each sell row with React key = bag slot -> read the exact item of this row
+                    function getShopRowSlot(btn) {
+                        const rowEl = btn && btn.closest ? btn.closest('.shop-row') : null;
+                        if (!rowEl) return null;
+                        const fk = Object.keys(rowEl).find(k => k.startsWith('__reactFiber'));
+                        const key = fk && rowEl[fk] ? rowEl[fk].key : null;
+                        return key != null && /^\d+$/.test(String(key)) ? Number(key) : null;
+                    }
+
+                    function findMatchingBagItem(targetName, rText, tEl, btn) {
                         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
                         if (!bagItems || bagItems.length === 0) return null;
                         const baseTarget = normalizeItemBaseName(targetName).toLowerCase();
+                        const sameName = b => normalizeItemBaseName(b.name).toLowerCase() === baseTarget || b.name.toLowerCase() === targetName.toLowerCase();
+
+                        const slot = getShopRowSlot(btn);
+                        if (slot !== null) {
+                            const b = bagItems.find(x => Number(x.slot) === slot);
+                            if (b && sameName(b)) return b.raw || b;
+                        }
+
+                        // Fallback (row slot unknown): several bag items share this name, so only decide when they
+                        // would all get the same filter result -- otherwise return null = keep it (safe side)
                         const isRowRef = isRefined(targetName, rText, tEl);
                         const hasRowSock = hasSockets(targetName, rText, tEl);
-
-                        for (const b of bagItems) {
-                            if (usedBagSlots.has(b.slot)) continue;
-                            const bBase = normalizeItemBaseName(b.name).toLowerCase();
-                            if (bBase === baseTarget || b.name.toLowerCase() === targetName.toLowerCase() || bBase.includes(baseTarget) || baseTarget.includes(bBase)) {
-                                if (isRowRef && !(b.refine > 0)) continue;
-                                if (hasRowSock && !(b.raw && b.raw.slots > 0)) continue;
-                                usedBagSlots.add(b.slot);
-                                return b.raw || b;
-                            }
+                        const candidates = bagItems.filter(b => sameName(b)
+                            && !(isRowRef && !(b.refine > 0))
+                            && !(hasRowSock && !(b.raw && b.raw.slots > 0)));
+                        if (candidates.length === 0) return null;
+                        const results = candidates.map(b => window.checkItemStatsFilter(b.raw || b).pass);
+                        if (results.some(r => r !== results[0])) {
+                            console.log(`[PmheeAether Shop] ⚠️ "${targetName}" มีหลายชิ้นที่ออฟชั่นต่างกันและระบุแถวไม่ได้ -> เก็บไว้ก่อน`);
+                            return null;
                         }
-                        return null;
+                        return candidates[0].raw || candidates[0];
                     }
 
                     plusBtns.forEach((btn, btnIdx) => {
@@ -5853,7 +5869,7 @@
                         if (isWhitelisted(itemName)) {
                             const sf = sellCfg.statsFilter;
                             if (sf && sf.enabled) {
-                                const bagItem = findMatchingBagItem(itemName, rowText, titleEl);
+                                const bagItem = findMatchingBagItem(itemName, rowText, titleEl, btn);
                                 if (bagItem) {
                                     const statRes = window.checkItemStatsFilter(bagItem);
                                     if (statRes.pass) {
@@ -10143,6 +10159,7 @@
                                 <span style="font-size: 9px; color: #94a3b8;">ออฟขึ้นไป</span>
                             </div>
                         </div>
+                        <div class="p-hint" style="font-size: 9px; color: #94a3b8; padding: 0 2px; line-height: 1.35;">นับเฉพาะออฟสุ่มที่ตรงกับรายการด้านล่าง (ออฟอื่นไม่นับ) — เก็บไว้เมื่อมีออฟ Must Have ครบ <b>และ</b> ตรงรายการถึงจำนวนนี้ ไม่งั้นขาย เช่น ตั้ง 2 + รายการ DEX/AGI = ต้องมีทั้ง DEX และ AGI</div>
 
                         <!-- Main Stats List -->
                         <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 4px;">
