@@ -266,6 +266,151 @@
     </div>
   </div>
 
+  
+  <!-- MODAL: PRESETS & PROFILE SAVE LIST -->
+  <div class="modal-overlay" id="presets-modal">
+    <div class="modal-card" style="max-width: 780px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="presets-modal-title">💾 ระบบ Save List โปรไฟล์ส่วนกลาง</h3>
+          <span style="font-size: 11px; color: #94a3b8;">จัดการการตั้งค่าบอทส่วนกลาง สามารถกด "Copy to..." เพื่อกระจายการตั้งค่าไปยังหลายๆ จอได้ในคลิกเดียว (ไม่รวม ID/Password)</span>
+        </div>
+        <button class="modal-close" id="presets-modal-close-btn">&times;</button>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin: 12px 0 16px 0; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-primary btn-sm" id="btn-create-preset-from-client">
+            <span class="icon">➕</span> บันทึกจอเกมปัจจุบันเข้า Save List
+          </button>
+          <button class="btn btn-info btn-sm" id="btn-presets-modal-import">
+            <span class="icon">📥</span> นำเข้า (Import)
+          </button>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-presets-modal-export">
+          <span class="icon">📤</span> ส่งออกทั้งหมด (Export All JSON)
+        </button>
+      </div>
+
+      <!-- Presets List Container -->
+      <div id="presets-list-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 440px; overflow-y: auto; padding-right: 4px;">
+        <!-- Dynamically rendered preset cards -->
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px;">
+        <button type="button" class="btn btn-secondary" id="presets-modal-close-bottom">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: COPY TO PROFILES -->
+  <div class="modal-overlay" id="copy-to-modal">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <div>
+          <h3>📋 คัดลอกการตั้งค่าไปยังจอเกม (Copy to Profiles)</h3>
+          <span style="font-size: 11px; color: #38bdf8;" id="copy-to-preset-title">...</span>
+        </div>
+        <button class="modal-close" id="copy-to-modal-close-btn">&times;</button>
+      </div>
+
+      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px; margin: 12px 0; font-size: 11.5px; color: #a7f3d0; line-height: 1.4;">
+        🔒 <b>ปลอดภัย 100%:</b> ระบบจะคัดลอกเฉพาะค่ากลยุทธ์ฟาร์ม (แมพ, ลูกธนู, ขยะ, กฎตลาด, ร้านค้า) โดย <b>คงชื่อผู้ใช้ (ID) และ รหัสผ่าน (Password) เดิมของแต่ละจอไว้เสมอ</b> ไม่เขียนทับเด็ดขาด
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 600; color: #cbd5e1;">เลือกจอเกมเป้าหมายที่ต้องการนำการตั้งค่าไปใช้:</span>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-to-select-all" style="padding: 2px 8px; font-size: 10px;">เลือกทั้งหมด</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-to-deselect-all" style="padding: 2px 8px; font-size: 10px;">ล้าง</button>
+        </div>
+      </div>
+
+      <!-- Checklist container -->
+      <div id="copy-to-profiles-checklist" style="display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 8px;">
+        <!-- Dynamically rendered checkbox items -->
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px;">
+        <button type="button" class="btn btn-secondary" id="copy-to-modal-cancel">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="copy-to-modal-confirm">🚀 คัดลอก & ใช้งานทันที (Apply to Selected)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: IMPORT PROFILE / PRESETS -->
+  <div class="modal-overlay" id="import-profile-modal">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <div>
+          <h3>📥 นำเข้าโปรไฟล์ / คอนฟิก (Import Profile / Presets)</h3>
+          <span style="font-size: 11px; color: #94a3b8;">รองรับทั้ง 1 โปรไฟล์ หรือหลายโปรไฟล์พร้อมกัน (Array) นำเข้าสู่ระบบ Save List ส่วนกลาง</span>
+        </div>
+        <button class="modal-close" id="import-modal-close-btn">&times;</button>
+      </div>
+
+      <form id="import-profile-form">
+        <div class="form-group" style="margin-top: 12px;">
+          <label>ชื่อโปรไฟล์ส่วนกลาง (Preset Name):</label>
+          <input type="text" id="import-preset-name" placeholder="เช่น Archer ฟาร์มซากโบราณสถาน 24h" class="form-input" value="โปรไฟล์นำเข้าส่วนกลาง">
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="margin: 0;">โค้ด JSON การตั้งค่า (วาง JSON ที่นี่):</label>
+            <label class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 10px; cursor: pointer;">
+              📂 เลือกไฟล์ .json
+              <input type="file" id="import-file-input" accept=".json,application/json" style="display: none;">
+            </label>
+          </div>
+          <textarea id="import-json-textarea" required placeholder="วางโค้ด JSON จากการ Export ที่นี่ (รองรับทั้ง Object เดี่ยว หรือ Array หลายโปรไฟล์)..." style="width: 100%; height: 200px; box-sizing: border-box; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 11px; padding: 10px; resize: vertical; line-height: 1.4; outline: none;"></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="import-modal-cancel-btn">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="import-modal-submit-btn">💾 บันทึกเข้า Save List ส่วนกลาง</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SAVE CLIENT AS PRESET -->
+  <div class="modal-overlay" id="save-client-preset-modal">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <div>
+          <h3>💾 บันทึกจอเกมเข้า Save List ส่วนกลาง</h3>
+          <span style="font-size: 11px; color: #94a3b8;">ดึงการตั้งค่าปัจจุบันของจอเกมนี้มาเป็น Preset กลางเพื่อคัดลอกให้จออื่น</span>
+        </div>
+        <button class="modal-close" id="save-client-modal-close-btn">&times;</button>
+      </div>
+
+      <form id="save-client-preset-form">
+        <input type="hidden" id="save-client-profile-id">
+
+        <div class="form-group" style="margin-top: 12px;">
+          <label>เลือกจอต้นทาง (Source Profile):</label>
+          <select id="save-client-select" class="form-select"></select>
+        </div>
+
+        <div class="form-group">
+          <label>ตั้งชื่อ Preset ใน Save List:</label>
+          <input type="text" id="save-client-preset-name" required placeholder="เช่น Hunter Main Setup" class="form-input">
+        </div>
+
+        <div class="form-group">
+          <label>คำอธิบายเพิ่มเติม (Description / Notes):</label>
+          <input type="text" id="save-client-preset-desc" placeholder="เช่น ลูกธนู 200, ขายขยะหมด, ลูป 24h" class="form-input">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="save-client-modal-cancel">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">💾 บันทึกเข้า Save List</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js?v=1791508115030"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
   <div id="web-huds-container"></div>
