@@ -1323,3 +1323,126 @@ label {
   background: rgba(30, 41, 59, 0.9);
   border-color: rgba(168, 85, 247, 0.4);
 }
+
+
+/* ==========================================================================
+   PLAN SCRIPTS & WORKFLOW BUILDER STYLES (n8n-style)
+   ========================================================================== */
+.plan-profile-item {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+.plan-profile-item:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.plan-profile-item.active-assigned {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.plan-trigger-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 10px;
+  padding: 12px 14px;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s;
+}
+.plan-trigger-card:hover {
+  border-color: rgba(245, 158, 11, 0.7);
+}
+
+.plan-trigger-card.job-type {
+  border-color: rgba(168, 85, 247, 0.45);
+}
+.plan-trigger-card.job-type:hover {
+  border-color: rgba(168, 85, 247, 0.75);
+}
+
+.plan-node-connector {
+  width: 2px;
+  height: 14px;
+  background: linear-gradient(to bottom, rgba(245, 158, 11, 0.6), rgba(56, 189, 248, 0.6));
+  margin: 0 auto;
+  position: relative;
+}
+.plan-node-connector::after {
+  content: "▼";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: #38bdf8;
+}
+
+.plan-action-card {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid #38bdf8;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.plan-action-card:hover {
+  background: rgba(51, 65, 85, 0.85);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+.plan-action-card.type-equip {
+  border-left-color: #f59e0b;
+}
+.plan-action-card.type-map {
+  border-left-color: #10b981;
+}
+.plan-action-card.type-class {
+  border-left-color: #a855f7;
+}
+
+.plan-action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.plan-action-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.plan-action-del-btn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.plan-action-del-btn:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.plan-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}

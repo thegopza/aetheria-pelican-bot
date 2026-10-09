@@ -1,10 +1,56 @@
 {
-  "profile_main": {
-    "name": "ลูปฟาร์มซากโบราณสถาน 24 ชม.",
-    "mode": "farm_loop",
-    "targetMap": "ซากโบราณสถาน",
-    "minAmmo": 200,
-    "maxWeight": 75,
-    "autoLoop": true
+  "profiles": [
+    {
+      "id": "plan_starter_archer",
+      "name": "Archer Speedrun Lv.1-50 (ตัวอย่างเริ่มต้น)",
+      "description": "Lv.8 สวมใส่ Gakkung Bow + Angelic Protection, ย้ายแมพ, Job 10 เปลี่ยนอาชีพ Archer",
+      "triggers": [
+        {
+          "id": "trig_1",
+          "type": "base_level",
+          "targetLevel": 8,
+          "actions": [
+            {
+              "id": "act_1",
+              "type": "equip_item",
+              "itemName": "Gakkung Bow",
+              "optionFilter": "dex",
+              "buyFromMarket": true,
+              "maxPrice": 100000
+            },
+            {
+              "id": "act_2",
+              "type": "equip_item",
+              "itemName": "Angelic Protection",
+              "optionFilter": "",
+              "buyFromMarket": true,
+              "maxPrice": 50000
+            },
+            {
+              "id": "act_3",
+              "type": "change_map",
+              "targetMap": "ซากโบราณสถาน"
+            }
+          ]
+        },
+        {
+          "id": "trig_2",
+          "type": "job_level",
+          "targetLevel": 10,
+          "actions": [
+            {
+              "id": "act_4",
+              "type": "change_class",
+              "targetClass": "Archer"
+            }
+          ]
+        }
+      ],
+      "createdAt": 1791535379871,
+      "updatedAt": 1791535379871
+    }
+  ],
+  "assignments": {
+    "profile_main": "plan_starter_archer"
   }
 }

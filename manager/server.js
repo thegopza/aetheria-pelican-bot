@@ -71,9 +71,90 @@ function savePresets(presets) {
   fs.writeFileSync(PRESETS_FILE, JSON.stringify(presets, null, 2), "utf8");
 }
 
+
+function normalizePlansData(raw) {
+  if (raw && Array.isArray(raw.profiles)) {
+    return {
+      profiles: raw.profiles,
+      assignments: raw.assignments || {}
+    };
+  }
+
+  // Initial starter plan matching user specifications:
+  // Level 8: Equip Gakkung bow, Angelic Protection, Change map to ซากโบราณสถาน
+  // Job Level 10: Change class to Archer
+  const defaultProfiles = [
+    {
+      id: "plan_starter_archer",
+      name: "Archer Speedrun Lv.1-50 (ตัวอย่างเริ่มต้น)",
+      description: "Lv.8 สวมใส่ Gakkung Bow + Angelic Protection, ย้ายแมพ, Job 10 เปลี่ยนอาชีพ Archer",
+      triggers: [
+        {
+          id: "trig_1",
+          type: "base_level",
+          targetLevel: 8,
+          actions: [
+            {
+              id: "act_1",
+              type: "equip_item",
+              itemName: "Gakkung Bow",
+              optionFilter: "dex",
+              buyFromMarket: true,
+              maxPrice: 100000
+            },
+            {
+              id: "act_2",
+              type: "equip_item",
+              itemName: "Angelic Protection",
+              optionFilter: "",
+              buyFromMarket: true,
+              maxPrice: 50000
+            },
+            {
+              id: "act_3",
+              type: "change_map",
+              targetMap: "ซากโบราณสถาน"
+            }
+          ]
+        },
+        {
+          id: "trig_2",
+          type: "job_level",
+          targetLevel: 10,
+          actions: [
+            {
+              id: "act_4",
+              type: "change_class",
+              targetClass: "Archer"
+            }
+          ]
+        }
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+  ];
+
+  const assignments = {};
+  if (raw && typeof raw === 'object') {
+    Object.keys(raw).forEach(k => {
+      if (k !== 'profiles' && k !== 'assignments') {
+        assignments[k] = "plan_starter_archer";
+      }
+    });
+  }
+
+  return { profiles: defaultProfiles, assignments };
+}
+
 function loadPlans() {
-  if (!fs.existsSync(PLANS_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(PLANS_FILE, "utf8")); } catch(e) { return {}; }
+  if (!fs.existsSync(PLANS_FILE)) return normalizePlansData({});
+  try { 
+    const raw = JSON.parse(fs.readFileSync(PLANS_FILE, "utf8"));
+    return normalizePlansData(raw);
+  } catch(e) { 
+    return normalizePlansData({}); 
+  }
 }
 function savePlans(plans) {
   fs.writeFileSync(PLANS_FILE, JSON.stringify(plans, null, 2), "utf8");
@@ -1008,6 +1089,215 @@ const server = http.createServer(async (req, res) => {
         }).on('error', err => sendJSON({ success: false, error: err.message }, 502));
       } catch (err) {
         sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  
+  // ==========================================
+  // PLAN PROFILES & WORKFLOW BUILDER API
+  // ==========================================
+
+  // GET /api/plan-profiles (List all plan profiles & assignments)
+  if (req.method === "GET" && pathname === "/api/plan-profiles") {
+    const plansData = loadPlans();
+    return sendJSON({
+      success: true,
+      profiles: plansData.profiles || [],
+      assignments: plansData.assignments || {}
+    });
+  }
+
+  // POST /api/plan-profiles (Create new plan profile)
+  if (req.method === "POST" && pathname === "/api/plan-profiles") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        const plansData = loadPlans();
+        const newPlan = {
+          id: "plan_" + Date.now(),
+          name: (payload.name || "New Plan").trim(),
+          description: payload.description || "",
+          triggers: Array.isArray(payload.triggers) ? payload.triggers : [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        plansData.profiles.push(newPlan);
+        savePlans(plansData);
+        return sendJSON({ success: true, profile: newPlan });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // PUT /api/plan-profiles/:id (Update plan profile)
+  if (req.method === "PUT" && pathname.match(/^\/api\/plan-profiles\/[^/]+$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        const plansData = loadPlans();
+        const idx = plansData.profiles.findIndex(p => p.id === id);
+        if (idx === -1) return sendJSON({ success: false, error: "Plan profile not found" }, 404);
+
+        plansData.profiles[idx] = {
+          ...plansData.profiles[idx],
+          name: payload.name !== undefined ? payload.name.trim() : plansData.profiles[idx].name,
+          description: payload.description !== undefined ? payload.description : plansData.profiles[idx].description,
+          triggers: Array.isArray(payload.triggers) ? payload.triggers : plansData.profiles[idx].triggers,
+          updatedAt: Date.now()
+        };
+
+        savePlans(plansData);
+
+        // Sync live to any connected game clients assigned to this plan
+        const assignedClientIds = Object.keys(plansData.assignments || {}).filter(cId => plansData.assignments[cId] === id);
+        if (assignedClientIds.length > 0) {
+          const profiles = loadProfiles();
+          const targetPlan = plansData.profiles[idx];
+          assignedClientIds.forEach(cId => {
+            const clientProf = profiles.find(p => p.id === cId);
+            if (clientProf && clientProf.debugPort) {
+              const code = `
+                if (typeof window.__applyScriptPlan === 'function') {
+                  window.__applyScriptPlan(${JSON.stringify(targetPlan)});
+                } else {
+                  window.__currentScriptPlan = ${JSON.stringify(targetPlan)};
+                }
+              `;
+              const evalUrl = `http://127.0.0.1:${clientProf.debugPort}/api/eval?code=` + encodeURIComponent(code);
+              http.get(evalUrl, () => {}).on('error', () => {});
+            }
+          });
+        }
+
+        return sendJSON({ success: true, profile: plansData.profiles[idx] });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // DELETE /api/plan-profiles/:id (Delete plan profile)
+  if (req.method === "DELETE" && pathname.match(/^\/api\/plan-profiles\/[^/]+$/)) {
+    const id = pathname.split("/")[3];
+    const plansData = loadPlans();
+    const idx = plansData.profiles.findIndex(p => p.id === id);
+    if (idx === -1) return sendJSON({ success: false, error: "Plan profile not found" }, 404);
+
+    plansData.profiles.splice(idx, 1);
+    // Remove assignments
+    if (plansData.assignments) {
+      Object.keys(plansData.assignments).forEach(cId => {
+        if (plansData.assignments[cId] === id) delete plansData.assignments[cId];
+      });
+    }
+
+    savePlans(plansData);
+    return sendJSON({ success: true });
+  }
+
+  // POST /api/plan-profiles/:id/assign (Assign plan to a client card & sync live)
+  if (req.method === "POST" && pathname.match(/^\/api\/plan-profiles\/[^/]+\/assign$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        const clientProfileId = payload.clientProfileId;
+        if (!clientProfileId) return sendJSON({ success: false, error: "Missing clientProfileId" }, 400);
+
+        const plansData = loadPlans();
+        const plan = plansData.profiles.find(p => p.id === id);
+        if (!plan) return sendJSON({ success: false, error: "Plan profile not found" }, 404);
+
+        if (!plansData.assignments) plansData.assignments = {};
+        plansData.assignments[clientProfileId] = id;
+        savePlans(plansData);
+
+        // Sync live to client if running
+        const profiles = loadProfiles();
+        const clientProf = profiles.find(p => p.id === clientProfileId);
+        let syncedLive = false;
+        if (clientProf && clientProf.debugPort) {
+          const code = `
+            if (typeof window.__applyScriptPlan === 'function') {
+              window.__applyScriptPlan(${JSON.stringify(plan)});
+            } else {
+              window.__currentScriptPlan = ${JSON.stringify(plan)};
+            }
+          `;
+          const evalUrl = `http://127.0.0.1:${clientProf.debugPort}/api/eval?code=` + encodeURIComponent(code);
+          http.get(evalUrl, () => {}).on('error', () => {});
+          syncedLive = true;
+        }
+
+        return sendJSON({
+          success: true,
+          planId: id,
+          clientProfileId,
+          syncedLive,
+          message: syncedLive
+            ? `ผูกแผน "${plan.name}" กับจอเกมและซิงค์ข้อมูลสดสำเร็จ!`
+            : `ผูกแผน "${plan.name}" กับจอเกมเรียบร้อย (จะเริ่มทำงานเมื่อเปิดจอ)`
+        });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/plan-profiles/import (Import plans from JSON)
+  if (req.method === "POST" && pathname === "/api/plan-profiles/import") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        const plansData = loadPlans();
+        let importedList = [];
+        if (Array.isArray(payload)) {
+          importedList = payload;
+        } else if (payload && Array.isArray(payload.profiles)) {
+          importedList = payload.profiles;
+        } else if (payload && payload.name) {
+          importedList = [payload];
+        }
+
+        let addedCount = 0;
+        importedList.forEach(p => {
+          if (p && p.name) {
+            plansData.profiles.push({
+              id: "plan_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+              name: p.name.trim(),
+              description: p.description || "",
+              triggers: Array.isArray(p.triggers) ? p.triggers : [],
+              createdAt: Date.now(),
+              updatedAt: Date.now()
+            });
+            addedCount++;
+          }
+        });
+
+        savePlans(plansData);
+        return sendJSON({
+          success: true,
+          addedCount,
+          profiles: plansData.profiles,
+          message: `นำเข้า Plan Profiles สำเร็จ ${addedCount} รายการ!`
+        });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
       }
     });
     return;

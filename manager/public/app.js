@@ -1569,90 +1569,636 @@ async function updateActiveWebHuds() {
 }
 
 // ==========================================
-// SCRIPT PLAN MODAL & HANDLING
+// SCRIPT PLAN WORKFLOW BUILDER (n8n-style)
 // ==========================================
+let currentPlanProfiles = [];
+let currentPlanAssignments = {};
+let activePlanClientProfileId = null;
+let activeEditingPlan = null;
+
+const PLAN_MAP_OPTIONS = [
+  { group: "🏰 เขตเมือง & ปลอดภัย", maps: ["เมืองหลวงโซลเฮเวน", "ตลาดคาราวาน"] },
+  { group: "🌱 แมพระดับเริ่มต้น (Lv. 1-12)", maps: ["ถนนต้นหลิว", "ทุ่งโคลเวอร์", "ทุ่งหญ้าตะวันออก", "ไร่ซันเกรน"] },
+  { group: "⚔️ แมพยอดนิยม (Lv. 12-55)", maps: ["ซากโบราณสถาน", "ทะเลสาบอาซูร์", "ป่ามูนลีฟ", "เส้นทางก็อบลิน", "เหมืองคริสตัลเก่า", "ค่ายออร์ค", "ที่ราบสูงเกล"] }
+];
+
+const PLAN_CLASS_OPTIONS = [
+  "Novice", "Archer", "Hunter", "Rogue", "Mage", "Wizard", "Swordsman", "Knight", "Acolyte", "Priest"
+];
+
+// Open Plan Modal
 async function openScriptPlanModal(profileId) {
-  planProfileId.value = profileId;
-  const profile = currentProfiles.find(p => p.id === profileId);
-  document.getElementById("plan-modal-title").innerText = `📜 ตั้งค่าแผนการเล่น — ${profile ? profile.name : profileId}`;
+  activePlanClientProfileId = profileId;
+  const clientProfile = currentProfiles.find(p => p.id === profileId);
 
-  try {
-    const res = await fetch(`${API_BASE}/api/plans/${profileId}`);
-    const data = await res.json();
-    const planAutoLoop = document.getElementById("plan-auto-loop");
-    if (data.success && data.plan) {
-      const plan = data.plan;
-      if (planNameInput) planNameInput.value = plan.name || "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
-      if (planModeSelect) planModeSelect.value = plan.mode || "farm_loop";
-      if (planMapSelect) planMapSelect.value = plan.targetMap || (profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55");
-      if (planAmmoMin) planAmmoMin.value = plan.minAmmo || 50;
-      if (planWeightMax) planWeightMax.value = plan.maxWeight || 80;
-      if (planAutoLoop) planAutoLoop.checked = plan.autoLoop !== false;
-      if (planRequireArrow) planRequireArrow.checked = plan.requireArrow !== false;
-      if (planArrowType) planArrowType.value = plan.arrowType || "90030";
-      if (planAutoSell) planAutoSell.checked = plan.autoSell !== false;
-      if (planSellWeapons) planSellWeapons.checked = plan.sellWeapons !== false;
-      if (planSellArmors) planSellArmors.checked = plan.sellArmors !== false;
-      if (planNotes) planNotes.value = plan.notes || "";
-    } else {
-      if (planNameInput) planNameInput.value = "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
-      if (planModeSelect) planModeSelect.value = "farm_loop";
-      if (planMapSelect) planMapSelect.value = profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55";
-      if (planAmmoMin) planAmmoMin.value = 50;
-      if (planWeightMax) planWeightMax.value = 80;
-      if (planAutoLoop) planAutoLoop.checked = true;
-      if (planRequireArrow) planRequireArrow.checked = true;
-      if (planArrowType) planArrowType.value = "90030";
-      if (planAutoSell) planAutoSell.checked = true;
-      if (planSellWeapons) planSellWeapons.checked = true;
-      if (planSellArmors) planSellArmors.checked = true;
-      if (planNotes) planNotes.value = "";
-    }
-  } catch (err) {
-    console.error("Failed to load plan:", err);
-  }
+  const targetNameEl = document.getElementById("plan-target-client-name");
+  const targetIdInput = document.getElementById("plan-target-client-id");
+  if (targetNameEl) targetNameEl.innerText = clientProfile ? `${clientProfile.name} (Port: ${clientProfile.debugPort || '--'})` : profileId;
+  if (targetIdInput) targetIdInput.value = profileId;
 
-  planModalEl.classList.add("active");
+  switchPlanModalView('list');
+
+  const modal = document.getElementById("plan-modal");
+  if (modal) modal.classList.add("active");
+
+  await fetchAndRenderPlanProfiles();
 }
 
-document.getElementById("plan-modal-close-btn").onclick = () => {
-  planModalEl.classList.remove("active");
-};
+function closeScriptPlanModal() {
+  const modal = document.getElementById("plan-modal");
+  if (modal) modal.classList.remove("active");
+  activePlanClientProfileId = null;
+  activeEditingPlan = null;
+}
 
-planForm.onsubmit = async (e) => {
-  e.preventDefault();
-  const profileId = planProfileId.value;
-  const planAutoLoop = document.getElementById("plan-auto-loop");
-  const planData = {
-    profileId,
-    name: planNameInput ? planNameInput.value : "Default Plan",
-    mode: planModeSelect ? planModeSelect.value : "farm_loop",
-    targetMap: planMapSelect ? planMapSelect.value : "ซากโบราณสถาน Lv.45–55",
-    minAmmo: planAmmoMin ? (parseInt(planAmmoMin.value) || 50) : 50,
-    maxWeight: planWeightMax ? (parseInt(planWeightMax.value) || 80) : 80,
-    autoLoop: planAutoLoop ? planAutoLoop.checked : true,
-    requireArrow: planRequireArrow ? planRequireArrow.checked : true,
-    arrowType: planArrowType ? planArrowType.value : "90030",
-    autoSell: planAutoSell ? planAutoSell.checked : true,
-    sellWeapons: planSellWeapons ? planSellWeapons.checked : true,
-    sellArmors: planSellArmors ? planSellArmors.checked : true,
-    notes: planNotes ? planNotes.value : "",
-    updatedAt: Date.now()
-  };
+function switchPlanModalView(view) {
+  const viewList = document.getElementById("plan-view-list");
+  const viewEditor = document.getElementById("plan-view-editor");
+  if (view === 'list') {
+    if (viewList) viewList.style.display = 'flex';
+    if (viewEditor) viewEditor.style.display = 'none';
+  } else if (view === 'editor') {
+    if (viewList) viewList.style.display = 'none';
+    if (viewEditor) viewEditor.style.display = 'flex';
+  }
+}
+
+// Fetch Plan Profiles from Backend
+async function fetchAndRenderPlanProfiles() {
+  try {
+    const res = await fetch(`${API_BASE}/api/plan-profiles`);
+    const data = await res.json();
+    if (data.success) {
+      currentPlanProfiles = data.profiles || [];
+      currentPlanAssignments = data.assignments || {};
+    }
+  } catch(e) {
+    console.error("Failed to load plan profiles:", e);
+  }
+
+  renderPlanProfilesList();
+}
+
+function renderPlanProfilesList() {
+  const container = document.getElementById("plan-profiles-list-container");
+  const activeBadge = document.getElementById("plan-active-badge");
+  if (!container) return;
+
+  const currentAssignedPlanId = currentPlanAssignments[activePlanClientProfileId];
+  const assignedPlan = currentPlanProfiles.find(p => p.id === currentAssignedPlanId);
+
+  if (activeBadge) {
+    if (assignedPlan) {
+      activeBadge.innerText = assignedPlan.name;
+      activeBadge.style.background = 'rgba(34, 197, 94, 0.18)';
+      activeBadge.style.color = '#4ade80';
+      activeBadge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+    } else {
+      activeBadge.innerText = 'ยังไม่ได้กำหนดแผน';
+      activeBadge.style.background = 'rgba(148, 163, 184, 0.12)';
+      activeBadge.style.color = '#94a3b8';
+      activeBadge.style.borderColor = 'rgba(148, 163, 184, 0.2)';
+    }
+  }
+
+  if (currentPlanProfiles.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: #94a3b8; padding: 30px; font-size: 13px;">
+        <span style="font-size: 28px; opacity: 0.6; display: block; margin-bottom: 8px;">📜</span>
+        ยังไม่มี Plan Profile ในระบบ<br>
+        คลิกปุ่ม <b>"➕ เพิ่ม Plan Profile ใหม่"</b> ด้านบนเพื่อเริ่มสร้างแผนแรกของคุณ
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = currentPlanProfiles.map(plan => {
+    const isAssigned = (plan.id === currentAssignedPlanId);
+    const triggersCount = (plan.triggers || []).length;
+    let actionsCount = 0;
+    (plan.triggers || []).forEach(t => actionsCount += (t.actions || []).length);
+
+    return `
+      <div class="plan-profile-item ${isAssigned ? 'active-assigned' : ''}">
+        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px; font-weight: 700; color: #f8fafc;">${escapeHTML(plan.name)}</span>
+            ${isAssigned ? `
+              <span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 4px;">
+                ⚡ กำลังใช้งานกับจอนี้
+              </span>
+            ` : ''}
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: #94a3b8;">
+            <span>🎯 <b>${triggersCount}</b> ระดับเลเวล</span>
+            <span>⚡ <b>${actionsCount}</b> การทำงาน (Actions)</span>
+            <span style="opacity: 0.8;">${escapeHTML(plan.description || '')}</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="openPlanWorkflowEditor('${plan.id}')" title="เปิดหน้าต่างแก้ไขแผนสไตล์ n8n">
+            <span>✏️</span> Edit
+          </button>
+          <button type="button" class="btn ${isAssigned ? 'btn-secondary' : 'btn-success'} btn-sm" onclick="assignPlanToActiveClient('${plan.id}')" title="${isAssigned ? 'ซิงค์ข้อมูลกับจอนี้อีกครั้ง' : 'เลือกใช้แผนนี้กับจอนี้'}">
+            <span>⚡</span> ${isAssigned ? 'ซิงค์ซ้ำ' : 'ใช้งาน'}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm btn-icon" onclick="duplicatePlanProfile('${plan.id}')" title="ทำสำเนาแผนนี้">
+            <span>📋</span>
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-icon" onclick="deletePlanProfile('${plan.id}')" title="ลบแผนนี้">
+            <span>➖</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Create new Plan Profile
+async function createNewPlanProfile() {
+  const name = prompt("ตั้งชื่อ Plan Profile ใหม่:", "แผนเก็บเลเวล Archer " + (currentPlanProfiles.length + 1));
+  if (!name || !name.trim()) return;
 
   try {
-    await fetch(`${API_BASE}/api/plans/${profileId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(planData)
+    const res = await fetch(`${API_BASE}/api/plan-profiles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name.trim(),
+        description: "สร้างเมื่อ " + new Date().toLocaleDateString('th-TH'),
+        triggers: [
+          {
+            id: "trig_" + Date.now(),
+            type: "base_level",
+            targetLevel: 8,
+            actions: [
+              {
+                id: "act_" + Date.now(),
+                type: "equip_item",
+                itemName: "Gakkung Bow",
+                optionFilter: "",
+                buyFromMarket: true,
+                maxPrice: 100000
+              }
+            ]
+          }
+        ]
+      })
     });
-    await fetch(`${API_BASE}/api/plans/${profileId}/apply`, { method: "POST" });
-    planModalEl.classList.remove("active");
-    fetchProfiles();
-  } catch (err) {
-    alert("เกิดข้อผิดพลาดในการบันทึกแผน");
+    const result = await res.json();
+    if (result.success && result.profile) {
+      await fetchAndRenderPlanProfiles();
+      openPlanWorkflowEditor(result.profile.id);
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาดในการสร้างแผนใหม่");
   }
-};
+}
+
+// Delete Plan Profile
+async function deletePlanProfile(planId) {
+  const plan = currentPlanProfiles.find(p => p.id === planId);
+  if (!plan) return;
+  if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบแผน "${plan.name}"?\n(หากมีจอเกมที่ใช้แผนนี้อยู่ แผนจะถูกยกเลิก)`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/plan-profiles/${planId}`, { method: 'DELETE' });
+    const result = await res.json();
+    if (result.success) {
+      await fetchAndRenderPlanProfiles();
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาดในการลบแผน");
+  }
+}
+
+// Duplicate Plan Profile
+async function duplicatePlanProfile(planId) {
+  const plan = currentPlanProfiles.find(p => p.id === planId);
+  if (!plan) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/plan-profiles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: plan.name + " (Copy)",
+        description: plan.description || "",
+        triggers: plan.triggers || []
+      })
+    });
+    const result = await res.json();
+    if (result.success) {
+      await fetchAndRenderPlanProfiles();
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาดในการทำสำเนาแผน");
+  }
+}
+
+// Assign Plan to Active Client Card
+async function assignPlanToActiveClient(planId) {
+  if (!activePlanClientProfileId) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/plan-profiles/${planId}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientProfileId: activePlanClientProfileId })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`⚡ ${result.message || 'ผูกแผนกับจอนี้เรียบร้อยแล้ว!'}`);
+      await fetchAndRenderPlanProfiles();
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาดในการผูกแผน");
+  }
+}
+
+// Open Visual Workflow Editor for a Plan
+function openPlanWorkflowEditor(planId) {
+  const plan = currentPlanProfiles.find(p => p.id === planId);
+  if (!plan) return;
+
+  activeEditingPlan = JSON.parse(JSON.stringify(plan));
+
+  const titleInput = document.getElementById("plan-editor-title");
+  const descInput = document.getElementById("plan-editor-desc");
+  if (titleInput) titleInput.value = activeEditingPlan.name || "Untitled Plan";
+  if (descInput) descInput.value = activeEditingPlan.description || "";
+
+  renderPlanWorkflowCanvas();
+  switchPlanModalView('editor');
+}
+
+// Render Triggers and Action nodes
+function renderPlanWorkflowCanvas() {
+  const canvas = document.getElementById("plan-workflow-canvas");
+  if (!canvas || !activeEditingPlan) return;
+
+  const triggers = activeEditingPlan.triggers || [];
+
+  if (triggers.length === 0) {
+    canvas.innerHTML = `
+      <div style="text-align: center; color: #94a3b8; padding: 40px; border: 2px dashed rgba(255, 255, 255, 0.1); border-radius: 10px;">
+        <span style="font-size: 32px; opacity: 0.6; display: block; margin-bottom: 8px;">🎯</span>
+        ยังไม่มีเงื่อนไขเลเวลในแผนนี้<br>
+        คลิกปุ่ม <b>"➕ เพิ่มเงื่อนไขเลเวล (Trigger)"</b> ด้านบนเพื่อเริ่มสร้างเงื่อนไขแรก (เช่น เลเวล 8)
+      </div>
+    `;
+    return;
+  }
+
+  canvas.innerHTML = triggers.map((trig, trigIdx) => {
+    const isJob = (trig.type === 'job_level');
+    const actions = trig.actions || [];
+
+    return `
+      <div class="plan-trigger-card ${isJob ? 'job-type' : ''}" data-trigger-idx="${trigIdx}">
+        <!-- Trigger Node Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 16px;">🎯</span>
+            <select class="form-select" style="font-size: 11.5px; padding: 3px 8px; width: auto;" onchange="updateTriggerType(${trigIdx}, this.value)">
+              <option value="base_level" ${trig.type === 'base_level' ? 'selected' : ''}>เลเวลตัวละคร (Base Level)</option>
+              <option value="job_level" ${trig.type === 'job_level' ? 'selected' : ''}>เลเวลอาชีพ (Job Level)</option>
+            </select>
+            <span style="font-size: 12px; font-weight: 700; color: #f8fafc;">เลเวล:</span>
+            <input type="number" class="form-input" value="${trig.targetLevel || 1}" min="1" max="150" style="width: 65px; font-size: 12px; padding: 3px 6px; font-weight: 700;" onchange="updateTriggerLevel(${trigIdx}, this.value)">
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px;">
+              ⚡ One-Shot (ทำ 1 ครั้งตอนถึงเลเวลนี้)
+            </span>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm btn-icon" onclick="removeTrigger(${trigIdx})" title="ลบเงื่อนไขเลเวลนี้">
+            <span>🗑️</span>
+          </button>
+        </div>
+
+        <!-- Connector line -->
+        <div class="plan-node-connector"></div>
+
+        <!-- Actions Container -->
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+          ${actions.length === 0 ? `
+            <div style="font-size: 11px; color: #94a3b8; text-align: center; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+              ยังไม่มีการทำงานในเงื่อนไขนี้ — กดปุ่ม "+ เพิ่ม Action" ด้านล่าง
+            </div>
+          ` : actions.map((act, actIdx) => renderActionNodeHtml(trigIdx, actIdx, act)).join('')}
+        </div>
+
+        <!-- Add Action Bar -->
+        <div style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 6px;">
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'equip_item')" style="font-size: 11px; padding: 3px 8px;">
+              <span>🛡️</span> + สวมใส่ของ
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'change_map')" style="font-size: 11px; padding: 3px 8px;">
+              <span>🗺️</span> + ย้ายแมพ
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'change_class')" style="font-size: 11px; padding: 3px 8px;">
+              <span>🏹</span> + เปลี่ยนอาชีพ
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Render single Action Node
+function renderActionNodeHtml(trigIdx, actIdx, act) {
+  if (act.type === 'equip_item') {
+    return `
+      <div class="plan-action-card type-equip">
+        <div class="plan-action-header">
+          <span class="plan-action-title">
+            <span>🛡️</span> ${actIdx + 1}. สวมใส่อุปกรณ์ (Equip Item)
+          </span>
+          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
+        </div>
+        <div class="plan-action-grid">
+          <div>
+            <label style="font-size: 10px; color: #94a3b8;">ชื่อไอเทม:</label>
+            <input type="text" class="form-input" style="font-size: 11.5px; padding: 4px 8px;" placeholder="เช่น Gakkung Bow, Angelic Protection" value="${escapeHTML(act.itemName || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'itemName', this.value)">
+          </div>
+          <div>
+            <label style="font-size: 10px; color: #94a3b8;">ออปชั่นขั้นต่ำ (เว้นว่างได้):</label>
+            <input type="text" class="form-input" style="font-size: 11.5px; padding: 4px 8px;" placeholder="เช่น dex, atk, cri" value="${escapeHTML(act.optionFilter || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'optionFilter', this.value)">
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1; cursor: pointer;">
+            <input type="checkbox" ${act.buyFromMarket !== false ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'buyFromMarket', this.checked)">
+            <span>🛒 ถ้าไม่มีในตัวและกระเป๋า ให้ค้นหาและซื้อจากตลาดอัตโนมัติ</span>
+          </label>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <span style="font-size: 10px; color: #94a3b8;">งบสูงสุด:</span>
+            <input type="number" class="form-input" style="width: 80px; font-size: 11px; padding: 2px 6px;" value="${act.maxPrice || 100000}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'maxPrice', parseInt(this.value)||0)">
+            <span style="font-size: 10px; color: #eab308;">z</span>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (act.type === 'change_map') {
+    return `
+      <div class="plan-action-card type-map">
+        <div class="plan-action-header">
+          <span class="plan-action-title">
+            <span>🗺️</span> ${actIdx + 1}. เปลี่ยนแมพฟาร์ม (Change Farm Map)
+          </span>
+          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: #94a3b8;">เลือกแมพเป้าหมาย:</label>
+          <select class="form-select" style="font-size: 11.5px; padding: 4px 8px;" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetMap', this.value)">
+            ${PLAN_MAP_OPTIONS.map(grp => `
+              <optgroup label="${grp.group}">
+                ${grp.maps.map(m => `
+                  <option value="${m}" ${act.targetMap === m ? 'selected' : ''}>${m}</option>
+                `).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+  } else if (act.type === 'change_class') {
+    return `
+      <div class="plan-action-card type-class">
+        <div class="plan-action-header">
+          <span class="plan-action-title">
+            <span>🏹</span> ${actIdx + 1}. เปลี่ยนอาชีพ (Change Class)
+          </span>
+          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
+        </div>
+        <div>
+          <label style="font-size: 10px; color: #94a3b8;">เลือกอาชีพเป้าหมาย:</label>
+          <select class="form-select" style="font-size: 11.5px; padding: 4px 8px;" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetClass', this.value)">
+            ${PLAN_CLASS_OPTIONS.map(cls => `
+              <option value="${cls}" ${act.targetClass === cls ? 'selected' : ''}>${cls}</option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+  }
+  return '';
+}
+
+// Trigger and Action Mutators
+function addLevelTrigger() {
+  if (!activeEditingPlan) return;
+  if (!Array.isArray(activeEditingPlan.triggers)) activeEditingPlan.triggers = [];
+
+  const nextLevel = (activeEditingPlan.triggers.length > 0)
+    ? (parseInt(activeEditingPlan.triggers[activeEditingPlan.triggers.length - 1].targetLevel, 10) + 5)
+    : 8;
+
+  activeEditingPlan.triggers.push({
+    id: "trig_" + Date.now(),
+    type: "base_level",
+    targetLevel: nextLevel,
+    actions: []
+  });
+
+  renderPlanWorkflowCanvas();
+}
+
+function removeTrigger(trigIdx) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  activeEditingPlan.triggers.splice(trigIdx, 1);
+  renderPlanWorkflowCanvas();
+}
+
+function updateTriggerType(trigIdx, type) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  activeEditingPlan.triggers[trigIdx].type = type;
+  renderPlanWorkflowCanvas();
+}
+
+function updateTriggerLevel(trigIdx, level) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  activeEditingPlan.triggers[trigIdx].targetLevel = parseInt(level, 10) || 1;
+}
+
+function addActionToTrigger(trigIdx, actionType) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  const trig = activeEditingPlan.triggers[trigIdx];
+  if (!Array.isArray(trig.actions)) trig.actions = [];
+
+  const newAction = {
+    id: "act_" + Date.now() + "_" + Math.floor(Math.random() * 100),
+    type: actionType
+  };
+
+  if (actionType === 'equip_item') {
+    newAction.itemName = "Gakkung Bow";
+    newAction.optionFilter = "";
+    newAction.buyFromMarket = true;
+    newAction.maxPrice = 100000;
+  } else if (actionType === 'change_map') {
+    newAction.targetMap = "ซากโบราณสถาน";
+  } else if (actionType === 'change_class') {
+    newAction.targetClass = "Archer";
+  }
+
+  trig.actions.push(newAction);
+  renderPlanWorkflowCanvas();
+}
+
+function removeAction(trigIdx, actIdx) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  const trig = activeEditingPlan.triggers[trigIdx];
+  if (trig && trig.actions) {
+    trig.actions.splice(actIdx, 1);
+    renderPlanWorkflowCanvas();
+  }
+}
+
+function updateActionField(trigIdx, actIdx, field, val) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  const trig = activeEditingPlan.triggers[trigIdx];
+  if (trig && trig.actions && trig.actions[actIdx]) {
+    trig.actions[actIdx][field] = val;
+  }
+}
+
+// Save Plan
+async function saveActivePlan(applyLive = false) {
+  if (!activeEditingPlan) return;
+
+  const titleInput = document.getElementById("plan-editor-title");
+  const descInput = document.getElementById("plan-editor-desc");
+  if (titleInput && titleInput.value.trim()) activeEditingPlan.name = titleInput.value.trim();
+  if (descInput) activeEditingPlan.description = descInput.value.trim();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/plan-profiles/${activeEditingPlan.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activeEditingPlan)
+    });
+    const result = await res.json();
+    if (result.success) {
+      if (applyLive && activePlanClientProfileId) {
+        await assignPlanToActiveClient(activeEditingPlan.id);
+      } else {
+        alert("💾 บันทึกแผนการเล่นเรียบร้อยแล้ว!");
+      }
+      await fetchAndRenderPlanProfiles();
+      switchPlanModalView('list');
+    } else {
+      alert("เกิดข้อผิดพลาด: " + (result.error || "ไม่สามารถบันทึกได้"));
+    }
+  } catch(e) {
+    alert("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์");
+  }
+}
+
+// Import & Export Plans
+function handleImportPlansClick() {
+  const input = document.getElementById("plan-import-file-input");
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+}
+
+function handleExportPlansClick() {
+  if (currentPlanProfiles.length === 0) {
+    alert("ไม่มี Plan Profile ในระบบให้ส่งออก");
+    return;
+  }
+
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    profiles: currentPlanProfiles,
+    assignments: currentPlanAssignments
+  };
+
+  const text = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aetheria_plan_scripts_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  alert(`📤 ส่งออก Plan Profiles ทั้งหมด (${currentPlanProfiles.length} รายการ) เรียบร้อยแล้ว!`);
+}
+
+// Setup Event Listeners for Plan Modal
+function setupPlanModalEventListeners() {
+  const btnClose = document.getElementById("plan-modal-close-btn");
+  if (btnClose) btnClose.onclick = closeScriptPlanModal;
+
+  const btnListClose = document.getElementById("plan-modal-list-close");
+  if (btnListClose) btnListClose.onclick = closeScriptPlanModal;
+
+  const btnEditorClose = document.getElementById("plan-editor-close-btn");
+  if (btnEditorClose) btnEditorClose.onclick = closeScriptPlanModal;
+
+  const btnBack = document.getElementById("btn-back-to-plan-list");
+  if (btnBack) btnBack.onclick = () => switchPlanModalView('list');
+
+  const btnCreate = document.getElementById("btn-create-new-plan");
+  if (btnCreate) btnCreate.onclick = createNewPlanProfile;
+
+  const btnAddTrigger = document.getElementById("btn-add-level-trigger");
+  if (btnAddTrigger) btnAddTrigger.onclick = addLevelTrigger;
+
+  const btnSave = document.getElementById("btn-save-plan");
+  if (btnSave) btnSave.onclick = () => saveActivePlan(false);
+
+  const btnSaveApply = document.getElementById("btn-save-and-apply-plan");
+  if (btnSaveApply) btnSaveApply.onclick = () => saveActivePlan(true);
+
+  const btnImport = document.getElementById("btn-import-plans");
+  if (btnImport) btnImport.onclick = handleImportPlansClick;
+
+  const fileInput = document.getElementById("plan-import-file-input");
+  if (fileInput) {
+    fileInput.onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          const res = await fetch(`${API_BASE}/api/plan-profiles/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(parsed)
+          });
+          const result = await res.json();
+          if (result.success) {
+            alert(`📥 ${result.message || 'นำเข้าแผนเรียบร้อยแล้ว!'}`);
+            await fetchAndRenderPlanProfiles();
+          } else {
+            alert("ไม่สามารถนำเข้าได้: " + (result.error || "ไฟล์ไม่ถูกต้อง"));
+          }
+        } catch(err) {
+          alert("รูปแบบไฟล์ JSON ไม่ถูกต้อง");
+        }
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  const btnExport = document.getElementById("btn-export-plans");
+  if (btnExport) btnExport.onclick = handleExportPlansClick;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupPlanModalEventListeners);
+} else {
+  setupPlanModalEventListeners();
+}
 
 // ==========================================
 // PROFILE MODAL (EDIT / ADD)

@@ -10021,6 +10021,140 @@
 })();
 
     // ==========================================
+    
+    // ==========================================
+    // PELICAN SCRIPT PLAN EXECUTION ENGINE
+    // ==========================================
+    window.__currentScriptPlan = null;
+    window.__executedPlanTriggers = {};
+
+    try {
+        const savedPlan = localStorage.getItem('pelican_script_plan');
+        if (savedPlan) window.__currentScriptPlan = JSON.parse(savedPlan);
+        const savedExec = localStorage.getItem('pelican_executed_triggers');
+        if (savedExec) window.__executedPlanTriggers = JSON.parse(savedExec);
+    } catch(e) {}
+
+    window.__applyScriptPlan = function(plan) {
+        window.__currentScriptPlan = plan;
+        try {
+            localStorage.setItem('pelican_script_plan', JSON.stringify(plan));
+        } catch(e) {}
+        console.log('%c[Pelican Plan] 📜 โหลดแผนการเล่นใหม่เรียบร้อย:', 'color: #38bdf8; font-weight: bold;', plan ? plan.name : 'None');
+        if (plan && Array.isArray(plan.triggers)) {
+            console.log(`[Pelican Plan] แผนมีทั้งหมด ${plan.triggers.length} เงื่อนไขเลเวล`);
+        }
+    };
+
+    window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
+        if (!itemName) return;
+        const targetClean = itemName.trim().toLowerCase();
+        console.log(`%c[Pelican Plan] 🛡️ เริ่มขั้นตอนตรวจสอบอุปกรณ์ "${itemName}"...`, 'color: #38bdf8; font-weight: bold;');
+
+        // 1. ตรวจสอบว่าสวมใส่อยู่บนตัวละครแล้วหรือไม่
+        const isAlreadyEquipped = () => {
+            const charSlots = Array.from(document.querySelectorAll('*')).filter(el => {
+                if (el.closest('#pelican-hud')) return false;
+                const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                return text.includes(targetClean) && el.offsetWidth > 0;
+            });
+            return charSlots.length > 0;
+        };
+
+        if (isAlreadyEquipped()) {
+            console.log(`%c[Pelican Plan] 🛡️ "${itemName}" สวมใส่อยู่บนตัวละครแล้ว (ข้ามการทำงาน)`, 'color: #22c55e;');
+            return true;
+        }
+
+        // 2. ตรวจสอบในกระเป๋าเซิร์ฟเวอร์
+        const invItem = (typeof findItemInServerInv === 'function') ? findItemInServerInv(it => {
+            const name = (it.name || '').toLowerCase();
+            return name.includes(targetClean) && typeof (it.slot ?? it.idx) === 'number';
+        }) : null;
+
+        if (invItem) {
+            const slot = invItem.slot ?? invItem.idx;
+            console.log(`%c[Pelican Plan] 🎒 พบ "${itemName}" ในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
+            if (typeof window.sendEquip === 'function') {
+                window.sendEquip(slot);
+            }
+            return true;
+        }
+
+        // 3. ถ้าไม่มีในกระเป๋า และเปิดตัวเลือกซื้อจากตลาด
+        if (buyFromMarketIfMissing) {
+            console.log(`%c[Pelican Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${maxPrice} z)...`, 'color: #f59e0b; font-weight: bold;');
+            try {
+                if (typeof window.executeMarketSearch === 'function') {
+                    if (window.__marketFilterConfig) {
+                        window.__marketFilterConfig.q = itemName;
+                        window.__marketFilterConfig.maxPrice = maxPrice;
+                    }
+                    window.executeMarketSearch();
+                }
+            } catch(e) {
+                console.warn('[Pelican Plan] Market buy error:', e);
+            }
+        }
+
+        return false;
+    };
+
+    window.checkAndExecutePlanTriggers = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan || !Array.isArray(plan.triggers) || plan.triggers.length === 0) return;
+
+        const levelsEl = document.querySelector('.hud-levels');
+        const text = levelsEl ? levelsEl.innerText : '';
+        const baseMatch = text.match(/Base\s*(?:Lv\.?|Level)?\s*(\d+)/i);
+        const jobMatch = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
+        const curBase = baseMatch ? parseInt(baseMatch[1], 10) : 1;
+        const curJob = jobMatch ? parseInt(jobMatch[1], 10) : 1;
+
+        for (const trig of plan.triggers) {
+            const isJob = (trig.type === 'job_level');
+            const targetLvl = parseInt(trig.targetLevel, 10);
+            const trigKey = (isJob ? 'job_' : 'base_') + targetLvl;
+
+            const matched = isJob ? (curJob === targetLvl) : (curBase === targetLvl);
+
+            if (matched && !window.__executedPlanTriggers[trigKey]) {
+                window.__executedPlanTriggers[trigKey] = true;
+                try {
+                    localStorage.setItem('pelican_executed_triggers', JSON.stringify(window.__executedPlanTriggers));
+                } catch(e) {}
+
+                console.log(`%c[Pelican Plan] 🎯 ทำตามแผน Trigger เลเวล ${targetLvl} (${isJob ? 'Job Lv' : 'Base Lv'})!`, 'color: #f59e0b; font-weight: bold;');
+
+                for (const act of (trig.actions || [])) {
+                    try {
+                        if (act.type === 'change_map' && act.targetMap) {
+                            console.log(`%c[Pelican Plan] 🗺️ แผนสั่งเปลี่ยนแมพฟาร์มไปที่: "${act.targetMap}"`, 'color: #38bdf8;');
+                            if (typeof window.setTargetFarmMap === 'function') {
+                                window.setTargetFarmMap(act.targetMap);
+                            }
+                        } else if (act.type === 'change_class' && act.targetClass) {
+                            console.log(`%c[Pelican Plan] 🏹 แผนสั่งเปลี่ยนอาชีพเป็น: "${act.targetClass}"`, 'color: #a855f7; font-weight: bold;');
+                        } else if (act.type === 'equip_item' && act.itemName) {
+                            await window.findAndEquipItemByName(act.itemName, act.buyFromMarket, act.maxPrice, act.optionFilter);
+                        }
+                    } catch(err) {
+                        console.warn('[Pelican Plan] Action execution error:', err);
+                    }
+                }
+            }
+        }
+    };
+
+    // Auto-check plan triggers every 5 seconds
+    setInterval(() => {
+        try {
+            if (typeof window.checkAndExecutePlanTriggers === 'function') {
+                window.checkAndExecutePlanTriggers();
+            }
+        } catch(e) {}
+    }, 5000);
+
     // MULTI-CLIENT HUB REAL-TIME STATE SYNC
     // ==========================================
     window.__getClientLiveState = function() {
