@@ -702,16 +702,20 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
 
   return `
 <div class="p-header" id="pelican-drag-handle">
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <span style="font-size: 13px;">🔄</span>
-                    <span class="p-header-title">${escapeHTML(charDisplayName)}</span>
+                <div class="p-header-top">
+                    <div class="p-header-name">
+                        <span style="font-size: 13px;">🔄</span>
+                        <span class="p-header-title">${escapeHTML(charDisplayName)}</span>
+                    </div>
+                    <div class="p-header-controls">
+                        <span class="pelican-toggle" onclick="toggleWebHudCollapse('${profileId}')" title="ย่อ/ขยาย">−</span>
+                        <span class="pelican-close-btn" onclick="closeWebBotHUD('${profileId}')" title="ปิดหน้าต่าง">✕</span>
+                    </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">🪙 ${typeof clientData?.state?.zeny === 'number' ? clientData.state.zeny.toLocaleString() + ' z' : '-- z'}</span>
+                <div class="p-header-badges">
+                    <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">💰 ${typeof clientData?.state?.zeny === 'number' ? clientData.state.zeny.toLocaleString() + ' z' : '-- z'}</span>
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${clientData?.currentAmmo ?? 0}</span>
                     <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
-                    <span class="pelican-toggle" onclick="toggleWebHudCollapse('${profileId}')" style="cursor: pointer; font-size: 15px; padding: 0 4px; color: #94a3b8; font-weight: bold;">−</span>
-<span class="pelican-close-btn" onclick="closeWebBotHUD('${profileId}')" style="cursor: pointer; font-size: 14px; padding: 0 4px; color: #94a3b8; font-weight: bold;" title="ปิดหน้าต่าง">✕</span>
                 </div>
             </div>
 
@@ -1601,7 +1605,7 @@ function makeElementDraggable(elmnt, dragHandle) {
 
   function dragMouseDown(e) {
     elmnt.style.zIndex = ++topHudZIndex;
-    if (e.target.closest('button') || e.target.closest('span[style*="cursor"]') || e.target.closest('input') || e.target.closest('select')) return;
+    if (e.target.closest('button') || e.target.closest('.p-header-controls') || e.target.closest('span[style*="cursor"]') || e.target.closest('input') || e.target.closest('select')) return;
     e.preventDefault();
     pos3 = e.clientX;
     pos4 = e.clientY;
@@ -1661,7 +1665,7 @@ function populateWebHudData(profileId, data) {
   const quickZeny = hud.querySelector('#p-quick-zeny');
   if (quickZeny) {
     const z = data.state?.zeny;
-    quickZeny.innerText = '🪙 ' + (typeof z === 'number' ? z.toLocaleString() + ' z' : '-- z');
+    quickZeny.innerText = '💰 ' + (typeof z === 'number' ? z.toLocaleString() + ' z' : '-- z');
   }
 
   const quickAmmo = hud.querySelector('#p-quick-ammo');

@@ -44,7 +44,6 @@ body {
     radial-gradient(1200px 600px at 0% -10%, rgba(14, 165, 233, 0.14), transparent 60%),
     radial-gradient(900px 600px at 100% 110%, rgba(139, 92, 246, 0.13), transparent 60%),
     radial-gradient(700px 400px at 60% 40%, rgba(34, 227, 196, 0.04), transparent 70%);
-  background-attachment: fixed;
   color: var(--text-main);
   min-height: 100vh;
   padding-bottom: 40px;
@@ -76,8 +75,7 @@ body {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  background: rgba(10, 16, 32, 0.82);
-  backdrop-filter: blur(18px) saturate(140%);
+  background: rgba(10, 16, 32, 0.95);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   padding: 14px 18px;
@@ -247,7 +245,6 @@ body {
   top: 100%;
   margin-top: 6px;
   background: rgba(12, 19, 37, 0.98);
-  backdrop-filter: blur(14px);
   border: 1px solid var(--line-strong);
   min-width: 230px;
   border-radius: var(--radius-md);
@@ -302,7 +299,6 @@ body {
   align-items: center;
   gap: 14px;
   background: var(--bg-card);
-  backdrop-filter: blur(12px);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
@@ -430,11 +426,11 @@ body {
   white-space: nowrap;
 }
 .live-pill i {
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #34d399;
-  animation: pulse-dot 1.8s infinite;
 }
 
 .toolbar {
@@ -562,7 +558,7 @@ body {
 .profile-card {
   --h: 195;
   background: var(--bg-card);
-  backdrop-filter: blur(14px);
+  contain: layout paint;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 0 12px 12px;
@@ -618,9 +614,11 @@ body {
   background-size: 55%;
   background-position: 0% 30%;
   background-repeat: no-repeat;
-  filter: blur(22px) saturate(1.3);
+  filter: blur(16px) saturate(1.2);
   opacity: 0.28;
   pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .card-hero > *:not(.card-hero-bg) { position: relative; }
@@ -684,13 +682,22 @@ body {
 }
 .avatar-dot.online {
   background: var(--accent-green);
-  animation: pulse-dot 1.8s infinite;
 }
 
-@keyframes pulse-dot {
-  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6); }
-  70% { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+.live-pill i::after,
+.avatar-dot.online::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(52, 211, 153, 0.7);
+  animation: ping-dot 1.8s ease-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes ping-dot {
+  0% { transform: scale(0.8); opacity: 0.9; }
+  80%, 100% { transform: scale(1.9); opacity: 0; }
 }
 
 .card-identity {
@@ -1273,7 +1280,6 @@ label {
   border: 1px solid rgba(0, 255, 204, 0.45);
   border-radius: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 255, 204, 0.18);
-  backdrop-filter: blur(16px);
   color: #fff;
   font-size: 11.5px;
   z-index: 99999;
@@ -1506,7 +1512,6 @@ label {
                     border: 1px solid rgba(0, 255, 204, 0.35);
                     border-radius: 10px;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
-                    backdrop-filter: blur(12px);
                     color: #fff;
                     font-family: 'Segoe UI', Tahoma, sans-serif;
                     z-index: 999999;
@@ -1650,11 +1655,66 @@ label {
 
 .pelican-hud-web {
     position: fixed;
-    width: 285px;
+    width: 320px;
     z-index: 100000;
 }
+.pelican-hud-web .p-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+.pelican-hud-web .p-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+.pelican-hud-web .p-header-name {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+}
+.pelican-hud-web .p-header-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pelican-hud-web .p-header-controls {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.pelican-hud-web .p-header-controls span {
+    width: 26px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: bold;
+    transition: background 0.15s, color 0.15s;
+}
+.pelican-hud-web .p-header-controls span:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
 .pelican-hud-web .pelican-close-btn:hover {
-    color: #ef4444 !important;
+    background: rgba(239, 68, 68, 0.18) !important;
+    color: #f87171 !important;
+}
+.pelican-hud-web .p-header-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.pelican-hud-web .p-header-badges span {
+    white-space: nowrap;
 }
 
 
