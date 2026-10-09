@@ -6693,44 +6693,10 @@
                 return affType === targetType;
             };
 
-            const matchAttribute = (attr) => {
-                if (!attr) return false;
-                const attrType = String(attr.type).toUpperCase();
-                const attrVal = Number(attr.value) || 0;
-                if (attrVal < minVal) return false;
-
-                if (targetType === 'RANGE_ATTACK' || targetType === 'RANGE_ATK') {
-                    return attrType === 'RANGE_ATTACK' || attrType === 'RANGE_ATK';
-                }
-                if (targetType === 'MELEE_ATTACK' || targetType === 'MELEE_ATK') {
-                    return attrType === 'MELEE_ATTACK' || attrType === 'MELEE_ATK';
-                }
-                if (targetType === 'MAGIC_ATTACK' || targetType === 'MAGIC_ATK') {
-                    return attrType === 'MAGIC_ATTACK' || attrType === 'MAGIC_ATK';
-                }
-                if (targetType === 'ATK_FLAT' || targetType === 'ATK') {
-                    return attrType === 'ATK' || attrType === 'PHYSICAL_ATTACK';
-                }
-                if (targetType === 'MATK_FLAT' || targetType === 'MATK') {
-                    return attrType === 'MATK' || attrType === 'MAGIC_ATTACK';
-                }
-                if (targetType === 'DEF') {
-                    return attrType === 'DEF' || attrType === 'MELEE_DEFENSE';
-                }
-                if (targetType === 'MDEF') {
-                    return attrType === 'MDEF' || attrType === 'MAGIC_DEFENSE';
-                }
-                return attrType === targetType;
-            };
-
+            // กรองเฉพาะออฟชั่นสุ่ม (Random Options / Affixes) เท่านั้น ไม่นำสเตตัสพื้นฐาน (Base Attributes) มาคิด
             if (Array.isArray(it.affixes)) {
                 for (const aff of it.affixes) {
                     if (matchAffix(aff)) return true;
-                }
-            }
-            if (Array.isArray(it.attributes)) {
-                for (const attr of it.attributes) {
-                    if (matchAttribute(attr)) return true;
                 }
             }
             return false;

@@ -1,0 +1,3161 @@
+[
+  {
+    "itemId": 90430,
+    "name": "Ectoplasm",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 810,
+    "slot": 0,
+    "qty": 166,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90571,
+    "name": "Stone Wing Chip",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 592,
+    "slot": 1,
+    "qty": 79,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90304,
+    "name": "Blue Potion",
+    "type": "Consumable",
+    "weight": 7,
+    "sellPrice": 500,
+    "effects": [
+      "ใช้แล้ว: ฟื้น SP 60 (+2% ต่อ INT)",
+      "คูลดาวน์ 1 วินาที"
+    ],
+    "autoPotion": "SP",
+    "slot": 2,
+    "qty": 34,
+    "maxStack": 99,
+    "usable": true,
+    "destroyable": true
+  },
+  {
+    "itemId": 90311,
+    "name": "Butterfly Wing",
+    "type": "Consumable",
+    "weight": 7,
+    "sellPrice": 150,
+    "effects": [
+      "ใช้แล้ว: วาร์ปไปเมืองหลวง"
+    ],
+    "slot": 3,
+    "qty": 24,
+    "maxStack": 99,
+    "usable": true,
+    "destroyable": true
+  },
+  {
+    "itemId": 91025,
+    "name": "Broad Sword",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 1030,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "TwoHandSword",
+    "levelReq": 40,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 140,
+        "active": true
+      },
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Swordsman"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ATK",
+        "mode": "increasedPercent",
+        "category": "primary",
+        "value": 8
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "slot": 4,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91035,
+    "name": "Skullcleaver",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 990,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Axe",
+    "levelReq": 36,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 140,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Merchant"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ASPD",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "slot": 5,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91065,
+    "name": "Halberd",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 1142,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "TwoHandSpear",
+    "levelReq": 40,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 165,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Swordsman"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MATK",
+        "mode": "base",
+        "category": "primary",
+        "value": 10
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 6,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90567,
+    "name": "Tattered Shroud",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 486,
+    "slot": 7,
+    "qty": 82,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91055,
+    "name": "Viperstinger",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 900,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Spear",
+    "levelReq": 36,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 120,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Swordsman"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ATK",
+        "mode": "base",
+        "category": "primary",
+        "value": 6
+      },
+      {
+        "pool": "status",
+        "type": "AGI",
+        "mode": "base",
+        "category": "primary",
+        "value": 7
+      },
+      {
+        "pool": "attribute",
+        "type": "ASPD",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 8,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2527,
+    "name": "Dragon Breath",
+    "type": "Equipment",
+    "weight": 60,
+    "sellPrice": 552,
+    "slots": 1,
+    "equipType": "Cape",
+    "levelReq": 48,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "DEX",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "DAMAGE_REDUCTION",
+        "mode": "base",
+        "category": "special",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "slot": 9,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90432,
+    "name": "Gargoyle Stone",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 987,
+    "slot": 10,
+    "qty": 141,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90568,
+    "name": "Soul Wisp",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 2025,
+    "slot": 11,
+    "qty": 15,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2266,
+    "name": "Iron Cain",
+    "type": "Equipment",
+    "weight": 30,
+    "sellPrice": 436,
+    "equipType": "HeadLow",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Crusader",
+      "Knight",
+      "Swordsman"
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MAXHP",
+        "mode": "base",
+        "category": "primary",
+        "value": 59
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "slot": 13,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2334,
+    "name": "Mage Coat",
+    "type": "Equipment",
+    "weight": 60,
+    "sellPrice": 718,
+    "equipType": "Armor",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 5,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 5,
+        "active": true
+      },
+      {
+        "type": "INT",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Mage",
+      "Sage",
+      "Wizard"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 6
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 6
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 16,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90572,
+    "name": "Obsidian Eye",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 2468,
+    "slot": 18,
+    "qty": 24,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90047,
+    "name": "Wind of Verdure",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 60,
+    "description": "หินธาตุลม พลังธาตุลมที่ตกผลึกจากมอนธาตุลม Sage ใช้ 2 ก้อนกับ Blank Scroll สร้าง Wind Converter ดรอปจาก Kobold Miner, Harpy, Griffin Cub, Gargoyle",
+    "slot": 20,
+    "qty": 32,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2296,
+    "name": "Binoculars",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 484,
+    "equipType": "HeadMid",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "DEX",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Archer",
+      "Bard",
+      "Dancer",
+      "Hunter"
+    ],
+    "rarity": "uncommon",
+    "refineable": true,
+    "slot": 22,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91083,
+    "name": "Fist",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 958,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Knuckle",
+    "levelReq": 44,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 115,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Monk"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ATK",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "status",
+        "type": "STR",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "attribute",
+        "type": "FLEE",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "slot": 23,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95113,
+    "name": "Lifesteal Gem (Attack) 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_ATTACK",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 27,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95122,
+    "name": "Mana Gem (Attack) 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_ATTACK",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 28,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90030,
+    "name": "Arrow",
+    "type": "Equipment",
+    "weight": 0.1,
+    "sellPrice": 0,
+    "equipType": "Ammo",
+    "ammoType": "Arrow",
+    "attributes": [
+      {
+        "type": "RANGE_ATTACK",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "slot": 32,
+    "qty": 1700,
+    "maxStack": 9999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2355,
+    "name": "Angelic Protection",
+    "type": "Equipment",
+    "weight": 60,
+    "sellPrice": 848,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 40,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 4,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 20,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Novice"
+    ],
+    "rarity": "epic",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MDEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 13
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 7
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "slot": 33,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95084,
+    "name": "Dancing Arrow Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Dancing Arrow: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 34,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95087,
+    "name": "Holy Judgment Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Holy Judgment: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 36,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95088,
+    "name": "Holy Judgment Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Holy Judgment: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 37,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95099,
+    "name": "Earthshaker Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Earthshaker: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 38,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95101,
+    "name": "Acid Flask Gem 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Acid Flask: แรงขึ้น +2%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 39,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95102,
+    "name": "Acid Flask Gem 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Acid Flask: แรงขึ้น +3%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 40,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95104,
+    "name": "Acid Flask Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Acid Flask: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 41,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95115,
+    "name": "Lifesteal Gem (Attack) 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_ATTACK",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 43,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95116,
+    "name": "Lifesteal Gem (Attack) 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_ATTACK",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 44,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95123,
+    "name": "Mana Gem (Attack) 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_ATTACK",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 46,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95124,
+    "name": "Mana Gem (Attack) 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_ATTACK",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 48,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 94039,
+    "name": "Medusa Card",
+    "type": "Card",
+    "weight": 1,
+    "sellPrice": 77,
+    "cardSlotTypes": [
+      "Helmet",
+      "HeadMid",
+      "HeadLow"
+    ],
+    "attributes": [
+      {
+        "type": "VIT",
+        "value": 5,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 10,
+        "active": true
+      }
+    ],
+    "slot": 49,
+    "qty": 5,
+    "maxStack": 99,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90202,
+    "name": "Emveretarcon",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 300,
+    "description": "แร่ตีบวกอาวุธขั้นกลาง ใช้ตีบวกอาวุธ +5 ถึง +7 ที่ Blacksmith Enok ครั้งละ 1 ก้อน ดรอปจากมอนสเตอร์",
+    "slot": 50,
+    "qty": 49,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90203,
+    "name": "Oridecon",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 800,
+    "description": "แร่ตีบวกอาวุธขั้นสูง ใช้ตีบวกอาวุธ +8 ถึง +10 ที่ Blacksmith Enok ครั้งละ 1 ก้อน หายาก ดรอปจากมอนสเตอร์เลเวลสูงและบอส MVP",
+    "slot": 51,
+    "qty": 42,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90205,
+    "name": "Elunium",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 300,
+    "description": "หินตีบวกชุดเกราะขั้นกลาง ใช้ตีบวกอุปกรณ์สวมใส่ที่ไม่ใช่อาวุธ +5 ถึง +7 ที่ Blacksmith Enok ครั้งละ 1 ก้อน ดรอปจากมอนสเตอร์",
+    "slot": 52,
+    "qty": 60,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90206,
+    "name": "Enriched Elunium",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 800,
+    "description": "หินตีบวกชุดเกราะขั้นสูง ใช้ตีบวกอุปกรณ์สวมใส่ที่ไม่ใช่อาวุธ +8 ถึง +10 ที่ Blacksmith Enok ครั้งละ 1 ก้อน หายาก ดรอปจากมอนสเตอร์เลเวลสูงและบอส MVP",
+    "slot": 53,
+    "qty": 44,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90340,
+    "name": "Enchant Rune",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 500,
+    "description": "รูนเสริมพลัง ใช้สุ่มออปชันใหม่ให้อาวุธและชุดเกราะที่ Blacksmith Enok (เสริมพลังอุปกรณ์) ไอเทมระดับสูงใช้หลายเม็ดขึ้น ล็อกบรรทัดที่ชอบไว้ได้แต่ใช้รูนมากขึ้น ดรอปจากมอนสเตอร์",
+    "slot": 54,
+    "qty": 21,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95114,
+    "name": "Lifesteal Gem (Attack) 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_ATTACK",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 55,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95081,
+    "name": "Dancing Arrow Gem 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Dancing Arrow: แรงขึ้น +2%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 61,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2258,
+    "name": "Spiky Band",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 616,
+    "equipType": "Helmet",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 6,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Acolyte",
+      "Alchemist",
+      "Assassin",
+      "Blacksmith",
+      "Crusader",
+      "Knight",
+      "Merchant",
+      "Monk",
+      "Priest",
+      "Rogue",
+      "Swordsman",
+      "Thief"
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "DEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 7
+      },
+      {
+        "pool": "status",
+        "type": "AGI",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 66,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95121,
+    "name": "Mana Gem (Attack) 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_ATTACK",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 73,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95086,
+    "name": "Holy Judgment Gem 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Holy Judgment: แรงขึ้น +3%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 77,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 5125,
+    "name": "Angel's Kiss",
+    "type": "Equipment",
+    "weight": 30,
+    "sellPrice": 532,
+    "slots": 1,
+    "equipType": "Helmet",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Novice"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MDEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 12
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 84,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91144,
+    "name": "Gakkung Bow",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 780,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Bow",
+    "levelReq": 24,
+    "attributes": [
+      {
+        "type": "RANGE_ATTACK",
+        "value": 120,
+        "active": true
+      },
+      {
+        "type": "DEX",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Archer"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MATK",
+        "mode": "increasedPercent",
+        "category": "primary",
+        "value": 7
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "primary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "ASPD",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 87,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2320,
+    "name": "Formal Suit",
+    "type": "Equipment",
+    "weight": 30,
+    "sellPrice": 204,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "armor"
+  },
+  {
+    "itemId": 2420,
+    "name": "Angel's Reincarnation",
+    "type": "Equipment",
+    "weight": 30,
+    "sellPrice": 344,
+    "slots": 1,
+    "equipType": "Boot",
+    "levelReq": 25,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 2,
+        "active": true
+      },
+      {
+        "type": "MAXHP",
+        "value": 100,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Novice"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "DEX",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "boots"
+  },
+  {
+    "itemId": 95126,
+    "name": "Mana Gem (Skill) 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_SKILL",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "refine": 4,
+    "refineBonus": [
+      {
+        "stat": "SP_DRAIN_SKILL",
+        "value": 4
+      }
+    ],
+    "equippedSlot": "gem-3"
+  },
+  {
+    "itemId": 95053,
+    "name": "Divine Crucible Gem 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Divine Crucible: แรงขึ้น +2%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "refine": 4,
+    "refineBonus": [
+      {
+        "stat": "GEM_SKILL_DAMAGE",
+        "value": 4
+      }
+    ],
+    "equippedSlot": "gem-4"
+  },
+  {
+    "itemId": 2521,
+    "name": "Angelic Cardigan",
+    "type": "Equipment",
+    "weight": 40,
+    "sellPrice": 256,
+    "slots": 1,
+    "equipType": "Cape",
+    "levelReq": 20,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Novice"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "garment"
+  },
+  {
+    "itemId": 5113,
+    "name": "Angry Snarl",
+    "type": "Equipment",
+    "weight": 5,
+    "sellPrice": 5,
+    "equipType": "HeadLow",
+    "levelReq": 0,
+    "attributes": [],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 4
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "equippedSlot": "head-lower"
+  },
+  {
+    "itemId": 5007,
+    "name": "Grand Circlet",
+    "type": "Equipment",
+    "weight": 20,
+    "sellPrice": 764,
+    "equipType": "Helmet",
+    "levelReq": 55,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      },
+      {
+        "type": "STR",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "INT",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "LUK",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "epic",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "DEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 12
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 6
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      },
+      {
+        "pool": "status",
+        "type": "DEX",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      },
+      {
+        "pool": "attribute",
+        "type": "DAMAGE_REDUCTION",
+        "mode": "base",
+        "category": "special",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "head-upper"
+  },
+  {
+    "itemId": 90302,
+    "name": "Orange Potion",
+    "type": "Consumable",
+    "weight": 7,
+    "sellPrice": 100,
+    "effects": [
+      "ใช้แล้ว: ฟื้น HP 105 (+2% ต่อ VIT)",
+      "คูลดาวน์ 1 วินาที"
+    ],
+    "autoPotion": "HP",
+    "slot": 0,
+    "qty": 27,
+    "maxStack": 99,
+    "usable": true,
+    "destroyable": true
+  },
+  {
+    "itemId": 90553,
+    "name": "Griffin Claw",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 217,
+    "slot": 3,
+    "qty": 4,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2116,
+    "name": "Angelic Guard",
+    "type": "Equipment",
+    "weight": 40,
+    "sellPrice": 292,
+    "slots": 1,
+    "equipType": "Shield",
+    "levelReq": 20,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Novice"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MAXHP",
+        "mode": "base",
+        "category": "primary",
+        "value": 70
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "status",
+        "type": "DEX",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 4,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90423,
+    "name": "Griffin Down",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 362,
+    "slot": 5,
+    "qty": 5,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91017,
+    "name": "Saber",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 878,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Sword",
+    "levelReq": 36,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 115,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Swordsman"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "HIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 6
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 6
+      },
+      {
+        "pool": "attribute",
+        "type": "MELEE_DAMAGE_PERCENT",
+        "mode": "base",
+        "category": "special",
+        "value": 11
+      }
+    ],
+    "refineable": true,
+    "slot": 6,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91112,
+    "name": "Katar",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 966,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Katar",
+    "levelReq": 30,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 148,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Assassin"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "AGI",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "FLEE",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 7,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95030,
+    "name": "Radiant Smite Gem 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Radiant Smite: แรงขึ้น +3%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 8,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90548,
+    "name": "Storm Plume",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 695,
+    "slot": 9,
+    "qty": 1,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91021,
+    "name": "Katana",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 210,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "TwoHandSword",
+    "levelReq": 12,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 60,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Swordsman"
+    ],
+    "rarity": "common",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MATK",
+        "mode": "base",
+        "category": "primary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 11,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2311,
+    "name": "Mink Coat",
+    "type": "Equipment",
+    "weight": 230,
+    "sellPrice": 480,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 30,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 6,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "DEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 12
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 12,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2313,
+    "name": "Padded Armor",
+    "type": "Equipment",
+    "weight": 280,
+    "sellPrice": 276,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 7,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Alchemist",
+      "Assassin",
+      "Blacksmith",
+      "Crusader",
+      "Knight",
+      "Merchant",
+      "Rogue",
+      "Swordsman",
+      "Thief"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 13,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91151,
+    "name": "Book",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 595,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Book",
+    "levelReq": 34,
+    "attributes": [
+      {
+        "type": "MAGIC_ATTACK",
+        "value": 85,
+        "active": true
+      },
+      {
+        "type": "MELEE_ATTACK",
+        "value": 40,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Priest",
+      "Sage"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ATK",
+        "mode": "increasedPercent",
+        "category": "primary",
+        "value": 8
+      },
+      {
+        "pool": "attribute",
+        "type": "FLEE",
+        "mode": "base",
+        "category": "secondary",
+        "value": 8
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "slot": 15,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90420,
+    "name": "Harpy Feather",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 278,
+    "slot": 18,
+    "qty": 6,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2618,
+    "name": "Matyr's Leash",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 364,
+    "equipType": "Acc",
+    "levelReq": 35,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "AGI",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MAXHP",
+        "mode": "base",
+        "category": "primary",
+        "value": 58
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 1
+      }
+    ],
+    "slot": 20,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90201,
+    "name": "Phracon",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 100,
+    "description": "แร่ตีบวกอาวุธขั้นต้น ใช้ตีบวกอาวุธ +1 ถึง +4 ที่ Blacksmith Enok ครั้งละ 1 ก้อน ซื้อได้ที่โรงตีเหล็กของ Enok หรือดรอปจากมอนสเตอร์",
+    "slot": 24,
+    "qty": 114,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90204,
+    "name": "Rough Elunium",
+    "type": "Enchantment",
+    "weight": 1,
+    "sellPrice": 100,
+    "description": "หินตีบวกชุดเกราะขั้นต้น ใช้ตีบวกอุปกรณ์สวมใส่ที่ไม่ใช่อาวุธ +1 ถึง +4 ที่ Blacksmith Enok ครั้งละ 1 ก้อน ซื้อได้ที่โรงตีเหล็กของ Enok หรือดรอปจากมอนสเตอร์",
+    "slot": 26,
+    "qty": 145,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91092,
+    "name": "Tail Whip",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 615,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Whip",
+    "levelReq": 30,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 105,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Dancer"
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "STR",
+        "mode": "base",
+        "category": "primary",
+        "value": 4
+      },
+      {
+        "pool": "attribute",
+        "type": "HIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      }
+    ],
+    "refineable": true,
+    "slot": 30,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91113,
+    "name": "Jamadhar",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 1102,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Katar",
+    "levelReq": 36,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 165,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Assassin"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "ATK",
+        "mode": "base",
+        "category": "primary",
+        "value": 8
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "primary",
+        "value": 7
+      },
+      {
+        "pool": "attribute",
+        "type": "HIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 6
+      }
+    ],
+    "refineable": true,
+    "slot": 32,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91091,
+    "name": "Rope",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 480,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Whip",
+    "levelReq": 24,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 80,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Dancer"
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "primary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "HIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 35,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 91102,
+    "name": "Harp",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 813,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Instrument",
+    "levelReq": 30,
+    "attributes": [
+      {
+        "type": "MELEE_ATTACK",
+        "value": 114,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Bard"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "DEX",
+        "mode": "base",
+        "category": "primary",
+        "value": 8
+      },
+      {
+        "pool": "attribute",
+        "type": "FLEE",
+        "mode": "base",
+        "category": "secondary",
+        "value": 6
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 39,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2236,
+    "name": "Santa Hat",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 102,
+    "equipType": "Helmet",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "LUK",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 42,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95005,
+    "name": "Inferno Burst Gem 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Inferno Burst: แรงขึ้น +2%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 47,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2227,
+    "name": "Cap",
+    "type": "Equipment",
+    "weight": 40,
+    "sellPrice": 168,
+    "slots": 1,
+    "equipType": "Helmet",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Alchemist",
+      "Archer",
+      "Assassin",
+      "Bard",
+      "Blacksmith",
+      "Crusader",
+      "Dancer",
+      "Hunter",
+      "Knight",
+      "Merchant",
+      "Rogue",
+      "Swordsman",
+      "Thief"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "DEF",
+        "mode": "base",
+        "category": "primary",
+        "value": 6
+      },
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      },
+      {
+        "pool": "status",
+        "type": "STR",
+        "mode": "base",
+        "category": "secondary",
+        "value": 2
+      }
+    ],
+    "refineable": true,
+    "slot": 51,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 5035,
+    "name": "Poring Hat",
+    "type": "Equipment",
+    "weight": 70,
+    "sellPrice": 376,
+    "equipType": "Helmet",
+    "levelReq": 38,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "attribute",
+        "type": "MAXHP",
+        "mode": "base",
+        "category": "primary",
+        "value": 36
+      },
+      {
+        "pool": "status",
+        "type": "STR",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "slot": 52,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95117,
+    "name": "Lifesteal Gem (Skill) 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_SKILL",
+        "value": 2,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 54,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 90547,
+    "name": "Harpy Talon",
+    "type": "Miscellaneous",
+    "weight": 1,
+    "sellPrice": 167,
+    "slot": 57,
+    "qty": 8,
+    "maxStack": 999,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2302,
+    "name": "Cotton Shirt",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 60,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "MOVE_SPEED",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      },
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "DAMAGE_REDUCTION",
+        "mode": "base",
+        "category": "special",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "armor"
+  },
+  {
+    "itemId": 95128,
+    "name": "Mana Gem (Skill) 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_SKILL",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "equippedSlot": "gem-2"
+  },
+  {
+    "itemId": 95120,
+    "name": "Lifesteal Gem (Skill) 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_SKILL",
+        "value": 5,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "equippedSlot": "gem-4"
+  },
+  {
+    "itemId": 91141,
+    "name": "Bow",
+    "type": "Equipment",
+    "weight": 100,
+    "sellPrice": 48,
+    "slots": 1,
+    "equipType": "Weapon",
+    "weaponType": "Bow",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "RANGE_ATTACK",
+        "value": 25,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Archer"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "refine": 4,
+    "refineBonus": [
+      {
+        "stat": "ATK",
+        "value": 8
+      }
+    ],
+    "equippedSlot": "main-hand"
+  },
+  {
+    "itemId": 2207,
+    "name": "Fancy Flower",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 5,
+    "equipType": "Helmet",
+    "levelReq": 0,
+    "attributes": [],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "INT",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 3
+      }
+    ],
+    "equippedSlot": "head-upper"
+  },
+  {
+    "itemId": 90305,
+    "name": "Event Red Potion",
+    "type": "Consumable",
+    "weight": 0,
+    "sellPrice": 0,
+    "effects": [
+      "ใช้แล้ว: ฟื้น HP 45 (+2% ต่อ VIT)",
+      "คูลดาวน์ 1 วินาที"
+    ],
+    "autoPotion": "HP",
+    "slot": 2,
+    "qty": 199,
+    "maxStack": 200,
+    "usable": true,
+    "destroyable": false
+  },
+  {
+    "itemId": 5045,
+    "name": "Magician Hat",
+    "type": "Equipment",
+    "weight": 50,
+    "sellPrice": 664,
+    "equipType": "Helmet",
+    "levelReq": 50,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      },
+      {
+        "type": "DEX",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "AGI",
+        "value": 1,
+        "active": true
+      },
+      {
+        "type": "MAXSP",
+        "value": 50,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Acolyte",
+      "Mage",
+      "Monk",
+      "Priest",
+      "Sage",
+      "Wizard"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 4
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 49,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95027,
+    "name": "Arrow Rain Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Arrow Rain: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 52,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95060,
+    "name": "Thunder Orb Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Thunder Orb: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 53,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95103,
+    "name": "Acid Flask Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Acid Flask: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 54,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95100,
+    "name": "Earthshaker Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Earthshaker: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 93,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95127,
+    "name": "Mana Gem (Skill) 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "SP_DRAIN_SKILL",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "refine": 4,
+    "refineBonus": [
+      {
+        "stat": "SP_DRAIN_SKILL",
+        "value": 4
+      }
+    ],
+    "equippedSlot": "gem-1"
+  },
+  {
+    "itemId": 2269,
+    "name": "Romantic Flower",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 5,
+    "equipType": "HeadLow",
+    "levelReq": 0,
+    "attributes": [],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 2
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 1
+      }
+    ],
+    "equippedSlot": "head-lower"
+  },
+  {
+    "itemId": 2255,
+    "name": "Evil Wing",
+    "type": "Equipment",
+    "weight": 10,
+    "sellPrice": 192,
+    "equipType": "Helmet",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      },
+      {
+        "type": "MAGIC_DEFENSE",
+        "value": 2,
+        "active": true
+      },
+      {
+        "type": "STR",
+        "value": 1,
+        "active": true
+      }
+    ],
+    "rarity": "uncommon",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 1
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "equippedSlot": "head-upper"
+  },
+  {
+    "itemId": 2306,
+    "name": "Adventurer's Suit",
+    "type": "Equipment",
+    "weight": 30,
+    "sellPrice": 132,
+    "slots": 1,
+    "equipType": "Armor",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 7
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 4
+      }
+    ],
+    "refineable": true,
+    "slot": 16,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2406,
+    "name": "Boots",
+    "type": "Equipment",
+    "weight": 60,
+    "sellPrice": 168,
+    "slots": 1,
+    "equipType": "Boot",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      },
+      {
+        "pool": "status",
+        "type": "LUK",
+        "mode": "base",
+        "category": "secondary",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 20,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 2506,
+    "name": "Manteau",
+    "type": "Equipment",
+    "weight": 60,
+    "sellPrice": 168,
+    "slots": 1,
+    "equipType": "Cape",
+    "levelReq": 0,
+    "attributes": [
+      {
+        "type": "MELEE_DEFENSE",
+        "value": 4,
+        "active": true
+      }
+    ],
+    "jobs": [
+      "Alchemist",
+      "Assassin",
+      "Blacksmith",
+      "Crusader",
+      "Knight",
+      "Merchant",
+      "Rogue",
+      "Swordsman",
+      "Thief"
+    ],
+    "rarity": "rare",
+    "affixes": [
+      {
+        "pool": "status",
+        "type": "VIT",
+        "mode": "base",
+        "category": "primary",
+        "value": 5
+      },
+      {
+        "pool": "attribute",
+        "type": "HEAL_POWER",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      },
+      {
+        "pool": "status",
+        "type": "AGI",
+        "mode": "base",
+        "category": "secondary",
+        "value": 4
+      },
+      {
+        "pool": "attribute",
+        "type": "BLOCK_CHANCE",
+        "mode": "base",
+        "category": "special",
+        "value": 3
+      }
+    ],
+    "refineable": true,
+    "slot": 21,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95055,
+    "name": "Divine Crucible Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Divine Crucible: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 39,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95059,
+    "name": "Thunder Orb Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Thunder Orb: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 40,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95064,
+    "name": "Blizzard Tempest Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Blizzard Tempest: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 41,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95067,
+    "name": "Meteor Rain Gem 4%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 2500,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Meteor Rain: แรงขึ้น +4%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 42,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95076,
+    "name": "Falcon Strike Gem 5%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 3125,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Falcon Strike: แรงขึ้น +5%"
+    ],
+    "rarity": "rare",
+    "refineable": true,
+    "slot": 44,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95085,
+    "name": "Holy Judgment Gem 2%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 400,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [],
+    "effects": [
+      "Holy Judgment: แรงขึ้น +2%"
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "slot": 65,
+    "qty": 1,
+    "maxStack": 1,
+    "usable": false,
+    "destroyable": true
+  },
+  {
+    "itemId": 95118,
+    "name": "Lifesteal Gem (Skill) 3%",
+    "type": "Equipment",
+    "weight": 1,
+    "sellPrice": 600,
+    "equipType": "Gem",
+    "levelReq": 1,
+    "attributes": [
+      {
+        "type": "HP_DRAIN_SKILL",
+        "value": 3,
+        "active": true
+      }
+    ],
+    "rarity": "common",
+    "refineable": true,
+    "refine": 4,
+    "refineBonus": [
+      {
+        "stat": "HP_DRAIN_SKILL",
+        "value": 4
+      }
+    ],
+    "equippedSlot": "gem-3"
+  }
+]
