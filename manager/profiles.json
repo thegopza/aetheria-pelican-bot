@@ -43,5 +43,16 @@
     "autoStart": true,
     "notes": "",
     "createdAt": 1791448851533
+  },
+  {
+    "id": "profile_1791509019203",
+    "name": "thegopza4",
+    "account": "thegopza4",
+    "charClass": "Hunter",
+    "targetMap": "ถนนต้นหลิว",
+    "debugPort": 49880,
+    "autoStart": true,
+    "notes": "",
+    "createdAt": 1791509019203
   }
 ]

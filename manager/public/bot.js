@@ -4905,13 +4905,27 @@
 
         function extractItemName(row) {
             if (!row) return '';
-            
+
+            function cleanName(str) {
+                if (!str) return '';
+                return str.split('\n')[0]
+                          .replace(/มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt).*/i, '')
+                          .replace(/\b(?:option|options|ออฟชั่น|ออปชั่น)\b.*/i, '')
+                          .replace(/\[\s*มี\s*(?:option|options|ออฟชั่น|ออปชั่น|opt)\s*\]/gi, '')
+                          .replace(/\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '')
+                          .replace(/มี\s*\d+.*/, '')
+                          .replace(/\bx\s*\d+\b.*/i, '')
+                          .replace(/\b\d+[\s,]*z\b.*/i, '')
+                          .replace(/[\[\]]/g, '')
+                          .trim();
+            }
+
             // 1. ค้นหาจาก element ชื่อโดยตรง
             const nameEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label');
             if (nameEl) {
-                const t = nameEl.innerText.split('\n')[0].trim();
-                if (t && !t.toLowerCase().includes('option') && !/^\d+[\s,]*z$/i.test(t) && !/^\d+$/.test(t) && !/^มี\s*\d+/.test(t) && t !== '+' && t !== '-') {
-                    return t;
+                const cleaned = cleanName(nameEl.innerText || nameEl.textContent);
+                if (cleaned && !/^\d+[\s,]*z$/i.test(cleaned) && !/^\d+$/.test(cleaned) && cleaned !== '+' && cleaned !== '-' && cleaned.length >= 2) {
+                    return cleaned;
                 }
             }
 
@@ -4921,11 +4935,13 @@
                 if (/^\d+$/.test(line)) continue;
                 if (/^\d+[\s,]*z$/i.test(line)) continue;
                 if (line === '+' || line === '-' || line === 'ทั้งหมด') continue;
-                if (line.toLowerCase().includes('option') || line.includes('ออฟชั่น')) continue;
                 if (/^มี\s*\d+/.test(line) || /^x\s*\d+/i.test(line) || /^จำนวน/i.test(line)) continue;
                 if (line.includes('ขาย') || line.includes('ราคา') || line.includes('น้ำหนัก')) continue;
-                if (line.length <= 1) continue;
-                return line;
+
+                const cleaned = cleanName(line);
+                if (cleaned.length <= 1) continue;
+                if (cleaned === 'ธรรมดา' || cleaned === 'ดี' || cleaned === 'หายาก' || cleaned === 'มหากาพย์' || cleaned === 'ตำนาน') continue;
+                return cleaned;
             }
             return '';
         }
