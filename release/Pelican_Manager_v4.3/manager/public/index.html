@@ -1,0 +1,858 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aetheria Online — Multi-Client Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1791535335343">
+</head>
+<body>
+  <div class="app-container">
+    <!-- TOP HEADER -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <span>🎮</span>
+        </div>
+        <div class="brand-text">
+          <h1>Aetheria Online Manager</h1>
+          <span class="subtext">Multi-Client Isolated Sessions & Bot Control v4.3.0</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-add-profile" class="btn btn-primary">
+          <span class="icon">➕</span> เพิ่มโปรไฟล์
+        </button>
+        <button id="btn-launch-all" class="btn btn-success">
+          <span class="icon">🚀</span> เปิดทุกจอ (Launch All)
+        </button>
+        <button id="btn-stop-all" class="btn btn-danger">
+          <span class="icon">🛑</span> ปิดทุกจอ (Stop All)
+        </button>
+        <button id="btn-game-patcher" class="btn btn-warning" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-weight: bold; border: none; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); display: inline-flex; align-items: center; gap: 6px;">
+          <span class="icon">⚡</span> <span>ติดตั้ง/อัปเดตสคริปต์</span>
+          <span id="game-patcher-status-badge" class="badge" style="background: #10b981; font-size: 10px; padding: 2px 6px; border-radius: 10px; color: #fff;">ตรวจสอบ...</span>
+        </button>
+        <div class="dropdown">
+          <button id="btn-tile-menu" class="btn btn-secondary">
+            <span class="icon">📐</span> จัดหน้าต่าง ▾
+          </button>
+          <div class="dropdown-content">
+            <a href="#" id="tile-side">แบ่งครึ่งจอ (ซ้าย-ขวา)</a>
+            <a href="#" id="tile-grid">จัด 4 จอ (2x2 Grid)</a>
+          </div>
+        </div>
+        <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
+          <span class="icon">🔄</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- METRICS OVERVIEW BAR -->
+    <section class="metrics-bar">
+      <div class="metric-card">
+        <div class="metric-label">จำนวนโปรไฟล์ทั้งหมด</div>
+        <div class="metric-val" id="metric-total-profiles">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">จอที่กำลังรัน (Online)</div>
+        <div class="metric-val text-success" id="metric-online-profiles">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">กำลัง Auto-Farm</div>
+        <div class="metric-val text-cyan" id="metric-farming-profiles">0</div>
+      </div>
+      <div class="metric-card" style="border: 1px solid rgba(250, 204, 21, 0.3); background: rgba(250, 204, 21, 0.04);">
+        <div class="metric-label" style="display: flex; align-items: center; justify-content: space-between;">
+          <span>💰 ยอดเงินรวมทุกตัว (Total Zeny)</span>
+          <span style="font-size: 10px; color: #facc15; font-weight: 700;">🪙 รวมทุกจอ</span>
+        </div>
+        <div class="metric-val" style="color: #facc15; font-weight: 800;" id="metric-total-zeny">0 z</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">สถานะ Game Executable</div>
+        <div class="metric-val text-emerald" style="font-size: 13px;" id="metric-exe-status">✅ ติดตั้งแล้ว</div>
+      </div>
+    </section>
+
+    <!-- PROFILES GRID -->
+    <main class="profiles-section">
+      <div class="section-title-row">
+        <div class="section-title-left">
+          <h2>🎮 รายชื่อจอเกมและบอท (Client Profiles)</h2>
+          <span class="badge badge-info" id="live-polling-badge">🟢 Realtime Sync (2s)</span>
+        </div>
+        <div class="section-actions-row">
+          <button id="btn-auto-tile-shrink" class="btn btn-secondary btn-sm" title="จัดเรียงและย่อหน้าต่างเกมทุกจอเป็นขนาดกะทัดรัด (Compact Tiles)">
+            <span class="icon">📐</span> จัดเรียงจอย่อจออัตโนมัติ
+          </button>
+          <button id="btn-open-presets-modal" class="btn btn-purple btn-sm" title="ระบบ Save List จัดการการตั้งค่าส่วนกลาง (Presets & Profile Library)">
+            <span class="icon">💾</span> ระบบ Save List โปรไฟล์
+          </button>
+          <button id="btn-import-profile-global" class="btn btn-info btn-sm" title="นำเข้าโปรไฟล์หรือตั้งค่า (Import Profile / Presets)">
+            <span class="icon">📥</span> Import Profile
+          </button>
+          <button id="btn-export-profile-global" class="btn btn-secondary btn-sm" title="ส่งออกโปรไฟล์ทั้งหมด (Export All Profiles)">
+            <span class="icon">📤</span> Export Profile
+          </button>
+          <button id="btn-global-plan-setup" class="btn btn-primary btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
+            <span class="icon">📜</span> Setup Plan script
+          </button>
+          <button id="btn-toggle-all-windows" class="btn btn-dark btn-sm" title="ซ่อนหรือแสดงหน้าต่างเกมทุกจอ (Headless Mode)">
+            <span class="icon">👁️</span> <span id="lbl-toggle-all-windows">ซ่อนทุกจอ (Headless)</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="profiles-grid" id="profiles-grid">
+        <!-- Rendered via JS -->
+      </div>
+    </main>
+  </div>
+
+
+    <!-- MODAL: SCRIPT PLAN WORKFLOW BUILDER -->
+  <div class="modal-overlay" id="plan-modal">
+    <div class="modal-card" style="max-width: 860px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+      
+      <!-- VIEW 1: PLAN PROFILES LIST (หน้ารายการแผน) -->
+      <div id="plan-view-list" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+              📜
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนการเล่นอัตโนมัติ (Plan Scripts)</h3>
+              <span id="plan-list-subtitle" style="font-size: 11px; color: #94a3b8;">สร้างและจัดการแผนการทำงานอัตโนมัติตามระดับเลเวล (One-Shot Triggers)</span>
+            </div>
+          </div>
+          <button class="modal-close" id="plan-modal-close-btn">&times;</button>
+        </div>
+
+        <!-- Target client selector banner -->
+        <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin: 12px 0 10px 0; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: #94a3b8;">🎯 จอเกมที่กำลังจัดการ:</span>
+            <span id="plan-target-client-name" style="font-weight: 700; font-size: 12.5px; color: #38bdf8;">Main (G4YSuuuuu)</span>
+            <input type="hidden" id="plan-target-client-id">
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 11.5px; color: #cbd5e1;">แผนที่ใช้งานอยู่:</span>
+            <span id="plan-active-badge" class="badge" style="background: rgba(34, 197, 94, 0.18); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 600;">--</span>
+          </div>
+        </div>
+
+        <!-- Toolbar: Add, Import, Export -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-create-new-plan" style="padding: 6px 14px; font-weight: 600;">
+              <span>➕</span> เพิ่ม Plan Profile ใหม่
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-import-plans" style="font-size: 11.5px; padding: 6px 12px;">
+              <span>📥</span> นำเข้า (Import)
+            </button>
+            <input type="file" id="plan-import-file-input" accept=".json" style="display: none;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-export-plans" style="font-size: 11.5px; padding: 6px 12px;">
+              <span>📤</span> ส่งออกทั้งหมด (Export)
+            </button>
+          </div>
+        </div>
+
+        <!-- Profiles List Container -->
+        <div id="plan-profiles-list-container" style="flex: 1; overflow-y: auto; max-height: 420px; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;">
+          <!-- Dynamically populated plan cards -->
+        </div>
+
+        <div class="modal-footer" style="margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; display: flex; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" id="plan-modal-list-close">ปิดหน้าต่าง</button>
+        </div>
+      </div>
+
+      <!-- VIEW 2: VISUAL WORKFLOW EDITOR (หน้าออกแบบแผนสไตล์ n8n) -->
+      <div id="plan-view-editor" style="display: none; flex-direction: column; height: 100%;">
+        <!-- Editor Header -->
+        <div class="modal-header" style="padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+          <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-back-to-plan-list" title="กลับไปหน้ารายชื่อแผน">
+              <span>⬅️</span> รายชื่อแผน
+            </button>
+            <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+              <input type="text" id="plan-editor-title" class="form-input" placeholder="ตั้งชื่อแผน เช่น Archer Speedrun Lv.1-50" style="font-weight: 700; font-size: 14px; padding: 6px 10px; flex: 1; max-width: 320px;">
+              <input type="text" id="plan-editor-desc" class="form-input" placeholder="คำอธิบายสั้นๆ (ไม่บังคับ)" style="font-size: 12px; padding: 6px 10px; flex: 1; color: #94a3b8;">
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-save-plan" style="padding: 6px 14px; font-weight: 600;">
+              <span>💾</span> บันทึกแผน
+            </button>
+            <button type="button" class="btn btn-success btn-sm" id="btn-save-and-apply-plan" style="padding: 6px 14px; font-weight: 600;">
+              <span>⚡</span> บันทึก & ใช้งานทันที
+            </button>
+            <button class="modal-close" id="plan-editor-close-btn">&times;</button>
+          </div>
+        </div>
+
+        <!-- Class Progression & Build Config Bar (ระบบเลือกสายอาชีพและ Build สกิล/สเตตัส) -->
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <!-- Left: Class 1 & Class 2 Selectors -->
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">🏹 Class 1 (Job 10):</span>
+                <select id="plan-editor-class1" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
+                  <option value="archer">Archer (นักธนู)</option>
+                  <option value="swordsman">Swordsman (นักดาบ)</option>
+                  <option value="mage">Mage (นักเวท)</option>
+                  <option value="thief">Thief (โจร)</option>
+                  <option value="acolyte">Acolyte (นักบวชฝึกหัด)</option>
+                  <option value="merchant">Merchant (พ่อค้า)</option>
+                </select>
+              </div>
+
+              <span style="color: #64748b; font-size: 12px;">➔</span>
+
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 11px; font-weight: 700; color: #a855f7;">👑 Class 2 (Job 50):</span>
+                <select id="plan-editor-class2" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
+                  <!-- Dynamic options populated in app.js -->
+                </select>
+              </div>
+            </div>
+
+            <!-- Right: Open Skill & Stat Builder Buttons -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-open-skill-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.12); color: #d8b4fe;">
+                <span>⚡</span> จัดการสกิล (Skill Build)
+                <span id="plan-skill-count-badge" class="badge" style="background: rgba(168, 85, 247, 0.3); color: #fff; font-size: 10px; margin-left: 4px;">0 แต้ม</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-open-stat-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.12); color: #7dd3fc;">
+                <span>📊</span> จัดการสเตตัส (Stat Build)
+                <span id="plan-stat-summary-badge" class="badge" style="background: rgba(56, 189, 248, 0.3); color: #fff; font-size: 10px; margin-left: 4px;">Default</span>
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 10.5px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+            <span>ℹ️ <b>Auto Progression:</b> เมื่อ Job Lv.10 และเป็น Novice บอทจะกลับเมืองไปคุยกับ Valkyrie เปลี่ยนเป็น Class 1 ทันที และเมื่อ Job Lv.50 จะเปลี่ยนเป็น Class 2 อัตโนมัติ (บันทึกสถานะตามชื่อตัวละคร)</span>
+          </div>
+        </div>
+
+        <!-- Canvas Controls & Info -->
+        <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 11.5px; color: #c7d2fe; display: flex; justify-content: space-between; align-items: center;">
+          <span>💡 <b>One-Shot Triggers:</b> บอทจะเช็คและประมวลผล Action เมื่อตัวละครถึงเลเวลนั้นพอดี และทำเพียง 1 ครั้ง ไม่ทำซ้ำเมื่อเลเวลเกิน</span>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-add-level-trigger" style="padding: 4px 12px; font-size: 11.5px; font-weight: 600; white-space: nowrap;">
+            <span>➕</span> เพิ่มเงื่อนไขเลเวล (Trigger)
+          </button>
+        </div>
+
+        <!-- Canvas Area (Node sequence) -->
+        <div id="plan-workflow-canvas" style="flex: 1; overflow-y: auto; max-height: 480px; padding: 6px 4px 14px 4px; display: flex; flex-direction: column; gap: 14px;">
+          <!-- Dynamically rendered Trigger Nodes & Action Flows -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL: ADD / EDIT PROFILE -->
+  <div class="modal-overlay" id="profile-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">➕ เพิ่มโปรไฟล์จอใหม่</h3>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+
+      <form id="profile-form">
+        <input type="hidden" id="form-profile-id">
+
+        <div class="form-group">
+          <label>ชื่อจอ / โปรไฟล์ (Profile Name):</label>
+          <input type="text" id="form-name" required placeholder="เช่น Hunter 01, Mage Alt" class="form-input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>ไอดี / บัญชี (Account Memo):</label>
+            <input type="text" id="form-account" placeholder="เช่น Account 1 หรือ ID เกม" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>อาชีพตัวละคร (Class):</label>
+            <select id="form-class" class="form-select">
+              <option value="Hunter">🏹 Hunter (ยิงไกล/เติมธนู)</option>
+              <option value="Archer">🏹 Archer</option>
+              <option value="Rogue">🗡️ Rogue</option>
+              <option value="Assassin">🗡️ Assassin</option>
+              <option value="Knight">🛡️ Knight</option>
+              <option value="Crusader">🛡️ Crusader</option>
+              <option value="Wizard">🪄 Wizard</option>
+              <option value="Priest">✨ Priest</option>
+              <option value="Blacksmith">⚒️ Blacksmith</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>แมพเป้าหมาย (Target Farm Map):</label>
+            <select id="form-map" class="form-select">
+              <option value="ซากโบราณสถาน Lv.45–55">ซากโบราณสถาน Lv.45–55</option>
+              <option value="ถนนต้นหลิว">ถนนต้นหลิว</option>
+              <option value="ทะเลสาบอาซูร์">ทะเลสาบอาซูร์</option>
+              <option value="ทุ่งโคลเวอร์">ทุ่งโคลเวอร์</option>
+              <option value="ป่ามูนลีฟ">ป่ามูนลีฟ</option>
+              <option value="เส้นทางก็อบลิน">เส้นทางก็อบลิน</option>
+              <option value="ถ้ำเอมเบอร์">ถ้ำเอมเบอร์</option>
+              <option value="ที่ราบสูงเกล">ที่ราบสูงเกล</option>
+              <option value="แอ่งเวอร์แดนท์">แอ่งเวอร์แดนท์</option>
+              <option value="ชายฝั่งปะการัง">ชายฝั่งปะการัง</option>
+              <option value="สุสานเงา">สุสานเงา</option>
+              <option value="โบสถ์อเวจี">โบสถ์อเวจี</option>
+              <option value="บึงรากเน่า">บึงรากเน่า</option>
+              <option value="เนินทรายแผดเผา">เนินทรายแผดเผา</option>
+              <option value="พีระมิดจมทราย">พีระมิดจมทราย</option>
+              <option value="แกนลาวา">แกนลาวา</option>
+              <option value="ไร่ซันเกรน">ไร่ซันเกรน</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>พอร์ต Debug API (Auto Port):</label>
+            <input type="number" id="form-port" required min="40000" max="65000" class="form-input">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>บันทึกช่วยจำ (Notes / Strategy):</label>
+          <input type="text" id="form-notes" placeholder="เช่น แบกธนูไฟ 2,000 ดอก / ขายขยะเมื่อเกิน 80%" class="form-input">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="modal-cancel-btn">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="modal-submit-btn">💾 บันทึกโปรไฟล์</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: PRESETS & PROFILE SAVE LIST -->
+  <div class="modal-overlay" id="presets-modal">
+    <div class="modal-card" style="max-width: 780px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="presets-modal-title">💾 ระบบ Save List โปรไฟล์ส่วนกลาง</h3>
+          <span style="font-size: 11px; color: #94a3b8;">จัดการการตั้งค่าบอทส่วนกลาง สามารถกด "Copy to..." เพื่อกระจายการตั้งค่าไปยังหลายๆ จอได้ในคลิกเดียว (ไม่รวม ID/Password)</span>
+        </div>
+        <button class="modal-close" id="presets-modal-close-btn">&times;</button>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin: 12px 0 16px 0; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-primary btn-sm" id="btn-create-preset-from-client">
+            <span class="icon">➕</span> บันทึกจอเกมปัจจุบันเข้า Save List
+          </button>
+          <button class="btn btn-info btn-sm" id="btn-presets-modal-import">
+            <span class="icon">📥</span> นำเข้า (Import)
+          </button>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-presets-modal-export">
+          <span class="icon">📤</span> ส่งออกทั้งหมด (Export All JSON)
+        </button>
+      </div>
+
+      <!-- Presets List Container -->
+      <div id="presets-list-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 440px; overflow-y: auto; padding-right: 4px;">
+        <!-- Dynamically rendered preset cards -->
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px;">
+        <button type="button" class="btn btn-secondary" id="presets-modal-close-bottom">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: COPY TO PROFILES -->
+  <div class="modal-overlay" id="copy-to-modal">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <div>
+          <h3>📋 คัดลอกการตั้งค่าไปยังจอเกม (Copy to Profiles)</h3>
+          <span style="font-size: 11px; color: #38bdf8;" id="copy-to-preset-title">...</span>
+        </div>
+        <button class="modal-close" id="copy-to-modal-close-btn">&times;</button>
+      </div>
+
+      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px; margin: 12px 0; font-size: 11.5px; color: #a7f3d0; line-height: 1.4;">
+        🔒 <b>ปลอดภัย 100%:</b> ระบบจะคัดลอกเฉพาะค่ากลยุทธ์ฟาร์ม (แมพ, ลูกธนู, ขยะ, กฎตลาด, ร้านค้า) โดย <b>คงชื่อผู้ใช้ (ID) และ รหัสผ่าน (Password) เดิมของแต่ละจอไว้เสมอ</b> ไม่เขียนทับเด็ดขาด
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 600; color: #cbd5e1;">เลือกจอเกมเป้าหมายที่ต้องการนำการตั้งค่าไปใช้:</span>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-to-select-all" style="padding: 2px 8px; font-size: 10px;">เลือกทั้งหมด</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-to-deselect-all" style="padding: 2px 8px; font-size: 10px;">ล้าง</button>
+        </div>
+      </div>
+
+      <!-- Checklist container -->
+      <div id="copy-to-profiles-checklist" style="display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 8px;">
+        <!-- Dynamically rendered checkbox items -->
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px;">
+        <button type="button" class="btn btn-secondary" id="copy-to-modal-cancel">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="copy-to-modal-confirm">🚀 คัดลอก & ใช้งานทันที (Apply to Selected)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: IMPORT PROFILE / PRESETS -->
+  <div class="modal-overlay" id="import-profile-modal">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <div>
+          <h3>📥 นำเข้าโปรไฟล์ / คอนฟิก (Import Profile / Presets)</h3>
+          <span style="font-size: 11px; color: #94a3b8;">รองรับทั้ง 1 โปรไฟล์ หรือหลายโปรไฟล์พร้อมกัน (Array) นำเข้าสู่ระบบ Save List ส่วนกลาง</span>
+        </div>
+        <button class="modal-close" id="import-modal-close-btn">&times;</button>
+      </div>
+
+      <form id="import-profile-form">
+        <div class="form-group" style="margin-top: 12px;">
+          <label>ชื่อโปรไฟล์ส่วนกลาง (Preset Name):</label>
+          <input type="text" id="import-preset-name" placeholder="เช่น Archer ฟาร์มซากโบราณสถาน 24h" class="form-input" value="โปรไฟล์นำเข้าส่วนกลาง">
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="margin: 0;">โค้ด JSON การตั้งค่า (วาง JSON ที่นี่):</label>
+            <label class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 10px; cursor: pointer;">
+              📂 เลือกไฟล์ .json
+              <input type="file" id="import-file-input" accept=".json,application/json" style="display: none;">
+            </label>
+          </div>
+          <textarea id="import-json-textarea" required placeholder="วางโค้ด JSON จากการ Export ที่นี่ (รองรับทั้ง Object เดี่ยว หรือ Array หลายโปรไฟล์)..." style="width: 100%; height: 200px; box-sizing: border-box; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 11px; padding: 10px; resize: vertical; line-height: 1.4; outline: none;"></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="import-modal-cancel-btn">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary" id="import-modal-submit-btn">💾 บันทึกเข้า Save List ส่วนกลาง</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SAVE CLIENT AS PRESET -->
+  <div class="modal-overlay" id="save-client-preset-modal">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <div>
+          <h3>💾 บันทึกจอเกมเข้า Save List ส่วนกลาง</h3>
+          <span style="font-size: 11px; color: #94a3b8;">ดึงการตั้งค่าปัจจุบันของจอเกมนี้มาเป็น Preset กลางเพื่อคัดลอกให้จออื่น</span>
+        </div>
+        <button class="modal-close" id="save-client-modal-close-btn">&times;</button>
+      </div>
+
+      <form id="save-client-preset-form">
+        <input type="hidden" id="save-client-profile-id">
+
+        <div class="form-group" style="margin-top: 12px;">
+          <label>เลือกจอต้นทาง (Source Profile):</label>
+          <select id="save-client-select" class="form-select"></select>
+        </div>
+
+        <div class="form-group">
+          <label>ตั้งชื่อ Preset ใน Save List:</label>
+          <input type="text" id="save-client-preset-name" required placeholder="เช่น Hunter Main Setup" class="form-input">
+        </div>
+
+        <div class="form-group">
+          <label>คำอธิบายเพิ่มเติม (Description / Notes):</label>
+          <input type="text" id="save-client-preset-desc" placeholder="เช่น ลูกธนู 200, ขายขยะหมด, ลูป 24h" class="form-input">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="save-client-modal-cancel">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary">💾 บันทึกเข้า Save List</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: CARD WHITELIST MANAGER -->
+  <div class="modal-overlay" id="card-whitelist-modal">
+    <div class="modal-card" style="max-width: 620px; width: 95%;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            🛡️
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">จัดการ Whitelist (รายการห้ามขาย)</h3>
+            <span id="card-wl-subtitle" style="font-size: 11px; color: #94a3b8;">กำลังโหลดข้อมูล...</span>
+          </div>
+        </div>
+        <button class="modal-close" id="card-wl-modal-close-btn">&times;</button>
+      </div>
+
+      <!-- Live Sync status banner -->
+      <div id="card-wl-banner" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 11.5px; color: #7dd3fc; display: flex; align-items: center; justify-content: space-between;">
+        <span id="card-wl-status-text">⚡ เชื่อมต่อข้อมูล Real-time กับจอเกม</span>
+        <span id="card-wl-count-badge" class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 รายการ</span>
+      </div>
+
+      <!-- Quick Add & Mode Switcher -->
+      <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: stretch;">
+        <div style="position: relative; flex: 1;">
+          <input type="text" id="card-wl-input" class="form-input" placeholder="พิมพ์ชื่อไอเทม เช่น Bow, Gakkung (คั่นด้วยจุลภาคได้)" style="width: 100%; height: 100%; padding-left: 32px; font-size: 12.5px;">
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; opacity: 0.6;">🔍</span>
+        </div>
+        <button type="button" class="btn btn-warning btn-sm" id="btn-card-wl-add" style="white-space: nowrap; padding: 0 14px; font-weight: 600;">
+          ➕ เพิ่ม
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-toggle-view" title="สลับโหมดมุมมอง" style="white-space: nowrap; padding: 0 10px; font-size: 11px;">
+          <span id="card-wl-view-label">📝 Text Mode</span>
+        </button>
+      </div>
+
+      <!-- Content Area 1: Chips Container (Default) -->
+      <div id="card-wl-chips-container" class="wl-chips-container" style="min-height: 180px; max-height: 250px; overflow-y: auto; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start;">
+        <!-- Chips inserted dynamically -->
+      </div>
+
+      <!-- Content Area 2: Raw Textarea (Hidden by default) -->
+      <div id="card-wl-text-container" style="display: none; margin-bottom: 10px;">
+        <textarea id="card-wl-textarea" class="form-textarea" rows="7" placeholder="ชื่อไอเทมคั่นด้วยเครื่องหมายจุลภาค (,)" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; resize: vertical;"></textarea>
+      </div>
+
+      <!-- Action Tools: Import, Export, Copy To -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; margin: 12px 0 10px 0;">
+        <!-- IMPORT -->
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-import" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📥</span> นำเข้า (Import)
+          </button>
+          <input type="file" id="card-wl-file-input" accept=".txt,.json" style="display: none;">
+        </div>
+
+        <!-- EXPORT -->
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-export" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📤</span> ส่งออก (Export)
+          </button>
+        </div>
+
+        <!-- COPY TO -->
+        <div>
+          <button type="button" class="btn btn-purple btn-sm" id="btn-card-wl-copy-to" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📋</span> คัดลอกไปจออื่น (Copy to...)
+          </button>
+        </div>
+      </div>
+
+      <!-- COPY TO TARGET PANEL (Collapsible) -->
+      <div id="card-wl-copy-panel" style="display: none; background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #d8b4fe;">เลือกจอที่ต้องการคัดลอก Whitelist นี้ไปใช้:</span>
+          <div style="display: flex; gap: 4px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-select-all" style="padding: 1px 6px; font-size: 9.5px;">ทั้งหมด</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-clear-all" style="padding: 1px 6px; font-size: 9.5px;">ล้าง</button>
+          </div>
+        </div>
+        <div id="card-wl-target-clients-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; background: rgba(15, 23, 42, 0.5); padding: 6px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <!-- Checklist rendered here -->
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-cancel" style="padding: 3px 8px; font-size: 11px;">ปิดแผง</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-card-wl-copy-execute" style="padding: 3px 12px; font-size: 11px;">🚀 คัดลอกและซิงค์ทันที</button>
+        </div>
+      </div>
+
+      <!-- MODAL FOOTER -->
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; margin-top: 6px;">
+        <button type="button" class="btn btn-danger btn-sm" id="btn-card-wl-clear-all" style="font-size: 11px; padding: 4px 10px;">
+          🗑️ ล้างทั้งหมด
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-secondary" id="card-wl-modal-cancel">ยกเลิก</button>
+          <button type="button" class="btn btn-success" id="btn-card-wl-save">💾 บันทึก & อัปเดตทันที</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL: SKILL BUILDER (ระบบวางแผนอัปสกิลตามลำดับแต้ม) -->
+  <div class="modal-overlay" id="skill-builder-modal">
+    <div class="modal-card" style="max-width: 900px; width: 95%; max-height: 92vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            ⚡
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนอัปสกิลตามลำดับแต้ม (Skill Point Queue)</h3>
+            <span style="font-size: 11px; color: #94a3b8;">คลิกสกิลตามลำดับความสำคัญ บอทจะบันทึกทุกแต้มและอัปตามลำดับที่คลิกทันทีเมื่อมีแต้มสกิล</span>
+          </div>
+        </div>
+        <button class="modal-close" id="skill-builder-close-btn">&times;</button>
+      </div>
+
+      <!-- Budget Status Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin: 10px 0 6px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; gap: 14px; align-items: center; font-size: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">🐣 โนวิซ:</span>
+            <span id="skill-budget-novice" class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold;">0 / 9 แต้ม</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">🏹 Class 1:</span>
+            <span id="skill-budget-class1" class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: bold;">0 / 49 แต้ม</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #cbd5e1;">👑 Class 2:</span>
+            <span id="skill-budget-class2" class="badge" style="background: rgba(234, 179, 8, 0.2); color: #facc15; font-weight: bold;">0 / 49 แต้ม</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-skill-apply-preset" style="font-size: 11px; padding: 4px 10px;">
+            <span>⭐</span> แนะนำ (Standard Build)
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" id="btn-skill-reset" style="font-size: 11px; padding: 4px 10px;">
+            <span>🔄</span> ล้างแต้มทั้งหมด
+          </button>
+        </div>
+      </div>
+
+      <!-- Tier Tabs -->
+      <div style="display: flex; gap: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 10px;">
+        <button type="button" class="btn btn-primary btn-sm skill-tab-btn" data-tab="novice" id="skill-tab-novice">
+          🐣 Novice (โนวิซ - 9 แต้ม)
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm skill-tab-btn" data-tab="class1" id="skill-tab-class1">
+          🏹 Class 1 (<span id="skill-tab-class1-name">Archer</span> - 49 แต้ม)
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm skill-tab-btn" data-tab="class2" id="skill-tab-class2">
+          👑 Class 2 (<span id="skill-tab-class2-name">Hunter</span> - 49 แต้ม)
+        </button>
+      </div>
+
+      <!-- Skills Grid Container -->
+      <div id="skill-cards-grid" style="flex: 1; overflow-y: auto; max-height: 340px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; padding: 4px 2px;">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Queue Sequence Display -->
+      <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">📋 ลำดับการอัปสกิลตามคิว (<span id="skill-queue-total-count">0</span> แต้ม):</span>
+          <span style="font-size: 10px; color: #94a3b8;">*บอทจะอัปสกิลแรกในคิวที่ยังไม่เต็มทันทีเมื่อมีแต้มสกิล</span>
+        </div>
+        <div id="skill-queue-chips-container" style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; max-height: 60px; flex-wrap: wrap;">
+          <!-- Skill chips -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" id="skill-builder-cancel-btn">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="skill-builder-save-btn">💾 ยืนยันบันทึกสกิล</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: STAT BUILDER (ระบบวางแผนอัปสเตตัสอัตโนมัติ) -->
+  <div class="modal-overlay" id="stat-builder-modal">
+    <div class="modal-card" style="max-width: 640px; width: 95%; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            📊
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนอัปสเตตัสอัตโนมัติ (Auto Stat Allocation)</h3>
+            <span style="font-size: 11px; color: #94a3b8;">กำหนดค่าสเตตัสเป้าหมายและลำดับความสำคัญ บอทจะอัปสเตตัสอัตโนมัติเมื่อมี Status Points</span>
+          </div>
+        </div>
+        <button class="modal-close" id="stat-builder-close-btn">&times;</button>
+      </div>
+
+      <!-- Presets Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 11px; font-weight: 700; color: #cbd5e1;">⭐ เลือก Preset สำเร็จรูป:</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-agi-dex" style="font-size: 10.5px; padding: 3px 8px;">🎯 AGI-DEX (ธนู/ฟันไว)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-blitz" style="font-size: 10.5px; padding: 3px 8px;">🦅 Auto-Blitz (DEX-LUK-AGI)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-str-agi" style="font-size: 10.5px; padding: 3px 8px;">🗡️ STR-AGI (ดาบ/มีด)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-int-dex" style="font-size: 10.5px; padding: 3px 8px;">🧙 INT-DEX (เวท/ฮีล)</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="preset-stat-vit-tank" style="font-size: 10.5px; padding: 3px 8px;">🛡️ Full VIT (แทงค์)</button>
+        </div>
+      </div>
+
+      <!-- Stats Grid Form -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0;">
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #f87171;">💪 STR (กายภาพ / แบกน้ำหนัก):</span>
+            <input type="number" id="stat-target-str" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-str" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #34d399;">⚡ AGI (ความเร็วโจมตี / หลบหลีก):</span>
+            <input type="number" id="stat-target-agi" class="form-input" min="1" max="99" value="50" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-agi" min="1" max="99" value="50" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fbbf24;">🛡️ VIT (HP สูงสุด / ป้องกัน):</span>
+            <input type="number" id="stat-target-vit" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-vit" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #60a5fa;">🔮 INT (SP สูงสุด / เวท):</span>
+            <input type="number" id="stat-target-int" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-int" min="1" max="99" value="1" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">🏹 DEX (แม่นยำ / โจมตีไกล / ร่ายไว):</span>
+            <input type="number" id="stat-target-dex" class="form-input" min="1" max="99" value="99" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-dex" min="1" max="99" value="99" style="width: 100%;">
+        </div>
+
+        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #c084fc;">🍀 LUK (คริติคอล / นกออกบ่อย):</span>
+            <input type="number" id="stat-target-luk" class="form-input" min="1" max="99" value="30" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
+          </div>
+          <input type="range" id="stat-slider-luk" min="1" max="99" value="30" style="width: 100%;">
+        </div>
+      </div>
+
+      <!-- Stat Priority Selector -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">🎯 ลำดับการอัปก่อน-หลัง (Priority Order):</span>
+        <select id="stat-priority-order-select" class="form-select" style="font-size: 11.5px; padding: 3px 8px; width: auto; font-weight: 600;">
+          <option value="DEX,AGI,LUK,VIT,INT,STR">1. DEX ➔ 2. AGI ➔ 3. LUK ➔ อื่นๆ</option>
+          <option value="AGI,DEX,LUK,VIT,INT,STR">1. AGI ➔ 2. DEX ➔ 3. LUK ➔ อื่นๆ</option>
+          <option value="STR,AGI,VIT,DEX,LUK,INT">1. STR ➔ 2. AGI ➔ 3. VIT ➔ อื่นๆ</option>
+          <option value="INT,DEX,VIT,AGI,LUK,STR">1. INT ➔ 2. DEX ➔ 3. VIT ➔ อื่นๆ</option>
+          <option value="VIT,INT,DEX,AGI,STR,LUK">1. VIT ➔ 2. INT ➔ 3. DEX ➔ อื่นๆ</option>
+        </select>
+      </div>
+
+      <div class="modal-footer" style="margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" id="stat-builder-cancel-btn">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="stat-builder-save-btn">💾 ยืนยันบันทึกสเตตัส</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=1791535335343"></script>
+  <script src="patcher_module.js?v=1791551058115"></script>
+  <script src="builder_module.js?v=1791535335343"></script>
+  <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
+  <div id="web-huds-container"></div>
+
+  <!-- GAME PATCHER & SCRIPT INSTALLER MODAL -->
+  <div id="modal-game-patcher" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px);">
+    <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; width: 680px; max-width: 95vw; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8); color: #f8fafc; padding: 20px; font-family: inherit;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">⚡</span>
+          <div>
+            <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: #f8fafc;">Game Patcher & Script Installer</h3>
+            <span style="font-size: 12px; color: #94a3b8;">ระบบติดตั้งและอัปเดตสคริปต์ Pelican ลงในเกม Aetheria Online อัตโนมัติ</span>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-patcher-close" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Game Path Selection Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 12px; font-weight: 700; color: #cbd5e1;">📁 โฟลเดอร์ติดตั้งเกม Aetheria Online:</label>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" id="btn-patcher-autodetect" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">🔍 Auto-Detect</button>
+            <button type="button" id="btn-patcher-browse" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">📂 Browse...</button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="game-patcher-path-input" class="form-input" style="flex: 1; font-size: 12px; padding: 6px 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #fff;" placeholder="C:\Users\...\AppData\Local\Programs\Aetheria Online">
+          <button type="button" id="btn-patcher-check" class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;">🔄 ตรวจสอบ</button>
+        </div>
+      </div>
+
+      <!-- Status Cards Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <!-- Card 1: Game Folder -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🎮 ตัวเกม Aetheria Online</div>
+          <div id="patcher-card-game-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-game-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">ตรวจหา Aetheria Online.exe</div>
+        </div>
+
+        <!-- Card 2: Pelican Loader -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🔌 ตัวโหลดสคริปต์ (Pelican Loader)</div>
+          <div id="patcher-card-loader-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-loader-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">resources/app/main.js</div>
+        </div>
+
+        <!-- Card 3: Bot Script -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🤖 ไฟล์สคริปต์บอท (bot.js)</div>
+          <div id="patcher-card-bot-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-bot-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">resources/bot.js</div>
+        </div>
+
+        <!-- Card 4: Backup Status -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🛡️ ไฟล์เกมต้นฉบับสำรอง (Backup)</div>
+          <div id="patcher-card-backup-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-backup-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">app.asar.original</div>
+        </div>
+      </div>
+
+      <!-- Live Message / Progress Box -->
+      <div id="patcher-msg-box" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #34d399;"></div>
+
+      <!-- Online GitHub Update Info -->
+      <div id="patcher-github-info" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+        <span style="color: #94a3b8;">🌐 อัปเดตออนไลน์ (GitHub): <b id="patcher-github-commit" style="color: #38bdf8;">กำลังตรวจสอบ...</b></span>
+        <span id="patcher-github-date" style="color: #64748b;">-</span>
+      </div>
+
+      <!-- Modal Footer Actions -->
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
+        <button type="button" id="btn-patcher-restore" class="btn btn-secondary btn-sm" style="font-size: 11.5px; padding: 6px 12px; color: #f87171; border-color: rgba(248, 113, 113, 0.3);">
+          🔄 กู้คืนไฟล์เกมเดิม (Restore)
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-patcher-cancel" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">ปิด</button>
+          <button type="button" id="btn-patcher-install" class="btn btn-success" style="font-size: 12px; padding: 6px 18px; font-weight: bold; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);">
+            🚀 ติดตั้ง / อัปเดตสคริปต์ลงตัวเกมทันที
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
