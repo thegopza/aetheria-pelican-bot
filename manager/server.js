@@ -1,3 +1,59 @@
+// ==========================================
+// SUPERVISOR: PelicanManager.exe runs `node server.js`. That process stays a thin supervisor and runs the
+// real server as a child, so an update can restart the server (exit code 75) without restarting
+// PelicanManager.exe — whose job object would also close every game window. See manager_self_update.js.
+// If an updated server fails to start, the files backed up by the updater are restored automatically.
+// ==========================================
+if (process.env.PELICAN_SERVER_CHILD !== "1") {
+  const { fork } = require("child_process");
+  const fs = require("fs");
+  const path = require("path");
+  const marker = path.join(__dirname, "data", "manager_update_pending.json");
+  let child = null;
+  let crashes = [];
+  const rollback = () => {
+    try {
+      const m = JSON.parse(fs.readFileSync(marker, "utf8"));
+      for (const rel of m.files || []) {
+        const src = path.join(m.backupDir, rel);
+        if (fs.existsSync(src)) fs.copyFileSync(src, path.join(__dirname, rel));
+      }
+      fs.unlinkSync(marker);
+      // Remember the bad version so the updater doesn't apply it again automatically
+      fs.writeFileSync(path.join(__dirname, "data", "manager_update_failed.json"), JSON.stringify({ sha: m.sha, at: Date.now() }));
+      console.log("[Supervisor] ⏪ Updated server failed to start — restored the previous files");
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+  const startChild = () => {
+    child = fork(__filename, process.argv.slice(2), { env: { ...process.env, PELICAN_SERVER_CHILD: "1" } });
+    child.on("exit", (code) => {
+      if (code === 75) {
+        console.log("[Supervisor] ♻️ Restarting Manager server after update...");
+        return setTimeout(startChild, 800);
+      }
+      if (code === 0) return process.exit(0);
+      if (rollback()) return setTimeout(startChild, 800);
+      crashes = crashes.filter(t => Date.now() - t < 120000);
+      crashes.push(Date.now());
+      if (crashes.length <= 3) {
+        console.log("[Supervisor] ⚠️ Manager server stopped unexpectedly (code " + code + ") — restarting");
+        return setTimeout(startChild, 2000);
+      }
+      process.exit(code == null ? 1 : code);
+    });
+  };
+  const stop = () => { try { if (child) child.kill(); } catch (e) {} process.exit(0); };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  startChild();
+  return;
+}
+// Child: exit together with the supervisor if it is killed (e.g. PelicanManager.exe "Restart")
+process.on("disconnect", () => process.exit(0));
+
 const http = require("http");
 const https = require("https");
 const fs = require("fs");
@@ -12,6 +68,7 @@ const PRESETS_FILE = path.join(__dirname, "presets.json");
 const installer = require("./installer");
 const { handleInventoryMarketRoute } = require("./inventory_market_api");
 const { createBotAutoUpdater } = require("./bot_auto_update");
+const { createManagerSelfUpdater } = require("./manager_self_update");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -666,6 +723,13 @@ const botAutoUpdater = createBotAutoUpdater({
   dataDir: path.join(__dirname, "data")
 });
 
+const managerUpdater = createManagerSelfUpdater({
+  managerDir: __dirname,
+  dataDir: path.join(__dirname, "data"),
+  // Never restart in the middle of reloading game clients or a zeny consolidation run
+  isBusy: () => botAutoUpdater.status.phase !== "idle" || consolidationState.running
+});
+
 const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -689,6 +753,9 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+
+  // Manager self-update (manager/ folder) — see manager_self_update.js
+  if (await managerUpdater.handleRoute(req, res, pathname, sendJSON)) return;
 
   // Auto-reload game clients when bot.js changes on GitHub — see bot_auto_update.js
   if (await botAutoUpdater.handleRoute(req, res, pathname, sendJSON)) return;
@@ -2376,6 +2443,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   botAutoUpdater.start();
+  managerUpdater.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);

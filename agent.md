@@ -43,6 +43,19 @@
 - **ห้าม hot-inject `bot.js` ทั้งไฟล์เข้าเกมที่รันอยู่** (เช่น `scratch/hot_reload_game.js`) — setInterval ของบอทจะซ้อนกันหลายชุด ถ้าจำเป็นให้ inject เฉพาะฟังก์ชันเล็กๆ ที่แยกอิสระ หรือใช้การรีเฟรชหน้าแทน
 - สถานะที่ "ห้ามรีเฟรชแทรก" อยู่ใน `CLIENT_PROBE_JS` ของ `bot_auto_update.js` — ถ้าเพิ่มสถานะ busy ใหม่ใน bot.js (เช่น `window.__isXxx = true`) ให้เพิ่มในรายการนี้ด้วย
 
+### 3.1 การอัปเดตตัว Manager เอง (`manager/manager_self_update.js`)
+
+- PelicanManager.exe (.NET launcher) รัน `node server.js` และผูก process ไว้กับ Job Object แบบ kill-on-close → **ถ้าปิด/รีสตาร์ท PelicanManager.exe จอเกมทุกจอจะปิดตาม**
+- ส่วนบนสุดของ `server.js` คือ **supervisor**: process ที่ launcher เห็นจะรัน server จริงเป็น child (`PELICAN_SERVER_CHILD=1`)
+  - child ออกด้วย exit code `75` = supervisor เปิด server ใหม่ (จอเกมไม่ปิด เพราะเกมถูก spawn แบบ detached)
+  - ถ้า server ใหม่เปิดไม่ขึ้นหลังอัปเดต supervisor จะคืนไฟล์จาก `data/update_backup/` อัตโนมัติ และจำเวอร์ชันที่พังไว้ (`data/manager_update_failed.json`)
+  - **ห้ามเพิ่มโค้ดไว้เหนือบล็อก supervisor** และห้ามลบบล็อกนี้
+- **โหมด release** (ไม่มีโฟลเดอร์ `.git`): เช็ก GitHub ทุก 10 นาที เทียบไฟล์ใน `manager/` ทีละไฟล์ด้วย git blob sha → ดาวน์โหลดเฉพาะไฟล์ที่เปลี่ยน (ไม่แตะ `profiles/plans/presets/settings.json`, `data/`, `sessions/`) → สำรองไฟล์เก่า → รีสตาร์ท server ถ้ามีไฟล์ฝั่ง server เปลี่ยน
+- **โหมด git** (เครื่องนักพัฒนา): ไม่ดาวน์โหลดทับไฟล์ในเครื่อง — เมื่อไฟล์ฝั่ง server ใน `manager/` ถูก **commit แล้วและ syntax ผ่าน** จะรีสตาร์ท server ให้เองภายใน ~30 วินาที (ไฟล์ที่ยังไม่ commit จะไม่ทำให้รีสตาร์ท)
+- หน้าเว็บ Manager ที่เปิดอยู่จะโหลดหน้าใหม่เองเมื่อไฟล์ใน `public/` เปลี่ยนหรือ server รีสตาร์ท (เลื่อนไปก่อนถ้าผู้ใช้กำลังพิมพ์/เปิดหน้าต่างค้าง)
+- จะไม่รีสตาร์ทระหว่างที่ Auto-update กำลังรีเฟรชเกม หรือระบบรวมเงิน (`consolidationState.running`) ทำงานอยู่
+- สิ่งที่ **ไม่** อัปเดตอัตโนมัติ: ตัว `PelicanManager.exe`, `bin/node.exe`, และ `main.js` (ตัวโหลดในโฟลเดอร์เกม — ต้องติดตั้งใหม่ผ่านปุ่ม "สคริปต์เกม")
+
 ---
 
 ## 📦 4. ซิงค์ไฟล์ให้ครบทุกจุด (Multi-Location Sync)
@@ -52,16 +65,17 @@
 - แก้/เพิ่มไฟล์ใน `manager/` → คัดลอกไปที่ `release/Pelican_Manager_v4.3/manager/` ด้วย (ไฟล์ใหม่ต้องคัดลอกเองทุกไฟล์)
 - ทุกครั้งที่ release เปลี่ยน ต้องบีบอัด `release/Pelican_Manager_v4.3.zip` ใหม่
   - ไฟล์ zip มักถูกโปรแกรมอื่นล็อก (`user-mapped section open`) → ให้ `Compress-Archive` ไปที่โฟลเดอร์ชั่วคราวก่อน ตรวจว่าเปิดได้ แล้วค่อย `Copy-Item` ทับ และเทียบ hash
-- แก้ `manager/server.js` หรือไฟล์ฝั่ง server → ผู้ใช้ต้อง **รีสตาร์ท PelicanManager.exe** (แจ้งผู้ใช้ทุกครั้ง)
-- แก้แค่ `manager/public/*` → ผู้ใช้กด Ctrl+F5 ก็พอ (bump `?v=` ใน `index.html` ด้วย)
+- แก้ `manager/server.js` หรือไฟล์ฝั่ง server → commit แล้ว Manager จะรีสตาร์ท server เอง (ดูข้อ 3.1) — **ไม่ต้องให้ผู้ใช้ปิด-เปิด PelicanManager.exe** (การทำแบบนั้นจะปิดจอเกมทั้งหมด)
+- แก้แค่ `manager/public/*` → หน้าเว็บโหลดใหม่เอง (bump `?v=` ใน `index.html` ด้วย)
 
 ---
 
 ## 🧪 5. การทดสอบอย่างปลอดภัย
 
-- ผู้ใช้มักเปิดเกมอยู่หลายจอ (debug port 49876–49880) และ Manager จริงรันที่พอร์ต 3888 — **ห้ามรีสตาร์ท Manager จริงเอง** (อาจปิดจอเกมที่เปิดผ่าน Manager)
+- ผู้ใช้มักเปิดเกมอยู่หลายจอ (debug port 49876–49880) และ Manager จริงรันที่พอร์ต 3888 — **ห้ามปิด/รีสตาร์ท PelicanManager.exe หรือ Manager จริงเอง** (จะปิดจอเกมที่เปิดผ่าน Manager)
 - ทดสอบ Manager ด้วยการคัดลอก `manager/` ไปโฟลเดอร์ชั่วคราว เปลี่ยน `PORT` เป็น 3899 แล้วรันแยก
-  - ในสำเนาทดสอบให้ **ปิด Auto-update** (`data/bot_update_state.json` → `{"enabled": false}`) ไม่งั้นจะไปรีเฟรชเกมจริง
+  - ในสำเนาทดสอบให้ **ปิด Auto-update** (`data/bot_update_state.json` และ `data/manager_update_state.json` → `{"enabled": false}`) ไม่งั้นจะไปรีเฟรชเกมจริง / ดาวน์โหลดไฟล์ทับสำเนา
+  - สำเนาทดสอบที่ไม่มี `.git` จะทำงานแบบ release mode (เทียบกับ GitHub) — `server.js` จาก GitHub ใช้พอร์ต 3888 ซึ่งชนกับ Manager จริง
 - อ่านข้อมูลจากเกมผ่าน `POST http://127.0.0.1:<debugPort>/api/eval` ได้ (คืนค่า Promise ได้)
 - **ห้ามทำ action ที่ย้อนกลับไม่ได้กับของจริงของผู้ใช้โดยไม่ได้รับอนุญาต** เช่น ลงขายตลาด, ซื้อ, ทิ้งไอเทม, เทรด — ทดสอบได้แค่การอ่านข้อมูล หรือ action ที่ย้อนกลับได้ (เช่น ล็อค→ปลดล็อค)
 - หน้า UI ทดสอบด้วย headless Chrome (`--screenshot`) แล้วตรวจภาพจริงทุกครั้งก่อนส่งงาน
