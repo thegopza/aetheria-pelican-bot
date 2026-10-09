@@ -239,6 +239,12 @@ function startDebugServer(port = DEBUG_PORT) {
         win.minimize();
       } else if (action === "restore") {
         win.restore();
+      } else if (action === "top" || action === "focus") {
+        if (win.isMinimized()) win.restore();
+        win.setAlwaysOnTop(true);
+        win.show();
+        win.focus();
+        setTimeout(() => { try { win.setAlwaysOnTop(false); } catch(e){} }, 500);
       } else if (action === "set-bounds") {
         const x = parseInt(parsedUrl.searchParams.get("x"));
         const y = parseInt(parsedUrl.searchParams.get("y"));
