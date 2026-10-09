@@ -141,6 +141,135 @@
     };
     window.initTooltipGuardian();
 
+    // ==========================================
+    // COLYSEUS ROOM RESOLVER
+    // ==========================================
+    window.getColyseusRoom = function() {
+        if (window.__colyseusRoom && window.__colyseusRoom.state) return window.__colyseusRoom;
+        const root = document.querySelector('#root');
+        let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
+        let room = null;
+        function walk(n, depth = 0) {
+            if (!n || depth > 50 || room) return;
+            if (n.memoizedProps?.room) room = n.memoizedProps.room;
+            if (n.child) walk(n.child, depth + 1);
+            if (n.sibling) walk(n.sibling, depth + 1);
+        }
+        if (fiber) walk(fiber);
+        if (room) window.__colyseusRoom = room;
+        return room;
+    };
+
+    // ==========================================
+    // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
+    // ==========================================
+    window.executeAutoJobChange = async function(targetClass) {
+        if (!targetClass) return false;
+        const targetClean = targetClass.trim().toLowerCase();
+        console.log(`%c[Pelican Plan] 🏹 เริ่มต้นกระบวนการเปลี่ยนอาชีพเป็น: "${targetClass}"`, 'color: #a855f7; font-weight: bold;');
+
+        const char = window.__latestCharacter || {};
+        const curClass = (char.class || window.__charClass || '').toLowerCase();
+
+        // 1. ถ้าเปลี่ยนอาชีพเป็นอาชีพนี้แล้ว ให้ผ่านทันที
+        if (curClass.includes(targetClean)) {
+            console.log(`%c[Pelican Plan] ✅ ตัวละครเป็นอาชีพ "${targetClass}" เรียบร้อยแล้ว`, 'color: #22c55e; font-weight: bold;');
+            return true;
+        }
+
+        // 2. ตรวจสอบเงื่อนไข Job Level
+        const curJob = char.jobLevel || 1;
+        if (curJob < 10 && curClass === 'novice') {
+            console.warn(`[Pelican Plan] ⚠️ Job Level ยังไม่ถึง 10 (ปัจจุบัน: Lv.${curJob}/10) ยังไม่สามารถเปลี่ยนอาชีพได้`);
+            return false;
+        }
+
+        // 3. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
+        const curMap = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : (char.map || '');
+        if (!curMap.includes('โซลเฮเวน') && !curMap.includes('เมืองหลวง')) {
+            console.log(`%c[Pelican Plan] 🏛️ ตัวละครไม่ได้อยู่ในเมืองหลวง -> กำลังเดินทางกลับเมืองหลวงโซลเฮเวน...`, 'color: #38bdf8;');
+            if (typeof window.walkToTargetMap === 'function') {
+                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+            }
+            return false;
+        }
+
+        // 4. เดินไปที่หน้าปราสาท (พิกัดหน้า Valkyrie: x 1680, y 1008)
+        const pos = window.__currentPos || { x: 0, y: 0 };
+        const dist = Math.hypot(pos.x - 1680, pos.y - 1008);
+        if (dist > 80) {
+            console.log(`%c[Pelican Plan] 🚶 กำลังเดินไปหา NPC Valkyrie หน้าปราสาท (ระยะห่าง ${Math.round(dist)}px)...`, 'color: #38bdf8;');
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            if (room) {
+                room.send('move_to', { x: 1680, y: 1008 });
+            } else if (typeof window.sendRemoteNpcTalk === 'function') {
+                window.sendRemoteNpcTalk('n5');
+            }
+            return false;
+        }
+
+        // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (npcKey: "n5")
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (!room) {
+            console.warn('[Pelican Plan] ⚠️ ไม่พบ Colyseus Room connection');
+            return false;
+        }
+
+        console.log(`%c[Pelican Plan] 💬 พูดคุยกับ NPC Valkyrie (n5)...`, 'color: #a855f7; font-weight: bold;');
+        room.send('npc_talk', { npcKey: 'n5' });
+        await new Promise(r => setTimeout(r, 600));
+
+        // 6. กดตัวเลือกใน Dialog
+        const dialog = document.querySelector('.npc-dialog');
+        if (dialog) {
+            const text = dialog.innerText || '';
+
+            // ตรวจสอบข้อความแจ้งเตือนจากเซิร์ฟเวอร์
+            if (text.includes('ยังเร็วไป') || text.includes('กลับมาเมื่อถึง')) {
+                console.warn('[Pelican Plan] ⚠️ เงื่อนไขยังไม่ครบ: ' + text.replace(/\n+/g, ' '));
+                room.send('npc_close', {});
+                return false;
+            }
+
+            // หน้าแรก: ข้าพร้อมเปลี่ยนอาชีพแล้ว (Option 0)
+            if (text.includes('ถ้าเจ้าพร้อมจะเลือกเส้นทาง') || text.includes('ข้าพร้อมเปลี่ยนอาชีพแล้ว')) {
+                console.log('%c[Pelican Plan] ➡️ ส่งคำสั่ง: ข้าพร้อมเปลี่ยนอาชีพแล้ว (npc_option 0)...', 'color: #38bdf8;');
+                room.send('npc_option', { index: 0 });
+                await new Promise(r => setTimeout(r, 600));
+            }
+
+            // หน้าเลือกอาชีพ (เช่น Swordsman, Mage, Archer, Acolyte, Thief, Merchant)
+            const curDialog = document.querySelector('.npc-dialog');
+            if (curDialog) {
+                const btns = Array.from(curDialog.querySelectorAll('.npc-options button'));
+                let targetIdx = -1;
+                btns.forEach((b, idx) => {
+                    const bText = b.innerText.toLowerCase();
+                    if (bText.includes(targetClean) ||
+                        (targetClean === 'archer' && (bText.includes('ธนู') || bText.includes('archer'))) ||
+                        (targetClean === 'mage' && (bText.includes('เวท') || bText.includes('mage'))) ||
+                        (targetClean === 'swordsman' && (bText.includes('ดาบ') || bText.includes('sword'))) ||
+                        (targetClean === 'thief' && (bText.includes('โจร') || bText.includes('thief'))) ||
+                        (targetClean === 'acolyte' && (bText.includes('บวช') || bText.includes('acolyte'))) ||
+                        (targetClean === 'merchant' && (bText.includes('ค้า') || bText.includes('merchant')))) {
+                        targetIdx = idx;
+                    }
+                });
+
+                if (targetIdx >= 0) {
+                    console.log(`%c[Pelican Plan] 🎯 เลือกเปลี่ยนเป็นอาชีพ "${targetClass}" (Option ${targetIdx}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+                    room.send('npc_option', { index: targetIdx });
+                    await new Promise(r => setTimeout(r, 500));
+                    room.send('npc_close', {});
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    };
+
+
 
     window.getMarketStatSelectOptionsHtml = function(currentVal) {
         const options = [
@@ -10189,7 +10318,7 @@
         // 1. ตรวจสอบว่าสวมใส่อยู่บนตัวละครแล้วหรือไม่
         const isAlreadyEquipped = () => {
             const charSlots = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (el.closest('#pelican-hud')) return false;
+                if (el.closest('#pelican-hud') || el.closest('#pelican-market-inspector')) return false;
                 const text = (el.innerText || el.textContent || '').trim().toLowerCase();
                 return text.includes(targetClean) && el.offsetWidth > 0;
             });
@@ -10218,7 +10347,7 @@
 
         // 3. ถ้าไม่มีในกระเป๋า และเปิดตัวเลือกซื้อจากตลาด
         if (buyFromMarketIfMissing) {
-            console.log(`%c[Pelican Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${maxPrice} z)...`, 'color: #f59e0b; font-weight: bold;');
+            console.log(`%c[Pelican Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${Number(maxPrice).toLocaleString()} z)...`, 'color: #f59e0b; font-weight: bold;');
             try {
                 if (typeof window.executeMarketSearch === 'function') {
                     if (window.__marketFilterConfig) {
@@ -10226,6 +10355,31 @@
                         window.__marketFilterConfig.maxPrice = maxPrice;
                     }
                     window.executeMarketSearch();
+                    await new Promise(r => setTimeout(r, 600));
+
+                    // ตรวจสอบผลลัพธ์ในตลาด
+                    const candidates = (window.__latestMarketResults?.listings || window.__marketAllListings || [])
+                        .filter(l => l && l.item && (l.item.name || '').toLowerCase().includes(targetClean))
+                        .filter(l => (Number(l.price) || 0) <= maxPrice)
+                        .sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+
+                    if (candidates.length > 0) {
+                        const best = candidates[0];
+                        console.log(`%c[Pelican Plan] ⚡ สั่งซื้อ "${best.item.name}" ในราคา ${Number(best.price).toLocaleString()} z ทันที!`, 'color: #10b981; font-weight: bold;');
+                        if (typeof window.buyMarketListing === 'function') {
+                            window.buyMarketListing(best.listingId, best.price, best.item.name, best.sellerName);
+                            // รอไอเทมเข้ากระเป๋า แล้วสั่งสวมใส่
+                            setTimeout(() => {
+                                const bought = (typeof findItemInServerInv === 'function') ? findItemInServerInv(it => (it.name || '').toLowerCase().includes(targetClean)) : null;
+                                if (bought && typeof window.sendEquip === 'function') {
+                                    window.sendEquip(bought.slot ?? bought.idx);
+                                }
+                            }, 1500);
+                            return true;
+                        }
+                    } else {
+                        console.warn(`[Pelican Plan] ⚠️ ไม่พบ "${itemName}" ในตลาดที่ราคาต่ำกว่า ${Number(maxPrice).toLocaleString()} z`);
+                    }
                 }
             } catch(e) {
                 console.warn('[Pelican Plan] Market buy error:', e);
@@ -10270,6 +10424,9 @@
                             }
                         } else if (act.type === 'change_class' && act.targetClass) {
                             console.log(`%c[Pelican Plan] 🏹 แผนสั่งเปลี่ยนอาชีพเป็น: "${act.targetClass}"`, 'color: #a855f7; font-weight: bold;');
+                            if (typeof window.executeAutoJobChange === 'function') {
+                                await window.executeAutoJobChange(act.targetClass);
+                            }
                         } else if (act.type === 'equip_item' && act.itemName) {
                             await window.findAndEquipItemByName(act.itemName, act.buyFromMarket, act.maxPrice, act.optionFilter);
                         }
