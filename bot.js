@@ -9877,9 +9877,128 @@
             }
         });
         document.addEventListener('mouseup', () => { isDragging = false; });
+        
+    // ==========================================
+    // INVENTORY ITEM INFO WHITELIST QUICK-TOGGLE
+    // ==========================================
+    function normalizeWLItemName(name) {
+        if (!name) return '';
+        return name
+            .replace(/^\+\s*\d+\s*/, '')                          // ตัดค่าตีบวก (+7, +10)
+            .replace(/\s*\[\s*\d+\s*\]\s*$/, '')                  // ตัดจำนวนรูการ์ด ([1], [2], [3], [4])
+            .replace(/\s*\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '') // ตัดป้ายระดับ
+            .replace(/มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt).*/i, '')
+            .replace(/\b(?:option|options|ออฟชั่น|ออปชั่น)\b.*/i, '')
+            .replace(/มี\s*\d+.*/, '')
+            .replace(/\bx\s*\d+\b.*/i, '')
+            .replace(/\b\d+[\s,]*z\b.*/i, '')
+            .trim();
+    }
+
+    window.injectBagWhitelistButton = function() {
+        const invDetail = document.querySelector('.inv-detail');
+        if (!invDetail || invDetail.offsetWidth <= 0) return;
+
+        const nameEl = invDetail.querySelector('.inv-detail-name');
+        const actionsEl = invDetail.querySelector('.inv-actions');
+        if (!nameEl || !actionsEl) return;
+
+        const rawName = (nameEl.innerText || nameEl.textContent || '').trim();
+        if (!rawName) return;
+
+        const baseName = normalizeWLItemName(rawName);
+        if (!baseName) return;
+
+        const sellCfg = window.__sellConfig || {};
+        let currentList = (sellCfg.whitelist || '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        const lowerBase = baseName.toLowerCase();
+        const isInWL = currentList.some(item => item.toLowerCase() === lowerBase);
+
+        let btn = actionsEl.querySelector('.pelican-wl-toggle-btn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.className = 'pelican-wl-toggle-btn';
+            btn.style.cssText = 'font-weight: 700; border-radius: 4px; cursor: pointer; padding: 4px 10px; margin-left: 4px; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; z-index: 10;';
+            actionsEl.appendChild(btn);
+        }
+
+        btn.setAttribute('data-target-item', baseName);
+
+        if (isInWL) {
+            btn.innerText = '🛡️ ลบ WL';
+            btn.title = 'ลบ "' + baseName + '" ออกจาก Whitelist (จะถูกขายได้ตามเกณฑ์)';
+            btn.style.background = '#7f1d1d';
+            btn.style.color = '#fecaca';
+            btn.style.border = '1px solid #ef4444';
+        } else {
+            btn.innerText = '🛡️ เพิ่ม WL';
+            btn.title = 'เพิ่ม "' + baseName + '" ลงใน Whitelist (ห้ามขายเด็ดขาด)';
+            btn.style.background = '#0369a1';
+            btn.style.color = '#e0f2fe';
+            btn.style.border = '1px solid #38bdf8';
+        }
+
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const targetName = btn.getAttribute('data-target-item') || baseName;
+            const targetLower = targetName.toLowerCase();
+
+            let freshList = (window.__sellConfig?.whitelist || '')
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            const alreadyIn = freshList.some(it => it.toLowerCase() === targetLower);
+
+            if (alreadyIn) {
+                freshList = freshList.filter(it => it.toLowerCase() !== targetLower);
+                window.__sellConfig.whitelist = freshList.join(', ');
+                if (typeof saveSellConfig === 'function') saveSellConfig();
+
+                const wlTextarea = document.getElementById('p-sell-whitelist');
+                if (wlTextarea) wlTextarea.value = window.__sellConfig.whitelist;
+
+                console.log('%c[Pelican Whitelist] ❌ ลบ "' + targetName + '" ออกจาก Whitelist เรียบร้อย', 'color: #ef4444; font-weight: bold;');
+            } else {
+                freshList.push(targetName);
+                window.__sellConfig.whitelist = freshList.join(', ');
+                if (typeof saveSellConfig === 'function') saveSellConfig();
+
+                const wlTextarea = document.getElementById('p-sell-whitelist');
+                if (wlTextarea) wlTextarea.value = window.__sellConfig.whitelist;
+
+                console.log('%c[Pelican Whitelist] 🛡️ เพิ่ม "' + targetName + '" ลงใน Whitelist สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+            }
+
+            window.injectBagWhitelistButton();
+        };
+    };
+
+    document.addEventListener('click', (e) => {
+        if (e.target && (e.target.closest('.inv-item') || e.target.closest('[class*="slot"]') || e.target.closest('.inv-grid') || e.target.closest('.inventory') || e.target.closest('.bag-window'))) {
+            setTimeout(() => {
+                if (typeof window.injectBagWhitelistButton === 'function') {
+                    window.injectBagWhitelistButton();
+                }
+            }, 60);
+        }
+    }, true);
+
         updateMasterBotUI();
         if (typeof getCharacterWeight === 'function') getCharacterWeight();
         setTimeout(() => { if (typeof getCharacterWeight === 'function') getCharacterWeight(); }, 800);
+
+        setInterval(() => {
+            if (document.querySelector('.inv-detail') && typeof window.injectBagWhitelistButton === 'function') {
+                window.injectBagWhitelistButton();
+            }
+        }, 300);
 
         setInterval(() => {
             if (document.querySelector('.market-window') && typeof window.injectMarketOverlay === 'function') {

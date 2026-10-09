@@ -370,6 +370,9 @@ function renderProfiles() {
               <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)">
                 <span>📜</span> Plan
               </button>
+              <button class="btn btn-warning btn-sm btn-icon" onclick="openCardWhitelistModal('${p.id}')" title="🛡️ จัดการ Whitelist (รายการห้ามขาย) ของจอนี้">
+                <span>🛡️</span>
+              </button>
               <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
                 <span>💾</span>
               </button>
@@ -392,6 +395,9 @@ function renderProfiles() {
             <div class="card-action-row sub-actions" style="margin-top: 2px;">
               <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)" style="flex: 1;">
                 <span>📜</span> Plan
+              </button>
+              <button class="btn btn-warning btn-sm btn-icon" onclick="openCardWhitelistModal('${p.id}')" title="🛡️ จัดการ Whitelist (รายการห้ามขาย) ของจอนี้">
+                <span>🛡️</span>
               </button>
               <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
                 <span>💾</span>
@@ -2213,3 +2219,478 @@ if (document.readyState === 'loading') {
 
 // Initial fetch presets
 fetchPresets();
+
+
+// ==========================================================================
+// CARD WHITELIST MODAL & CONTROLLER
+// ==========================================================================
+let activeWLProfileId = null;
+let activeWLItems = [];
+let activeWLViewMode = 'chips'; // 'chips' or 'text'
+
+async function openCardWhitelistModal(profileId) {
+  activeWLProfileId = profileId;
+  const profile = currentProfiles.find(p => p.id === profileId);
+  if (!profile) return;
+
+  const modal = document.getElementById('card-whitelist-modal');
+  const subtitleEl = document.getElementById('card-wl-subtitle');
+  const bannerEl = document.getElementById('card-wl-banner');
+  const statusTextEl = document.getElementById('card-wl-status-text');
+  const copyPanel = document.getElementById('card-wl-copy-panel');
+  const inputEl = document.getElementById('card-wl-input');
+
+  if (copyPanel) copyPanel.style.display = 'none';
+  if (inputEl) inputEl.value = '';
+
+  activeWLViewMode = 'chips';
+  updateWLViewModeUI();
+
+  if (subtitleEl) {
+    subtitleEl.innerText = `จอ: ${profile.name} (${profile.account || 'No account'}) • Port: ${profile.debugPort || '--'}`;
+  }
+
+  if (statusTextEl) {
+    statusTextEl.innerText = '⏳ กำลังดึงข้อมูล Whitelist จากจอเกม...';
+  }
+
+  // Open modal first with loading state
+  if (modal) modal.classList.add('active');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${profileId}/whitelist`);
+    const data = await res.json();
+    if (data.success) {
+      activeWLItems = Array.isArray(data.items) ? data.items : [];
+      if (statusTextEl) {
+        if (data.isOnline) {
+          statusTextEl.innerHTML = `🟢 <b>ออนไลน์</b> (Port ${profile.debugPort}) — ซิงค์ข้อมูล Real-time กับเกมสด`;
+          if (bannerEl) bannerEl.style.background = 'rgba(16, 185, 129, 0.12)';
+          if (bannerEl) bannerEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+          if (bannerEl) bannerEl.style.color = '#a7f3d0';
+        } else {
+          statusTextEl.innerHTML = `⚪ <b>ออฟไลน์</b> — ข้อมูลบันทึกไว้ในโปรไฟล์ (จะอัปเดตเมื่อเปิดจอ)`;
+          if (bannerEl) bannerEl.style.background = 'rgba(148, 163, 184, 0.1)';
+          if (bannerEl) bannerEl.style.borderColor = 'rgba(148, 163, 184, 0.25)';
+          if (bannerEl) bannerEl.style.color = '#cbd5e1';
+        }
+      }
+    } else {
+      activeWLItems = (profile.whitelist || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (statusTextEl) statusTextEl.innerText = '⚠️ ใช้ข้อมูลจากโปรไฟล์เครื่อง';
+    }
+  } catch(e) {
+    console.warn('Fetch whitelist error:', e);
+    activeWLItems = (profile.whitelist || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (statusTextEl) statusTextEl.innerText = '⚠️ ใช้ข้อมูลแคชในตัว';
+  }
+
+  renderCardWhitelistChips();
+}
+
+function closeCardWhitelistModal() {
+  const modal = document.getElementById('card-whitelist-modal');
+  if (modal) modal.classList.remove('active');
+  const copyPanel = document.getElementById('card-wl-copy-panel');
+  if (copyPanel) copyPanel.style.display = 'none';
+  activeWLProfileId = null;
+  activeWLItems = [];
+}
+
+function renderCardWhitelistChips() {
+  const container = document.getElementById('card-wl-chips-container');
+  const textarea = document.getElementById('card-wl-textarea');
+  const countBadge = document.getElementById('card-wl-count-badge');
+
+  if (countBadge) {
+    countBadge.innerText = `${activeWLItems.length} รายการ`;
+  }
+
+  if (textarea) {
+    textarea.value = activeWLItems.join(', ');
+  }
+
+  if (!container) return;
+
+  if (activeWLItems.length === 0) {
+    container.innerHTML = `
+      <div class="wl-empty-msg">
+        <span style="font-size: 24px; opacity: 0.6;">📦</span>
+        <span>ไม่มีไอเทมใน Whitelist (บอทจะขายทุกชิ้นตามเกณฑ์ความหายาก)</span>
+        <span style="font-size: 11px; opacity: 0.7;">พิมพ์ชื่อไอเทมด้านบนแล้วกด "➕ เพิ่ม" หรือกด "📥 นำเข้า"</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = activeWLItems.map((item, idx) => `
+    <div class="wl-chip" title="${escapeHTML(item)}">
+      <span class="wl-chip-icon">🛡️</span>
+      <span class="wl-chip-text">${escapeHTML(item)}</span>
+      <span class="wl-chip-del" onclick="removeCardWhitelistItem(${idx})" title="ลบออกจาก Whitelist">&times;</span>
+    </div>
+  `).join('');
+}
+
+function addCardWhitelistItems(inputStr) {
+  if (!inputStr || !inputStr.trim()) return;
+  const parts = inputStr.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  let addedCount = 0;
+
+  parts.forEach(name => {
+    const exists = activeWLItems.some(existing => existing.toLowerCase() === name.toLowerCase());
+    if (!exists) {
+      activeWLItems.push(name);
+      addedCount++;
+    }
+  });
+
+  renderCardWhitelistChips();
+  return addedCount;
+}
+
+function removeCardWhitelistItem(idx) {
+  if (idx >= 0 && idx < activeWLItems.length) {
+    activeWLItems.splice(idx, 1);
+    renderCardWhitelistChips();
+  }
+}
+
+function updateWLViewModeUI() {
+  const chipsContainer = document.getElementById('card-wl-chips-container');
+  const textContainer = document.getElementById('card-wl-text-container');
+  const viewLabel = document.getElementById('card-wl-view-label');
+  const textarea = document.getElementById('card-wl-textarea');
+
+  if (activeWLViewMode === 'chips') {
+    if (chipsContainer) chipsContainer.style.display = 'flex';
+    if (textContainer) textContainer.style.display = 'none';
+    if (viewLabel) viewLabel.innerText = '📝 Text Mode';
+  } else {
+    if (chipsContainer) chipsContainer.style.display = 'none';
+    if (textContainer) textContainer.style.display = 'block';
+    if (viewLabel) viewLabel.innerText = '🏷️ Tags Mode';
+    if (textarea) textarea.value = activeWLItems.join(', ');
+  }
+}
+
+function toggleCardWhitelistViewMode() {
+  const textarea = document.getElementById('card-wl-textarea');
+  if (activeWLViewMode === 'chips') {
+    activeWLViewMode = 'text';
+    if (textarea) textarea.value = activeWLItems.join(', ');
+  } else {
+    if (textarea) {
+      const parts = textarea.value.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+      const unique = [];
+      parts.forEach(p => {
+        if (!unique.some(u => u.toLowerCase() === p.toLowerCase())) {
+          unique.push(p);
+        }
+      });
+      activeWLItems = unique;
+    }
+    activeWLViewMode = 'chips';
+  }
+  updateWLViewModeUI();
+  renderCardWhitelistChips();
+}
+
+function handleCardWhitelistImport() {
+  const fileInput = document.getElementById('card-wl-file-input');
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.click();
+  }
+}
+
+function handleCardWhitelistExport() {
+  if (activeWLItems.length === 0) {
+    alert('Whitelist ว่างเปล่า ไม่มีรายการให้ส่งออก');
+    return;
+  }
+  const profile = currentProfiles.find(p => p.id === activeWLProfileId);
+  const text = activeWLItems.join(', ');
+
+  // 1. Copy to clipboard
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+
+  // 2. Download as text file
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeName = (profile?.name || 'profile').replace(/[^a-zA-Z0-9_\u0E00-\u0E7F]/g, '_');
+  a.download = `whitelist_${safeName}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  alert(`📤 ส่งออกเรียบร้อย!\n- คัดลอก ${activeWLItems.length} รายการลงคลิปบอร์ดแล้ว\n- ดาวน์โหลดไฟล์ ${a.download} เรียบร้อยแล้ว`);
+}
+
+function toggleCardWhitelistCopyPanel() {
+  const panel = document.getElementById('card-wl-copy-panel');
+  if (!panel) return;
+  const isHidden = panel.style.display === 'none' || !panel.style.display;
+  if (isHidden) {
+    populateWLCopyTargetList();
+    panel.style.display = 'block';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function populateWLCopyTargetList() {
+  const container = document.getElementById('card-wl-target-clients-list');
+  if (!container) return;
+
+  const targets = currentProfiles.filter(p => p.id !== activeWLProfileId);
+  if (targets.length === 0) {
+    container.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 8px; font-size: 11px;">ไม่มีจออื่นในระบบให้คัดลอก</div>';
+    return;
+  }
+
+  container.innerHTML = targets.map(p => `
+    <label class="wl-target-client-item">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" class="wl-target-checkbox" value="${p.id}" checked style="width: 14px; height: 14px; cursor: pointer;">
+        <span style="font-size: 12px; font-weight: 600; color: #f8fafc;">${escapeHTML(p.name)}</span>
+        <span style="font-size: 11px; color: #94a3b8;">(${escapeHTML(p.charClass || 'Archer')})</span>
+        <span style="font-size: 10px; color: #64748b;">Port: ${p.debugPort || '--'}</span>
+      </div>
+      <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; ${p.isRunning ? 'background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : 'background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2);'}">
+        ${p.isRunning ? '🟢 ออนไลน์' : '⚪ ออฟไลน์'}
+      </span>
+    </label>
+  `).join('');
+}
+
+async function executeCardWhitelistCopyToTargets() {
+  if (!activeWLProfileId) return;
+  const checkboxes = document.querySelectorAll('.wl-target-checkbox:checked');
+  const targetIds = Array.from(checkboxes).map(cb => cb.value);
+
+  if (targetIds.length === 0) {
+    alert('กรุณาเลือกจอเป้าหมายอย่างน้อย 1 จอ');
+    return;
+  }
+
+  if (activeWLViewMode === 'text') {
+    const textarea = document.getElementById('card-wl-textarea');
+    if (textarea) {
+      activeWLItems = textarea.value.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  const execBtn = document.getElementById('btn-card-wl-copy-execute');
+  const originalText = execBtn ? execBtn.innerHTML : '';
+  if (execBtn) {
+    execBtn.disabled = true;
+    execBtn.innerHTML = '⏳ กำลังคัดลอก...';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${activeWLProfileId}/whitelist`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        whitelist: activeWLItems.join(', '),
+        targets: targetIds
+      })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`🚀 ${result.message || 'คัดลอก Whitelist สำเร็จแล้ว!'}`);
+      const panel = document.getElementById('card-wl-copy-panel');
+      if (panel) panel.style.display = 'none';
+      fetchProfiles();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + (result.error || 'ไม่สามารถคัดลอกได้'));
+    }
+  } catch(e) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  } finally {
+    if (execBtn) {
+      execBtn.disabled = false;
+      execBtn.innerHTML = originalText;
+    }
+  }
+}
+
+async function saveCardWhitelist() {
+  if (!activeWLProfileId) return;
+
+  if (activeWLViewMode === 'text') {
+    const textarea = document.getElementById('card-wl-textarea');
+    if (textarea) {
+      const parts = textarea.value.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+      const unique = [];
+      parts.forEach(p => {
+        if (!unique.some(u => u.toLowerCase() === p.toLowerCase())) {
+          unique.push(p);
+        }
+      });
+      activeWLItems = unique;
+    }
+  }
+
+  const saveBtn = document.getElementById('btn-card-wl-save');
+  const originalText = saveBtn ? saveBtn.innerHTML : '';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '⏳ กำลังบันทึก...';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${activeWLProfileId}/whitelist`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        whitelist: activeWLItems.join(', ')
+      })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert('💾 บันทึก Whitelist สำเร็จและอัปเดตเข้าจอเกมเรียบร้อยแล้ว!');
+      closeCardWhitelistModal();
+      fetchProfiles();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + (result.error || 'ไม่สามารถบันทึกได้'));
+    }
+  } catch(e) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = originalText;
+    }
+  }
+}
+
+function setupCardWhitelistEventListeners() {
+  const btnClose = document.getElementById('card-wl-modal-close-btn');
+  if (btnClose) btnClose.onclick = closeCardWhitelistModal;
+
+  const btnCancel = document.getElementById('card-wl-modal-cancel');
+  if (btnCancel) btnCancel.onclick = closeCardWhitelistModal;
+
+  const inputEl = document.getElementById('card-wl-input');
+  const btnAdd = document.getElementById('btn-card-wl-add');
+  const handleAdd = () => {
+    if (inputEl && inputEl.value.trim()) {
+      addCardWhitelistItems(inputEl.value);
+      inputEl.value = '';
+      inputEl.focus();
+    }
+  };
+  if (btnAdd) btnAdd.onclick = handleAdd;
+  if (inputEl) {
+    inputEl.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAdd();
+      }
+    };
+  }
+
+  const btnToggleView = document.getElementById('btn-card-wl-toggle-view');
+  if (btnToggleView) btnToggleView.onclick = toggleCardWhitelistViewMode;
+
+  const btnImport = document.getElementById('btn-card-wl-import');
+  if (btnImport) btnImport.onclick = handleCardWhitelistImport;
+
+  const fileInput = document.getElementById('card-wl-file-input');
+  if (fileInput) {
+    fileInput.onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target.result;
+        let importedItems = [];
+        try {
+          const parsed = JSON.parse(content);
+          if (Array.isArray(parsed)) {
+            importedItems = parsed.map(String);
+          } else if (parsed.whitelist) {
+            importedItems = String(parsed.whitelist).split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+          } else if (parsed.items && Array.isArray(parsed.items)) {
+            importedItems = parsed.items.map(String);
+          }
+        } catch(err) {
+          importedItems = content.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+        }
+
+        if (importedItems.length === 0) {
+          alert('ไม่พบรายการไอเทมในไฟล์ที่เลือก');
+          return;
+        }
+
+        const isReplace = confirm(`พบรายการไอเทมทั้งหมด ${importedItems.length} รายการ\n\nต้องการ "แทนที่ทั้งหมด (Replace)" หรือไม่?\n[OK] = แทนที่ทั้งหมด\n[Cancel] = เพิ่มต่อท้าย (Append)`);
+        if (isReplace) {
+          activeWLItems = [];
+        }
+
+        importedItems.forEach(name => {
+          name = name.trim();
+          if (name && !activeWLItems.some(existing => existing.toLowerCase() === name.toLowerCase())) {
+            activeWLItems.push(name);
+          }
+        });
+
+        renderCardWhitelistChips();
+        alert(`📥 นำเข้าเรียบร้อย! ตอนนี้มีทั้งหมด ${activeWLItems.length} รายการ`);
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  const btnExport = document.getElementById('btn-card-wl-export');
+  if (btnExport) btnExport.onclick = handleCardWhitelistExport;
+
+  const btnCopyTo = document.getElementById('btn-card-wl-copy-to');
+  if (btnCopyTo) btnCopyTo.onclick = toggleCardWhitelistCopyPanel;
+
+  const btnCopyCancel = document.getElementById('btn-card-wl-copy-cancel');
+  if (btnCopyCancel) btnCopyCancel.onclick = () => {
+    const panel = document.getElementById('card-wl-copy-panel');
+    if (panel) panel.style.display = 'none';
+  };
+
+  const btnCopySelectAll = document.getElementById('btn-card-wl-copy-select-all');
+  if (btnCopySelectAll) btnCopySelectAll.onclick = () => {
+    document.querySelectorAll('.wl-target-checkbox').forEach(cb => cb.checked = true);
+  };
+
+  const btnCopyClearAll = document.getElementById('btn-card-wl-copy-clear-all');
+  if (btnCopyClearAll) btnCopyClearAll.onclick = () => {
+    document.querySelectorAll('.wl-target-checkbox').forEach(cb => cb.checked = false);
+  };
+
+  const btnCopyExec = document.getElementById('btn-card-wl-copy-execute');
+  if (btnCopyExec) btnCopyExec.onclick = executeCardWhitelistCopyToTargets;
+
+  const btnClearAll = document.getElementById('btn-card-wl-clear-all');
+  if (btnClearAll) {
+    btnClearAll.onclick = () => {
+      if (activeWLItems.length === 0) return;
+      if (confirm('คุณแน่ใจหรือไม่ว่าต้องการล้างรายการ Whitelist ทั้งหมดสำหรับจอนี้?')) {
+        activeWLItems = [];
+        renderCardWhitelistChips();
+      }
+    };
+  }
+
+  const btnSave = document.getElementById('btn-card-wl-save');
+  if (btnSave) btnSave.onclick = saveCardWhitelist;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupCardWhitelistEventListeners);
+} else {
+  setupCardWhitelistEventListeners();
+}

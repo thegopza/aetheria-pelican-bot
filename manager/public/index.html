@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1791508115030">
+  <link rel="stylesheet" href="style.css?v=1791534563196">
 </head>
 <body>
   <div class="app-container">
@@ -411,7 +411,110 @@
     </div>
   </div>
 
-  <script src="app.js?v=1791508115030"></script>
+  
+  <!-- MODAL: CARD WHITELIST MANAGER -->
+  <div class="modal-overlay" id="card-whitelist-modal">
+    <div class="modal-card" style="max-width: 620px; width: 95%;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            🛡️
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">จัดการ Whitelist (รายการห้ามขาย)</h3>
+            <span id="card-wl-subtitle" style="font-size: 11px; color: #94a3b8;">กำลังโหลดข้อมูล...</span>
+          </div>
+        </div>
+        <button class="modal-close" id="card-wl-modal-close-btn">&times;</button>
+      </div>
+
+      <!-- Live Sync status banner -->
+      <div id="card-wl-banner" style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 11.5px; color: #7dd3fc; display: flex; align-items: center; justify-content: space-between;">
+        <span id="card-wl-status-text">⚡ เชื่อมต่อข้อมูล Real-time กับจอเกม</span>
+        <span id="card-wl-count-badge" class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 12px;">0 รายการ</span>
+      </div>
+
+      <!-- Quick Add & Mode Switcher -->
+      <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: stretch;">
+        <div style="position: relative; flex: 1;">
+          <input type="text" id="card-wl-input" class="form-input" placeholder="พิมพ์ชื่อไอเทม เช่น Bow, Gakkung (คั่นด้วยจุลภาคได้)" style="width: 100%; height: 100%; padding-left: 32px; font-size: 12.5px;">
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; opacity: 0.6;">🔍</span>
+        </div>
+        <button type="button" class="btn btn-warning btn-sm" id="btn-card-wl-add" style="white-space: nowrap; padding: 0 14px; font-weight: 600;">
+          ➕ เพิ่ม
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-toggle-view" title="สลับโหมดมุมมอง" style="white-space: nowrap; padding: 0 10px; font-size: 11px;">
+          <span id="card-wl-view-label">📝 Text Mode</span>
+        </button>
+      </div>
+
+      <!-- Content Area 1: Chips Container (Default) -->
+      <div id="card-wl-chips-container" class="wl-chips-container" style="min-height: 180px; max-height: 250px; overflow-y: auto; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start;">
+        <!-- Chips inserted dynamically -->
+      </div>
+
+      <!-- Content Area 2: Raw Textarea (Hidden by default) -->
+      <div id="card-wl-text-container" style="display: none; margin-bottom: 10px;">
+        <textarea id="card-wl-textarea" class="form-textarea" rows="7" placeholder="ชื่อไอเทมคั่นด้วยเครื่องหมายจุลภาค (,)" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 8px; color: #f1f5f9; resize: vertical;"></textarea>
+      </div>
+
+      <!-- Action Tools: Import, Export, Copy To -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; margin: 12px 0 10px 0;">
+        <!-- IMPORT -->
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-import" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📥</span> นำเข้า (Import)
+          </button>
+          <input type="file" id="card-wl-file-input" accept=".txt,.json" style="display: none;">
+        </div>
+
+        <!-- EXPORT -->
+        <div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-export" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📤</span> ส่งออก (Export)
+          </button>
+        </div>
+
+        <!-- COPY TO -->
+        <div>
+          <button type="button" class="btn btn-purple btn-sm" id="btn-card-wl-copy-to" style="width: 100%; justify-content: center; gap: 4px; font-size: 11.5px;">
+            <span>📋</span> คัดลอกไปจออื่น (Copy to...)
+          </button>
+        </div>
+      </div>
+
+      <!-- COPY TO TARGET PANEL (Collapsible) -->
+      <div id="card-wl-copy-panel" style="display: none; background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #d8b4fe;">เลือกจอที่ต้องการคัดลอก Whitelist นี้ไปใช้:</span>
+          <div style="display: flex; gap: 4px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-select-all" style="padding: 1px 6px; font-size: 9.5px;">ทั้งหมด</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-clear-all" style="padding: 1px 6px; font-size: 9.5px;">ล้าง</button>
+          </div>
+        </div>
+        <div id="card-wl-target-clients-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; background: rgba(15, 23, 42, 0.5); padding: 6px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <!-- Checklist rendered here -->
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-card-wl-copy-cancel" style="padding: 3px 8px; font-size: 11px;">ปิดแผง</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-card-wl-copy-execute" style="padding: 3px 12px; font-size: 11px;">🚀 คัดลอกและซิงค์ทันที</button>
+        </div>
+      </div>
+
+      <!-- MODAL FOOTER -->
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; margin-top: 6px;">
+        <button type="button" class="btn btn-danger btn-sm" id="btn-card-wl-clear-all" style="font-size: 11px; padding: 4px 10px;">
+          🗑️ ล้างทั้งหมด
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-secondary" id="card-wl-modal-cancel">ยกเลิก</button>
+          <button type="button" class="btn btn-success" id="btn-card-wl-save">💾 บันทึก & อัปเดตทันที</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=1791534563196"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
   <div id="web-huds-container"></div>
 </body>

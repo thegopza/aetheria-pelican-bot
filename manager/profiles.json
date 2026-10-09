@@ -9,7 +9,11 @@
     "autoStart": false,
     "isMain": true,
     "notes": "จอหลัก (Main Session)",
-    "createdAt": 1791448000000
+    "createdAt": 1791448000000,
+    "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure",
+    "sellConfig": {
+      "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure"
+    }
   },
   {
     "id": "profile_2",
@@ -20,7 +24,11 @@
     "debugPort": 49877,
     "autoStart": true,
     "notes": "ฟาร์มหาขยะและวัตถุดิบทำยา",
-    "createdAt": 1791448529579
+    "createdAt": 1791448529579,
+    "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure",
+    "sellConfig": {
+      "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure"
+    }
   },
   {
     "id": "profile_1791448666985",

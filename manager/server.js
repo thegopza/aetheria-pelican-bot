@@ -279,6 +279,7 @@ const server = http.createServer(async (req, res) => {
           debugPort: data.debugPort || nextPort,
           autoStart: data.autoStart !== false,
           notes: data.notes || "",
+          whitelist: data.whitelist || "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow",
           createdAt: Date.now()
         };
         profiles.push(newProfile);
@@ -297,7 +298,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 3. PUT /api/profiles/:id (Update)
-  if (req.method === "PUT" && pathname.startsWith("/api/profiles/")) {
+  if (req.method === "PUT" && pathname.match(/^\/api\/profiles\/[^/]+$/)) {
     const id = pathname.split("/")[3];
     let body = "";
     req.on("data", chunk => body += chunk);
@@ -316,7 +317,8 @@ const server = http.createServer(async (req, res) => {
           targetMap: data.targetMap || profiles[idx].targetMap,
           debugPort: data.debugPort || profiles[idx].debugPort,
           autoStart: data.autoStart !== undefined ? data.autoStart : profiles[idx].autoStart,
-          notes: data.notes !== undefined ? data.notes : profiles[idx].notes
+          notes: data.notes !== undefined ? data.notes : profiles[idx].notes,
+          whitelist: data.whitelist !== undefined ? data.whitelist : profiles[idx].whitelist
         };
         saveProfiles(profiles);
         sendJSON({ success: true, profile: profiles[idx] });
@@ -327,8 +329,157 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+    // GET /api/profiles/:id/whitelist (Fetch live from game client or fallback to saved profile)
+  if (req.method === "GET" && pathname.match(/^\/api\/profiles\/[^/]+\/whitelist$/)) {
+    const id = pathname.split("/")[3];
+    const profiles = loadProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
+
+    const defaultWL = "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow";
+    const profileWL = profile.whitelist || (profile.sellConfig && profile.sellConfig.whitelist) || defaultWL;
+
+    if (profile.debugPort) {
+      const evalCode = `(window.__sellConfig && window.__sellConfig.whitelist !== undefined) ? window.__sellConfig.whitelist : null`;
+      const evalUrl = `http://127.0.0.1:${profile.debugPort}/api/eval?code=` + encodeURIComponent(evalCode);
+      let responded = false;
+      const reqTimer = setTimeout(() => {
+        if (responded) return;
+        responded = true;
+        sendJSON({
+          success: true,
+          profileId: id,
+          profileName: profile.name,
+          whitelist: profileWL,
+          items: profileWL.split(",").map(s => s.trim()).filter(Boolean),
+          isOnline: false
+        });
+      }, 700);
+
+      http.get(evalUrl, (cRes) => {
+        let d = "";
+        cRes.on("data", c => d += c);
+        cRes.on("end", () => {
+          if (responded) return;
+          responded = true;
+          clearTimeout(reqTimer);
+          try {
+            const parsed = JSON.parse(d);
+            const liveWL = (parsed.result !== null && parsed.result !== undefined) ? String(parsed.result) : profileWL;
+            profile.whitelist = liveWL;
+            saveProfiles(profiles);
+            sendJSON({
+              success: true,
+              profileId: id,
+              profileName: profile.name,
+              whitelist: liveWL,
+              items: liveWL.split(",").map(s => s.trim()).filter(Boolean),
+              isOnline: true
+            });
+          } catch(e) {
+            sendJSON({
+              success: true,
+              profileId: id,
+              profileName: profile.name,
+              whitelist: profileWL,
+              items: profileWL.split(",").map(s => s.trim()).filter(Boolean),
+              isOnline: false
+            });
+          }
+        });
+      }).on("error", () => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(reqTimer);
+        sendJSON({
+          success: true,
+          profileId: id,
+          profileName: profile.name,
+          whitelist: profileWL,
+          items: profileWL.split(",").map(s => s.trim()).filter(Boolean),
+          isOnline: false
+        });
+      });
+      return;
+    }
+
+    return sendJSON({
+      success: true,
+      profileId: id,
+      profileName: profile.name,
+      whitelist: profileWL,
+      items: profileWL.split(",").map(s => s.trim()).filter(Boolean),
+      isOnline: false
+    });
+  }
+
+  // PUT /api/profiles/:id/whitelist (Update whitelist & sync live to clients)
+  if (req.method === "PUT" && pathname.match(/^\/api\/profiles\/[^/]+\/whitelist$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        const profiles = loadProfiles();
+        const profile = profiles.find(p => p.id === id);
+        if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
+
+        const newWhitelist = typeof payload.whitelist === "string" ? payload.whitelist : "";
+        profile.whitelist = newWhitelist;
+        if (!profile.sellConfig) profile.sellConfig = {};
+        profile.sellConfig.whitelist = newWhitelist;
+
+        const syncToLiveClient = (p) => {
+          if (!p.debugPort) return;
+          const code = `(() => {
+            if (!window.__sellConfig) window.__sellConfig = {};
+            window.__sellConfig.whitelist = ${JSON.stringify(newWhitelist)};
+            try { localStorage.setItem("pelican_sell_cfg", JSON.stringify(window.__sellConfig)); } catch(e){}
+            const wlEl = document.getElementById("p-sell-whitelist");
+            if (wlEl) wlEl.value = ${JSON.stringify(newWhitelist)};
+            return { success: true };
+          })()`;
+          const evalUrl = `http://127.0.0.1:${p.debugPort}/api/eval?code=` + encodeURIComponent(code);
+          http.get(evalUrl, () => {}).on("error", () => {});
+        };
+
+        // Sync live to current profile's game client
+        syncToLiveClient(profile);
+
+        let copiedTargetsCount = 0;
+        if (Array.isArray(payload.targets) && payload.targets.length > 0) {
+          payload.targets.forEach(targetId => {
+            const targetProfile = profiles.find(p => p.id === targetId);
+            if (targetProfile) {
+              targetProfile.whitelist = newWhitelist;
+              if (!targetProfile.sellConfig) targetProfile.sellConfig = {};
+              targetProfile.sellConfig.whitelist = newWhitelist;
+              syncToLiveClient(targetProfile);
+              if (targetProfile.id !== profile.id) copiedTargetsCount++;
+            }
+          });
+        }
+
+        saveProfiles(profiles);
+        sendJSON({
+          success: true,
+          whitelist: newWhitelist,
+          items: newWhitelist.split(",").map(s => s.trim()).filter(Boolean),
+          copiedTargetsCount,
+          message: copiedTargetsCount > 0
+            ? `คัดลอก Whitelist ไปยัง ${copiedTargetsCount} จอเรียบร้อยแล้ว!`
+            : "บันทึกและซิงค์ Whitelist สำหรับจอนี้เรียบร้อยแล้ว!"
+        });
+      } catch (err) {
+        sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
   // 4. DELETE /api/profiles/:id
-  if (req.method === "DELETE" && pathname.startsWith("/api/profiles/")) {
+  if (req.method === "DELETE" && pathname.match(/^\/api\/profiles\/[^/]+$/)) {
     const id = pathname.split("/")[3];
     const profiles = loadProfiles();
     const idx = profiles.findIndex(p => p.id === id);
