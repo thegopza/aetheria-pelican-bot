@@ -1268,11 +1268,107 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/profiles/:id/character (Full character sheet, equipment slots, bag items, and stats)
+  if (req.method === "GET" && pathname.match(/^\/api\/profiles\/[^/]+\/character$/)) {
+    const id = pathname.split("/")[3];
+    const profiles = loadProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile || !profile.debugPort) return sendJSON({ success: false, error: "Profile offline" }, 400);
+
+    const evalCode = `(typeof window.getCharacterFullDetail === 'function') ? window.getCharacterFullDetail() : { success: false, error: 'Character data not initialized' }`;
+    const r = await evalProfilePort(profile.debugPort, evalCode, 5000);
+    if (r && r.result && r.result.success) {
+      return sendJSON({ success: true, profileId: id, profileName: profile.name, ...r.result });
+    }
+    return sendJSON({ success: false, error: r?.error || "Cannot retrieve character detail" }, 500);
+  }
+
+  // POST /api/profiles/:id/equip (Equip item from bag into specific slot or auto)
+  if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/equip$/)) {
+    const id = pathname.split("/")[3];
+    const profiles = loadProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile || !profile.debugPort) return sendJSON({ success: false, error: "Profile offline" }, 400);
+
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const bagSlot = payload.bagSlot !== undefined ? payload.bagSlot : payload.slot;
+        const targetSlot = payload.targetSlot || payload.to || null;
+        if (bagSlot === undefined || bagSlot === null) {
+          return sendJSON({ success: false, error: "Missing bagSlot" }, 400);
+        }
+        const evalCode = `(typeof window.executeEquipItem === 'function') ? window.executeEquipItem(${JSON.stringify(bagSlot)}, ${JSON.stringify(targetSlot)}) : { success: false, error: 'Equip function unavailable' }`;
+        const r = await evalProfilePort(profile.debugPort, evalCode, 4000);
+        sendJSON(r?.result || { success: true });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/profiles/:id/unequip (Unequip worn item from slot)
+  if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/unequip$/)) {
+    const id = pathname.split("/")[3];
+    const profiles = loadProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile || !profile.debugPort) return sendJSON({ success: false, error: "Profile offline" }, 400);
+
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const slotKey = payload.slot || payload.slotKey;
+        if (!slotKey) {
+          return sendJSON({ success: false, error: "Missing slotKey" }, 400);
+        }
+        const evalCode = `(typeof window.executeUnequipItem === 'function') ? window.executeUnequipItem(${JSON.stringify(slotKey)}) : { success: false, error: 'Unequip function unavailable' }`;
+        const r = await evalProfilePort(profile.debugPort, evalCode, 4000);
+        sendJSON(r?.result || { success: true });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/profiles/:id/stat-up (Add status points to STR/AGI/VIT/INT/DEX/LUK)
+  if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/stat-up$/)) {
+    const id = pathname.split("/")[3];
+    const profiles = loadProfiles();
+    const profile = profiles.find(p => p.id === id);
+    if (!profile || !profile.debugPort) return sendJSON({ success: false, error: "Profile offline" }, 400);
+
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const statKey = payload.stat;
+        const count = payload.count || payload.n || 1;
+        if (!statKey) {
+          return sendJSON({ success: false, error: "Missing stat" }, 400);
+        }
+        const evalCode = `(typeof window.executeAddStat === 'function') ? window.executeAddStat(${JSON.stringify(statKey)}, ${Number(count)}) : { success: false, error: 'Stat-up function unavailable' }`;
+        const r = await evalProfilePort(profile.debugPort, evalCode, 4000);
+        sendJSON(r?.result || { success: true });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
   // POST /api/profiles/:id/client-action (Proxy config changes & actions from Web HUD)
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/client-action$/)) {
     const id = pathname.split("/")[3];
     const profiles = loadProfiles();
     const profile = profiles.find(p => p.id === id);
+
     if (!profile || !profile.debugPort) return sendJSON({ success: false, error: "Profile offline" }, 400);
 
     let body = "";

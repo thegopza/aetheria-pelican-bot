@@ -11871,10 +11871,20 @@
         else if (window.__autoLoopEnabled || window.__isBotRunning) activity = '⚔️ Auto-Farm ทำงาน';
         else if (hudState) activity = hudState;
 
+        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const cId = liveChar.classId || (classEl?.innerText?.trim()?.toLowerCase()) || 'hunter';
+        const faceUrl = `https://www.aetheria-online.in.th/art/classes/${cId}-face.webp`;
+        const fullArtUrl = `https://www.aetheria-online.in.th/art/classes/${cId}.webp`;
+
         return {
             charName: nameEl?.innerText?.trim() || window.__charName || 'G4YSuuuuu',
-            charClass: classEl?.innerText?.trim() || 'Hunter',
+            charClass: classEl?.innerText?.trim() || liveChar.className || 'Hunter',
+            classId: cId,
+            portrait: faceUrl,
+            fullPortrait: fullArtUrl,
             levels: levelsEl?.innerText?.trim() || '',
+            baseLv: liveChar.baseLevel || null,
+            jobLv: liveChar.jobLevel || null,
             hp: hpCurrent,
             hpMax: hpMax,
             hpText: hpText,
@@ -11902,3 +11912,145 @@
             isOnline: true
         };
     };
+
+    // ==========================================
+    // FULL CHARACTER SHEET & EQUIPMENT MANAGEMENT ENGINE
+    // ==========================================
+    window.getCharacterFullDetail = function() {
+        const char = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const bag = (typeof window.getBagItems === 'function' ? window.getBagItems() : []);
+        
+        const classId = char.classId || (char.className ? char.className.toLowerCase() : 'hunter');
+        const faceAvatar = `https://www.aetheria-online.in.th/art/classes/${classId}-face.webp`;
+        const fullPortrait = `https://www.aetheria-online.in.th/art/classes/${classId}.webp`;
+
+        // Process all equippable items in inventory bag
+        const equippableBag = bag.map(b => {
+            const raw = b.raw || {};
+            let iconUrl = null;
+            if (typeof getItemIconUrl === 'function') {
+                iconUrl = getItemIconUrl(raw);
+            }
+            if (!iconUrl && b.name) {
+                const slug = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                iconUrl = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
+            }
+            return {
+                slot: b.slot,
+                itemId: b.id,
+                name: b.name,
+                qty: b.qty,
+                type: raw.type || 'Equipment',
+                equipType: raw.equipType || null,
+                weaponType: raw.weaponType || null,
+                levelReq: raw.levelReq || 0,
+                rarity: raw.rarity || 'common',
+                refine: b.refine || raw.refine || 0,
+                slots: raw.slots || 0,
+                cards: raw.cards || [],
+                attributes: raw.attributes || [],
+                affixes: raw.affixes || [],
+                effects: raw.effects || [],
+                locked: !!raw.locked,
+                icon: iconUrl
+            };
+        });
+
+        // Process currently equipped items with real icons
+        const equipmentWithIcons = {};
+        if (char.equipment) {
+            for (const [slotKey, it] of Object.entries(char.equipment)) {
+                if (it) {
+                    let iconUrl = null;
+                    if (typeof getItemIconUrl === 'function') {
+                        iconUrl = getItemIconUrl(it);
+                    }
+                    if (!iconUrl && it.name) {
+                        const slug = String(it.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                        iconUrl = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
+                    }
+                    equipmentWithIcons[slotKey] = {
+                        ...it,
+                        icon: iconUrl
+                    };
+                } else {
+                    equipmentWithIcons[slotKey] = null;
+                }
+            }
+        }
+
+        // Ammo slot handling
+        if (char.ammo) {
+            let ammoIcon = null;
+            if (typeof getItemIconUrl === 'function') ammoIcon = getItemIconUrl(char.ammo);
+            if (!ammoIcon && char.ammo.name) {
+                const slug = String(char.ammo.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                ammoIcon = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
+            }
+            equipmentWithIcons['ammo'] = {
+                ...char.ammo,
+                icon: ammoIcon
+            };
+        }
+
+        const nameEl = document.querySelector('.hud-name');
+        const resolvedName = nameEl?.innerText?.trim() || window.__charName || char.charName || char.name || (char.className ? `${char.className} Player` : 'Player');
+
+        return {
+            success: true,
+            charName: resolvedName,
+            classId: classId,
+            className: char.className || 'Hunter',
+            baseLevel: char.baseLevel || 1,
+            jobLevel: char.jobLevel || 1,
+            jobMaxLevel: char.jobMaxLevel || 50,
+            baseExp: char.baseExp || 0,
+            baseExpNext: char.baseExpNext || 1,
+            jobExp: char.jobExp || 0,
+            jobExpNext: char.jobExpNext || 1,
+            hp: char.derived?.maxHp ? Math.min(char.derived.maxHp, char.hp || char.derived.maxHp) : 100,
+            hpMax: char.derived?.maxHp || 100,
+            sp: char.derived?.maxSp ? Math.min(char.derived.maxSp, char.sp || char.derived.maxSp) : 50,
+            spMax: char.derived?.maxSp || 50,
+            zeny: (typeof window.__currentZeny === 'number') ? window.__currentZeny : (char.zeny || 0),
+            statusPoints: char.statusPoints || 0,
+            skillPoints: char.skillPoints || 0,
+            stats: char.stats || { STR: 1, AGI: 1, VIT: 1, INT: 1, DEX: 1, LUK: 1 },
+            bonusStats: char.bonusStats || { STR: 0, AGI: 0, VIT: 0, INT: 0, DEX: 0, LUK: 0 },
+            statCosts: char.statCosts || { STR: 2, AGI: 2, VIT: 2, INT: 2, DEX: 2, LUK: 2 },
+            derived: char.derived || {},
+            equipment: equipmentWithIcons,
+            bagItems: equippableBag,
+            faceAvatar: faceAvatar,
+            fullPortrait: fullPortrait,
+            map: (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '',
+            channel: (typeof window.getCurrentChannel === 'function') ? window.getCurrentChannel() : 1
+        };
+    };
+
+    window.executeEquipItem = function(bagSlot, targetSlot) {
+        const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
+        if (!room) return { success: false, error: 'No room connection' };
+        const payload = { slot: Number(bagSlot) };
+        if (targetSlot) payload.to = targetSlot;
+        console.log(`%c[Pelican Equip] ⚔️ สวมใส่ไอเทมช่องกระเป๋า ${bagSlot} -> ${targetSlot || 'auto'}`, 'color: #38bdf8; font-weight: bold;');
+        room.send('equip', payload);
+        return { success: true };
+    };
+
+    window.executeUnequipItem = function(slotKey) {
+        const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
+        if (!room) return { success: false, error: 'No room connection' };
+        console.log(`%c[Pelican Equip] 🛡️ ถอดไอเทมช่อง ${slotKey}`, 'color: #f59e0b; font-weight: bold;');
+        room.send('unequip', { slot: slotKey });
+        return { success: true };
+    };
+
+    window.executeAddStat = function(statKey, count = 1) {
+        const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
+        if (!room) return { success: false, error: 'No room connection' };
+        console.log(`%c[Pelican Stat] 📈 อัปค่าสถานะ ${statKey} +${count}`, 'color: #22c55e; font-weight: bold;');
+        room.send('stat_up', { stat: String(statKey).toLowerCase(), n: Number(count) || 1 });
+        return { success: true };
+    };
+

@@ -261,8 +261,136 @@
     </main>
   </div>
 
+  <!-- MODAL: CHARACTER EQUIPMENT & STATS INSPECTOR (Aetheria Authentic Sheet) -->
+  <div class="modal-overlay" id="char-detail-modal" style="display: none; z-index: 100000;">
+    <div class="modal-card char-modal-card">
+      <!-- HEADER -->
+      <div class="char-modal-header">
+        <div class="char-header-left">
+          <div class="char-face-wrap">
+            <img id="char-modal-face" src="" alt="Avatar" class="char-face-img">
+            <span id="char-modal-base-badge" class="char-face-lv">--</span>
+          </div>
+          <div class="char-header-meta">
+            <div class="char-name-row">
+              <h2 id="char-modal-name" class="char-title">--</h2>
+              <span id="char-modal-job-pill" class="char-job-pill">--</span>
+              <span id="char-modal-profile-pill" class="char-profile-pill">Profile</span>
+            </div>
+            <div class="char-exp-row">
+              <div class="char-lv-item">
+                <span class="lv-lbl">Base <b id="char-modal-baselv">--</b></span>
+                <div class="mini-bar"><div class="mini-bar-fill base" id="char-modal-base-bar"></div></div>
+                <span class="lv-pct" id="char-modal-base-pct">--%</span>
+              </div>
+              <div class="char-lv-item">
+                <span class="lv-lbl">Job <b id="char-modal-joblv">--</b></span>
+                <div class="mini-bar"><div class="mini-bar-fill job" id="char-modal-job-bar"></div></div>
+                <span class="lv-pct" id="char-modal-job-pct">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-    <!-- MODAL: SCRIPT PLAN WORKFLOW BUILDER -->
+        <div class="char-header-right">
+          <div class="char-resource-bars">
+            <div class="resource-bar-row">
+              <span class="res-tag hp">HP</span>
+              <div class="res-track"><div class="res-fill hp" id="char-modal-hp-bar"></div></div>
+              <span class="res-val" id="char-modal-hp-val">-- / --</span>
+            </div>
+            <div class="resource-bar-row">
+              <span class="res-tag sp">SP</span>
+              <div class="res-track"><div class="res-fill sp" id="char-modal-sp-bar"></div></div>
+              <span class="res-val" id="char-modal-sp-val">-- / --</span>
+            </div>
+          </div>
+          <div class="char-points-row">
+            <span class="points-chip" id="char-modal-stat-pts">แต้มสถานะ: <b id="char-modal-pts-val">0</b></span>
+            <span class="points-chip zeny" id="char-modal-zeny">💰 <b id="char-modal-zeny-val">0 z</b></span>
+            <button type="button" class="modal-close-btn" id="char-modal-close" title="ปิดหน้าต่าง">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN TABS: 1 อุปกรณ์, 2 คอสตูม, 3 เจม -->
+      <div class="char-subtabs">
+        <button type="button" class="char-tab-btn active" data-char-tab="equip">1 อุปกรณ์</button>
+        <button type="button" class="char-tab-btn" data-char-tab="costume">2 คอสตูม</button>
+        <button type="button" class="char-tab-btn" data-char-tab="gem">3 เจม <span id="char-modal-gem-count">(0)</span></button>
+        <span class="char-tab-hint" id="char-modal-tab-hint">💡 คลิกที่ช่องอุปกรณ์เพื่อดูรายละเอียด ถอด หรือสแกนไอเทมในกระเป๋าเพื่อสลับใส่</span>
+      </div>
+
+      <!-- BODY GRID: Equipment View (Left/Center/Right) + Combat Stats & Drawer (Far Right) -->
+      <div class="char-modal-body">
+        <div class="char-equip-stage">
+          <!-- LEFT COLUMN SLOTS -->
+          <div class="char-equip-col left" id="char-slots-left"></div>
+
+          <!-- CENTER FULL-BODY FIGURE & AMMO -->
+          <div class="char-equip-center">
+            <div class="char-art-wrapper">
+              <img id="char-modal-full-art" src="" alt="Full Character Art" class="char-full-art" draggable="false">
+            </div>
+            <!-- AMMO SLOT -->
+            <div class="char-ammo-slot-wrap" id="char-ammo-slot"></div>
+            <!-- ATTRIBUTES ALLOCATION ROW (STR, AGI, VIT, INT, DEX, LUK) -->
+            <div class="char-stats-alloc-bar" id="char-stats-alloc-bar"></div>
+          </div>
+
+          <!-- RIGHT COLUMN SLOTS -->
+          <div class="char-equip-col right" id="char-slots-right"></div>
+        </div>
+
+        <!-- RIGHT SIDE: COMBAT STATS OR GEAR SCANNER DRAWER -->
+        <div class="char-side-panel">
+          <!-- VIEW A: COMBAT STATS (Default) -->
+          <div class="char-stats-view" id="char-stats-view">
+            <div class="char-stats-section">
+              <div class="stat-sec-title">⚔️ โจมตี</div>
+              <div class="stat-grid" id="char-stats-offense"></div>
+            </div>
+            <div class="char-stats-section">
+              <div class="stat-sec-title">🛡️ ป้องกัน</div>
+              <div class="stat-grid" id="char-stats-defense"></div>
+            </div>
+            <div class="char-stats-section">
+              <div class="stat-sec-title">✨ อื่นๆ</div>
+              <div class="stat-grid" id="char-stats-other"></div>
+            </div>
+          </div>
+
+          <!-- VIEW B: GEAR SCANNER & ITEM DETAIL DRAWER (Active when clicking a slot) -->
+          <div class="char-scanner-view" id="char-scanner-view" style="display: none;">
+            <div class="scanner-header">
+              <div class="scanner-title-box">
+                <span class="scanner-icon" id="scanner-slot-icon">🗡️</span>
+                <div>
+                  <h4 id="scanner-slot-title" style="margin: 0; font-size: 13px; color: #f8fafc;">จัดการอุปกรณ์: อาวุธ</h4>
+                  <span id="scanner-slot-subtitle" style="font-size: 10px; color: #94a3b8;">ช่องสวมใส่: main-hand</span>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-xs" id="btn-close-scanner">✕ ปิดสแกนเนอร์</button>
+            </div>
+
+            <!-- CURRENT EQUIPPED ITEM IN THIS SLOT -->
+            <div class="scanner-equipped-box" id="scanner-equipped-box"></div>
+
+            <!-- BAG ITEMS SCANNER LIST -->
+            <div class="scanner-bag-section">
+              <div class="scanner-bag-title-row">
+                <span style="font-size: 11.5px; font-weight: 700; color: #38bdf8;">🎒 ไอเทมในกระเป๋าที่ใส่ได้ (<span id="scanner-bag-count">0</span>)</span>
+                <span style="font-size: 9.5px; color: #94a3b8;">คลิกเพื่อสวมใส่/สลับทันที</span>
+              </div>
+              <div class="scanner-bag-list" id="scanner-bag-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SCRIPT PLAN WORKFLOW BUILDER -->
   <div class="modal-overlay" id="plan-modal">
     <div class="modal-card" style="max-width: 860px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
       

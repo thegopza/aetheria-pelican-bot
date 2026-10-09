@@ -257,12 +257,13 @@ function onPortraitError(img) {
 function getPortraitSrc(p, state) {
   let src = state?.portrait || p.lastPortrait || '';
   if (!src) {
-    const cls = String(state?.charClass || p.lastCharClass || p.charClass || '').toLowerCase().split(/[^a-z]+/)[0];
-    if (cls) src = `/art/classes/${cls}-face.webp`;
+    const rawCls = String(state?.charClass || p.lastCharClass || p.charClass || 'novice').toLowerCase();
+    const cls = rawCls.split(/[^a-z]+/)[0] || 'novice';
+    src = `https://www.aetheria-online.in.th/art/classes/${cls}-face.webp`;
+  } else if (!src.startsWith('http')) {
+    src = `https://www.aetheria-online.in.th${src.startsWith('/') ? '' : '/'}${src}`;
   }
-  src = src.replace(/^https?:\/\/[^/]+/, '');
-  const url = src ? `${API_BASE}/api/portrait?src=${encodeURIComponent(src)}` : '';
-  return failedPortraits.has(url) ? '' : url;
+  return failedPortraits.has(src) ? '' : src;
 }
 
 function getActivityTone(text) {
@@ -357,17 +358,19 @@ function buildProfileCard(p) {
     <article class="profile-card ${isOnline ? 'is-online' : 'is-offline'} ${p.isMain ? 'is-main' : ''} ${isBotRunning ? 'is-farming' : ''}" id="card-${p.id}" data-profile-id="${p.id}" style="--h: ${hue};">
       <div class="card-hero">
         ${portraitSrc ? `<div class="card-hero-bg" style="background-image: url('${portraitSrc}');"></div>` : ''}
-        <div class="avatar ${portraitSrc ? '' : 'no-img'}">
+        <div class="avatar ${portraitSrc ? '' : 'no-img'}" onclick="openCharacterModal('${p.id}')" title="คลิกเพื่อดูหน้าต่างตัวละคร สวมใส่/ถอดอุปกรณ์ และดูสถานะ (Equipment & Stats)">
           <span class="avatar-fallback">${initial}</span>
           ${portraitSrc ? `<img src="${portraitSrc}" alt="${escapeHTML(curClass)}" draggable="false" onerror="onPortraitError(this)">` : ''}
           ${baseLv !== null ? `<span class="avatar-lv" title="Base Level">${baseLv}</span>` : ''}
           <span class="avatar-dot ${isOnline ? 'online' : ''}"></span>
+          <span class="avatar-hover-hint">🔍 ตรวจสอบ</span>
         </div>
         <div class="card-identity">
           <div class="card-title-row">
             <h3 class="profile-title" title="${escapeHTML(p.name)}">${escapeHTML(p.name)}</h3>
             ${p.isMain ? `<span class="chip chip-main">★ MAIN</span>` : ''}
           </div>
+
           <div class="card-subline">
             ${charName ? `<span class="char-live-name">👤 ${escapeHTML(charName)}</span>` : ''}
             <span class="profile-acc">${escapeHTML(p.account || 'บัญชีเริ่มต้น')}</span>
@@ -3888,8 +3891,649 @@ function setupCardWhitelistEventListeners() {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', setupCardWhitelistEventListeners);
+  document.addEventListener('DOMContentLoaded', () => {
+    setupCardWhitelistEventListeners();
+    initCharacterModalEvents();
+  });
 } else {
   setupCardWhitelistEventListeners();
+  initCharacterModalEvents();
 }
+
+// ==========================================
+// CHARACTER DETAIL & INTERACTIVE EQUIPMENT WINDOW
+// ==========================================
+let currentCharProfileId = null;
+let currentCharData = null;
+let currentCharTab = 'equip'; // 'equip' | 'costume' | 'gem'
+let selectedSlotDef = null;
+
+const CHAR_EQUIP_SLOTS_LEFT = [
+  { key: 'head-upper', label: 'หมวกบน', icon: '👑', equipTypes: ['Helmet', 'head-upper'] },
+  { key: 'head-middle', label: 'หน้า', icon: '🎭', equipTypes: ['HeadMid', 'head-middle'] },
+  { key: 'head-lower', label: 'ปาก', icon: '🌿', equipTypes: ['HeadLow', 'head-lower'] },
+  { key: 'armor', label: 'เกราะ / เสื้อ', icon: '👕', equipTypes: ['Armor', 'armor'] },
+  { key: 'gloves', label: 'ถุงมือ', icon: '🧤', equipTypes: ['Glove', 'gloves'] },
+  { key: 'accessory-left', label: 'เครื่องประดับ 1', icon: '💍', equipTypes: ['Acc', 'Accessory', 'accessory-left', 'accessory-right'] }
+];
+
+const CHAR_EQUIP_SLOTS_RIGHT = [
+  { key: 'main-hand', label: 'อาวุธ', icon: '🗡️', equipTypes: ['Weapon', 'main-hand'] },
+  { key: 'off-hand', label: 'มือซ้าย / โล่', icon: '🛡️', equipTypes: ['Shield', 'off-hand', 'Weapon'] },
+  { key: 'garment', label: 'ผ้าคลุม', icon: '🧣', equipTypes: ['Cape', 'Garment', 'garment'] },
+  { key: 'legs', label: 'กางเกง', icon: '👖', equipTypes: ['Pants', 'legs'] },
+  { key: 'boots', label: 'รองเท้า', icon: '👢', equipTypes: ['Boot', 'Boots', 'boots'] },
+  { key: 'accessory-right', label: 'เครื่องประดับ 2', icon: '💍', equipTypes: ['Acc', 'Accessory', 'accessory-left', 'accessory-right'] }
+];
+
+const CHAR_AMMO_SLOT = { key: 'ammo', label: 'กระสุน / ลูกธนู', icon: '🏹', equipTypes: ['Ammo', 'ammo'] };
+
+const CHAR_GEM_SLOTS = [
+  { key: 'gem-1', label: 'เจมช่อง 1', icon: '💎', equipTypes: ['Gem', 'gem-1'] },
+  { key: 'gem-2', label: 'เจมช่อง 2', icon: '💎', equipTypes: ['Gem', 'gem-2'] },
+  { key: 'gem-3', label: 'เจมช่อง 3', icon: '💎', equipTypes: ['Gem', 'gem-3'] },
+  { key: 'gem-4', label: 'เจมช่อง 4', icon: '💎', equipTypes: ['Gem', 'gem-4'] }
+];
+
+const CHAR_COSTUME_SLOTS = [
+  { key: 'costume-head-upper', label: 'คอสตูมหมวกบน', icon: '✨', equipTypes: ['Costume', 'costume-head-upper'] },
+  { key: 'costume-head-middle', label: 'คอสตูมหน้า', icon: '✨', equipTypes: ['Costume', 'costume-head-middle'] },
+  { key: 'costume-head-lower', label: 'คอสตูมปาก', icon: '✨', equipTypes: ['Costume', 'costume-head-lower'] },
+  { key: 'costume-garment', label: 'คอสตูมผ้าคลุม', icon: '✨', equipTypes: ['Costume', 'costume-garment'] }
+];
+
+function getRarityColor(rarity) {
+  const r = String(rarity || 'common').toLowerCase();
+  if (r === 'legendary' || r === 'mythic') return '#fbbf24';
+  if (r === 'epic') return '#c084fc';
+  if (r === 'rare') return '#38bdf8';
+  if (r === 'uncommon') return '#4ade80';
+  return '#cbd5e1';
+}
+
+function formatItemDisplayName(item) {
+  if (!item) return '';
+  let name = item.name || 'Unknown Item';
+  if (item.refine && item.refine > 0 && !name.startsWith('+')) {
+    name = `+${item.refine} ${name}`;
+  }
+  if (item.slots && item.slots > 0 && !name.includes('[')) {
+    name = `${name} [${item.slots}]`;
+  }
+  return name;
+}
+
+function renderItemAffixesHtml(item) {
+  if (!item) return '';
+  const lines = [];
+  if (item.attributes && Array.isArray(item.attributes)) {
+    item.attributes.forEach(a => {
+      if (a.value !== undefined) lines.push(`⚡ ${a.type ? a.type.replace(/_/g, ' ') : 'Stat'}: +${a.value}`);
+    });
+  }
+  if (item.affixes && Array.isArray(item.affixes)) {
+    item.affixes.forEach(af => {
+      lines.push(`✨ ${af.type || af.stat || 'Affix'}: +${af.value}`);
+    });
+  }
+  if (item.effects && Array.isArray(item.effects)) {
+    item.effects.forEach(ef => lines.push(`🌟 ${ef}`));
+  }
+  if (item.cards && Array.isArray(item.cards) && item.cards.length > 0) {
+    lines.push(`🎴 การ์ด: ${item.cards.map(c => (typeof c === 'object' ? c.name : c) || 'Card').join(', ')}`);
+  }
+  if (lines.length === 0) return '';
+  return `<div class="equipped-item-affixes">${lines.map(escapeHTML).join('<br>')}</div>`;
+}
+
+function renderItemAffixSummary(item) {
+  if (!item) return '';
+  const parts = [];
+  if (item.attributes && Array.isArray(item.attributes)) {
+    item.attributes.slice(0, 2).forEach(a => {
+      if (a.value !== undefined) parts.push(`${a.type ? a.type.replace(/_/g, ' ') : ''} +${a.value}`);
+    });
+  }
+  if (item.affixes && Array.isArray(item.affixes)) {
+    item.affixes.slice(0, 2).forEach(af => {
+      parts.push(`${af.type || af.stat || ''} +${af.value}`);
+    });
+  }
+  if (parts.length === 0 && item.effects && item.effects[0]) {
+    parts.push(item.effects[0]);
+  }
+  if (parts.length === 0) return '';
+  return `<span class="gear-cand-affix" title="${escapeHTML(parts.join(' | '))}">${escapeHTML(parts.join(' | '))}</span>`;
+}
+
+function isItemMatchingSlot(item, slotDef, classId) {
+  if (!item || !slotDef) return false;
+  const eq = item.equipType || '';
+  const key = slotDef.key;
+  
+  if (key === 'main-hand') {
+    return eq === 'Weapon' || item.type === 'Weapon' || (item.weaponType && item.weaponType !== 'none');
+  }
+  if (key === 'off-hand') {
+    if (eq === 'Shield' || item.type === 'Shield') return true;
+    if (classId === 'assassin' && (eq === 'Weapon' || item.type === 'Weapon')) return true;
+    return false;
+  }
+  if (key === 'ammo') {
+    return eq === 'Ammo' || item.type === 'Ammo' || item.ammoType != null;
+  }
+  if (key.startsWith('gem-')) {
+    return eq === 'Gem' || item.type === 'Gem';
+  }
+  if (key === 'head-upper') {
+    return eq === 'Helmet' || eq === 'head-upper';
+  }
+  if (key === 'head-middle') {
+    return eq === 'HeadMid' || eq === 'head-middle';
+  }
+  if (key === 'head-lower') {
+    return eq === 'HeadLow' || eq === 'head-lower';
+  }
+  if (key === 'armor') {
+    return eq === 'Armor' || eq === 'armor';
+  }
+  if (key === 'gloves') {
+    return eq === 'Glove' || eq === 'gloves';
+  }
+  if (key === 'garment') {
+    return eq === 'Cape' || eq === 'Garment' || eq === 'garment';
+  }
+  if (key === 'legs') {
+    return eq === 'Pants' || eq === 'legs';
+  }
+  if (key === 'boots') {
+    return eq === 'Boot' || eq === 'Boots' || eq === 'boots';
+  }
+  if (key.startsWith('accessory-')) {
+    return eq === 'Acc' || eq === 'Accessory' || eq === 'accessory';
+  }
+  if (slotDef.equipTypes && Array.isArray(slotDef.equipTypes)) {
+    return slotDef.equipTypes.includes(eq);
+  }
+  return false;
+}
+
+function openCharacterModal(profileId) {
+  currentCharProfileId = profileId;
+  selectedSlotDef = null;
+  currentCharTab = 'equip';
+  
+  const modal = document.getElementById('char-detail-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  
+  const nameEl = document.getElementById('char-modal-name');
+  if (nameEl) nameEl.innerText = 'กำลังโหลดข้อมูลตัวละคร...';
+  
+  loadCharacterDetail(profileId, false);
+}
+
+function closeCharacterModal() {
+  const modal = document.getElementById('char-detail-modal');
+  if (modal) modal.style.display = 'none';
+  currentCharProfileId = null;
+  currentCharData = null;
+  selectedSlotDef = null;
+}
+
+async function loadCharacterDetail(profileId, keepSelectedSlot = true) {
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(profileId)}/character`);
+    const data = await res.json();
+    if (!data.success) {
+      alert(`ไม่สามารถดึงข้อมูลตัวละครได้: ${data.error || 'บอทอาจจะยังไม่เชื่อมต่อหรืออยู่ในหน้าเลือกตัวละคร'}`);
+      closeCharacterModal();
+      return;
+    }
+    currentCharData = data;
+    renderCharacterModal(data);
+    if (keepSelectedSlot && selectedSlotDef) {
+      selectCharSlot(selectedSlotDef);
+    }
+  } catch (err) {
+    console.error('[CharModal] Fetch error:', err);
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับตัวละคร: ' + err.message);
+  }
+}
+
+function selectCharSlotByKey(slotKey) {
+  const allDefs = [
+    ...CHAR_EQUIP_SLOTS_LEFT,
+    ...CHAR_EQUIP_SLOTS_RIGHT,
+    CHAR_AMMO_SLOT,
+    ...CHAR_GEM_SLOTS,
+    ...CHAR_COSTUME_SLOTS
+  ];
+  const def = allDefs.find(d => d.key === slotKey);
+  if (def) selectCharSlot(def);
+}
+
+function selectCharSlot(slotDef) {
+  selectedSlotDef = slotDef;
+  
+  document.querySelectorAll('.char-slot-btn, .char-ammo-btn').forEach(btn => {
+    btn.classList.toggle('active-selected', btn.dataset.slotKey === slotDef.key);
+  });
+  
+  const statsView = document.getElementById('char-stats-view');
+  const scanView = document.getElementById('char-scanner-view');
+  if (statsView) statsView.style.display = 'none';
+  if (scanView) scanView.style.display = 'flex';
+  
+  if (currentCharData) {
+    renderGearScanner(slotDef, currentCharData);
+  }
+}
+
+function renderSlotColumn(containerId, slotDefs, equipment) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = slotDefs.map(def => {
+    const it = equipment?.[def.key];
+    const isSelected = selectedSlotDef && selectedSlotDef.key === def.key;
+    const hasItem = Boolean(it && it.name);
+    const displayName = hasItem ? formatItemDisplayName(it) : 'ว่าง';
+    const rarityColor = hasItem ? getRarityColor(it.rarity) : '#64748b';
+    
+    return `
+      <button type="button" class="char-slot-btn ${hasItem ? '' : 'empty'} ${isSelected ? 'active-selected' : ''}" data-slot-key="${def.key}" onclick="selectCharSlotByKey('${def.key}')" title="คลิกเพื่อจัดการช่อง: ${def.label}">
+        <div class="slot-icon-box">
+          ${it?.icon ? `<img src="${it.icon}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='${def.icon}'">` : `<span class="slot-icon-ph">${def.icon}</span>`}
+        </div>
+        <div class="slot-meta">
+          <span class="slot-label">${def.label}</span>
+          <span class="slot-item-name" style="color: ${rarityColor};">${escapeHTML(displayName)}</span>
+        </div>
+      </button>
+    `;
+  }).join('');
+}
+
+function renderAmmoSlot(ammoItem) {
+  const container = document.getElementById('char-ammo-slot');
+  if (!container) return;
+  const isSelected = selectedSlotDef && selectedSlotDef.key === 'ammo';
+  const hasAmmo = Boolean(ammoItem && ammoItem.name);
+  const ammoName = hasAmmo ? `${ammoItem.name} ${ammoItem.qty ? `x${ammoItem.qty.toLocaleString()}` : ''}` : 'ยังไม่ได้ใส่กระสุน';
+  
+  container.innerHTML = `
+    <button type="button" class="char-ammo-btn ${isSelected ? 'active-selected' : ''}" data-slot-key="ammo" onclick="selectCharSlotByKey('ammo')" title="คลิกเพื่อเลือกกระสุน/ลูกธนู">
+      <div class="slot-icon-box">
+        ${ammoItem?.icon ? `<img src="${ammoItem.icon}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='🏹'">` : `<span class="slot-icon-ph">🏹</span>`}
+      </div>
+      <div class="slot-meta" style="flex: 1; text-align: left;">
+        <span class="slot-label">กระสุน / ลูกธนู</span>
+        <span class="slot-item-name" style="color: ${hasAmmo ? '#38bdf8' : '#64748b'};">${escapeHTML(ammoName)}</span>
+      </div>
+    </button>
+  `;
+}
+
+function renderStatAllocBar(data) {
+  const container = document.getElementById('char-stats-alloc-bar');
+  if (!container) return;
+  const stats = ['STR', 'AGI', 'VIT', 'INT', 'DEX', 'LUK'];
+  const curStats = data.stats || {};
+  const bonus = data.bonusStats || {};
+  const costs = data.statCosts || {};
+  const pts = data.statusPoints || 0;
+
+  container.innerHTML = stats.map(st => {
+    const val = curStats[st] ?? 1;
+    const bon = bonus[st] ?? 0;
+    const cost = costs[st] ?? 2;
+    const canAdd = pts >= cost;
+    return `
+      <div class="stat-alloc-box">
+        <span class="stat-alloc-name">${st}</span>
+        <span class="stat-alloc-val">${val} <span class="stat-alloc-bonus">(+${bon})</span></span>
+        <button type="button" class="stat-plus-btn" ${canAdd ? '' : 'disabled style="opacity: 0.35; cursor: not-allowed;"'} onclick="handleStatUp('${st}', 1)" title="ใช้ ${cost} แต้มสถานะเพื่อเพิ่ม ${st}">+</button>
+        <span style="font-size: 8.5px; color: #64748b;">${cost} pts</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderCombatStats(derived, data) {
+  const d = derived || {};
+  const offEl = document.getElementById('char-stats-offense');
+  const defEl = document.getElementById('char-stats-defense');
+  const othEl = document.getElementById('char-stats-other');
+  if (!offEl || !defEl || !othEl) return;
+
+  const row = (lbl, val) => `
+    <div class="stat-row-item">
+      <span class="stat-row-lbl">${lbl}</span>
+      <span class="stat-row-val">${val}</span>
+    </div>
+  `;
+
+  // Offense (matching Image 2)
+  offEl.innerHTML = [
+    row('ATK', d.atk ?? '--'),
+    row('MATK', d.matk ?? '--'),
+    row('HIT', d.hit ?? '--'),
+    row('CRIT', d.crit !== undefined ? `${d.crit}%` : '--'),
+    row('ดาเมจคริ', d.critDamagePercent !== undefined ? `${d.critDamagePercent}%` : '--'),
+    row('ASPD', d.aspd ? `${d.aspd} (${((d.attackIntervalMs || 0)/1000).toFixed(2)}s)` : '--'),
+    row('ตีปกติดูดเลือด', d.hpDrainAttackPercent !== undefined ? `${d.hpDrainAttackPercent}%` : '0%'),
+    row('สกิลดูดเลือด', d.hpDrainSkillPercent !== undefined ? `${d.hpDrainSkillPercent}%` : '0%'),
+    row('ตีปกติดูด SP', d.spDrainAttackPercent !== undefined ? `${d.spDrainAttackPercent}%` : '0%'),
+    row('สกิลดูด SP', d.spDrainSkillPercent !== undefined ? `${d.spDrainSkillPercent}%` : '0%'),
+    row('ร่ายเร็วขึ้น', d.castReductionPercent !== undefined ? `${d.castReductionPercent}%` : '0%'),
+    row('ระยะโจมตี', d.attackRangeTiles !== undefined ? `${d.attackRangeTiles} ช่อง` : '--'),
+    row('ธาตุโจมตี', d.attackElement || 'neutral')
+  ].join('');
+
+  // Defense (matching Image 2)
+  defEl.innerHTML = [
+    row('Max HP', (d.maxHp || data.hpMax || '--').toLocaleString()),
+    row('Max SP', (d.maxSp || data.spMax || '--').toLocaleString()),
+    row('DEF', d.def ?? '--'),
+    row('MDEF', d.mdef ?? '--'),
+    row('FLEE', d.flee ?? '--'),
+    row('ลดดาเมจ', d.damageReductionPercent !== undefined ? `${d.damageReductionPercent}%` : '0%'),
+    row('บล็อก', d.blockChance !== undefined ? `${d.blockChance}%` : '0%'),
+    row('ฟื้น HP', d.hpRegen !== undefined ? `+${d.hpRegen}/${d.hpRegenSeconds || 6}s` : '--'),
+    row('ฟื้น SP', d.spRegen !== undefined ? `+${d.spRegen}/${d.spRegenSeconds || 8}s` : '--')
+  ].join('');
+
+  // Other (matching Image 2)
+  othEl.innerHTML = [
+    row('ความเร็ว', d.moveSpeedPercent !== undefined ? `${d.moveSpeedPercent}%` : '100%'),
+    row('ดับเบิ้ลแอทแทค', d.doubleAttackChance !== undefined ? `${d.doubleAttackChance}%` : '0%'),
+    row('พลังฮีล', d.healPowerPercent !== undefined ? `+${d.healPowerPercent}%` : '+0%')
+  ].join('');
+}
+
+function renderGearScanner(slotDef, data) {
+  const iconEl = document.getElementById('scanner-slot-icon');
+  const titleEl = document.getElementById('scanner-slot-title');
+  const subEl = document.getElementById('scanner-slot-subtitle');
+  if (iconEl) iconEl.innerText = slotDef.icon;
+  if (titleEl) titleEl.innerText = `จัดการอุปกรณ์: ${slotDef.label}`;
+  if (subEl) subEl.innerText = `ช่องสวมใส่: ${slotDef.key}`;
+
+  // Current Equipped Item
+  const equipped = data.equipment?.[slotDef.key];
+  const eqBox = document.getElementById('scanner-equipped-box');
+  if (eqBox) {
+    if (equipped && equipped.name) {
+      eqBox.innerHTML = `
+        <div class="equipped-item-top">
+          <img src="${equipped.icon || ''}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
+          <div style="flex: 1; overflow: hidden;">
+            <div class="equipped-item-name" style="color: ${getRarityColor(equipped.rarity)};">${escapeHTML(formatItemDisplayName(equipped))}</div>
+            <div style="font-size: 10px; color: #94a3b8;">Req Lv.${equipped.levelReq || 0} | นน. ${equipped.weight || 0} ${equipped.qty > 1 ? `| x${equipped.qty.toLocaleString()}` : ''}</div>
+          </div>
+          <button type="button" class="btn-unequip-slot" onclick="handleUnequip('${slotDef.key}')">❌ ถอด</button>
+        </div>
+        ${renderItemAffixesHtml(equipped)}
+      `;
+    } else {
+      eqBox.innerHTML = `
+        <div style="font-size: 11px; color: #94a3b8; text-align: center; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+          ยังไม่มีไอเทมสวมใส่ในช่องนี้
+        </div>
+      `;
+    }
+  }
+
+  // Compatible Bag Items
+  const bagItems = data.bagItems || [];
+  const candidates = bagItems.filter(item => isItemMatchingSlot(item, slotDef, data.classId));
+  const countEl = document.getElementById('scanner-bag-count');
+  if (countEl) countEl.innerText = candidates.length;
+
+  const bagListEl = document.getElementById('scanner-bag-list');
+  if (bagListEl) {
+    if (candidates.length === 0) {
+      bagListEl.innerHTML = `
+        <div style="text-align: center; color: #64748b; font-size: 11px; padding: 24px; background: rgba(0,0,0,0.15); border-radius: 6px;">
+          🎒 ไม่พบไอเทมในกระเป๋าที่สวมใส่ช่อง "${slotDef.label}" ได้
+        </div>
+      `;
+    } else {
+      bagListEl.innerHTML = candidates.map(item => {
+        const displayName = formatItemDisplayName(item);
+        const rarityCol = getRarityColor(item.rarity);
+        const btnText = equipped ? '🔄 สลับใส่' : '⚡ สวมใส่';
+        return `
+          <div class="gear-cand-card">
+            <img src="${item.icon || ''}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
+            <div class="gear-cand-info">
+              <div class="gear-cand-name" style="color: ${rarityCol};">${escapeHTML(displayName)}</div>
+              <div class="gear-cand-meta">Req Lv.${item.levelReq || 0} ${item.qty > 1 ? `| x${item.qty}` : ''} | ช่องกระเป๋า: ${item.slot}</div>
+              ${renderItemAffixSummary(item)}
+            </div>
+            <button type="button" class="btn-equip-action" onclick="handleEquip(${item.slot}, '${slotDef.key}')">
+              ${btnText}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+function renderCharacterModal(data) {
+  if (!data) return;
+  
+  // Header
+  const faceImg = document.getElementById('char-modal-face');
+  if (faceImg) {
+    faceImg.src = data.faceAvatar || `https://www.aetheria-online.in.th/art/classes/${data.classId || 'hunter'}-face.webp`;
+    faceImg.onerror = () => { faceImg.src = 'https://www.aetheria-online.in.th/art/classes/hunter-face.webp'; };
+  }
+  const baseBadge = document.getElementById('char-modal-base-badge');
+  if (baseBadge) baseBadge.innerText = data.baseLevel || '--';
+
+  const nameEl = document.getElementById('char-modal-name');
+  if (nameEl) nameEl.innerText = data.charName || data.profileName || 'Character';
+
+  const jobPill = document.getElementById('char-modal-job-pill');
+  if (jobPill) jobPill.innerText = `${data.className || 'Novice'} (Base ${data.baseLevel || 1} / Job ${data.jobLevel || 1})`;
+
+  const profPill = document.getElementById('char-modal-profile-pill');
+  if (profPill) profPill.innerText = data.profileName || 'Profile';
+
+  // Base & Job Exp
+  const baseLvEl = document.getElementById('char-modal-baselv');
+  if (baseLvEl) baseLvEl.innerText = data.baseLevel || 1;
+  const baseExpPct = (data.baseExpNext && data.baseExpNext > 0) ? Math.min(100, (data.baseExp / data.baseExpNext) * 100).toFixed(1) : '0.0';
+  const baseBar = document.getElementById('char-modal-base-bar');
+  if (baseBar) baseBar.style.width = `${baseExpPct}%`;
+  const basePctEl = document.getElementById('char-modal-base-pct');
+  if (basePctEl) basePctEl.innerText = `${baseExpPct}%`;
+
+  const jobLvEl = document.getElementById('char-modal-joblv');
+  if (jobLvEl) jobLvEl.innerText = data.jobLevel || 1;
+  const isJobMax = (data.jobLevel || 1) >= (data.jobMaxLevel || 50);
+  const jobExpPct = isJobMax ? '100' : ((data.jobExpNext && data.jobExpNext > 0) ? Math.min(100, (data.jobExp / data.jobExpNext) * 100).toFixed(1) : '0.0');
+  const jobBar = document.getElementById('char-modal-job-bar');
+  if (jobBar) jobBar.style.width = isJobMax ? '100%' : `${jobExpPct}%`;
+  const jobPctEl = document.getElementById('char-modal-job-pct');
+  if (jobPctEl) jobPctEl.innerText = isJobMax ? 'MAX' : `${jobExpPct}%`;
+
+  // HP / SP
+  const hpCur = data.hp ?? 0;
+  const hpMax = data.hpMax || hpCur || 1;
+  const hpPct = Math.min(100, Math.round((hpCur / hpMax) * 100));
+  const hpBarEl = document.getElementById('char-modal-hp-bar');
+  if (hpBarEl) hpBarEl.style.width = `${hpPct}%`;
+  const hpValEl = document.getElementById('char-modal-hp-val');
+  if (hpValEl) hpValEl.innerText = `${hpCur.toLocaleString()} / ${hpMax.toLocaleString()}`;
+
+  const spCur = data.sp ?? 0;
+  const spMax = data.spMax || spCur || 1;
+  const spPct = Math.min(100, Math.round((spCur / spMax) * 100));
+  const spBarEl = document.getElementById('char-modal-sp-bar');
+  if (spBarEl) spBarEl.style.width = `${spPct}%`;
+  const spValEl = document.getElementById('char-modal-sp-val');
+  if (spValEl) spValEl.innerText = `${spCur.toLocaleString()} / ${spMax.toLocaleString()}`;
+
+  // Points & Zeny
+  const ptsVal = document.getElementById('char-modal-pts-val');
+  if (ptsVal) ptsVal.innerText = (data.statusPoints || 0).toLocaleString();
+  const zenyVal = document.getElementById('char-modal-zeny-val');
+  if (zenyVal) zenyVal.innerText = `${(data.zeny || 0).toLocaleString()} z`;
+
+  // Full Art
+  const fullArt = document.getElementById('char-modal-full-art');
+  if (fullArt) {
+    fullArt.src = data.fullPortrait || `https://www.aetheria-online.in.th/art/classes/${data.classId || 'hunter'}.webp`;
+    fullArt.onerror = () => { fullArt.src = 'https://www.aetheria-online.in.th/art/classes/hunter.webp'; };
+  }
+
+  // Subtabs state
+  document.querySelectorAll('.char-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.charTab === currentCharTab);
+  });
+  const gemCount = Object.keys(data.equipment || {}).filter(k => k.startsWith('gem-') && data.equipment[k]).length;
+  const gemCountEl = document.getElementById('char-modal-gem-count');
+  if (gemCountEl) gemCountEl.innerText = `(${gemCount})`;
+
+  // Render Slots based on active subtab
+  if (currentCharTab === 'gem') {
+    renderSlotColumn('char-slots-left', CHAR_GEM_SLOTS.slice(0, 2), data.equipment);
+    renderSlotColumn('char-slots-right', CHAR_GEM_SLOTS.slice(2, 4), data.equipment);
+  } else if (currentCharTab === 'costume') {
+    renderSlotColumn('char-slots-left', CHAR_COSTUME_SLOTS.slice(0, 2), data.equipment);
+    renderSlotColumn('char-slots-right', CHAR_COSTUME_SLOTS.slice(2, 4), data.equipment);
+  } else {
+    // Normal equipment tab
+    renderSlotColumn('char-slots-left', CHAR_EQUIP_SLOTS_LEFT, data.equipment);
+    renderSlotColumn('char-slots-right', CHAR_EQUIP_SLOTS_RIGHT, data.equipment);
+  }
+
+  // Center Ammo & Stat Alloc
+  renderAmmoSlot(data.equipment?.ammo);
+  renderStatAllocBar(data);
+
+  // Side Panel
+  if (selectedSlotDef) {
+    renderGearScanner(selectedSlotDef, data);
+  } else {
+    const statsView = document.getElementById('char-stats-view');
+    const scanView = document.getElementById('char-scanner-view');
+    if (scanView) scanView.style.display = 'none';
+    if (statsView) statsView.style.display = 'flex';
+    renderCombatStats(data.derived, data);
+  }
+}
+
+async function handleEquip(bagSlot, targetSlotKey) {
+  if (!currentCharProfileId) return;
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(currentCharProfileId)}/equip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bagSlot, targetSlot: targetSlotKey })
+    });
+    const result = await res.json();
+    if (!result.success) {
+      alert(`ไม่สามารถสวมใส่อุปกรณ์ได้: ${result.error || 'Server error'}`);
+      return;
+    }
+    setTimeout(() => {
+      loadCharacterDetail(currentCharProfileId, true);
+    }, 300);
+  } catch (err) {
+    console.error('[CharModal] Equip error:', err);
+    alert('เกิดข้อผิดพลาดในการสวมใส่อุปกรณ์: ' + err.message);
+  }
+}
+
+async function handleUnequip(slotKey) {
+  if (!currentCharProfileId) return;
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(currentCharProfileId)}/unequip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot: slotKey })
+    });
+    const result = await res.json();
+    if (!result.success) {
+      alert(`ไม่สามารถถอดอุปกรณ์ได้: ${result.error || 'Server error'}`);
+      return;
+    }
+    setTimeout(() => {
+      loadCharacterDetail(currentCharProfileId, true);
+    }, 300);
+  } catch (err) {
+    console.error('[CharModal] Unequip error:', err);
+    alert('เกิดข้อผิดพลาดในการถอดอุปกรณ์: ' + err.message);
+  }
+}
+
+async function handleStatUp(statKey, count = 1) {
+  if (!currentCharProfileId) return;
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(currentCharProfileId)}/stat-up`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stat: statKey, count })
+    });
+    const result = await res.json();
+    if (!result.success) {
+      alert(`ไม่สามารถอัปสเตตัสได้: ${result.error || 'Server error'}`);
+      return;
+    }
+    setTimeout(() => {
+      loadCharacterDetail(currentCharProfileId, false);
+    }, 250);
+  } catch (err) {
+    console.error('[CharModal] Stat-up error:', err);
+    alert('เกิดข้อผิดพลาดในการอัปค่าสถานะ: ' + err.message);
+  }
+}
+
+function initCharacterModalEvents() {
+  const modal = document.getElementById('char-detail-modal');
+  if (!modal) return;
+  
+  const closeBtn = document.getElementById('char-modal-close');
+  if (closeBtn) closeBtn.onclick = closeCharacterModal;
+  
+  modal.onclick = (e) => {
+    if (e.target === modal) closeCharacterModal();
+  };
+  
+  const btnCloseScanner = document.getElementById('btn-close-scanner');
+  if (btnCloseScanner) {
+    btnCloseScanner.onclick = () => {
+      selectedSlotDef = null;
+      document.querySelectorAll('.char-slot-btn, .char-ammo-btn').forEach(btn => btn.classList.remove('active-selected'));
+      const scanView = document.getElementById('char-scanner-view');
+      const statsView = document.getElementById('char-stats-view');
+      if (scanView) scanView.style.display = 'none';
+      if (statsView) statsView.style.display = 'flex';
+    };
+  }
+
+  // Subtabs switching
+  document.querySelectorAll('.char-tab-btn').forEach(btn => {
+    btn.onclick = () => {
+      currentCharTab = btn.dataset.charTab;
+      selectedSlotDef = null;
+      const scanView = document.getElementById('char-scanner-view');
+      const statsView = document.getElementById('char-stats-view');
+      if (scanView) scanView.style.display = 'none';
+      if (statsView) statsView.style.display = 'flex';
+      if (currentCharData) renderCharacterModal(currentCharData);
+    };
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.style.display !== 'none') {
+      closeCharacterModal();
+    }
+  });
+}
+
 
