@@ -1,3 +1,134 @@
+
+// ==========================================
+// WEB CONFIG MODAL (EXPORT & IMPORT FOR WEB HUD)
+// ==========================================
+function openWebConfigModal(profileId, mode, preloadedJson = '') {
+  let modal = document.getElementById('pelican-config-modal-web');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'pelican-config-modal-web';
+    modal.style.cssText = 'display: none; position: fixed; inset: 0; z-index: 999999; align-items: center; justify-content: center; font-family: "Segoe UI", Tahoma, sans-serif;';
+    modal.innerHTML = `
+      <div id="p-web-cfg-backdrop" style="position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px);"></div>
+      <div style="position: relative; width: 620px; max-width: 95vw; background: #0b1329; border: 1.5px solid #a855f7; border-radius: 12px; box-shadow: 0 25px 60px rgba(0,0,0,0.9), 0 0 30px rgba(168,85,247,0.3); color: #f8fafc; overflow: hidden; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #1e1b4b; border-bottom: 1px solid rgba(168,85,247,0.3);">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px;">💾</span>
+            <span id="p-web-cfg-title" style="font-weight: bold; font-size: 14px; color: #c084fc;">สำรอง & ถ่ายโอนการตั้งค่า (Settings & Config)</span>
+          </div>
+          <button id="p-web-cfg-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
+        </div>
+
+        <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: #e9d5ff; line-height: 1.4;">
+            🔒 <b>ระบบความปลอดภัย (Security Guaranteed):</b><br/>
+            ไฟล์คอนฟิกนี้จะรวบรวมการตั้งค่าทั้งหมด (แมพฟาร์ม, ลูกธนู, กรองขายของ NPC, กฎตลาดกลาง, ร้านค้า) โดย <b>ยกเว้นชื่อผู้ใช้ (ID) และ รหัสผ่าน (Password) ออก 100%</b> ทำให้แชร์หรือย้ายไปใช้กับจออื่นได้ทันทีอย่างปลอดภัย ไม่ทับซ้อนไอดีกัน
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">ข้อมูลการตั้งค่า (Config JSON Data):</span>
+              <span id="p-web-cfg-status" style="font-size: 10.5px; color: #10b981; font-weight: 600;"></span>
+            </div>
+            <textarea id="p-web-cfg-json" placeholder="วางโค้ด JSON การตั้งค่าที่นี่..." style="width: 100%; height: 250px; box-sizing: border-box; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 11px; padding: 10px; resize: vertical; line-height: 1.4; outline: none;"></textarea>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 6px;">
+              <button id="p-web-cfg-copy" style="background: #7c3aed; color: #fff; border: 1px solid #a855f7; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                📋 คัดลอก JSON
+              </button>
+              <button id="p-web-cfg-download" style="background: #1e293b; color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                💾 ดาวน์โหลด .json
+              </button>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <label style="background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                📂 เลือกไฟล์ .json
+                <input type="file" id="p-web-cfg-file" accept=".json,application/json" style="display: none;">
+              </label>
+              <button id="p-web-cfg-apply" style="background: #0284c7; color: #fff; border: 1px solid #38bdf8; padding: 6px 14px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                📥 นำเข้าการตั้งค่า (Apply)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => { modal.style.display = 'none'; };
+    modal.querySelector('#p-web-cfg-close').onclick = close;
+    modal.querySelector('#p-web-cfg-backdrop').onclick = close;
+
+    modal.querySelector('#p-web-cfg-copy').onclick = () => {
+      const txt = modal.querySelector('#p-web-cfg-json').value;
+      if (!txt) return;
+      navigator.clipboard.writeText(txt);
+      modal.querySelector('#p-web-cfg-status').innerText = '✅ คัดลอกลง Clipboard เรียบร้อย';
+    };
+
+    modal.querySelector('#p-web-cfg-download').onclick = () => {
+      const txt = modal.querySelector('#p-web-cfg-json').value;
+      if (!txt) return;
+      const element = document.createElement('a');
+      element.setAttribute('href', 'data:application/json;charset=utf-8,' + encodeURIComponent(txt));
+      element.setAttribute('download', 'aetheria_bot_config.json');
+      element.style.display = 'none';
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+      modal.querySelector('#p-web-cfg-status').innerText = '💾 ดาวน์โหลดไฟล์เรียบร้อย';
+    };
+
+    modal.querySelector('#p-web-cfg-file').onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        modal.querySelector('#p-web-cfg-json').value = event.target.result;
+        modal.querySelector('#p-web-cfg-status').innerText = `📄 โหลดไฟล์ "${file.name}" แล้ว`;
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  const targetProfId = profileId;
+  const area = modal.querySelector('#p-web-cfg-json');
+  const title = modal.querySelector('#p-web-cfg-title');
+  const status = modal.querySelector('#p-web-cfg-status');
+
+  if (mode === 'export') {
+    title.innerText = '📤 ส่งออกการตั้งค่า (Export Config JSON)';
+    area.value = preloadedJson;
+    status.innerText = '✅ คัดลอก JSON ลง Clipboard แล้ว';
+    if (preloadedJson) navigator.clipboard.writeText(preloadedJson);
+  } else {
+    title.innerText = '📥 นำเข้าการตั้งค่า (Import Config JSON)';
+    area.value = '';
+    status.innerText = 'วางโค้ด JSON การตั้งค่าที่นี่';
+  }
+
+  modal.querySelector('#p-web-cfg-apply').onclick = async () => {
+    const txt = area.value;
+    if (!txt || !txt.trim()) {
+      alert('กรุณาวางโค้ด JSON การตั้งค่าก่อนกดนำเข้า');
+      return;
+    }
+    const res = await sendWebHudAction(targetProfId, { type: 'import-config', configJson: txt });
+    if (res.success && res.result?.success !== false) {
+      status.innerText = '✅ นำเข้าการตั้งค่าสำเร็จครบทุกระบบ!';
+      alert('✅ นำเข้าการตั้งค่าสำเร็จ! (คง ID และ Password เดิมของจอนี้ไว้)');
+      modal.style.display = 'none';
+    } else {
+      status.innerText = '❌ ผิดพลาด: ' + (res.error || res.result?.error || 'นำเข้าไม่สำเร็จ');
+      alert('❌ ไม่สามารถนำเข้าการตั้งค่าได้: ' + (res.error || res.result?.error));
+    }
+  };
+
+  modal.style.display = 'flex';
+}
+
 ﻿const API_BASE = "";
 let currentProfiles = [];
 let allWindowsHidden = false;
@@ -941,6 +1072,17 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                         <button class="p-btn" id="p-btn-test-shop" style="background: #f59e0b; color: #000; font-weight: bold; margin-top: 4px;">🛍️ ทดสอบ Routine ร้านค้า (Shop Routine)</button>
                     </div>
 
+                    
+                    <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
+                        <span style="font-size: 10.5px; font-weight: bold; color: #c084fc;">💾 สำรอง & ถ่ายโอนการตั้งค่า (Settings & Config)</span>
+                        <div style="font-size: 9px; color: #94a3b8; margin: 2px 0 5px 0;">
+                            ส่งออกหรือนำเข้าการตั้งค่าทั้งหมด (ยกเว้น ID / Password เพื่อความปลอดภัย)
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="p-btn" id="p-btn-export-cfg" style="background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; font-size: 10px; font-weight: bold; padding: 5px;">📤 Export Config (JSON)</button>
+                            <button class="p-btn" id="p-btn-import-cfg" style="background: #0284c7; color: #fff; font-size: 10px; font-weight: bold; padding: 5px;">📥 Import Config (นำเข้า)</button>
+                        </div>
+                    </div>
                     <div class="p-card" style="border-color: rgba(34, 197, 94, 0.3);">
                         <span style="font-size: 10.5px; font-weight: bold; color: #22c55e;">📥 Data Dumper (ดึง/ส่งออกข้อมูล)</span>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px;">
@@ -1158,6 +1300,23 @@ async function openWebBotHUD(profileId) {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveAuth;
   });
+
+  // Config Export / Import
+  const exportBtn = hudEl.querySelector('#p-btn-export-cfg');
+  if (exportBtn) {
+    exportBtn.onclick = async () => {
+      const res = await sendWebHudAction(profileId, { type: 'export-config' });
+      const jsonStr = res?.result?.result?.json || res?.result?.json || JSON.stringify(res?.result, null, 2);
+      openWebConfigModal(profileId, 'export', jsonStr);
+    };
+  }
+
+  const importBtn = hudEl.querySelector('#p-btn-import-cfg');
+  if (importBtn) {
+    importBtn.onclick = () => {
+      openWebConfigModal(profileId, 'import');
+    };
+  }
 
   // Market Search
   const mkSearchBtn = hudEl.querySelector('#p-btn-mk-search');

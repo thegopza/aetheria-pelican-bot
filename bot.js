@@ -8238,6 +8238,322 @@
         listEl.innerHTML = html;
     };
 
+    
+    // ==========================================
+    // CONFIG EXPORT & IMPORT UTILITIES (SAFE & SANITIZED)
+    // ==========================================
+    window.exportAllBotSettings = function() {
+        const selectMap = document.getElementById('p-target-map-select');
+        const targetMap = (selectMap ? selectMap.value : '') || window.__targetFarmMap || localStorage.getItem('pelican_target_map') || 'ซากโบราณสถาน';
+        const autoLoop = (document.getElementById('p-auto-loop') ? document.getElementById('p-auto-loop').checked : true) && (localStorage.getItem('pelican_auto_loop') !== 'false');
+
+        // กรองการตั้งค่าทั้งหมด โดยยกเว้น ID (username) และ Password ออกเด็ดขาด 100% เพื่อความปลอดภัย
+        const exportData = {
+            version: '4.3.0',
+            exportedAt: new Date().toISOString(),
+            targetMap: targetMap,
+            autoLoop: autoLoop,
+            sellConfig: Object.assign({}, window.__sellConfig || {}),
+            archerConfig: Object.assign({}, window.__archerConfig || {}),
+            shopConfig: Object.assign({}, window.__shopConfig || {}),
+            autoMarketSellConfig: Object.assign({}, window.__autoMarketSellConfig || {}),
+            marketFilterConfig: Object.assign({}, window.__marketFilterConfig || {}),
+            authConfig: {
+                enabled: !!window.__authConfig?.enabled,
+                autoResumeBot: window.__authConfig?.autoResumeBot !== false,
+                charName: window.__authConfig?.charName || ''
+                // NOTE: username and password are strictly excluded!
+            }
+        };
+
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        return { data: exportData, json: jsonStr };
+    };
+
+    window.syncAllHudInputsFromConfig = function() {
+        // 1. Target Map & Loop
+        const selMap = document.getElementById('p-target-map-select');
+        if (selMap && window.__targetFarmMap) selMap.value = window.__targetFarmMap;
+        const cbLoop = document.getElementById('p-auto-loop');
+        if (cbLoop) cbLoop.checked = !!window.__autoLoopEnabled;
+
+        // 2. Archer
+        const archer = window.__archerConfig || {};
+        const archerReq = document.getElementById('p-archer-req');
+        if (archerReq) archerReq.checked = !!archer.requireArrow;
+        const archerType = document.getElementById('p-archer-type');
+        if (archerType && archer.arrowType) archerType.value = String(archer.arrowType);
+        const archerQty = document.getElementById('p-archer-qty');
+        if (archerQty) archerQty.value = archer.arrowBuyQty || 200;
+        const archerBwing = document.getElementById('p-archer-bwing');
+        if (archerBwing) archerBwing.checked = !!archer.useBwing;
+        const archerBwingQty = document.getElementById('p-archer-bwing-qty');
+        if (archerBwingQty) archerBwingQty.value = archer.bwingBuyQty || 5;
+        const archerThresh = document.getElementById('p-archer-threshold');
+        if (archerThresh) archerThresh.value = archer.ammoThreshold || 50;
+
+        // 3. Sell
+        const sell = window.__sellConfig || {};
+        const sellWeightCb = document.getElementById('p-weight-check-enabled');
+        if (sellWeightCb) sellWeightCb.checked = !!sell.weightCheckEnabled;
+        const sellThresh = document.getElementById('p-weight-threshold');
+        if (sellThresh) sellThresh.value = sell.weightThreshold || 80;
+        const sellWep = document.getElementById('p-sell-rarity-weapon');
+        if (sellWep) sellWep.value = sell.weaponRarity || 'normal';
+        const sellArm = document.getElementById('p-sell-rarity-armor');
+        if (sellArm) sellArm.value = sell.armorRarity || 'normal';
+        const sellAcc = document.getElementById('p-sell-rarity-acc');
+        if (sellAcc) sellAcc.value = sell.accRarity || 'none';
+        const sellMat = document.getElementById('p-sell-rarity-mat');
+        if (sellMat) sellMat.value = sell.sellMaterials ? 'all' : 'none';
+        const sellRefined = document.getElementById('p-sell-keep-refined');
+        if (sellRefined) sellRefined.checked = sell.keepRefined !== false;
+        const sellSpecial = document.getElementById('p-sell-keep-special');
+        if (sellSpecial) sellSpecial.checked = !!sell.keepSpecial;
+        const sellSockets = document.getElementById('p-sell-keep-sockets');
+        if (sellSockets) sellSockets.checked = !!sell.keepSockets;
+        const sellWhitelist = document.getElementById('p-sell-whitelist');
+        if (sellWhitelist) sellWhitelist.value = sell.whitelist || '';
+
+        // 4. Shop
+        const shop = window.__shopConfig || {};
+        const shopEn = document.getElementById('p-shop-enabled');
+        if (shopEn) shopEn.checked = !!shop.enabled;
+        const shopKey = document.getElementById('p-shop-npckey');
+        if (shopKey) shopKey.value = shop.npcKey || 'n2';
+
+        // 5. Auth (เฉพาะตั้งค่าทั่วไป ไม่แตะ ID/Password)
+        const auth = window.__authConfig || {};
+        const authEn = document.getElementById('p-auth-enabled');
+        if (authEn) authEn.checked = !!auth.enabled;
+        const authRes = document.getElementById('p-auth-resume');
+        if (authRes) authRes.checked = auth.autoResumeBot !== false;
+        const authChar = document.getElementById('p-auth-char');
+        if (authChar) authChar.value = auth.charName || '';
+
+        // 6. Market Rules HTML
+        if (typeof window.renderAutoSellHudRulesHtml === 'function') {
+            const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+            if (hudContainer) hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+        }
+    };
+
+    window.importAllBotSettings = function(jsonStr) {
+        try {
+            let data = null;
+            if (typeof jsonStr === 'string') {
+                data = JSON.parse(jsonStr);
+            } else if (typeof jsonStr === 'object') {
+                data = jsonStr;
+            }
+            if (!data || typeof data !== 'object') throw new Error('ข้อมูลไม่ใช่ JSON Object ที่ถูกต้อง');
+
+            // 1. Sell Config
+            if (data.sellConfig && typeof data.sellConfig === 'object') {
+                window.__sellConfig = Object.assign({}, window.__sellConfig || {}, data.sellConfig);
+                localStorage.setItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig));
+            }
+
+            // 2. Archer Config
+            if (data.archerConfig && typeof data.archerConfig === 'object') {
+                window.__archerConfig = Object.assign({}, window.__archerConfig || {}, data.archerConfig);
+                localStorage.setItem('pelican_archer_cfg', JSON.stringify(window.__archerConfig));
+            }
+
+            // 3. Shop Config
+            if (data.shopConfig && typeof data.shopConfig === 'object') {
+                window.__shopConfig = Object.assign({}, window.__shopConfig || {}, data.shopConfig);
+                localStorage.setItem('pelican_shop_cfg', JSON.stringify(window.__shopConfig));
+            }
+
+            // 4. Auto Market Sell Config
+            if (data.autoMarketSellConfig && typeof data.autoMarketSellConfig === 'object') {
+                window.__autoMarketSellConfig = Object.assign({}, window.__autoMarketSellConfig || {}, data.autoMarketSellConfig);
+                localStorage.setItem('pelican_automarket_cfg', JSON.stringify(window.__autoMarketSellConfig));
+            }
+
+            // 5. Market Filter Config
+            if (data.marketFilterConfig && typeof data.marketFilterConfig === 'object') {
+                window.__marketFilterConfig = Object.assign({}, window.__marketFilterConfig || {}, data.marketFilterConfig);
+                localStorage.setItem('pelican_market_filter', JSON.stringify(window.__marketFilterConfig));
+            }
+
+            // 6. Target Map & Auto Loop
+            if (data.targetMap) {
+                window.__targetFarmMap = data.targetMap;
+                localStorage.setItem('pelican_target_map', data.targetMap);
+                const sel = document.getElementById('p-target-map-select');
+                if (sel) sel.value = data.targetMap;
+            }
+            if (typeof data.autoLoop === 'boolean') {
+                window.__autoLoopEnabled = data.autoLoop;
+                localStorage.setItem('pelican_auto_loop', data.autoLoop ? 'true' : 'false');
+                const cb = document.getElementById('p-auto-loop');
+                if (cb) cb.checked = data.autoLoop;
+            }
+
+            // 7. Auth Config (ห้ามแตะ username และ password เดิมของจอนี้เด็ดขาด!)
+            if (data.authConfig && typeof data.authConfig === 'object') {
+                if (!window.__authConfig) window.__authConfig = {};
+                if (typeof data.authConfig.enabled === 'boolean') window.__authConfig.enabled = data.authConfig.enabled;
+                if (typeof data.authConfig.autoResumeBot === 'boolean') window.__authConfig.autoResumeBot = data.authConfig.autoResumeBot;
+                if (data.authConfig.charName !== undefined) window.__authConfig.charName = data.authConfig.charName;
+                // username & password ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
+                localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
+            }
+
+            // 8. Refresh HUD inputs to reflect imported values
+            window.syncAllHudInputsFromConfig();
+
+            console.log('%c[Pelican Config] ✅ นำเข้าการตั้งค่าสำเร็จครบทุกระบบ (คง ID/Password เดิมของบัญชีนี้ไว้)', 'color: #10b981; font-weight: bold;');
+            return { success: true, message: 'นำเข้าการตั้งค่าสำเร็จครบทุกระบบ (คง ID/Password เดิมของบัญชีนี้ไว้)' };
+        } catch(err) {
+            console.error('[Pelican Config] ❌ นำเข้าผิดพลาด:', err);
+            return { success: false, error: err.message };
+        }
+    };
+
+    window.injectConfigModal = function() {
+        let modal = document.getElementById('pelican-config-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'pelican-config-modal';
+        modal.style.cssText = 'display: none; position: fixed; inset: 0; z-index: 1000002; align-items: center; justify-content: center; font-family: "Segoe UI", Tahoma, sans-serif;';
+        modal.innerHTML = `
+            <div id="p-cfg-backdrop" style="position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px);"></div>
+            <div style="position: relative; width: 620px; max-width: 95vw; background: #0b1329; border: 1.5px solid #a855f7; border-radius: 12px; box-shadow: 0 25px 60px rgba(0,0,0,0.9), 0 0 30px rgba(168,85,247,0.3); color: #f8fafc; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #1e1b4b; border-bottom: 1px solid rgba(168,85,247,0.3);">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 18px;">💾</span>
+                        <span id="p-cfg-modal-title" style="font-weight: bold; font-size: 14px; color: #c084fc;">สำรอง & ถ่ายโอนการตั้งค่า (Settings & Config)</span>
+                    </div>
+                    <button id="p-cfg-modal-close" style="background: transparent; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
+                </div>
+
+                <div style="padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+                    <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: #e9d5ff; line-height: 1.4;">
+                        🔒 <b>ระบบความปลอดภัย (Security Guaranteed):</b><br/>
+                        ไฟล์คอนฟิกนี้จะรวบรวมการตั้งค่าทั้งหมด (แมพฟาร์ม, ลูกธนู, กรองขายของ NPC, กฎตลาดกลาง, ร้านค้า) โดย <b>ยกเว้นชื่อผู้ใช้ (ID) และ รหัสผ่าน (Password) ออก 100%</b> ทำให้แชร์หรือย้ายไปใช้กับจออื่นได้ทันทีอย่างปลอดภัย ไม่ทับซ้อนไอดีกัน
+                    </div>
+
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">ข้อมูลการตั้งค่า (Config JSON Data):</span>
+                            <span id="p-cfg-status-hint" style="font-size: 10.5px; color: #10b981; font-weight: 600;"></span>
+                        </div>
+                        <textarea id="p-cfg-json-area" placeholder="วางโค้ด JSON การตั้งค่าที่นี่..." style="width: 100%; height: 250px; box-sizing: border-box; background: #0f172a; border: 1px solid #475569; border-radius: 6px; color: #38bdf8; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 11px; padding: 10px; resize: vertical; line-height: 1.4; outline: none;"></textarea>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 6px;">
+                            <button id="p-cfg-btn-copy" style="background: #7c3aed; color: #fff; border: 1px solid #a855f7; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                📋 คัดลอก JSON
+                            </button>
+                            <button id="p-cfg-btn-download" style="background: #1e293b; color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                                💾 ดาวน์โหลด .json
+                            </button>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <label style="background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 6px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                                📂 เลือกไฟล์ .json
+                                <input type="file" id="p-cfg-file-input" accept=".json,application/json" style="display: none;">
+                            </label>
+                            <button id="p-cfg-btn-apply-import" style="background: #0284c7; color: #fff; border: 1px solid #38bdf8; padding: 6px 14px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">
+                                📥 นำเข้าการตั้งค่า (Apply)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const close = () => { modal.style.display = 'none'; };
+        modal.querySelector('#p-cfg-modal-close').onclick = close;
+        modal.querySelector('#p-cfg-backdrop').onclick = close;
+
+        modal.querySelector('#p-cfg-btn-copy').onclick = () => {
+            const txt = modal.querySelector('#p-cfg-json-area').value;
+            if (!txt) return;
+            if (typeof window.safeCopyToClipboard === 'function') {
+                window.safeCopyToClipboard(txt, '📋 คัดลอกการตั้งค่า (JSON) สำเร็จ!');
+            } else if (navigator.clipboard) {
+                navigator.clipboard.writeText(txt);
+            }
+            modal.querySelector('#p-cfg-status-hint').innerText = '✅ คัดลอกลง Clipboard สำเร็จ!';
+        };
+
+        modal.querySelector('#p-cfg-btn-download').onclick = () => {
+            const txt = modal.querySelector('#p-cfg-json-area').value;
+            if (!txt) return;
+            const element = document.createElement('a');
+            element.setAttribute('href', 'data:application/json;charset=utf-8,' + encodeURIComponent(txt));
+            element.setAttribute('download', 'aetheria_bot_config.json');
+            element.style.display = 'none';
+            document.body.appendChild(element);
+            element.click();
+            document.body.removeChild(element);
+            modal.querySelector('#p-cfg-status-hint').innerText = '💾 ดาวน์โหลดไฟล์เรียบร้อย';
+        };
+
+        const fileInput = modal.querySelector('#p-cfg-file-input');
+        if (fileInput) {
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    modal.querySelector('#p-cfg-json-area').value = event.target.result;
+                    modal.querySelector('#p-cfg-status-hint').innerText = `📄 โหลดไฟล์ "${file.name}" แล้ว`;
+                };
+                reader.readAsText(file);
+            };
+        }
+
+        modal.querySelector('#p-cfg-btn-apply-import').onclick = () => {
+            const txt = modal.querySelector('#p-cfg-json-area').value;
+            if (!txt || !txt.trim()) {
+                alert('กรุณาวางโค้ด JSON การตั้งค่าก่อนกดนำเข้า');
+                return;
+            }
+            const res = window.importAllBotSettings(txt);
+            if (res.success) {
+                modal.querySelector('#p-cfg-status-hint').innerText = '✅ ' + res.message;
+                alert('✅ ' + res.message);
+                close();
+            } else {
+                modal.querySelector('#p-cfg-status-hint').innerText = '❌ ผิดพลาด: ' + res.error;
+                alert('❌ ไม่สามารถนำเข้าการตั้งค่าได้:\n' + res.error);
+            }
+        };
+
+        return modal;
+    };
+
+    window.openConfigExportModal = function(mode = 'export') {
+        const modal = window.injectConfigModal();
+        const area = modal.querySelector('#p-cfg-json-area');
+        const hint = modal.querySelector('#p-cfg-status-hint');
+        const title = modal.querySelector('#p-cfg-modal-title');
+
+        if (mode === 'export') {
+            const exp = window.exportAllBotSettings();
+            area.value = exp.json;
+            if (typeof window.safeCopyToClipboard === 'function') {
+                window.safeCopyToClipboard(exp.json, '📋 คัดลอกการตั้งค่า (JSON) สำเร็จ! (ไม่รวม ID/Password)');
+            }
+            hint.innerText = '✅ คัดลอก JSON ลง Clipboard แล้ว';
+            title.innerText = '📤 ส่งออกการตั้งค่า (Export Config JSON)';
+        } else {
+            area.value = '';
+            hint.innerText = 'วางโค้ด JSON การตั้งค่าที่นี่ หรือกด "เลือกไฟล์ .json"';
+            title.innerText = '📥 นำเข้าการตั้งค่า (Import Config JSON)';
+        }
+
+        modal.style.display = 'flex';
+    };
+
     function createUI() {
         window.createUI = createUI;
         window.recreateUI = function() {
@@ -8405,7 +8721,7 @@
             <div class="p-header" id="pelican-drag-handle">
                 <div style="display: flex; align-items: center; gap: 5px;">
                     <span style="font-size: 13px;">🔄</span>
-                    <span>Pmhee Ma weaw v4.2.1</span>
+                    <span id="p-hud-title-text">Aetheria Bot v4.3.0</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${window.__currentAmmo}</span>
@@ -8908,6 +9224,17 @@
                         <button class="p-btn" id="p-btn-test-shop" style="background: #f59e0b; color: #000; font-weight: bold; margin-top: 4px;">🛍️ ทดสอบ Routine ร้านค้า (Shop Routine)</button>
                     </div>
 
+                    
+                    <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
+                        <span style="font-size: 10.5px; font-weight: bold; color: #c084fc;">💾 สำรอง & ถ่ายโอนการตั้งค่า (Settings & Config)</span>
+                        <div style="font-size: 9px; color: #94a3b8; margin: 2px 0 5px 0;">
+                            ส่งออกหรือนำเข้าการตั้งค่าทั้งหมด (ยกเว้น ID / Password เพื่อความปลอดภัย)
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="p-btn" id="p-btn-export-cfg" style="background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; font-size: 10px; font-weight: bold; padding: 5px;">📤 Export Config (JSON)</button>
+                            <button class="p-btn" id="p-btn-import-cfg" style="background: #0284c7; color: #fff; font-size: 10px; font-weight: bold; padding: 5px;">📥 Import Config (นำเข้า)</button>
+                        </div>
+                    </div>
                     <div class="p-card" style="border-color: rgba(34, 197, 94, 0.3);">
                         <span style="font-size: 10.5px; font-weight: bold; color: #22c55e;">📥 Data Dumper (ดึง/ส่งออกข้อมูล)</span>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px;">
@@ -8974,6 +9301,16 @@
             localStorage.setItem('pelican_auto_jump', window.__autoJumpEnabled);
         };
 
+        
+        const btnExportCfg = document.getElementById('p-btn-export-cfg');
+        if (btnExportCfg) {
+            btnExportCfg.onclick = () => window.openConfigExportModal('export');
+        }
+
+        const btnImportCfg = document.getElementById('p-btn-import-cfg');
+        if (btnImportCfg) {
+            btnImportCfg.onclick = () => window.openConfigExportModal('import');
+        }
         document.getElementById('p-btn-copy-out').onclick = () => {
             window.copyOutgoingLogs(10);
         };

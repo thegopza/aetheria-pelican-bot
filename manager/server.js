@@ -774,6 +774,10 @@ const server = http.createServer(async (req, res) => {
             }
             return { success: true };
           })()`;
+        } else if (payload.type === 'export-config') {
+          codeToRun = `(typeof window.exportAllBotSettings === 'function' ? window.exportAllBotSettings() : null)`;
+        } else if (payload.type === 'import-config') {
+          codeToRun = `(typeof window.importAllBotSettings === 'function' ? window.importAllBotSettings(${JSON.stringify(payload.configJson)}) : { success: false, error: 'import function not available' })`;
         } else if (payload.type === 'eval' && payload.code) {
           codeToRun = payload.code;
         }
