@@ -57,10 +57,11 @@ function open() {
     backgroundColor: "#0e1424",
     title: profileName ? `Aetheria Online [${profileName}]` : "Aetheria Online",
     autoHideMenuBar: true,
-    show: false,
+    show: true,
     webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
 
+  try { win.show(); win.focus(); } catch(e){}
   win.once("ready-to-show", () => {
     win.maximize();
     win.show();

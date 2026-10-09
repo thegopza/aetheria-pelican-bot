@@ -308,6 +308,7 @@ const server = http.createServer(async (req, res) => {
 
     try {
       const child = spawn(GAME_EXE, args, {
+        cwd: path.dirname(GAME_EXE),
         detached: true,
         stdio: "ignore",
         windowsHide: false
@@ -358,7 +359,7 @@ const server = http.createServer(async (req, res) => {
           "--multi-instance"
         ];
         try {
-          const child = spawn(GAME_EXE, args, { detached: true, stdio: "ignore" });
+          const child = spawn(GAME_EXE, args, { cwd: path.dirname(GAME_EXE), detached: true, stdio: "ignore", windowsHide: false });
           child.unref();
           runningProcesses[p.id] = { pid: child.pid, startTime: Date.now() };
           launched.push({ id: p.id, name: p.name, pid: child.pid });
@@ -391,7 +392,7 @@ const server = http.createServer(async (req, res) => {
     
     let activeIdx = 0;
     for (const p of profiles) {
-      if (p.debugPort && runningProcesses[p.id]) {
+      if (p.debugPort) {
         if (layout === "shrink" || layout === "compact") {
           const cw = 640;
           const ch = 380;
