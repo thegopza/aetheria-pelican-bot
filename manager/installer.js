@@ -8,7 +8,11 @@ const https = require('https');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const ROOT_DIR = path.resolve(__dirname, '..');
 const BOT_SRC = path.join(ROOT_DIR, 'bot.js');
-const LOADER_SRC = path.join(ROOT_DIR, 'main.js');
+// manager/game_loader/main.js is a copy of the root main.js that the Manager self-update keeps current
+// (release installs only receive manager/ files); fall back to the root file
+const LOADER_SRC = fs.existsSync(path.join(__dirname, 'game_loader', 'main.js'))
+    ? path.join(__dirname, 'game_loader', 'main.js')
+    : path.join(ROOT_DIR, 'main.js');
 
 function loadSettings() {
     try {
@@ -81,7 +85,9 @@ function checkStatus(overridePath) {
     // Hash check for bot.js
     const srcHash = getFileHash(BOT_SRC);
     const installedHash = getFileHash(installedBotPath);
-    const isUpToDate = isInstalled && (srcHash !== null) && (installedHash === srcHash);
+    const loaderSrcHash = getFileHash(LOADER_SRC);
+    const loaderUpToDate = hasLoader && (loaderSrcHash === null || getFileHash(loaderPath) === loaderSrcHash);
+    const isUpToDate = isInstalled && (srcHash !== null) && (installedHash === srcHash) && loaderUpToDate;
 
     // Read installed package.json version if available
     let loaderVersion = '1.0.0';
@@ -101,6 +107,7 @@ function checkStatus(overridePath) {
         hasResources,
         isInstalled,
         isUpToDate,
+        loaderUpToDate,
         hasBackup,
         loaderVersion,
         botModifiedTime: fs.existsSync(installedBotPath) ? fs.statSync(installedBotPath).mtime : null,
@@ -144,7 +151,7 @@ function installScript(overridePath) {
     const pkgContent = {
         name: 'aetheria-launcher',
         productName: 'Aetheria Online',
-        version: '1.0.2',
+        version: '1.0.3',
         description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
         main: 'main.js',
         private: true

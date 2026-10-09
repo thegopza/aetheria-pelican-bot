@@ -52,8 +52,9 @@ function open() {
   win = new BrowserWindow({
     width: 1600,
     height: 900,
-    minWidth: 960,
-    minHeight: 540,
+    // Small minimum so many clients fit on one screen (e.g. 6 windows = 3 x 2 at 640 x 520 on 1920 x 1080)
+    minWidth: 320,
+    minHeight: 240,
     backgroundColor: "#0e1424",
     title: profileName ? `Aetheria Online [${profileName}]` : "Aetheria Online",
     autoHideMenuBar: true,

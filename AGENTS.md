@@ -70,6 +70,7 @@
 - แก้ `bot.js` → ซิงค์ไปที่ `bot.js` (root), `manager/public/bot.js`, `release/Pelican_Manager_v4.3/bot.js`, `release/Pelican_Manager_v4.3/manager/public/bot.js` และโฟลเดอร์เกม `%LOCALAPPDATA%\Programs\Aetheria Online\resources\bot.js`
   (ใช้ `node scratch/sync_all_files.js` ได้ — สคริปต์นี้ซิงค์ bot.js / server.js / app.js และเช็ก syntax ให้)
 - แก้/เพิ่มไฟล์ใน `manager/` → คัดลอกไปที่ `release/Pelican_Manager_v4.3/manager/` ด้วย (ไฟล์ใหม่ต้องคัดลอกเองทุกไฟล์)
+- แก้ `main.js` (ตัวโหลดเกม) → คัดลอกไป `manager/game_loader/main.js` และ `release/Pelican_Manager_v4.3/main.js` ด้วย (เครื่องที่ใช้ zip ได้ไฟล์ใหม่ผ่าน Manager self-update เฉพาะใน `manager/` — ปุ่ม "สคริปต์เกม" ติดตั้งจาก `manager/game_loader/main.js`) และขึ้นเลข `version` ใน `package.json` + `installer.js` — มีผลเมื่อปิด-เปิดจอเกมใหม่เท่านั้น
 - ทุกครั้งที่ release เปลี่ยน ต้องบีบอัด `release/Pelican_Manager_v4.3.zip` ใหม่
   - ไฟล์ zip มักถูกโปรแกรมอื่นล็อก (`user-mapped section open`) → ให้ `Compress-Archive` ไปที่โฟลเดอร์ชั่วคราวก่อน ตรวจว่าเปิดได้ แล้วค่อย `Copy-Item` ทับ และเทียบ hash
 - แก้ `manager/server.js` หรือไฟล์ฝั่ง server → commit แล้ว Manager จะรีสตาร์ท server เอง (ดูข้อ 3.1) — **ไม่ต้องให้ผู้ใช้ปิด-เปิด PelicanManager.exe** (การทำแบบนั้นจะปิดจอเกมทั้งหมด)
@@ -101,6 +102,8 @@
    - **คำสั่งอัปสเตตัส** คือ `stat_up {stat, n}` (ไม่ใช่ `amount`) ราคา/แต้ม = `floor((v-1)/10)+2`, ตันที่ 99; อัปสกิลใช้ `skill_up {skillId}` และต้องข้ามสกิลที่ยังเรียนไม่ได้ (สายอาชีพ/prerequisites/learnMaxLevel)
    - **`__applyScriptPlan(plan, enable)`** เปลี่ยนสวิตช์เฉพาะเมื่อส่ง `enable` เป็น boolean — การแก้ไขแผนใน Manager ต้องไม่เปิด Plan Script ให้เอง
    - **ส่งแผนเข้าจอ** ผ่าน `manager/plan_sync.js` เท่านั้น (POST eval): ผูกแผน = ส่ง+เปิด, แก้แผน = ส่งแต่คงสวิตช์เดิม, ลบแผน = ล้างแผนในจอที่ใช้อยู่, จอออฟไลน์จะได้แผนจาก `reconcile` (ทุก 30 วิ, ใช้ `pendingEnable`)
+   - **เปลี่ยนอาชีพอัตโนมัติ** (`checkAndExecuteAutoJobChange`): เปลี่ยนเมื่อ Job Lv. ถึง `plan.class1JobLevel` (ค่าเริ่มต้น 10) / `plan.class2JobLevel` (ค่าเริ่มต้น 50 — เกมให้เปลี่ยน Class 2 ได้ตั้งแต่ Job 40 แต่รอ 50 ได้แต้มสกิลเพิ่ม) จำกัดไม่เกิน `jobMaxLevel` และ **ใช้แต้มสกิลตามคิวให้หมดก่อน** (`autoAllocateSkills` คืน `true` เมื่อเพิ่งอัปไป 1 แต้ม = รอบนั้นยังไม่เปลี่ยนอาชีพ) — ฟิลด์ใหม่ของแผนต้องเพิ่มใน POST/PUT/import ของ `server.js` ด้วย (server เก็บเฉพาะฟิลด์ที่ระบุชื่อ)
+   - หน้าจัดการสกิล: ทุกการเพิ่ม/ลดแต้มต้องผ่าน `repairSkillQueue` (สกิลเงื่อนไขมาก่อน, โควตา 9/49/49, ไม่เกิน maxLevel)
    - ฐานข้อมูลสกิลใน `manager/public/builder_module.js` (`SKILLS_DATABASE`) สร้างจาก `window.__skillCatalog` ของเกม — ถ้าเกมเพิ่ม/แก้สกิลให้ดึงใหม่ ห้ามพิมพ์เอง
 2. **Alice Service Priority**:
    - เมื่อกำลังเดินกลับไปฟาร์มผ่าน Alice Service (`window.__isWalkingToMap === true`) ห้ามระบบอื่น (เช่น เปลี่ยนอาชีพ, Auto-update รีเฟรชหน้า) ขัดจังหวะเด็ดขาด

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4400">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=4510">
+  <link rel="stylesheet" href="plan_editor.css?v=4600">
 </head>
 <body>
   <div class="app-container">
@@ -487,7 +487,7 @@
             <!-- Left: Class 1 & Class 2 Selectors -->
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">🏹 Class 1 (Job 10):</span>
+                <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">🏹 Class 1:</span>
                 <select id="plan-editor-class1" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
                   <option value="archer">Archer (นักธนู)</option>
                   <option value="swordsman">Swordsman (นักดาบ)</option>
@@ -496,15 +496,17 @@
                   <option value="acolyte">Acolyte (นักบวชฝึกหัด)</option>
                   <option value="merchant">Merchant (พ่อค้า)</option>
                 </select>
+                <label class="pe-joblv" title="Novice จะเปลี่ยนเป็น Class 1 เมื่อ Job Lv. ถึงค่านี้ (และเกมเปิดให้เปลี่ยนแล้ว)">เปลี่ยนที่ Job Lv.<input type="number" id="plan-editor-class1-job" min="1" max="99" value="10"></label>
               </div>
 
               <span style="color: #64748b; font-size: 12px;">➔</span>
 
               <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 11px; font-weight: 700; color: #a855f7;">👑 Class 2 (Job 50):</span>
+                <span style="font-size: 11px; font-weight: 700; color: #a855f7;">👑 Class 2:</span>
                 <select id="plan-editor-class2" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
                   <!-- Dynamic options populated in app.js -->
                 </select>
+                <label class="pe-joblv" title="เกมให้เปลี่ยน Class 2 ได้ตั้งแต่ Job 40 แต่รอถึง Job 50 จะได้แต้มสกิลเพิ่มอีก 10 แต้ม">เปลี่ยนที่ Job Lv.<input type="number" id="plan-editor-class2-job" min="1" max="99" value="50"></label>
               </div>
             </div>
 
@@ -521,7 +523,7 @@
             </div>
           </div>
           <div style="font-size: 10.5px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
-            <span>ℹ️ <b>Auto Progression:</b> เมื่อ Job Lv.10 และเป็น Novice บอทจะกลับเมืองไปคุยกับ Valkyrie เปลี่ยนเป็น Class 1 ทันที และเมื่อ Job Lv.50 จะเปลี่ยนเป็น Class 2 อัตโนมัติ (บันทึกสถานะตามชื่อตัวละคร)</span>
+            <span>ℹ️ <b>เปลี่ยนอาชีพอัตโนมัติ:</b> ไม่ต้องเพิ่มเงื่อนไขเอง — เมื่อถึง Job Lv. ที่ตั้งไว้และเกมเปิดให้เปลี่ยน บอทจะใช้แต้มสกิลที่เหลือตามคิวให้หมดก่อน แล้วกลับเมืองไปคุยกับ Valkyrie เปลี่ยนอาชีพให้เอง (ทำงานตอนเปิด Plan Script + START BOT)</span>
           </div>
         </div>
 
@@ -1046,9 +1048,9 @@
     </div>
   </div>
 
-  <script src="app.js?v=4500"></script>
+  <script src="app.js?v=4600"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
-  <script src="builder_module.js?v=4510"></script>
+  <script src="builder_module.js?v=4600"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=4390"></script>
   <script src="config_copy.js?v=4400"></script>

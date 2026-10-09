@@ -383,6 +383,10 @@ function updateClassDropdownsInEditor() {
 
   const currentC1 = activeEditingPlan.class1Target || 'archer';
   c1Sel.value = currentC1;
+  const j1 = document.getElementById("plan-editor-class1-job");
+  const j2 = document.getElementById("plan-editor-class2-job");
+  if (j1) j1.value = activeEditingPlan.class1JobLevel || 10;
+  if (j2) j2.value = activeEditingPlan.class2JobLevel || 50;
 
   const tree = CLASS_TREE_MAP[currentC1] || CLASS_TREE_MAP['archer'];
   c2Sel.innerHTML = tree.secondClasses.map(sc => `

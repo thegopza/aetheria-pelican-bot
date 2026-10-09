@@ -135,6 +135,12 @@ function savePresets(presets) {
 }
 
 
+// Job Lv. at which the plan changes to Class 1 / Class 2 (the bot also caps it at the class's max job level)
+function planJobLevel(v, def) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 1 && n <= 99 ? n : def;
+}
+
 function normalizePlansData(raw) {
   if (raw && Array.isArray(raw.profiles)) {
     return {
@@ -1183,31 +1189,9 @@ const server = http.createServer(async (req, res) => {
 
   // 9. POST /api/tile-windows (Arrange Windows side-by-side, grid, or shrink)
   if (req.method === "POST" && pathname === "/api/tile-windows") {
-    const layout = parsedUrl.searchParams.get("layout") || "grid"; // 'side', 'grid', 'shrink'
+    const reqLayout = parsedUrl.searchParams.get("layout");
+    const layout = ["side", "grid", "compact", "shrink"].includes(reqLayout) ? reqLayout : "grid"; // only known values reach the PowerShell script
     
-    // Also send set-bounds to responsive debug ports
-    const profiles = loadProfiles();
-    const screenWidth = 1920; // Default fallback
-    const screenHeight = 1080;
-    
-    let activeIdx = 0;
-    for (const p of profiles) {
-      if (p.debugPort) {
-        if (layout === "shrink" || layout === "compact") {
-          const cw = 640;
-          const ch = 380;
-          const col = activeIdx % 2;
-          const row = Math.floor(activeIdx / 2);
-          const x = col * cw;
-          const y = row * ch;
-          http.get(`http://127.0.0.1:${p.debugPort}/api/window?action=restore`, () => {
-            http.get(`http://127.0.0.1:${p.debugPort}/api/window?action=set-bounds&x=${x}&y=${y}&w=${cw}&h=${ch}`, () => {}).on('error', () => {});
-          }).on('error', () => {});
-        }
-        activeIdx++;
-      }
-    }
-
     const psScript = `
       Add-Type @"
         using System;
@@ -1221,7 +1205,8 @@ const server = http.createServer(async (req, res) => {
           public static extern bool SetForegroundWindow(IntPtr hWnd);
         }
 "@
-      $procs = Get-Process -Name "Aetheria Online" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
+      Add-Type -AssemblyName System.Windows.Forms
+      $procs = @(Get-Process -Name "Aetheria Online" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Sort-Object MainWindowTitle)
       $count = $procs.Count
       if ($count -gt 0) {
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
@@ -1230,24 +1215,18 @@ const server = http.createServer(async (req, res) => {
         for ($i = 0; $i -lt $count; $i++) {
           $h = $procs[$i].MainWindowHandle
           [WinPos]::ShowWindow($h, 9)
-          if ('${layout}' -eq 'shrink' -or '${layout}' -eq 'compact') {
-            $w = 640
-            $h_h = 380
-            $col = $i % 2
-            $row = [int]($i / 2)
-            $x = $col * $w
-            $y = $row * $h_h
-            [WinPos]::MoveWindow($h, $x, $y, $w, $h_h, $true)
-          } elseif ('${layout}' -eq 'side' -or $count -le 2) {
+          if ('${layout}' -eq 'side' -or $count -le 2) {
             $w = [int]($sw / $count)
             $x = $i * $w
             [WinPos]::MoveWindow($h, $x, 0, $w, $sh, $true)
           } else {
-            
-            $w = [int]($sw / 2)
-            $h_h = [int]($sh / 2)
-            $col = $i % 2
-            $row = [int]($i / 2)
+            # Fit every window on screen: 3-4 -> 2x2, 5-6 -> 3x2, 7-9 -> 3x3, 10+ -> 4 columns
+            if ($count -le 4) { $cols = 2 } elseif ($count -le 9) { $cols = 3 } else { $cols = 4 }
+            $rows = [Math]::Ceiling($count / $cols)
+            $w = [int][Math]::Floor($sw / $cols)
+            $h_h = [int][Math]::Floor($sh / $rows)
+            $col = $i % $cols
+            $row = [Math]::Floor($i / $cols)
             $x = $col * $w
             $y = $row * $h_h
             [WinPos]::MoveWindow($h, $x, $y, $w, $h_h, $true)
@@ -1877,6 +1856,8 @@ const server = http.createServer(async (req, res) => {
           description: payload.description || "",
           class1Target: payload.class1Target || "archer",
           class2Target: payload.class2Target || "hunter",
+          class1JobLevel: planJobLevel(payload.class1JobLevel, 10),
+          class2JobLevel: planJobLevel(payload.class2JobLevel, 50),
           skillBuild: payload.skillBuild || null,
           statBuild: payload.statBuild || null,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : [],
@@ -1911,6 +1892,8 @@ const server = http.createServer(async (req, res) => {
           description: payload.description !== undefined ? payload.description : plansData.profiles[idx].description,
           class1Target: payload.class1Target !== undefined ? payload.class1Target : (plansData.profiles[idx].class1Target || "archer"),
           class2Target: payload.class2Target !== undefined ? payload.class2Target : (plansData.profiles[idx].class2Target || "hunter"),
+          class1JobLevel: planJobLevel(payload.class1JobLevel !== undefined ? payload.class1JobLevel : plansData.profiles[idx].class1JobLevel, 10),
+          class2JobLevel: planJobLevel(payload.class2JobLevel !== undefined ? payload.class2JobLevel : plansData.profiles[idx].class2JobLevel, 50),
           skillBuild: payload.skillBuild !== undefined ? payload.skillBuild : plansData.profiles[idx].skillBuild,
           statBuild: payload.statBuild !== undefined ? payload.statBuild : plansData.profiles[idx].statBuild,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : plansData.profiles[idx].triggers,
@@ -2019,6 +2002,8 @@ const server = http.createServer(async (req, res) => {
               description: p.description || "",
               class1Target: p.class1Target || "archer",
               class2Target: p.class2Target || "hunter",
+              class1JobLevel: planJobLevel(p.class1JobLevel, 10),
+              class2JobLevel: planJobLevel(p.class2JobLevel, 50),
               skillBuild: p.skillBuild || null,
               statBuild: p.statBuild || null,
               triggers: Array.isArray(p.triggers) ? p.triggers : [],

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.5.1
+// @version      4.6.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.5.1';
+    const PELICAN_BOT_VERSION = '4.6.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -11847,10 +11847,11 @@
             if ((skills[id] || 0) >= wanted[id]) continue;
             if (canLearnNow(id)) { pick = id; break; }
         }
-        if (!pick) return;
+        if (!pick) return false;
         planLastSkillAttempt = { id: pick, level: skills[pick] || 0, points: ch.skillPoints };
         console.log(`%c[PmheeAether Plan] ⚡ อัปสกิลตามแผน: "${pick}" Lv.${(skills[pick] || 0) + 1} (แต้มคงเหลือ ${ch.skillPoints})`, 'color: #a855f7; font-weight: bold;');
         try { room.send('skill_up', { skillId: pick }); } catch (err) { console.warn('[PmheeAether Plan] skill_up error:', err); }
+        return true;   // a point was spent -> the job change waits for the next cycle
     };
 
     // 2. Automated Stat Allocation: fill stats to their targets in priority order.
@@ -11930,6 +11931,21 @@
         const wanted = tier === 0 ? plan.class1Target : tier === 1 ? plan.class2Target : null;
         if (!wanted) return false;
         const target = String(wanted).trim().toLowerCase();
+
+        // Change at the Job Lv. set in the plan (default Class 1 = 10, Class 2 = 50: the game already allows
+        // Class 2 at Job 40, waiting for 50 gives 10 more skill points). Capped by the class's max job level.
+        const wantJob = Math.round(Number(tier === 0 ? plan.class1JobLevel : plan.class2JobLevel) || (tier === 0 ? 10 : 50));
+        const needJob = Math.min(wantJob, Number(ch.jobMaxLevel) || wantJob);
+        if ((Number(ch.jobLevel) || 0) < needJob) {
+            const wait = `wait:${ch.classId}:${needJob}`;
+            if (planJobWarned !== wait) {
+                planJobWarned = wait;
+                console.log(`[PmheeAether Plan] ⏳ เปลี่ยนเป็น ${target} ได้แล้ว แต่แผนตั้งให้รอ Job Lv.${needJob} (ตอนนี้ Job Lv.${ch.jobLevel})`);
+            }
+            return false;
+        }
+        if (ch.skillPoints > 0) console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพโดยยังเหลือแต้มสกิล ${ch.skillPoints} แต้ม (ไม่มีสกิลในคิวที่อัปได้)`);
+
         if (!options.includes(target)) {
             const warn = `${ch.classId}->${target}`;
             if (planJobWarned !== warn) {
@@ -12171,8 +12187,9 @@
             if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
             if (!window.__isBotRunning) return;
             if (typeof window.autoConfigureCombat === 'function') await window.autoConfigureCombat();
+            // Spend skill points of the current class before changing job
+            if (await window.autoAllocateSkills()) return;
             if (await window.checkAndExecuteAutoJobChange()) return;
-            await window.autoAllocateSkills();
             await window.autoAllocateStats();
             await window.checkAndExecutePlanTriggers();
         } catch (e) {

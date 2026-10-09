@@ -66,7 +66,10 @@
 
         // 2. Loader status
         if (cardLoaderStatus) {
-          if (data.isInstalled) {
+          if (data.isInstalled && data.loaderUpToDate === false) {
+            cardLoaderStatus.innerText = '⚡ มี Loader ใหม่ — กดติดตั้งแล้วปิด-เปิดจอเกมใหม่';
+            cardLoaderStatus.style.color = '#fbbf24';
+          } else if (data.isInstalled) {
             cardLoaderStatus.innerText = `✅ ติดตั้งแล้ว (v${data.loaderVersion || '1.0.2'})`;
             cardLoaderStatus.style.color = '#34d399';
           } else {

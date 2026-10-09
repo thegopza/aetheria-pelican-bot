@@ -2779,7 +2779,7 @@ function renderPlanProfilesList() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 14px; font-weight: 700; color: #f8fafc;">${escapeHTML(plan.name)}</span>
             <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-size: 10px; padding: 1px 6px;">
-              🏹 ${escapeHTML(plan.class1Target || 'Archer')} ➔ 👑 ${escapeHTML(plan.class2Target || 'Hunter')}
+              🏹 ${escapeHTML(plan.class1Target || 'Archer')} ➔ 👑 ${escapeHTML(plan.class2Target || 'Hunter')} <small style="opacity: 0.75;">(Job ${plan.class2JobLevel || 50})</small>
             </span>
             ${(plan.skillBuild?.skillPointQueue?.length > 0) ? `
               <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); font-size: 10px; padding: 1px 6px;">
@@ -3317,6 +3317,12 @@ async function saveActivePlan(applyLive = false) {
   if (descInput) activeEditingPlan.description = descInput.value.trim();
   if (c1Sel) activeEditingPlan.class1Target = c1Sel.value;
   if (c2Sel) activeEditingPlan.class2Target = c2Sel.value;
+  const jobLv = (id, def) => {
+    const n = Math.round(Number(document.getElementById(id)?.value));
+    return Number.isFinite(n) && n >= 1 && n <= 99 ? n : def;
+  };
+  activeEditingPlan.class1JobLevel = jobLv("plan-editor-class1-job", 10);
+  activeEditingPlan.class2JobLevel = jobLv("plan-editor-class2-job", 50);
 
   const problems = validatePlanForSave(activeEditingPlan);
   if (problems.length && !confirm("พบจุดที่ควรตรวจในแผนนี้:\n\n• " + problems.join("\n• ") + "\n\nบันทึกต่อเลยไหม?")) return;
@@ -3393,7 +3399,7 @@ function setupPlanModalEventListeners() {
 
   const btnBack = document.getElementById("btn-back-to-plan-list");
   if (btnBack) btnBack.onclick = () => { if (confirmDiscardPlanChanges()) { markPlanDirty(false); switchPlanModalView('list'); } };
-  ['plan-editor-title', 'plan-editor-desc', 'plan-editor-class1', 'plan-editor-class2'].forEach(id => {
+  ['plan-editor-title', 'plan-editor-desc', 'plan-editor-class1', 'plan-editor-class2', 'plan-editor-class1-job', 'plan-editor-class2-job'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', () => markPlanDirty());
   });
