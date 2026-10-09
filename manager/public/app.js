@@ -4142,6 +4142,13 @@ function selectCharSlot(slotDef) {
   }
 }
 
+// Game asset paths may come back relative (/art/icons/...); resolve them against the game site
+// because the Manager runs on localhost.
+function gameAssetUrl(url) {
+  if (!url) return '';
+  try { return new URL(url, 'https://www.aetheria-online.in.th').href; } catch (e) { return ''; }
+}
+
 function renderSlotColumn(containerId, slotDefs, equipment) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -4155,7 +4162,7 @@ function renderSlotColumn(containerId, slotDefs, equipment) {
     return `
       <button type="button" class="char-slot-btn ${hasItem ? '' : 'empty'} ${isSelected ? 'active-selected' : ''}" data-slot-key="${def.key}" onclick="selectCharSlotByKey('${def.key}')" title="คลิกเพื่อจัดการช่อง: ${def.label}">
         <div class="slot-icon-box">
-          ${it?.icon ? `<img src="${it.icon}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='${def.icon}'">` : `<span class="slot-icon-ph">${def.icon}</span>`}
+          ${it?.icon ? `<img src="${escapeHTML(gameAssetUrl(it.icon))}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='${def.icon}'">` : `<span class="slot-icon-ph">${def.icon}</span>`}
         </div>
         <div class="slot-meta">
           <span class="slot-label">${def.label}</span>
@@ -4176,7 +4183,7 @@ function renderAmmoSlot(ammoItem) {
   container.innerHTML = `
     <button type="button" class="char-ammo-btn ${isSelected ? 'active-selected' : ''}" data-slot-key="ammo" onclick="selectCharSlotByKey('ammo')" title="คลิกเพื่อเลือกกระสุน/ลูกธนู">
       <div class="slot-icon-box">
-        ${ammoItem?.icon ? `<img src="${ammoItem.icon}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='🏹'">` : `<span class="slot-icon-ph">🏹</span>`}
+        ${ammoItem?.icon ? `<img src="${escapeHTML(gameAssetUrl(ammoItem.icon))}" class="slot-icon-img" alt="" onerror="this.parentElement.innerHTML='🏹'">` : `<span class="slot-icon-ph">🏹</span>`}
       </div>
       <div class="slot-meta" style="flex: 1; text-align: left;">
         <span class="slot-label">กระสุน / ลูกธนู</span>
@@ -4278,7 +4285,7 @@ function renderGearScanner(slotDef, data) {
     if (equipped && equipped.name) {
       eqBox.innerHTML = `
         <div class="equipped-item-top">
-          <img src="${equipped.icon || ''}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
+          <img src="${escapeHTML(gameAssetUrl(equipped.icon))}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
           <div style="flex: 1; overflow: hidden;">
             <div class="equipped-item-name" style="color: ${getRarityColor(equipped.rarity)};">${escapeHTML(formatItemDisplayName(equipped))}</div>
             <div style="font-size: 10px; color: #94a3b8;">Req Lv.${equipped.levelReq || 0} | นน. ${equipped.weight || 0} ${equipped.qty > 1 ? `| x${equipped.qty.toLocaleString()}` : ''}</div>
@@ -4317,7 +4324,7 @@ function renderGearScanner(slotDef, data) {
         const btnText = equipped ? '🔄 สลับใส่' : '⚡ สวมใส่';
         return `
           <div class="gear-cand-card">
-            <img src="${item.icon || ''}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
+            <img src="${escapeHTML(gameAssetUrl(item.icon))}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
             <div class="gear-cand-info">
               <div class="gear-cand-name" style="color: ${rarityCol};">${escapeHTML(displayName)}</div>
               <div class="gear-cand-meta">Req Lv.${item.levelReq || 0} ${item.qty > 1 ? `| x${item.qty}` : ''} | ช่องกระเป๋า: ${item.slot}</div>

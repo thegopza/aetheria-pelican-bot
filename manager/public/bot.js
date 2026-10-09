@@ -1531,6 +1531,8 @@
         }
         return null;
     }
+    // Exposed so other sections (e.g. getCharacterFullDetail) resolve icons via the manifest
+    window.getItemIconUrl = getItemIconUrl;
 
     function getItemIconHtml(raw, size = 20) {
         const iconUrl = getItemIconUrl(raw);
@@ -11924,17 +11926,22 @@
         const faceAvatar = `https://www.aetheria-online.in.th/art/classes/${classId}-face.webp`;
         const fullPortrait = `https://www.aetheria-online.in.th/art/classes/${classId}.webp`;
 
+        // Icon paths come from the game's icon manifest (by itemId); names alone often don't match
+        // the file (e.g. Formal Suit -> items/rogear-formal-suit.webp). Always return absolute URLs
+        // because the Manager renders these outside the game origin.
+        const resolveCharIcon = (it) => {
+            if (!it) return null;
+            const url = (typeof window.getItemIconUrl === 'function') ? window.getItemIconUrl(it) : null;
+            if (url) return new URL(url, 'https://www.aetheria-online.in.th').href;
+            if (!it.name) return null;
+            const slug = String(it.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            return `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
+        };
+
         // Process all equippable items in inventory bag
         const equippableBag = bag.map(b => {
             const raw = b.raw || {};
-            let iconUrl = null;
-            if (typeof getItemIconUrl === 'function') {
-                iconUrl = getItemIconUrl(raw);
-            }
-            if (!iconUrl && b.name) {
-                const slug = String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-                iconUrl = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
-            }
+            const iconUrl = resolveCharIcon({ ...raw, itemId: raw.itemId ?? b.id, name: raw.name || b.name });
             return {
                 slot: b.slot,
                 itemId: b.id,
@@ -11961,17 +11968,9 @@
         if (char.equipment) {
             for (const [slotKey, it] of Object.entries(char.equipment)) {
                 if (it) {
-                    let iconUrl = null;
-                    if (typeof getItemIconUrl === 'function') {
-                        iconUrl = getItemIconUrl(it);
-                    }
-                    if (!iconUrl && it.name) {
-                        const slug = String(it.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-                        iconUrl = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
-                    }
                     equipmentWithIcons[slotKey] = {
                         ...it,
-                        icon: iconUrl
+                        icon: resolveCharIcon(it)
                     };
                 } else {
                     equipmentWithIcons[slotKey] = null;
@@ -11981,15 +11980,9 @@
 
         // Ammo slot handling
         if (char.ammo) {
-            let ammoIcon = null;
-            if (typeof getItemIconUrl === 'function') ammoIcon = getItemIconUrl(char.ammo);
-            if (!ammoIcon && char.ammo.name) {
-                const slug = String(char.ammo.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-                ammoIcon = `https://www.aetheria-online.in.th/art/icons/items/${slug}.webp`;
-            }
             equipmentWithIcons['ammo'] = {
                 ...char.ammo,
-                icon: ammoIcon
+                icon: resolveCharIcon(char.ammo)
             };
         }
 
