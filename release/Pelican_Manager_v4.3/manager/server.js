@@ -868,6 +868,7 @@ const server = http.createServer(async (req, res) => {
     const code = `(() => {
       const auth = window.__authConfig || {};
       const archer = window.__archerConfig || {};
+      const buffPotions = window.__buffPotionConfig || {};
       const sell = window.__sellConfig || {};
       const autosell = window.__autoMarketSellConfig || {};
       const marketFilter = window.__marketFilterConfig || {};
@@ -879,6 +880,7 @@ const server = http.createServer(async (req, res) => {
         isBotRunning: !!window.__isBotRunning,
         autoJumpEnabled: !!window.__autoJumpEnabled,
         archerConfig: archer,
+        buffPotionConfig: buffPotions,
         sellConfig: sell,
         autoMarketSellConfig: autosell,
         marketFilterConfig: marketFilter,
@@ -998,6 +1000,25 @@ const server = http.createServer(async (req, res) => {
             try { localStorage.setItem('pelican_current_ammo', '0'); } catch(e){}
             if (typeof window.updateAmmoHUD === 'function') window.updateAmmoHUD();
             return { ammo: 0 };
+          })()`;
+        } else if (payload.type === 'update-buff-potions') {
+          codeToRun = `(() => {
+            if (!window.__buffPotionConfig) window.__buffPotionConfig = {};
+            Object.assign(window.__buffPotionConfig, ${JSON.stringify(payload.config)});
+            if (typeof window.saveBuffPotionConfig === 'function') window.saveBuffPotionConfig();
+            if (typeof window.syncBuffPotionsToGame === 'function') window.syncBuffPotionsToGame();
+            if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+            return { success: true };
+          })()`;
+        } else if (payload.type === 'sync-buff-potions') {
+          codeToRun = `(() => {
+            if (typeof window.syncBuffPotionsToGame === 'function') window.syncBuffPotionsToGame(true);
+            return { success: true };
+          })()`;
+        } else if (payload.type === 'buy-buff-potions') {
+          codeToRun = `(() => {
+            if (typeof window.manualRestockBuffPotions === 'function') window.manualRestockBuffPotions();
+            return { success: true };
           })()`;
         } else if (payload.type === 'update-sell') {
           codeToRun = `(() => {

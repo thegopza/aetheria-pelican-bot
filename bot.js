@@ -3883,6 +3883,7 @@
                                     window.__currentAmmo = realQty;
                                     localStorage.setItem('pelican_current_ammo', realQty);
                                     updateAmmoHUD();
+                                    if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
                                 }
                                 break;
                             }
@@ -5820,6 +5821,174 @@
         }, 500);
     }
 
+    
+    // ==========================================
+    // BUFF POTION RESTOCK & AUTO-COMBAT SUITE
+    // ==========================================
+    const DEFAULT_BUFF_POTION_CONFIG = {
+        90306: { enabled: false, targetQty: 10, name: 'Concentration Potion', nameTh: 'Concentration Potion' },
+        90307: { enabled: false, targetQty: 10, name: 'Awakening Potion', nameTh: 'Awakening Potion' },
+        90308: { enabled: false, targetQty: 10, name: 'Berserk Potion', nameTh: 'Berserk Potion' }
+    };
+
+    window.__buffPotionConfig = Object.assign({}, DEFAULT_BUFF_POTION_CONFIG);
+    try {
+        const savedBuffCfg = localStorage.getItem('pelican_buff_potion_config');
+        if (savedBuffCfg) {
+            const parsed = JSON.parse(savedBuffCfg);
+            Object.keys(DEFAULT_BUFF_POTION_CONFIG).forEach(id => {
+                if (parsed[id]) {
+                    window.__buffPotionConfig[id] = Object.assign({}, DEFAULT_BUFF_POTION_CONFIG[id], parsed[id]);
+                }
+            });
+        }
+    } catch(e) {}
+
+    window.saveBuffPotionConfig = function() {
+        try {
+            localStorage.setItem('pelican_buff_potion_config', JSON.stringify(window.__buffPotionConfig));
+        } catch(e) {}
+    };
+
+    window.getBagItemCount = function(itemId) {
+        const targetId = parseInt(itemId);
+        if (isNaN(targetId)) return 0;
+        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        let count = 0;
+        bagItems.forEach(it => {
+            const id = parseInt(it.id);
+            if (id === targetId) {
+                count += Number(it.qty) || 1;
+            }
+        });
+        return count;
+    };
+
+    window.syncBuffPotionsToGame = function(showFeedback = false) {
+        const config = window.__buffPotionConfig || {};
+        const enabledIds = Object.keys(config)
+            .filter(id => config[id] && config[id].enabled)
+            .map(Number);
+
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
+        const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
+
+        const currentConfig = (charData && charData.auto && charData.auto.config) ? charData.auto.config : {};
+        const newConfig = {
+            skills: currentConfig.skills || [],
+            flyWing: currentConfig.flyWing === true,
+            hpItems: currentConfig.hpItems || [],
+            spItems: currentConfig.spItems || [],
+            lootWhen: currentConfig.lootWhen || 'first',
+            monsters: currentConfig.monsters || [],
+            buffItems: enabledIds,
+            buffParty: currentConfig.buffParty !== false,
+            hpPercent: typeof currentConfig.hpPercent === 'number' ? currentConfig.hpPercent : 40,
+            lootTypes: currentConfig.lootTypes || [],
+            spPercent: typeof currentConfig.spPercent === 'number' ? currentConfig.spPercent : 20,
+            pickupLoot: currentConfig.pickupLoot !== false,
+            acceptParty: currentConfig.acceptParty === true,
+            basicAttack: currentConfig.basicAttack !== false,
+            flyWingMobs: currentConfig.flyWingMobs || 0,
+            defendOthers: currentConfig.defendOthers === true,
+            lootRarities: currentConfig.lootRarities || [],
+            huntRadiusTiles: currentConfig.huntRadiusTiles || 'all',
+            healPartyPercent: currentConfig.healPartyPercent || 60,
+            lootRarityByType: currentConfig.lootRarityByType || {},
+            flyWingIdleSeconds: currentConfig.flyWingIdleSeconds || 1
+        };
+
+        if (room && typeof room.send === 'function') {
+            try {
+                room.send('auto_set', { config: newConfig });
+                console.log(`%c[Pelican Buff] 🧪 ซิงก์การตั้งค่ายาบัพเข้าสู่ระบบต่อสู้อัตโนมัติสำเร็จ! buffItems: [${enabledIds.join(', ')}]`, 'color: #22c55e; font-weight: bold;');
+            } catch(e) {
+                console.warn('[Pelican Buff] ⚠️ ส่ง packet auto_set ไม่สำเร็จ:', e);
+            }
+        } else {
+            console.warn('[Pelican Buff] ⚠️ ยังไม่พบ Colyseus Room (ระบบจะซิงก์เมื่อเชื่อมต่อเสร็จสมบูรณ์)');
+        }
+
+        if (charData && charData.auto) {
+            charData.auto.config = Object.assign({}, charData.auto.config, newConfig);
+        }
+
+        if (showFeedback) {
+            const btn = document.getElementById('p-btn-sync-potion-game');
+            if (btn) {
+                const oldText = btn.innerText;
+                btn.innerText = '✅ ซิงก์แล้ว!';
+                btn.style.background = '#22c55e';
+                setTimeout(() => {
+                    btn.innerText = oldText;
+                    btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                }, 1500);
+            }
+        }
+    };
+
+    window.executeBuffPotionRestock = function() {
+        const config = window.__buffPotionConfig || {};
+        const POTION_DEFS = [
+            { id: 90306, name: 'Concentration Potion' },
+            { id: 90307, name: 'Awakening Potion' },
+            { id: 90308, name: 'Berserk Potion' }
+        ];
+
+        let delay = 350;
+        POTION_DEFS.forEach(p => {
+            const itemCfg = config[p.id];
+            if (itemCfg && itemCfg.enabled) {
+                const curQty = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(p.id) : 0;
+                const targetQty = parseInt(itemCfg.targetQty) || 0;
+                const qtyToBuy = Math.max(0, targetQty - curQty);
+
+                if (qtyToBuy > 0) {
+                    setTimeout(() => {
+                        if (!window.__isBotRunning && !window.__isManualSelling) return;
+                        console.log(`%c[Pelican Shop] 🧪 ซื้อเติมยาบัพ [${p.name}]: มีในกระเป๋า ${curQty} / ตั้งเป้า ${targetQty} -> ซื้อเพิ่ม ${qtyToBuy} ขวด`, 'color: #00ffcc; font-weight: bold;');
+                        window.sendShopBuy(p.id, qtyToBuy);
+                        setTimeout(() => {
+                            if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+                        }, 400);
+                    }, delay);
+                    delay += 350;
+                } else {
+                    console.log(`%c[Pelican Shop] 🧪 ยาบัพ [${p.name}] มีเพียงพอแล้ว (${curQty} >= ${targetQty} ขวด) ไม่ต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                }
+            }
+        });
+        return delay;
+    };
+
+    window.manualRestockBuffPotions = function() {
+        window.__isManualSelling = true;
+        console.log('%c[Pelican Shop] 🧪 เริ่มต้นทดสอบซื้อเติมยาบัพ...', 'color: #38bdf8; font-weight: bold;');
+        const delay = window.executeBuffPotionRestock();
+        setTimeout(() => {
+            window.__isManualSelling = false;
+            console.log('%c[Pelican Shop] ✅ ซื้อเติมยาบัพเสร็จสิ้น!', 'color: #22c55e; font-weight: bold;');
+        }, delay + 500);
+    };
+
+    window.updatePotionHUD = function() {
+        const POTIONS = [90306, 90307, 90308];
+        POTIONS.forEach(id => {
+            const el = document.getElementById(`p-potion-count-${id}`);
+            if (el) {
+                const count = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(id) : 0;
+                el.innerText = `${count}`;
+                const targetQty = (window.__buffPotionConfig && window.__buffPotionConfig[id]) ? parseInt(window.__buffPotionConfig[id].targetQty) || 0 : 0;
+                if (count < targetQty) {
+                    el.style.color = '#fbbf24';
+                } else {
+                    el.style.color = '#22c55e';
+                }
+            }
+        });
+    };
+    
+
     window.testSellTrash = function() {
         window.__isManualSelling = true;
         triggerAutoSellTrash(() => {
@@ -5851,13 +6020,19 @@
                 console.log(`%c[Pelican Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
             }
 
-            // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
-            if (cfg.useBwing) {
-                setTimeout(() => {
-                    if (!window.__isBotRunning && !window.__isManualSelling) return;
-                    window.sendShopBuy(cfg.bwingItemId || 0x000160c7, parseInt(cfg.bwingBuyQty) || 5);
-                }, 350);
+            // 2.5 ซื้อเติมยาบัพ (Smart Restock สำหรับ Concentration, Awakening, Berserk Potion)
+            let potionDelay = 350;
+            if (typeof window.executeBuffPotionRestock === 'function') {
+                potionDelay = window.executeBuffPotionRestock();
             }
+
+            // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
+            setTimeout(() => {
+                if (!window.__isBotRunning && !window.__isManualSelling) return;
+                if (cfg.useBwing) {
+                    window.sendShopBuy(cfg.bwingItemId || 0x000160c7, parseInt(cfg.bwingBuyQty) || 5);
+                }
+            }, potionDelay);
 
             // 4. นำลูกธนูและ Butterfly Wing ใส่ช่องลัดด้านล่างอัตโนมัติ (เฉพาะเมื่อระบุช่อง)
             setTimeout(() => {
@@ -5876,7 +6051,7 @@
                 if (cfg.useBwing) {
                     window.sendItembarSet(8, cfg.bwingItemId || 0x000160c7); // ใส่ Bwing ที่ช่อง 8
                 }
-            }, 900);
+            }, potionDelay + 600);
 
             // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
             setTimeout(() => {
@@ -5889,12 +6064,12 @@
                     }
                     console.log(`%c[Pelican Shop] 🏹 สวมใส่คันธนูและลูกธนูเรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
                 }
-            }, 1400);
+            }, potionDelay + 1100);
 
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (onComplete) onComplete();
-            }, 2400);
+            }, potionDelay + 2100);
         });
     }
 
@@ -8756,6 +8931,7 @@
             shopConfig: Object.assign({}, window.__shopConfig || {}),
             autoMarketSellConfig: Object.assign({}, window.__autoMarketSellConfig || {}),
             marketFilterConfig: Object.assign({}, window.__marketFilterConfig || {}),
+            buffPotionConfig: Object.assign({}, window.__buffPotionConfig || {}),
             authConfig: {
                 enabled: !!window.__authConfig?.enabled,
                 autoResumeBot: window.__authConfig?.autoResumeBot !== false,
@@ -8829,6 +9005,16 @@
         const authChar = document.getElementById('p-auth-char');
         if (authChar) authChar.value = auth.charName || '';
 
+        // 5.5 Buff Potions
+        const potCfg = window.__buffPotionConfig || {};
+        [90306, 90307, 90308].forEach(id => {
+            const enEl = document.getElementById(`p-potion-enable-${id}`);
+            if (enEl) enEl.checked = !!potCfg[id]?.enabled;
+            const qtyEl = document.getElementById(`p-potion-qty-${id}`);
+            if (qtyEl && potCfg[id]?.targetQty !== undefined) qtyEl.value = potCfg[id].targetQty;
+        });
+        if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+
         // 6. Market Rules HTML
         if (typeof window.renderAutoSellHudRulesHtml === 'function') {
             const hudContainer = document.getElementById('p-autosell-hud-rules-container');
@@ -8898,6 +9084,12 @@
                 if (data.authConfig.charName !== undefined) window.__authConfig.charName = data.authConfig.charName;
                 // username & password ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
                 localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
+            }
+
+            // 7.5 Buff Potion Config
+            if (data.buffPotionConfig && typeof data.buffPotionConfig === 'object') {
+                window.__buffPotionConfig = Object.assign({}, window.__buffPotionConfig || {}, data.buffPotionConfig);
+                localStorage.setItem('pelican_buff_potion_config', JSON.stringify(window.__buffPotionConfig));
             }
 
             // 8. Refresh HUD inputs to reflect imported values
@@ -9112,16 +9304,17 @@
                 }
                 .p-tab-btn {
                     flex: 1;
-                    padding: 5px 2px;
+                    padding: 5px 1px;
                     background: transparent;
                     border: 1px solid transparent;
                     border-radius: 5px;
                     color: #94a3b8;
-                    font-size: 10.5px;
+                    font-size: 10px;
                     font-weight: bold;
                     cursor: pointer;
                     text-align: center;
                     transition: all 0.15s ease;
+                    white-space: nowrap;
                 }
                 .p-tab-btn:hover {
                     color: #fff;
@@ -9243,6 +9436,7 @@
                 <div class="p-tabs">
                     <button class="p-tab-btn active" data-tab="farm">🚀 ฟาร์ม</button>
                     <button class="p-tab-btn" data-tab="ammo">🏹 ธนู</button>
+                    <button class="p-tab-btn" data-tab="potion">🧪 ยาบัพ</button>
                     <button class="p-tab-btn" data-tab="sell">💰 ขาย</button>
                     <button class="p-tab-btn" data-tab="market">🛒 ตลาด</button>
                     <button class="p-tab-btn" data-tab="system">⚙️ ตั้งค่า</button>
@@ -9390,6 +9584,115 @@
                             <input type="checkbox" id="p-archer-auto-equip" ${window.__archerConfig.autoEquipArrow ? 'checked' : ''}>
                             <span style="font-size: 9.5px;">สวมใส่คันธนู & ลูกธนูอัตโนมัติ (Auto-Equip Bow & Arrow)</span>
                         </label>
+                    </div>
+                </div>
+
+
+                <!-- TAB 3: BUFF POTIONS -->
+                <div class="p-tab-pane" id="p-tab-potion">
+                    <div class="p-card" style="border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.06); padding: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-weight: bold; color: #fbbf24; font-size: 11px;">🧪 ตั้งค่ายาบัพ (Buff Potions)</span>
+                            <button id="p-btn-sync-potion-game" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #34d399; border-radius: 4px; font-size: 9.5px; cursor: pointer; padding: 2px 7px; font-weight: bold;">🔄 ซิงก์เข้าเกม</button>
+                        </div>
+                        <div style="font-size: 9.5px; color: #94a3b8; line-height: 1.3;">
+                            ติ๊กถูกเพื่อเปิดใช้ในระบบต่อสู้อัตโนมัติ และกำหนดจำนวนพกติดตัวเพื่อซื้อเติมเมื่อเข้าเมือง
+                        </div>
+                    </div>
+
+                    <!-- Concentration Potion (90306) -->
+                    <div class="p-card" style="border-color: rgba(234, 179, 8, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.3);">
+                                ${getItemIconHtml({ itemId: 90306, name: 'Concentration Potion' }, 26)}
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #facc15; font-size: 11px;">Concentration Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.1+ (ASPD +)</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                                    <span style="font-size: 9.5px; color: #94a3b8;">มีในกระเป๋า: <b id="p-potion-count-90306" style="color: #22c55e;">${window.getBagItemCount ? window.getBagItemCount(90306) : 0}</b> ขวด</span>
+                                    <span style="font-size: 9px; color: #64748b;">ID: 90306</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90306" ${window.__buffPotionConfig?.[90306]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ต่อสู้อัตโนมัติ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พกติดตัว:</span>
+                                <input type="number" id="p-potion-qty-90306" min="0" max="999" value="${window.__buffPotionConfig?.[90306]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #eab308; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Awakening Potion (90307) -->
+                    <div class="p-card" style="border-color: rgba(249, 115, 22, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(249, 115, 22, 0.3);">
+                                ${getItemIconHtml({ itemId: 90307, name: 'Awakening Potion' }, 26)}
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #fb923c; font-size: 11px;">Awakening Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.40+ (ASPD ++)</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                                    <span style="font-size: 9.5px; color: #94a3b8;">มีในกระเป๋า: <b id="p-potion-count-90307" style="color: #22c55e;">${window.getBagItemCount ? window.getBagItemCount(90307) : 0}</b> ขวด</span>
+                                    <span style="font-size: 9px; color: #64748b;">ID: 90307</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90307" ${window.__buffPotionConfig?.[90307]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ต่อสู้อัตโนมัติ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พกติดตัว:</span>
+                                <input type="number" id="p-potion-qty-90307" min="0" max="999" value="${window.__buffPotionConfig?.[90307]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #f97316; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Berserk Potion (90308) -->
+                    <div class="p-card" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                                ${getItemIconHtml({ itemId: 90308, name: 'Berserk Potion' }, 26)}
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #f87171; font-size: 11px;">Berserk Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.85+ (ASPD +++)</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                                    <span style="font-size: 9.5px; color: #94a3b8;">มีในกระเป๋า: <b id="p-potion-count-90308" style="color: #22c55e;">${window.getBagItemCount ? window.getBagItemCount(90308) : 0}</b> ขวด</span>
+                                    <span style="font-size: 9px; color: #64748b;">ID: 90308</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90308" ${window.__buffPotionConfig?.[90308]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ต่อสู้อัตโนมัติ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พกติดตัว:</span>
+                                <input type="number" id="p-potion-qty-90308" min="0" max="999" value="${window.__buffPotionConfig?.[90308]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #ef4444; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 4px; margin-top: 4px;">
+                        <button class="p-btn" id="p-btn-buy-potion-now" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; font-size: 10px; padding: 5px; font-weight: bold; border-radius: 4px; border: 1px solid #38bdf8; width: 100%; cursor: pointer;">🛒 ทดสอบซื้อเติมยาบัพทันที (เมื่ออยู่ในร้านค้า)</button>
+                    </div>
+
+                    <div style="font-size: 9px; color: #64748b; line-height: 1.3; margin-top: 2px; text-align: center;">
+                        💡 ทุกครั้งที่ตัวละครกลับมาซื้อลูกธนูในเมือง บอทจะตรวจนับยาในกระเป๋าและซื้อเติมส่วนต่างให้อัตโนมัติ
                     </div>
                 </div>
 
@@ -9797,6 +10100,11 @@
                     if (typeof window.switchMarketSubTab === 'function') {
                         const savedSub = localStorage.getItem('pelican_market_subtab') || 'autosell';
                         window.switchMarketSubTab(savedSub);
+                    }
+                }
+                if (targetTab === 'potion') {
+                    if (typeof window.updatePotionHUD === 'function') {
+                        window.updatePotionHUD();
                     }
                 }
             };
@@ -10353,7 +10661,47 @@
             };
         }
 
-        const sniffEquipBtn = document.getElementById('p-btn-sniff-equip');
+        // Buff Potion Event Listeners
+        [90306, 90307, 90308].forEach(id => {
+            const cb = document.getElementById(`p-potion-enable-${id}`);
+            if (cb) {
+                cb.onchange = (e) => {
+                    if (!window.__buffPotionConfig[id]) window.__buffPotionConfig[id] = {};
+                    window.__buffPotionConfig[id].enabled = e.target.checked;
+                    window.saveBuffPotionConfig();
+                    console.log(`%c[Pelican Buff] 🧪 ปรับสถานะ ${window.__buffPotionConfig[id].name}: ${e.target.checked ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}`, 'color: #38bdf8; font-weight: bold;');
+                    window.syncBuffPotionsToGame();
+                };
+            }
+            const qtyInput = document.getElementById(`p-potion-qty-${id}`);
+            if (qtyInput) {
+                qtyInput.onchange = (e) => {
+                    if (!window.__buffPotionConfig[id]) window.__buffPotionConfig[id] = {};
+                    window.__buffPotionConfig[id].targetQty = parseInt(e.target.value) || 0;
+                    window.saveBuffPotionConfig();
+                    console.log(`%c[Pelican Buff] 🧪 ปรับจำนวนพก ${window.__buffPotionConfig[id].name}: ${window.__buffPotionConfig[id].targetQty} ขวด`, 'color: #38bdf8;');
+                    if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+                };
+            }
+        });
+
+        const syncPotionBtn = document.getElementById('p-btn-sync-potion-game');
+        if (syncPotionBtn) {
+            syncPotionBtn.onclick = () => {
+                window.syncBuffPotionsToGame(true);
+            };
+        }
+
+        const buyPotionBtn = document.getElementById('p-btn-buy-potion-now');
+        if (buyPotionBtn) {
+            buyPotionBtn.onclick = () => {
+                if (typeof window.manualRestockBuffPotions === 'function') {
+                    window.manualRestockBuffPotions();
+                }
+            };
+        }
+
+                const sniffEquipBtn = document.getElementById('p-btn-sniff-equip');
         if (sniffEquipBtn) {
             sniffEquipBtn.onclick = () => {
                 window.startEquipSniffer();
@@ -11050,6 +11398,10 @@
 
         console.log(`%c[Pelican Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
 
+        const enabledBuffPotionIds = (window.__buffPotionConfig)
+            ? Object.keys(window.__buffPotionConfig).filter(id => window.__buffPotionConfig[id]?.enabled).map(Number)
+            : (Array.isArray(currentConfig.buffItems) ? currentConfig.buffItems : []);
+
         const newConfig = {
             skills: targetSkills,
             monsters: currentConfig.monsters || [],
@@ -11059,7 +11411,8 @@
             huntRadiusTiles: 'all',
             basicAttack: currentConfig.basicAttack !== false,
             buffParty: currentConfig.buffParty !== false,
-            flyWing: currentConfig.flyWing === true
+            flyWing: currentConfig.flyWing === true,
+            buffItems: enabledBuffPotionIds
         };
 
         try {

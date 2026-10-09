@@ -619,6 +619,7 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                 <div class="p-tabs">
                     <button class="p-tab-btn active" data-tab="farm">🚀 ฟาร์ม</button>
                     <button class="p-tab-btn" data-tab="ammo">🏹 ธนู</button>
+                    <button class="p-tab-btn" data-tab="potion">🧪 ยาบัพ</button>
                     <button class="p-tab-btn" data-tab="sell">💰 ขาย</button>
                     <button class="p-tab-btn" data-tab="market">🛒 ตลาด</button>
                     <button class="p-tab-btn" data-tab="system">⚙️ ตั้งค่า</button>
@@ -758,6 +759,95 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                             <input type="checkbox" id="p-archer-auto-equip" ${archer.autoEquipArrow ? "checked" : ""}>
                             <span style="font-size: 9.5px;">สวมใส่คันธนู & ลูกธนูอัตโนมัติ (Auto-Equip Bow & Arrow)</span>
                         </label>
+                    </div>
+                </div>
+
+                <!-- TAB 3: BUFF POTIONS -->
+                <div class="p-tab-pane" id="p-tab-potion">
+                    <div class="p-card" style="border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.06); padding: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-weight: bold; color: #fbbf24; font-size: 11px;">🧪 ตั้งค่ายาบัพ (Buff Potions)</span>
+                            <button class="p-btn-sync-potion-game" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #34d399; border-radius: 4px; font-size: 9.5px; cursor: pointer; padding: 2px 7px; font-weight: bold;">🔄 ซิงก์เข้าเกม</button>
+                        </div>
+                        <div style="font-size: 9.5px; color: #94a3b8; line-height: 1.3;">
+                            ติ๊กถูกเพื่อเปิดใช้ในระบบต่อสู้อัตโนมัติ และกำหนดจำนวนพกติดตัวเพื่อซื้อเติมเมื่อเข้าเมือง
+                        </div>
+                    </div>
+
+                    <!-- Concentration Potion (90306) -->
+                    <div class="p-card" style="border-color: rgba(234, 179, 8, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 20px;">🧪</span>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #facc15; font-size: 11px;">Concentration Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.1+</span>
+                                </div>
+                                <span style="font-size: 9px; color: #64748b;">ID: 90306</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90306" ${clientData?.buffPotionConfig?.[90306]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พก:</span>
+                                <input type="number" id="p-potion-qty-90306" min="0" max="999" value="${clientData?.buffPotionConfig?.[90306]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #eab308; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Awakening Potion (90307) -->
+                    <div class="p-card" style="border-color: rgba(249, 115, 22, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 20px;">🧪</span>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #fb923c; font-size: 11px;">Awakening Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.40+</span>
+                                </div>
+                                <span style="font-size: 9px; color: #64748b;">ID: 90307</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90307" ${clientData?.buffPotionConfig?.[90307]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พก:</span>
+                                <input type="number" id="p-potion-qty-90307" min="0" max="999" value="${clientData?.buffPotionConfig?.[90307]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #f97316; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Berserk Potion (90308) -->
+                    <div class="p-card" style="border-color: rgba(239, 68, 68, 0.3); background: rgba(15, 23, 42, 0.6); padding: 6px 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 20px;">🧪</span>
+                            <div style="flex: 1;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold; color: #f87171; font-size: 11px;">Berserk Potion</span>
+                                    <span style="font-size: 9px; color: #94a3b8;">Lv.85+</span>
+                                </div>
+                                <span style="font-size: 9px; color: #64748b;">ID: 90308</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);">
+                            <label class="p-check-box" style="color: #cbd5e1; margin: 0; font-size: 10px;">
+                                <input type="checkbox" id="p-potion-enable-90308" ${clientData?.buffPotionConfig?.[90308]?.enabled ? 'checked' : ''}>
+                                <b>เปิดใช้ & ซื้อเติม</b>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="font-size: 9.5px; color: #94a3b8;">พก:</span>
+                                <input type="number" id="p-potion-qty-90308" min="0" max="999" value="${clientData?.buffPotionConfig?.[90308]?.targetQty ?? 10}" style="width: 48px; background: #0f172a; border: 1px solid #ef4444; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 4px; margin-top: 4px;">
+                        <button class="p-btn p-btn-buy-potion-now" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; font-size: 10px; padding: 5px; font-weight: bold; border-radius: 4px; border: 1px solid #38bdf8; width: 100%; cursor: pointer;">🛒 ซื้อเติมยาบัพทันที (เมื่ออยู่ในร้านค้า)</button>
                     </div>
                 </div>
 
@@ -1287,7 +1377,39 @@ async function openWebBotHUD(profileId) {
   const zeroAmmoBtn = hudEl.querySelector('#p-btn-zero-ammo');
   if (zeroAmmoBtn) zeroAmmoBtn.onclick = () => sendWebHudAction(profileId, { type: 'zero-ammo' });
 
-  // Sell event listeners
+  // Buff Potion event listeners
+  const saveBuffPotions = () => {
+    const cfg = {
+      90306: {
+        enabled: !!hudEl.querySelector('#p-potion-enable-90306')?.checked,
+        targetQty: parseInt(hudEl.querySelector('#p-potion-qty-90306')?.value || '10')
+      },
+      90307: {
+        enabled: !!hudEl.querySelector('#p-potion-enable-90307')?.checked,
+        targetQty: parseInt(hudEl.querySelector('#p-potion-qty-90307')?.value || '10')
+      },
+      90308: {
+        enabled: !!hudEl.querySelector('#p-potion-enable-90308')?.checked,
+        targetQty: parseInt(hudEl.querySelector('#p-potion-qty-90308')?.value || '10')
+      }
+    };
+    sendWebHudAction(profileId, { type: 'update-buff-potions', config: cfg });
+  };
+  ['90306', '90307', '90308'].forEach(id => {
+    const cb = hudEl.querySelector(`#p-potion-enable-${id}`);
+    if (cb) cb.onchange = saveBuffPotions;
+    const qty = hudEl.querySelector(`#p-potion-qty-${id}`);
+    if (qty) qty.onchange = saveBuffPotions;
+  });
+
+  const syncPotionBtn = hudEl.querySelector('.p-btn-sync-potion-game');
+  if (syncPotionBtn) syncPotionBtn.onclick = () => sendWebHudAction(profileId, { type: 'sync-buff-potions' });
+
+  const buyPotionBtn = hudEl.querySelector('.p-btn-buy-potion-now');
+  if (buyPotionBtn) buyPotionBtn.onclick = () => sendWebHudAction(profileId, { type: 'buy-buff-potions' });
+
+
+    // Sell event listeners
   const saveSell = () => {
     const cfg = {
       enabled: hudEl.querySelector('#p-sell-trash')?.checked,
@@ -1509,6 +1631,18 @@ function populateWebHudData(profileId, data) {
 
   const bwingQty = hud.querySelector('#p-archer-bwing-qty');
   if (bwingQty && document.activeElement !== bwingQty) bwingQty.value = archer.bwingBuyQty || 2;
+
+  // Buff Potions
+  const buffPotions = data.buffPotionConfig || {};
+  ['90306', '90307', '90308'].forEach(id => {
+    const pCfg = buffPotions[id];
+    if (pCfg) {
+      const cb = hud.querySelector(`#p-potion-enable-${id}`);
+      if (cb && document.activeElement !== cb) cb.checked = !!pCfg.enabled;
+      const qty = hud.querySelector(`#p-potion-qty-${id}`);
+      if (qty && document.activeElement !== qty && pCfg.targetQty !== undefined) qty.value = pCfg.targetQty;
+    }
+  });
 
   // Sell
   const sell = data.sellConfig || {};
