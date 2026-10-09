@@ -198,11 +198,21 @@ async function fetchProfiles() {
 }
 
 function updateMetrics() {
-  if (totalEl) totalEl.innerText = currentProfiles.length;
+  const total = currentProfiles.length;
+  if (totalEl) totalEl.innerText = total;
   const onlineCount = currentProfiles.filter(p => p.isRunning).length;
   if (onlineEl) onlineEl.innerText = onlineCount;
   const farmingCount = currentProfiles.filter(p => p.liveState && (p.liveState.autoLoop || p.liveState.isBotRunning)).length;
   if (farmingEl) farmingEl.innerText = farmingCount;
+
+  const setBar = (id, ofId, count) => {
+    const bar = document.getElementById(id);
+    if (bar) bar.style.width = `${total > 0 ? Math.round((count / total) * 100) : 0}%`;
+    const of = document.getElementById(ofId);
+    if (of) of.innerText = `/ ${total}`;
+  };
+  setBar("metric-online-bar", "metric-online-of", onlineCount);
+  setBar("metric-farming-bar", "metric-farming-of", farmingCount);
 
   const totalZeny = currentProfiles.reduce((sum, p) => {
     const z = p.liveState && typeof p.liveState.zeny === 'number' ? p.liveState.zeny : 0;
@@ -216,220 +226,296 @@ function updateMetrics() {
 // ==========================================
 // RENDER CLIENT PROFILES (CARDS)
 // ==========================================
+
+// Accent hue per class family (used for portrait ring, class chip & card glow)
+function getClassHue(cls) {
+  const c = String(cls || '').toLowerCase();
+  if (/novice/.test(c)) return 215;
+  if (/bard|dancer|gypsy|clown/.test(c)) return 285;
+  if (/archer|hunter|sniper|ranger/.test(c)) return 150;
+  if (/sword|knight|crusader|paladin/.test(c)) return 0;
+  if (/mage|wizard|sage|warlock/.test(c)) return 220;
+  if (/acolyte|priest|monk/.test(c)) return 45;
+  if (/thief|assassin|rogue/.test(c)) return 265;
+  if (/merchant|blacksmith|alchemist/.test(c)) return 25;
+  return 195;
+}
+
+// Portrait served through the manager's cache (/api/portrait) so offline cards keep their face
+const failedPortraits = new Set();
+function onPortraitError(img) {
+  failedPortraits.add(img.getAttribute('src'));
+  img.parentElement.classList.add('no-img');
+  img.remove();
+}
+
+function getPortraitSrc(p, state) {
+  let src = state?.portrait || p.lastPortrait || '';
+  if (!src) {
+    const cls = String(state?.charClass || p.lastCharClass || p.charClass || '').toLowerCase().split(/[^a-z]+/)[0];
+    if (cls) src = `/art/classes/${cls}-face.webp`;
+  }
+  src = src.replace(/^https?:\/\/[^/]+/, '');
+  const url = src ? `${API_BASE}/api/portrait?src=${encodeURIComponent(src)}` : '';
+  return failedPortraits.has(url) ? '' : url;
+}
+
+function getActivityTone(text) {
+  if (text.includes('ตาย') || text.includes('ชุบ')) return 'danger';
+  if (text.includes('ซื้อ') || text.includes('ขาย')) return 'warn';
+  if (text.includes('เดิน')) return 'travel';
+  if (text.includes('ฟาร์ม') || text.includes('Farm')) return 'farm';
+  if (text.includes('รอ') || text.includes('แสตนด์บาย') || text.includes('หยุด')) return 'idle';
+  return 'farm';
+}
+
+function buildProfileCard(p) {
+  const isOnline = p.isRunning;
+  const isWindowHidden = Boolean(p.windowState?.isHidden);
+  const state = isOnline ? p.liveState : null;
+  const isBotRunning = Boolean(state && (state.autoLoop || state.isBotRunning));
+
+  const charName = state?.charName || p.lastCharName || null;
+  const curClass = state?.charClass || p.lastCharClass || p.charClass || 'Archer';
+  const hue = getClassHue(curClass);
+  const portraitSrc = getPortraitSrc(p, state);
+  const initial = escapeHTML(String(charName || p.name || '?').trim().charAt(0).toUpperCase());
+
+  // Levels: prefer parsed numbers, fall back to the raw "Base Lv. 99\nJob Lv. 50" text
+  let baseLv = state?.baseLv ?? null;
+  let jobLv = state?.jobLv ?? null;
+  if (state?.levels && (baseLv === null || jobLv === null)) {
+    const nums = String(state.levels).match(/\d+/g) || [];
+    if (baseLv === null && nums[0]) baseLv = Number(nums[0]);
+    if (jobLv === null && nums[1]) jobLv = Number(nums[1]);
+  }
+
+  const curMap = state && state.map ? state.map : p.targetMap;
+  const curAmmo = state && typeof state.ammo === 'number' ? state.ammo.toLocaleString() : '--';
+  const curPos = state && state.pos && state.pos.tileX ? `${state.pos.tileX}, ${state.pos.tileY}` : (state?.coords && state.coords !== '--' ? state.coords.split(' (')[0] : '--');
+  const curZeny = (state && typeof state.zeny === 'number') ? state.zeny.toLocaleString() : '--';
+  const weightPct = state?.weight ? parseFloat(String(state.weight).replace(/[^\d.]/g, '')) : NaN;
+  const weightTone = weightPct >= 80 ? 'bad' : weightPct >= 60 ? 'warn' : 'ok';
+
+  // HP & SP
+  const hpCur = state?.hp;
+  const hpMax = state?.hpMax || hpCur || 1;
+  const hpPct = (typeof hpCur === 'number' && hpMax > 0) ? Math.min(100, Math.round((hpCur / hpMax) * 100)) : 100;
+  const hpStr = typeof hpCur === 'number' ? `${hpCur.toLocaleString()} / ${hpMax.toLocaleString()}` : (state?.hpText || '--');
+
+  const spCur = state?.sp;
+  const spMax = state?.spMax || spCur || 1;
+  const spPct = (typeof spCur === 'number' && spMax > 0) ? Math.min(100, Math.round((spCur / spMax) * 100)) : 100;
+  const spStr = typeof spCur === 'number' ? `${spCur.toLocaleString()} / ${spMax.toLocaleString()}` : (state?.spText || '--');
+
+  const expPct = (t) => (t === 'MAX' ? 100 : Math.min(100, parseFloat(t) || 0));
+  const hasExp = Boolean(state && (state.baseExp || state.jobExp));
+
+  // Bot Activity Status
+  let activityText = "ออฟไลน์";
+  let activityTone = "offline";
+  if (isOnline) {
+    if (state) {
+      if (state.botStatus) {
+        activityText = state.botStatus;
+        activityTone = getActivityTone(activityText);
+      } else if (isBotRunning) {
+        activityText = "⚔️ Auto-Farm ทำงาน";
+        activityTone = "farm";
+      } else {
+        activityText = "⏸️ ยืนรอ / แสตนด์บาย";
+        activityTone = "idle";
+      }
+    } else {
+      activityText = "⏳ กำลังเชื่อมต่อ...";
+      activityTone = "warn";
+    }
+  }
+
+  const gauge = (kind, label, pct, val) => `
+        <div class="gauge-row">
+          <span class="gauge-lbl ${kind}">${label}</span>
+          <div class="gauge-track"><div class="gauge-fill ${kind}" style="width: ${pct}%;"></div></div>
+          <span class="gauge-val">${val}</span>
+        </div>`;
+
+  const iconBtn = (cls, onclick, title, icon) =>
+    `<button class="btn btn-sm btn-icon ${cls}" onclick="${onclick}" title="${title}"><span>${icon}</span></button>`;
+
+  const utilityIcons = `
+          ${iconBtn('icon-amber', `openCardWhitelistModal('${p.id}')`, '🛡️ จัดการ Whitelist (รายการห้ามขาย) ของจอนี้', '🛡️')}
+          ${iconBtn('icon-purple', `openSaveClientPresetModal('${p.id}')`, '💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง', '💾')}
+          ${iconBtn('', `openEditModal('${p.id}')`, 'แก้ไขการตั้งค่าโปรไฟล์', '⚙️')}
+          ${!p.isMain ? iconBtn('icon-red', `deleteProfile('${p.id}')`, 'ลบโปรไฟล์', '🗑️') : ''}`;
+
+  return `
+    <article class="profile-card ${isOnline ? 'is-online' : 'is-offline'} ${p.isMain ? 'is-main' : ''} ${isBotRunning ? 'is-farming' : ''}" id="card-${p.id}" data-profile-id="${p.id}" style="--h: ${hue};">
+      <div class="card-hero">
+        ${portraitSrc ? `<div class="card-hero-bg" style="background-image: url('${portraitSrc}');"></div>` : ''}
+        <div class="avatar ${portraitSrc ? '' : 'no-img'}">
+          <span class="avatar-fallback">${initial}</span>
+          ${portraitSrc ? `<img src="${portraitSrc}" alt="${escapeHTML(curClass)}" draggable="false" onerror="onPortraitError(this)">` : ''}
+          ${baseLv !== null ? `<span class="avatar-lv" title="Base Level">${baseLv}</span>` : ''}
+          <span class="avatar-dot ${isOnline ? 'online' : ''}"></span>
+        </div>
+        <div class="card-identity">
+          <div class="card-title-row">
+            <h3 class="profile-title" title="${escapeHTML(p.name)}">${escapeHTML(p.name)}</h3>
+            ${p.isMain ? `<span class="chip chip-main">★ MAIN</span>` : ''}
+          </div>
+          <div class="card-subline">
+            ${charName ? `<span class="char-live-name">👤 ${escapeHTML(charName)}</span>` : ''}
+            <span class="profile-acc">${escapeHTML(p.account || 'บัญชีเริ่มต้น')}</span>
+          </div>
+          <div class="card-class-row">
+            <span class="chip chip-class">${escapeHTML(curClass)}</span>
+            ${baseLv !== null ? `<span class="lv-text">Base <b>${baseLv}</b></span>` : ''}
+            ${jobLv !== null ? `<span class="lv-text">Job <b>${jobLv}</b></span>` : ''}
+          </div>
+        </div>
+        <div class="card-meta">
+          <span class="chip chip-port" title="Debug Port">:${p.debugPort || 49876}</span>
+          ${isOnline ? `<span class="chip ${isWindowHidden ? 'chip-warn' : 'chip-ok'}" title="สถานะหน้าต่างเกม">${isWindowHidden ? '🙈 ซ่อนอยู่' : '🖥️ แสดงอยู่'}</span>` : ''}
+        </div>
+      </div>
+
+      ${state && (typeof hpCur === 'number' || typeof spCur === 'number') ? `
+      <div class="char-gauges">
+        ${gauge('hp', 'HP', hpPct, hpStr)}
+        ${gauge('sp', 'SP', spPct, spStr)}
+        ${hasExp ? `
+        <div class="exp-row">
+          <div class="exp-item">
+            <span class="exp-lbl">Base EXP</span>
+            <div class="gauge-track thin"><div class="gauge-fill exp" style="width: ${expPct(state.baseExp)}%;"></div></div>
+            <span class="exp-val">${escapeHTML(state.baseExp || '--')}</span>
+          </div>
+          <div class="exp-item">
+            <span class="exp-lbl">Job EXP</span>
+            <div class="gauge-track thin"><div class="gauge-fill exp job" style="width: ${expPct(state.jobExp)}%;"></div></div>
+            <span class="exp-val">${escapeHTML(state.jobExp || '--')}</span>
+          </div>
+        </div>` : ''}
+      </div>` : ''}
+
+      <div class="card-status-row">
+        <span class="activity-pill tone-${activityTone}"><i></i>${escapeHTML(activityText)}</span>
+        <div class="points-chips">
+          ${state?.statPoints ? `<span class="chip chip-points" title="แต้มสถานะที่ยังไม่ได้อัป">STAT ${state.statPoints}</span>` : ''}
+          ${state?.skillPoints ? `<span class="chip chip-points" title="แต้มสกิลที่ยังไม่ได้อัป">SKILL ${state.skillPoints}</span>` : ''}
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="stat-item stat-wide">
+          <span class="stat-lbl">📍 ${isOnline ? 'แมพปัจจุบัน' : 'แมพเป้าหมาย'}</span>
+          <span class="stat-val stat-map" title="${escapeHTML(curMap)}">${escapeHTML(curMap || '--')}</span>
+        </div>
+        ${isOnline ? `
+        <div class="stat-item">
+          <span class="stat-lbl">พิกัด</span>
+          <span class="stat-val mono" title="${escapeHTML(state?.coords || '')}">${escapeHTML(curPos)}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-lbl">ลูกธนู</span>
+          <span class="stat-val mono text-cyan">${curAmmo}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-lbl">น้ำหนัก</span>
+          <span class="stat-val mono">${escapeHTML(state?.weight || '--')}</span>
+          ${!isNaN(weightPct) ? `<div class="mini-track"><div class="mini-fill ${weightTone}" style="width: ${Math.min(100, weightPct)}%;"></div></div>` : ''}
+        </div>
+        <div class="stat-item">
+          <span class="stat-lbl">Zeny</span>
+          <span class="stat-val mono text-gold">${curZeny}</span>
+        </div>` : ''}
+      </div>
+
+      ${p.notes ? `<div class="card-notes" title="${escapeHTML(p.notes)}">📝 ${escapeHTML(p.notes)}</div>` : ''}
+
+      <div class="card-footer-controls">
+        ${isOnline ? `
+        <div class="card-action-row main-actions">
+          ${isBotRunning ? `
+          <button class="btn btn-sm btn-bot-toggle is-stop" onclick="toggleBotExecution('${p.id}', false, this)" title="หยุดการทำงานของบอท (เกมยังเปิดอยู่)">
+            <span>⏸️</span> หยุดบอท
+          </button>` : `
+          <button class="btn btn-sm btn-bot-toggle is-start" onclick="toggleBotExecution('${p.id}', true, this)" title="เริ่มการทำงานของบอททันที">
+            <span>▶️</span> เริ่มบอท
+          </button>`}
+          <button class="btn btn-sm btn-bot-menu" onclick="openWebBotHUD('${p.id}')" title="เปิดหน้าต่างเมนูบอท (หน้าตาเหมือนในเกม) สำหรับ Session นี้">
+            <span>🎮</span> เมนูบอท
+          </button>
+        </div>
+        <div class="card-action-row sub-actions">
+          <button class="btn btn-sm btn-ghost" onclick="toggleClientWindow('${p.id}')" title="${isWindowHidden ? 'แสดงหน้าต่างเกมบนจอ' : 'ซ่อนหน้าต่างเกม (ทำงานแบบ Headless)'}">
+            <span>👁️</span> ${isWindowHidden ? 'เลิกซ่อน' : 'ซ่อน'}
+          </button>
+          <button class="btn btn-sm btn-ghost ghost-red" onclick="stopClient('${p.id}')" title="ปิดหน้าต่างและโปรเซสเกมนี้">
+            <span>⏹️</span> ปิดจอ
+          </button>
+          <button class="btn btn-sm btn-ghost ghost-indigo" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)">
+            <span>📜</span> Plan
+          </button>
+          <div class="icon-group">${utilityIcons}</div>
+        </div>` : `
+        <div class="card-action-row main-actions single">
+          <button class="btn btn-sm btn-launch" onclick="launchClient('${p.id}')">
+            <span>▶️</span> เปิดจอเกม
+          </button>
+        </div>
+        <div class="card-action-row sub-actions">
+          <button class="btn btn-sm btn-ghost ghost-indigo" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)">
+            <span>📜</span> Plan
+          </button>
+          <div class="icon-group">${utilityIcons}</div>
+        </div>`}
+      </div>
+    </article>`;
+}
+
+// Minimal DOM morph: update only changed attributes/text so images don't reload
+// and HP/SP bars animate instead of the whole grid being rebuilt every poll.
+function morphNode(oldNode, newNode) {
+  if (oldNode.isEqualNode(newNode)) return;
+  if (oldNode.nodeType !== newNode.nodeType || oldNode.nodeName !== newNode.nodeName || oldNode.childNodes.length !== newNode.childNodes.length) {
+    oldNode.replaceWith(newNode);
+    return;
+  }
+  if (oldNode.nodeType !== Node.ELEMENT_NODE) {
+    oldNode.nodeValue = newNode.nodeValue;
+    return;
+  }
+  Array.from(oldNode.attributes).forEach(a => { if (!newNode.hasAttribute(a.name)) oldNode.removeAttribute(a.name); });
+  Array.from(newNode.attributes).forEach(a => { if (oldNode.getAttribute(a.name) !== a.value) oldNode.setAttribute(a.name, a.value); });
+  const newKids = Array.from(newNode.childNodes);
+  Array.from(oldNode.childNodes).forEach((child, i) => morphNode(child, newKids[i]));
+}
+
 function renderProfiles() {
   if (currentProfiles.length === 0) {
     gridEl.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 50px; background: rgba(15,23,42,0.5); border-radius: 16px; border: 1px dashed rgba(56,189,248,0.2);">
-        <p style="color: #94a3b8; font-size: 14px; margin-bottom: 12px;">ยังไม่มีโปรไฟล์จอเกมในระบบ</p>
+      <div class="empty-state">
+        <div class="empty-icon">🎮</div>
+        <p>ยังไม่มีโปรไฟล์จอเกมในระบบ</p>
         <button class="btn btn-primary" onclick="openAddModal()">➕ เพิ่มโปรไฟล์แรกเลย</button>
       </div>
     `;
     return;
   }
 
-  gridEl.innerHTML = currentProfiles.map(p => {
-    const isOnline = p.isRunning;
-    const isWindowHidden = Boolean(p.windowState?.isHidden);
-    const state = p.liveState;
-    const isBotRunning = Boolean(state && (state.autoLoop || state.isBotRunning));
+  const tpl = document.createElement('template');
+  tpl.innerHTML = currentProfiles.map(buildProfileCard).join('');
+  const newCards = Array.from(tpl.content.children);
+  const oldCards = Array.from(gridEl.children);
+  const sameLayout = oldCards.length === newCards.length &&
+    oldCards.every((el, i) => el.dataset.profileId === newCards[i].dataset.profileId);
 
-    const charName = state?.charName || null;
-    const curClass = state?.charClass || p.charClass || 'Archer';
-    const curLevels = state?.levels || '';
-    const curMap = state && state.map ? state.map : p.targetMap;
-    const curAmmo = state && typeof state.ammo === 'number' ? `${state.ammo.toLocaleString()} ดอก` : '--';
-    const curPos = state && state.coords ? state.coords : (state && state.pos && state.pos.x ? `${state.pos.tileX || 0}, ${state.pos.tileY || 0} (${state.pos.x}, ${state.pos.y})` : '--');
-    const curWeight = state?.weight ? `${state.weight}` : '--';
-    const curZeny = (state && typeof state.zeny === 'number') ? `${state.zeny.toLocaleString()} z` : '--';
-    
-    // HP & SP
-    const hpCur = state?.hp;
-    const hpMax = state?.hpMax || hpCur || 1;
-    const hpPct = (typeof hpCur === 'number' && hpMax > 0) ? Math.min(100, Math.round((hpCur / hpMax) * 100)) : 100;
-    const hpStr = state?.hpText || (typeof hpCur === 'number' ? `${hpCur.toLocaleString()} / ${hpMax.toLocaleString()}` : '--');
-
-    const spCur = state?.sp;
-    const spMax = state?.spMax || spCur || 1;
-    const spPct = (typeof spCur === 'number' && spMax > 0) ? Math.min(100, Math.round((spCur / spMax) * 100)) : 100;
-    const spStr = state?.spText || (typeof spCur === 'number' ? `${spCur.toLocaleString()} / ${spMax.toLocaleString()}` : '--');
-
-    // Bot Activity Status
-    let activityText = "ออฟไลน์";
-    let activityColor = "#64748b";
-    if (isOnline) {
-      if (state) {
-        if (state.botStatus) {
-          activityText = state.botStatus;
-          if (activityText.includes('ตาย') || activityText.includes('ชุบ')) activityColor = '#ef4444';
-          else if (activityText.includes('ซื้อ') || activityText.includes('ขาย')) activityColor = '#f59e0b';
-          else if (activityText.includes('เดิน')) activityColor = '#38bdf8';
-          else if (activityText.includes('ฟาร์ม') || activityText.includes('Farm')) activityColor = '#10b981';
-          else activityColor = '#34d399';
-        } else if (state.autoLoop || state.isBotRunning) {
-          activityText = "⚔️ Auto-Farm ทำงาน";
-          activityColor = "#10b981";
-        } else {
-          activityText = "⏸️ ยืนรอ / แสตนด์บาย";
-          activityColor = "#f59e0b";
-        }
-      } else {
-        activityText = "⏳ กำลังเชื่อมต่อ...";
-        activityColor = "#f59e0b";
-      }
-    }
-
-    return `
-      <div class="profile-card ${isOnline ? 'is-online' : ''} ${p.isMain ? 'is-main' : ''}" id="card-${p.id}">
-        <div class="card-header">
-          <div class="profile-identity">
-            <span class="status-dot ${isOnline ? 'online' : ''}"></span>
-            <div>
-              <div class="profile-title" style="display: flex; align-items: center; gap: 6px;">
-                <span>${escapeHTML(p.name)}</span>
-                ${p.isMain ? `<span class="badge" style="background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); font-size: 9.5px; padding: 1px 6px; border-radius: 4px; font-weight: bold;">⭐ MAIN</span>` : ''}
-              </div>
-              <div style="display: flex; align-items: center; gap: 6px; margin-top: 3px;">
-                <div class="profile-acc">${escapeHTML(p.account || 'บัญชีเริ่มต้น')}</div>
-                ${charName ? `<span class="char-live-name">👤 ${escapeHTML(charName)}</span>` : ''}
-              </div>
-            </div>
-          </div>
-          <div class="card-badges" style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-            <div style="display: flex; align-items: center; gap: 4px;">
-              <span class="class-badge">${escapeHTML(curClass)}${curLevels ? ` (${escapeHTML(curLevels.split('\n')[0].replace('Base ', ''))})` : ''}</span>
-              <span class="port-badge">PORT: ${p.debugPort || 49876}</span>
-            </div>
-            ${isOnline ? `
-              <span class="badge" style="background: ${isWindowHidden ? 'rgba(245, 158, 11, 0.18)' : 'rgba(34, 197, 94, 0.18)'}; color: ${isWindowHidden ? '#fbbf24' : '#4ade80'}; border: 1px solid ${isWindowHidden ? 'rgba(245, 158, 11, 0.4)' : 'rgba(34, 197, 94, 0.4)'}; font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: bold;">
-                ${isWindowHidden ? '👁️ ซ่อนอยู่' : '🖥️ ไม่ได้ซ่อน'}
-              </span>
-            ` : ''}
-          </div>
-        </div>
-
-        ${isOnline && (typeof hpCur === 'number' || typeof spCur === 'number') ? `
-          <div class="char-gauges">
-            <div class="gauge-row">
-              <span class="gauge-lbl hp">HP</span>
-              <div class="gauge-track">
-                <div class="gauge-fill hp" style="width: ${hpPct}%;"></div>
-              </div>
-              <span class="gauge-val" style="color: #fca5a5;">${hpStr}</span>
-            </div>
-            <div class="gauge-row">
-              <span class="gauge-lbl sp">SP</span>
-              <div class="gauge-track">
-                <div class="gauge-fill sp" style="width: ${spPct}%;"></div>
-              </div>
-              <span class="gauge-val" style="color: #93c5fd;">${spStr}</span>
-            </div>
-          </div>
-        ` : ''}
-
-        <div class="card-body">
-          <div class="stat-item">
-            <span class="stat-lbl">แมพปัจจุบัน:</span>
-            <span class="stat-val" style="color: #38bdf8; font-weight: 700;">${escapeHTML(curMap)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-lbl">พิกัด (Coords):</span>
-            <span class="stat-val">${escapeHTML(curPos)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-lbl">จำนวนลูกธนู:</span>
-            <span class="stat-val" style="color: #00ffcc; font-weight: 700;">${curAmmo}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-lbl">น้ำหนักคงเหลือ:</span>
-            <span class="stat-val" style="color: #cbd5e1;">${escapeHTML(curWeight)}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-lbl">สถานะบอท:</span>
-            <span class="stat-val" style="color: ${activityColor}; font-weight: 700;">${activityText}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-lbl">เงินในตัว (Zeny):</span>
-            <span class="stat-val" style="color: #facc15; font-weight: 700;">🪙 ${curZeny}</span>
-          </div>
-        </div>
-
-        ${p.notes ? `<div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 6px;">📝 ${escapeHTML(p.notes)}</div>` : ''}
-
-        <div class="card-footer-controls">
-          ${isOnline ? `
-            <!-- ROW 1: PRIMARY ACTION BUTTONS (Start/Stop Bot & Bot Menu) -->
-            <div class="card-action-row main-actions">
-              ${isBotRunning ? `
-                <button class="btn btn-warning btn-sm btn-bot-toggle" onclick="toggleBotExecution('${p.id}', false, this)" title="หยุดการทำงานของบอท (เกมยังเปิดอยู่)">
-                  <span>⏸️</span> หยุดบอท
-                </button>
-              ` : `
-                <button class="btn btn-success btn-sm btn-bot-toggle" onclick="toggleBotExecution('${p.id}', true, this)" title="เริ่มการทำงานของบอททันที">
-                  <span>▶️</span> เริ่มบอท
-                </button>
-              `}
-              <button class="btn btn-menu btn-sm btn-bot-menu" onclick="openWebBotHUD('${p.id}')" title="เปิดหน้าต่างเมนูบอท (หน้าตาเหมือนในเกม) สำหรับ Session นี้">
-                <span>🎮</span> เมนูบอท
-              </button>
-            </div>
-
-            <!-- ROW 2: WINDOW & UTILITY BUTTONS -->
-            <div class="card-action-row sub-actions">
-              <button class="btn btn-dark btn-sm" onclick="toggleClientWindow('${p.id}')" title="${isWindowHidden ? 'แสดงหน้าต่างเกมบนจอ' : 'ซ่อนหน้าต่างเกม (ทำงานแบบ Headless)'}">
-                <span>${isWindowHidden ? '👁️ เลิกซ่อน' : '👁️ ซ่อน'}</span>
-              </button>
-              <button class="btn btn-danger btn-sm" onclick="stopClient('${p.id}')" title="ปิดหน้าต่างและโปรเซสเกมนี้">
-                <span>⏹️</span> ปิดจอ
-              </button>
-              <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)">
-                <span>📜</span> Plan
-              </button>
-              <button class="btn btn-warning btn-sm btn-icon" onclick="openCardWhitelistModal('${p.id}')" title="🛡️ จัดการ Whitelist (รายการห้ามขาย) ของจอนี้">
-                <span>🛡️</span>
-              </button>
-              <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
-                <span>💾</span>
-              </button>
-              <button class="btn btn-secondary btn-sm btn-icon" onclick="openEditModal('${p.id}')" title="แก้ไขการตั้งค่าโปรไฟล์">
-                <span>⚙️</span>
-              </button>
-              ${!p.isMain ? `
-                <button class="btn btn-secondary btn-sm btn-icon" onclick="deleteProfile('${p.id}')" title="ลบโปรไฟล์">
-                  <span>🗑️</span>
-                </button>
-              ` : ''}
-            </div>
-          ` : `
-            <!-- OFFLINE ACTIONS -->
-            <div class="card-action-row main-actions">
-              <button class="btn btn-success btn-sm btn-launch" onclick="launchClient('${p.id}')" style="grid-column: 1 / -1;">
-                <span>▶️</span> เปิดจอเกม
-              </button>
-            </div>
-            <div class="card-action-row sub-actions" style="margin-top: 2px;">
-              <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)" style="flex: 1;">
-                <span>📜</span> Plan
-              </button>
-              <button class="btn btn-warning btn-sm btn-icon" onclick="openCardWhitelistModal('${p.id}')" title="🛡️ จัดการ Whitelist (รายการห้ามขาย) ของจอนี้">
-                <span>🛡️</span>
-              </button>
-              <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
-                <span>💾</span>
-              </button>
-              <button class="btn btn-secondary btn-sm btn-icon" onclick="openEditModal('${p.id}')" title="แก้ไขการตั้งค่าโปรไฟล์">
-                <span>⚙️</span>
-              </button>
-              ${!p.isMain ? `
-                <button class="btn btn-secondary btn-sm btn-icon" onclick="deleteProfile('${p.id}')" title="ลบโปรไฟล์">
-                  <span>🗑️</span>
-                </button>
-              ` : ''}
-            </div>
-          `}
-        </div>
-      </div>
-    `;
-  }).join("");
+  if (!sameLayout) {
+    gridEl.replaceChildren(...newCards);
+    return;
+  }
+  oldCards.forEach((el, i) => morphNode(el, newCards[i]));
 }
 
 function escapeHTML(str) {
@@ -501,18 +587,14 @@ async function stopClient(id) {
 // ==========================================
 const btnAutoTileShrink = document.getElementById("btn-auto-tile-shrink");
 if (btnAutoTileShrink) {
-  btnAutoTileShrink.onclick = async () => {
+  const autoTileLabel = btnAutoTileShrink.innerText;
+  btnAutoTileShrink.onclick = async (e) => {
+    e.preventDefault();
     try {
-      btnAutoTileShrink.disabled = true;
       btnAutoTileShrink.innerText = "⏳ กำลังจัดเรียง...";
       await fetch(`${API_BASE}/api/tile-windows?layout=compact`, { method: "POST" });
-      setTimeout(() => {
-        btnAutoTileShrink.disabled = false;
-        btnAutoTileShrink.innerHTML = `<span class="icon">📐</span> จัดเรียงจอย่อจออัตโนมัติ`;
-      }, 1000);
-    } catch(e) {
-      btnAutoTileShrink.disabled = false;
-    }
+    } catch(err) {}
+    setTimeout(() => { btnAutoTileShrink.innerText = autoTileLabel; }, 1000);
   };
 }
 

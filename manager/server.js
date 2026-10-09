@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const { spawn, exec } = require("child_process");
@@ -218,10 +219,37 @@ function isProcessAlive(pid) {
   }
 }
 
+// Extra HUD details read straight from the game DOM (portrait, EXP, levels, unspent points).
+// Evaluated alongside __getClientLiveState so it works without reinstalling bot.js.
+const LIVE_STATE_EVAL = `(() => {
+  const s = (typeof window.__getClientLiveState === 'function') ? window.__getClientLiveState() : null;
+  if (!s) return null;
+  try {
+    const hud = document.querySelector('.hud-status');
+    if (hud) {
+      const img = hud.querySelector('img.portrait');
+      if (img && img.src) s.portrait = img.src;
+      const lv = Array.from(hud.querySelectorAll('.hud-levels span')).map(e => e.innerText || '');
+      const num = t => { const m = String(t || '').match(/(\\d+)/); return m ? Number(m[1]) : null; };
+      s.baseLv = num(lv[0]);
+      s.jobLv = num(lv[1]);
+      const exp = Array.from(hud.querySelectorAll('.bar-exp .bar-num')).map(e => (e.innerText || '').trim());
+      s.baseExp = exp[0] || null;
+      s.jobExp = exp[1] || null;
+      Array.from(hud.querySelectorAll('.hud-alerts button')).forEach(b => {
+        const t = b.innerText || '';
+        if (t.includes('สถานะ')) s.statPoints = num(t);
+        else if (t.includes('สกิล')) s.skillPoints = num(t);
+      });
+    }
+  } catch (e) {}
+  return s;
+})()`;
+
 function queryClientState(port) {
   return new Promise((resolve) => {
     // 1. Try rich state via /api/eval if bot script has __getClientLiveState
-    const evalUrl = `http://127.0.0.1:${port}/api/eval?code=` + encodeURIComponent(`(typeof window.__getClientLiveState === 'function' ? window.__getClientLiveState() : null)`);
+    const evalUrl = `http://127.0.0.1:${port}/api/eval?code=` + encodeURIComponent(LIVE_STATE_EVAL);
     const req = http.get(evalUrl, { timeout: 800 }, (res) => {
       let data = "";
       res.on("data", chunk => data += chunk);
@@ -263,9 +291,47 @@ const mimeTypes = {
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
+  ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".svg": "image/svg+xml"
 };
+
+// ==========================================
+// CHARACTER PORTRAIT CACHE (game art proxied & stored on disk)
+// ==========================================
+const PORTRAIT_HOST = "www.aetheria-online.in.th";
+const PORTRAIT_DIR = path.join(__dirname, "data", "portraits");
+
+// Only allow game class art: /art/classes/<name>.webp
+function portraitPathFromSrc(src) {
+  try {
+    const u = new URL(src, `https://${PORTRAIT_HOST}`);
+    if (u.hostname !== PORTRAIT_HOST) return null;
+    if (!/^\/art\/classes\/[a-z0-9_-]+\.(webp|png)$/i.test(u.pathname)) return null;
+    return u.pathname;
+  } catch (e) {
+    return null;
+  }
+}
+
+function fetchPortrait(artPath) {
+  const file = path.join(PORTRAIT_DIR, path.basename(artPath));
+  if (fs.existsSync(file)) return Promise.resolve(file);
+  return new Promise((resolve) => {
+    https.get(`https://${PORTRAIT_HOST}${artPath}`, { timeout: 5000 }, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return resolve(null); }
+      const chunks = [];
+      r.on("data", c => chunks.push(c));
+      r.on("end", () => {
+        try {
+          fs.mkdirSync(PORTRAIT_DIR, { recursive: true });
+          fs.writeFileSync(file, Buffer.concat(chunks));
+          resolve(file);
+        } catch (e) { resolve(null); }
+      });
+    }).on("error", () => resolve(null)).on("timeout", function () { this.destroy(); resolve(null); });
+  });
+}
 
 
 function runPowerShell(script) {
@@ -332,7 +398,44 @@ const server = http.createServer(async (req, res) => {
         };
       })
     );
+
+    // Remember last-seen portrait / character so offline cards still show them.
+    // Re-read the file here: other requests may have saved profiles while we awaited.
+    const changed = enriched.filter(p => {
+      const s = p.liveState;
+      if (!s || s.error) return false;
+      const portrait = s.portrait && portraitPathFromSrc(s.portrait);
+      return (portrait && portrait !== p.lastPortrait) || (s.charName && s.charName !== p.lastCharName);
+    });
+    if (changed.length > 0) {
+      const fresh = loadProfiles();
+      changed.forEach(p => {
+        const target = fresh.find(f => f.id === p.id);
+        if (!target) return;
+        const portrait = p.liveState.portrait && portraitPathFromSrc(p.liveState.portrait);
+        if (portrait) target.lastPortrait = p.lastPortrait = portrait;
+        if (p.liveState.charName) target.lastCharName = p.lastCharName = p.liveState.charName;
+        if (p.liveState.charClass) target.lastCharClass = p.lastCharClass = p.liveState.charClass;
+      });
+      saveProfiles(fresh);
+    }
+
     return sendJSON({ success: true, profiles: enriched, gameExe: GAME_EXE, allWindowsHidden });
+  }
+
+  // GET /api/portrait?src=/art/classes/hunter-face.webp — cached character portrait
+  if (req.method === "GET" && pathname === "/api/portrait") {
+    const artPath = portraitPathFromSrc(parsedUrl.searchParams.get("src") || "");
+    const file = artPath ? await fetchPortrait(artPath) : null;
+    if (!file) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      return res.end("portrait not found");
+    }
+    res.writeHead(200, {
+      "Content-Type": mimeTypes[path.extname(file).toLowerCase()] || "image/webp",
+      "Cache-Control": "public, max-age=86400"
+    });
+    return fs.createReadStream(file).pipe(res);
   }
 
   // 2. POST /api/profiles (Create)

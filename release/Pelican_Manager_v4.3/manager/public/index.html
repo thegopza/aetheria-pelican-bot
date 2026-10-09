@@ -6,8 +6,8 @@
   <title>Aetheria Online — Multi-Client Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1791535335343">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=4310">
 </head>
 <body>
   <div class="app-container">
@@ -19,33 +19,26 @@
         </div>
         <div class="brand-text">
           <h1>Aetheria Online Manager</h1>
-          <span class="subtext">Multi-Client Isolated Sessions & Bot Control v4.3.0</span>
+          <span class="subtext">Multi-Client Isolated Sessions & Bot Control <span class="ver-pill">v4.3.0</span></span>
         </div>
       </div>
 
       <div class="header-actions">
+        <div class="btn-group">
+          <button id="btn-launch-all" class="btn btn-success" title="เปิดจอเกมทุกโปรไฟล์พร้อมกัน">
+            <span class="icon">🚀</span> เปิดทุกจอ
+          </button>
+          <button id="btn-stop-all" class="btn btn-danger" title="ปิดจอเกมทุกโปรไฟล์ทันที">
+            <span class="icon">⏹️</span> ปิดทุกจอ
+          </button>
+        </div>
         <button id="btn-add-profile" class="btn btn-primary">
           <span class="icon">➕</span> เพิ่มโปรไฟล์
         </button>
-        <button id="btn-launch-all" class="btn btn-success">
-          <span class="icon">🚀</span> เปิดทุกจอ (Launch All)
+        <button id="btn-game-patcher" class="btn btn-patcher" title="ติดตั้ง / อัปเดตสคริปต์บอทลงตัวเกม">
+          <span class="icon">⚡</span> <span>สคริปต์เกม</span>
+          <span id="game-patcher-status-badge" class="badge patcher-badge">ตรวจสอบ...</span>
         </button>
-        <button id="btn-stop-all" class="btn btn-danger">
-          <span class="icon">🛑</span> ปิดทุกจอ (Stop All)
-        </button>
-        <button id="btn-game-patcher" class="btn btn-warning" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-weight: bold; border: none; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); display: inline-flex; align-items: center; gap: 6px;">
-          <span class="icon">⚡</span> <span>ติดตั้ง/อัปเดตสคริปต์</span>
-          <span id="game-patcher-status-badge" class="badge" style="background: #10b981; font-size: 10px; padding: 2px 6px; border-radius: 10px; color: #fff;">ตรวจสอบ...</span>
-        </button>
-        <div class="dropdown">
-          <button id="btn-tile-menu" class="btn btn-secondary">
-            <span class="icon">📐</span> จัดหน้าต่าง ▾
-          </button>
-          <div class="dropdown-content">
-            <a href="#" id="tile-side">แบ่งครึ่งจอ (ซ้าย-ขวา)</a>
-            <a href="#" id="tile-grid">จัด 4 จอ (2x2 Grid)</a>
-          </div>
-        </div>
         <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
           <span class="icon">🔄</span>
         </button>
@@ -55,27 +48,34 @@
     <!-- METRICS OVERVIEW BAR -->
     <section class="metrics-bar">
       <div class="metric-card">
-        <div class="metric-label">จำนวนโปรไฟล์ทั้งหมด</div>
-        <div class="metric-val" id="metric-total-profiles">0</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">จอที่กำลังรัน (Online)</div>
-        <div class="metric-val text-success" id="metric-online-profiles">0</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">กำลัง Auto-Farm</div>
-        <div class="metric-val text-cyan" id="metric-farming-profiles">0</div>
-      </div>
-      <div class="metric-card" style="border: 1px solid rgba(250, 204, 21, 0.3); background: rgba(250, 204, 21, 0.04);">
-        <div class="metric-label" style="display: flex; align-items: center; justify-content: space-between;">
-          <span>💰 ยอดเงินรวมทุกตัว (Total Zeny)</span>
-          <span style="font-size: 10px; color: #facc15; font-weight: 700;">🪙 รวมทุกจอ</span>
+        <div class="metric-icon" style="--h: 210;">🗂️</div>
+        <div class="metric-body">
+          <div class="metric-label">โปรไฟล์ทั้งหมด</div>
+          <div class="metric-val" id="metric-total-profiles">0</div>
         </div>
-        <div class="metric-val" style="color: #facc15; font-weight: 800;" id="metric-total-zeny">0 z</div>
       </div>
       <div class="metric-card">
-        <div class="metric-label">สถานะ Game Executable</div>
-        <div class="metric-val text-emerald" style="font-size: 13px;" id="metric-exe-status">✅ ติดตั้งแล้ว</div>
+        <div class="metric-icon" style="--h: 155;">🖥️</div>
+        <div class="metric-body">
+          <div class="metric-label">จอที่ออนไลน์</div>
+          <div class="metric-val text-success"><span id="metric-online-profiles">0</span><small class="metric-of" id="metric-online-of">/ 0</small></div>
+          <div class="metric-bar"><div class="metric-bar-fill ok" id="metric-online-bar"></div></div>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon" style="--h: 175;">⚔️</div>
+        <div class="metric-body">
+          <div class="metric-label">กำลัง Auto-Farm</div>
+          <div class="metric-val text-cyan"><span id="metric-farming-profiles">0</span><small class="metric-of" id="metric-farming-of">/ 0</small></div>
+          <div class="metric-bar"><div class="metric-bar-fill cyan" id="metric-farming-bar"></div></div>
+        </div>
+      </div>
+      <div class="metric-card metric-zeny">
+        <div class="metric-icon" style="--h: 45;">💰</div>
+        <div class="metric-body">
+          <div class="metric-label">ยอดเงินรวมทุกตัว (Total Zeny)</div>
+          <div class="metric-val" id="metric-total-zeny">0 z</div>
+        </div>
       </div>
     </section>
 
@@ -83,28 +83,39 @@
     <main class="profiles-section">
       <div class="section-title-row">
         <div class="section-title-left">
-          <h2>🎮 รายชื่อจอเกมและบอท (Client Profiles)</h2>
-          <span class="badge badge-info" id="live-polling-badge">🟢 Realtime Sync (2s)</span>
+          <h2>รายชื่อจอเกมและบอท</h2>
+          <span class="live-pill" id="live-polling-badge"><i></i> Realtime Sync · 2s</span>
         </div>
-        <div class="section-actions-row">
-          <button id="btn-auto-tile-shrink" class="btn btn-secondary btn-sm" title="จัดเรียงและย่อหน้าต่างเกมทุกจอเป็นขนาดกะทัดรัด (Compact Tiles)">
-            <span class="icon">📐</span> จัดเรียงจอย่อจออัตโนมัติ
-          </button>
-          <button id="btn-open-presets-modal" class="btn btn-purple btn-sm" title="ระบบ Save List จัดการการตั้งค่าส่วนกลาง (Presets & Profile Library)">
-            <span class="icon">💾</span> ระบบ Save List โปรไฟล์
-          </button>
-          <button id="btn-import-profile-global" class="btn btn-info btn-sm" title="นำเข้าโปรไฟล์หรือตั้งค่า (Import Profile / Presets)">
-            <span class="icon">📥</span> Import Profile
-          </button>
-          <button id="btn-export-profile-global" class="btn btn-secondary btn-sm" title="ส่งออกโปรไฟล์ทั้งหมด (Export All Profiles)">
-            <span class="icon">📤</span> Export Profile
-          </button>
-          <button id="btn-global-plan-setup" class="btn btn-primary btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
-            <span class="icon">📜</span> Setup Plan script
-          </button>
-          <button id="btn-toggle-all-windows" class="btn btn-dark btn-sm" title="ซ่อนหรือแสดงหน้าต่างเกมทุกจอ (Headless Mode)">
-            <span class="icon">👁️</span> <span id="lbl-toggle-all-windows">ซ่อนทุกจอ (Headless)</span>
-          </button>
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <div class="dropdown">
+              <button id="btn-tile-menu" class="btn btn-ghost btn-sm">
+                <span class="icon">📐</span> จัดหน้าต่าง ▾
+              </button>
+              <div class="dropdown-content">
+                <a href="#" id="btn-auto-tile-shrink" title="จัดเรียงและย่อหน้าต่างเกมทุกจอเป็นขนาดกะทัดรัด (Compact Tiles)">ย่อ & จัดเรียงอัตโนมัติ (Compact)</a>
+                <a href="#" id="tile-side">แบ่งครึ่งจอ (ซ้าย-ขวา)</a>
+                <a href="#" id="tile-grid">จัด 4 จอ (2x2 Grid)</a>
+              </div>
+            </div>
+            <button id="btn-toggle-all-windows" class="btn btn-ghost btn-sm" title="ซ่อนหรือแสดงหน้าต่างเกมทุกจอ (Headless Mode)">
+              <span class="icon">👁️</span> <span id="lbl-toggle-all-windows">ซ่อนทุกจอ (Headless)</span>
+            </button>
+          </div>
+          <div class="toolbar-group">
+            <button id="btn-global-plan-setup" class="btn btn-ghost btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
+              <span class="icon">📜</span> Plan Script
+            </button>
+            <button id="btn-open-presets-modal" class="btn btn-ghost btn-sm" title="ระบบ Save List จัดการการตั้งค่าส่วนกลาง (Presets & Profile Library)">
+              <span class="icon">💾</span> Save List
+            </button>
+            <button id="btn-import-profile-global" class="btn btn-ghost btn-sm" title="นำเข้าโปรไฟล์หรือตั้งค่า (Import Profile / Presets)">
+              <span class="icon">📥</span> Import
+            </button>
+            <button id="btn-export-profile-global" class="btn btn-ghost btn-sm" title="ส่งออกโปรไฟล์ทั้งหมด (Export All Profiles)">
+              <span class="icon">📤</span> Export
+            </button>
+          </div>
         </div>
       </div>
 
@@ -764,7 +775,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1791535335343"></script>
+  <script src="app.js?v=4310"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
   <script src="builder_module.js?v=1791535335343"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
