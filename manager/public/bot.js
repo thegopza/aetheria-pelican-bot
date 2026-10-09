@@ -143,6 +143,7 @@
         enabled: false,
         username: '',
         password: '',
+        charName: '', // ชื่อตัวละครที่ต้องการเลือกอัตโนมัติ (ถ้าว่างจะเลือกตัวแรกที่พบ)
         autoResumeBot: true
     };
     try {
@@ -6189,17 +6190,87 @@
     }
 
     function checkPostLoginScreen() {
-        // ตรวจสอบหน้าต่างเลือกตัวละคร หรือปุ่ม "เริ่มเกม" หลัง Login
-        const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
-            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
-        });
-        const enterBtn = candidates.find(el => {
-            const txt = (el.innerText || el.textContent || '').trim();
-            return txt === 'เริ่มเกม' || txt === 'เข้าสู่โลก' || txt === 'เข้าเล่น' || txt === 'เลือกตัวละคร' || txt === 'Enter World' || txt === 'Start Game';
-        });
-        if (enterBtn && !isLoginScreenVisible()) {
-            console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${enterBtn.innerText.trim()}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
-            triggerClick(enterBtn);
+        const cfg = window.__authConfig || {};
+        if (isLoginScreenVisible()) return;
+
+        const bodyText = document.body.innerText || '';
+        const isCharSelectScreen = bodyText.includes('เลือกตัวละคร') || 
+                                   bodyText.includes('สร้างตัวละคร') || 
+                                   bodyText.includes('เข้าเกมด้วย') || 
+                                   bodyText.includes('Select Character');
+
+        // Helper: หาปุ่มเข้าเกมที่มีอยู่แล้ว
+        function findEnterButton() {
+            const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn, [class*="btn"], div')).filter(el => {
+                if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+                if (el.offsetHeight > 140) return false; // ไม่ใช่ container ใหญ่
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) return false;
+                if (txt.startsWith('เข้าเกมด้วย') || 
+                    txt === 'เข้าเกม' || 
+                    txt === 'เริ่มเกม' || 
+                    txt === 'เข้าสู่โลก' || 
+                    txt === 'เข้าเล่น' || 
+                    txt === 'เลือกตัวละคร' || 
+                    txt === 'Enter World' || 
+                    txt === 'Start Game') {
+                    return true;
+                }
+                return false;
+            });
+            candidates.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+            return candidates[0] || null;
+        }
+
+        // Helper: หาการ์ดตัวละคร
+        function findCharacterCards() {
+            const cards = Array.from(document.querySelectorAll('div, button, a')).filter(el => {
+                if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+                if (el.offsetWidth < 80 || el.offsetHeight < 80 || el.offsetWidth > 450 || el.offsetHeight > 500) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) return false;
+                if (txt.includes('สร้างตัวละคร') || txt.includes('ช่องว่าง')) return false;
+                return txt.includes('Lv.') || txt.includes('Job') || txt.includes('Hunter') || txt.includes('Novice') || 
+                       txt.includes('Knight') || txt.includes('Wizard') || txt.includes('Priest') || txt.includes('Assassin') || 
+                       txt.includes('Blacksmith') || txt.includes('Bard') || txt.includes('Dancer') || txt.includes('Crusader') || 
+                       txt.includes('Monk') || txt.includes('Sage') || txt.includes('Rogue') || txt.includes('Alchemist');
+            });
+            cards.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+            return cards;
+        }
+
+        if (isCharSelectScreen) {
+            const cards = findCharacterCards();
+            if (cards.length > 0) {
+                let targetCard = null;
+                if (cfg.charName && cfg.charName.trim().length > 0) {
+                    targetCard = cards.find(c => (c.innerText || '').includes(cfg.charName.trim()));
+                }
+                if (!targetCard) {
+                    targetCard = cards[0];
+                }
+
+                if (targetCard) {
+                    triggerClick(targetCard);
+                }
+            }
+
+            // คลิกปุ่มเข้าเกมหลังเลือกตัวละคร
+            setTimeout(() => {
+                const enterBtn = findEnterButton();
+                if (enterBtn && !isLoginScreenVisible()) {
+                    const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
+                    console.log(`%c[Pelican Auth] 🎮 เลือกตัวละคร & คลิกเข้าเกม ("${btnTxt}")...`, 'color: #22c55e; font-weight: bold;');
+                    triggerClick(enterBtn);
+                }
+            }, 350);
+        } else {
+            const enterBtn = findEnterButton();
+            if (enterBtn && !isLoginScreenVisible()) {
+                const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
+                console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${btnTxt}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
+                triggerClick(enterBtn);
+            }
         }
     }
 
@@ -6256,10 +6327,13 @@
             console.log('%c[Pelican Auth] 🚀 คลิกปุ่ม "เข้าเกม"...', 'color: #22c55e; font-weight: bold;');
             triggerClick(loginBtn);
 
-            setTimeout(() => {
-                isLoginInProgress = false;
-                checkPostLoginScreen();
-            }, 2500);
+            // ตรวจสอบหน้าต่างเลือกตัวละครหลายระลอก (1.5s, 3s, 5s) เพื่อความเสถียร
+            [1500, 3000, 5000].forEach(delay => {
+                setTimeout(() => {
+                    isLoginInProgress = false;
+                    checkPostLoginScreen();
+                }, delay);
+            });
         }, 500);
     };
 
@@ -8808,6 +8882,10 @@
                                     <button type="button" id="p-auth-toggle-pass" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #64748b; color: #94a3b8; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
                                 </div>
                             </div>
+                            <div class="p-row">
+                                <span style="font-size: 10px; color: #cbd5e1;">เลือกตัวละคร (Char):</span>
+                                <input type="text" id="p-auth-char" value="${window.__authConfig.charName || ''}" placeholder="ชื่อตัวละคร (เว้นว่าง = ตัวแรก)" style="width: 130px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                            </div>
                         </div>
 
                         <label class="p-check-box" style="color: #4ade80; margin-top: 6px;">
@@ -8984,6 +9062,14 @@
         if (authPassEl) {
             authPassEl.oninput = (e) => {
                 window.__authConfig.password = e.target.value;
+                saveAuthConfig();
+            };
+        }
+
+        const authCharEl = document.getElementById('p-auth-char');
+        if (authCharEl) {
+            authCharEl.oninput = (e) => {
+                window.__authConfig.charName = e.target.value.trim();
                 saveAuthConfig();
             };
         }

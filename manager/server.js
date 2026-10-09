@@ -748,6 +748,8 @@ const server = http.createServer(async (req, res) => {
             if (authUs && ${JSON.stringify(payload.config.username)} !== undefined) authUs.value = String(window.__authConfig.username);
             const authPs = document.getElementById('p-auth-pass');
             if (authPs && ${JSON.stringify(payload.config.password)} !== undefined) authPs.value = String(window.__authConfig.password);
+            const authCh = document.getElementById('p-auth-char');
+            if (authCh && ${JSON.stringify(payload.config.charName)} !== undefined) authCh.value = String(window.__authConfig.charName || '');
             const authRes = document.getElementById('p-auth-resume');
             if (authRes && ${JSON.stringify(payload.config.autoResumeBot)} !== undefined) authRes.checked = !!window.__authConfig.autoResumeBot;
             return { success: true };

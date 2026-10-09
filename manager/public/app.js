@@ -1,4 +1,4 @@
-const API_BASE = "";
+﻿const API_BASE = "";
 let currentProfiles = [];
 let allWindowsHidden = false;
 
@@ -688,7 +688,7 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                             <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🌿 วัตถุดิบ:</span>
                             <select id="p-sell-rarity-mat" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
                                 <option value="all" ${sell.sellMaterials ? 'selected' : ''}>🧺 ขายขยะทั้งหมด</option>
-                                <option value="none" ${!window.__sellConfig.sellMaterials ? 'selected' : ''}>❌ ไม่ขาย</option>
+                                <option value="none" ${!sell.sellMaterials ? 'selected' : ''}>❌ ไม่ขาย</option>
                             </select>
                         </div>
                     </div>
@@ -914,6 +914,10 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                                     <input type="password" id="p-auth-pass" value="${escapeHTML(auth.password || "")}" placeholder="รหัสผ่าน" style="width: 105px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
                                     <button type="button" id="p-auth-toggle-pass" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #64748b; color: #94a3b8; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
                                 </div>
+                            </div>
+                            <div class="p-row">
+                                <span style="font-size: 10px; color: #cbd5e1;">เลือกตัวละคร (Char):</span>
+                                <input type="text" id="p-auth-char" value="${escapeHTML(auth.charName || "")}" placeholder="ชื่อตัวละคร (เว้นว่าง = ตัวแรก)" style="width: 130px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
                             </div>
                         </div>
 
@@ -1145,11 +1149,12 @@ async function openWebBotHUD(profileId) {
       enabled: hudEl.querySelector('#p-auth-enabled')?.checked,
       username: hudEl.querySelector('#p-auth-user')?.value || '',
       password: hudEl.querySelector('#p-auth-pass')?.value || '',
+      charName: hudEl.querySelector('#p-auth-char')?.value || '',
       autoResumeBot: hudEl.querySelector('#p-auth-resume')?.checked
     };
     sendWebHudAction(profileId, { type: 'update-auth', config: cfg });
   };
-  ['#p-auth-enabled', '#p-auth-user', '#p-auth-pass', '#p-auth-resume'].forEach(sel => {
+  ['#p-auth-enabled', '#p-auth-user', '#p-auth-pass', '#p-auth-char', '#p-auth-resume'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveAuth;
   });
@@ -1350,6 +1355,9 @@ function populateWebHudData(profileId, data) {
   const authPs = hud.querySelector('#p-auth-pass');
   if (authPs && document.activeElement !== authPs) authPs.value = auth.password || '';
 
+  const authCh = hud.querySelector('#p-auth-char');
+  if (authCh && document.activeElement !== authCh) authCh.value = auth.charName || '';
+
   const authRes = hud.querySelector('#p-auth-resume');
   if (authRes && document.activeElement !== authRes) authRes.checked = !!auth.autoResumeBot;
 }
@@ -1400,31 +1408,34 @@ async function openScriptPlanModal(profileId) {
   try {
     const res = await fetch(`${API_BASE}/api/plans/${profileId}`);
     const data = await res.json();
+    const planAutoLoop = document.getElementById("plan-auto-loop");
     if (data.success && data.plan) {
       const plan = data.plan;
-      planNameInput.value = plan.name || "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
-      planModeSelect.value = plan.mode || "farm_loop";
-      planMapSelect.value = plan.targetMap || (profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55");
-      planAmmoMin.value = plan.minAmmo || 50;
-      planWeightMax.value = plan.maxWeight || 80;
-      planRequireArrow.checked = plan.requireArrow !== false;
-      planArrowType.value = plan.arrowType || "90030";
-      planAutoSell.checked = plan.autoSell !== false;
-      planSellWeapons.checked = plan.sellWeapons !== false;
-      planSellArmors.checked = plan.sellArmors !== false;
-      planNotes.value = plan.notes || "";
+      if (planNameInput) planNameInput.value = plan.name || "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
+      if (planModeSelect) planModeSelect.value = plan.mode || "farm_loop";
+      if (planMapSelect) planMapSelect.value = plan.targetMap || (profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55");
+      if (planAmmoMin) planAmmoMin.value = plan.minAmmo || 50;
+      if (planWeightMax) planWeightMax.value = plan.maxWeight || 80;
+      if (planAutoLoop) planAutoLoop.checked = plan.autoLoop !== false;
+      if (planRequireArrow) planRequireArrow.checked = plan.requireArrow !== false;
+      if (planArrowType) planArrowType.value = plan.arrowType || "90030";
+      if (planAutoSell) planAutoSell.checked = plan.autoSell !== false;
+      if (planSellWeapons) planSellWeapons.checked = plan.sellWeapons !== false;
+      if (planSellArmors) planSellArmors.checked = plan.sellArmors !== false;
+      if (planNotes) planNotes.value = plan.notes || "";
     } else {
-      planNameInput.value = "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
-      planModeSelect.value = "farm_loop";
-      planMapSelect.value = profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55";
-      planAmmoMin.value = 50;
-      planWeightMax.value = 80;
-      planRequireArrow.checked = true;
-      planArrowType.value = "90030";
-      planAutoSell.checked = true;
-      planSellWeapons.checked = true;
-      planSellArmors.checked = true;
-      planNotes.value = "";
+      if (planNameInput) planNameInput.value = "ลูป 24 ชม. ฟาร์มขยะ + รีสต็อกลูกธนู";
+      if (planModeSelect) planModeSelect.value = "farm_loop";
+      if (planMapSelect) planMapSelect.value = profile ? profile.targetMap : "ซากโบราณสถาน Lv.45–55";
+      if (planAmmoMin) planAmmoMin.value = 50;
+      if (planWeightMax) planWeightMax.value = 80;
+      if (planAutoLoop) planAutoLoop.checked = true;
+      if (planRequireArrow) planRequireArrow.checked = true;
+      if (planArrowType) planArrowType.value = "90030";
+      if (planAutoSell) planAutoSell.checked = true;
+      if (planSellWeapons) planSellWeapons.checked = true;
+      if (planSellArmors) planSellArmors.checked = true;
+      if (planNotes) planNotes.value = "";
     }
   } catch (err) {
     console.error("Failed to load plan:", err);
@@ -1440,19 +1451,21 @@ document.getElementById("plan-modal-close-btn").onclick = () => {
 planForm.onsubmit = async (e) => {
   e.preventDefault();
   const profileId = planProfileId.value;
+  const planAutoLoop = document.getElementById("plan-auto-loop");
   const planData = {
     profileId,
-    name: planNameInput.value,
-    mode: planModeSelect.value,
-    targetMap: planMapSelect.value,
-    minAmmo: parseInt(planAmmoMin.value) || 50,
-    maxWeight: parseInt(planWeightMax.value) || 80,
-    requireArrow: planRequireArrow.checked,
-    arrowType: planArrowType.value,
-    autoSell: planAutoSell.checked,
-    sellWeapons: planSellWeapons.checked,
-    sellArmors: planSellArmors.checked,
-    notes: planNotes.value,
+    name: planNameInput ? planNameInput.value : "Default Plan",
+    mode: planModeSelect ? planModeSelect.value : "farm_loop",
+    targetMap: planMapSelect ? planMapSelect.value : "ซากโบราณสถาน Lv.45–55",
+    minAmmo: planAmmoMin ? (parseInt(planAmmoMin.value) || 50) : 50,
+    maxWeight: planWeightMax ? (parseInt(planWeightMax.value) || 80) : 80,
+    autoLoop: planAutoLoop ? planAutoLoop.checked : true,
+    requireArrow: planRequireArrow ? planRequireArrow.checked : true,
+    arrowType: planArrowType ? planArrowType.value : "90030",
+    autoSell: planAutoSell ? planAutoSell.checked : true,
+    sellWeapons: planSellWeapons ? planSellWeapons.checked : true,
+    sellArmors: planSellArmors ? planSellArmors.checked : true,
+    notes: planNotes ? planNotes.value : "",
     updatedAt: Date.now()
   };
 

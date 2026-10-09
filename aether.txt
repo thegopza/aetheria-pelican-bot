@@ -143,6 +143,7 @@
         enabled: false,
         username: '',
         password: '',
+        charName: '', // ชื่อตัวละครที่ต้องการเลือกอัตโนมัติ (ถ้าว่างจะเลือกตัวแรกที่พบ)
         autoResumeBot: true
     };
     try {
@@ -261,6 +262,29 @@
     function saveMarketFilterConfig() {
         localStorage.setItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig));
     }
+
+    // Auto Market Sell Config (⚖️ Market Median Algorithm)
+    const defaultAutoMarketSellConfig = {
+        enabled: false,
+        priceStrategy: 'median', // ⚖️ ราคากลางสมดุล (Recent Completed Trades Median)
+        checkIntervalSec: 25,
+        maxActiveListings: 10,
+        rules: []
+    };
+    try {
+        const storedAutoSell = JSON.parse(localStorage.getItem('pelican_auto_market_sell_cfg') || '{}');
+        window.__autoMarketSellConfig = Object.assign({}, defaultAutoMarketSellConfig, storedAutoSell);
+        if (!Array.isArray(window.__autoMarketSellConfig.rules)) {
+            window.__autoMarketSellConfig.rules = [];
+        }
+    } catch(e) {
+        window.__autoMarketSellConfig = defaultAutoMarketSellConfig;
+    }
+
+    function saveAutoMarketSellConfig() {
+        localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig));
+    }
+    window.saveAutoMarketSellConfig = saveAutoMarketSellConfig;
 
     function updateAmmoHUD() {
         const threshold = (window.__archerConfig && window.__archerConfig.ammoThreshold) ? window.__archerConfig.ammoThreshold : 50;
@@ -896,7 +920,7 @@
 
     window.dumpDeepInventory = function() {
         console.log('%c====================================================', 'color: #00ffcc;');
-        console.log('%c📦 PELICAN DEEP INVENTORY & EQUIPMENT DUMP TOOL v1.0', 'color: #00ffcc; font-weight: bold; font-size: 14px;');
+        console.log('%c📦 Pmhee Ma weaw DEEP INVENTORY & EQUIPMENT DUMP TOOL v1.0', 'color: #00ffcc; font-weight: bold; font-size: 14px;');
         console.log('%c====================================================', 'color: #00ffcc;');
 
         // 1. ข้อมูลดิบจาก Server (window.__latestInventory)
@@ -1780,6 +1804,8 @@
         const stat2Select = document.getElementById('p-mod-mk-stat2');
         const stat2MinInput = document.getElementById('p-mod-mk-stat2-min');
         const modeSelect = document.getElementById('p-mod-mk-mode');
+        const autoDeepInput = document.getElementById('p-mod-mk-auto-deep');
+        const scanDepthSelect = document.getElementById('p-mod-mk-scan-depth');
 
         if (!window.__marketFilterConfig) window.__marketFilterConfig = {};
         if (qInput) window.__marketFilterConfig.q = qInput.value.trim();
@@ -1791,10 +1817,116 @@
         if (stat2Select) window.__marketFilterConfig.statType2 = stat2Select.value;
         if (stat2MinInput) window.__marketFilterConfig.statMinVal2 = parseInt(stat2MinInput.value) || 1;
         if (modeSelect) window.__marketFilterConfig.statMatchMode = modeSelect.value;
+        if (autoDeepInput) window.__marketFilterConfig.autoDeepScan = autoDeepInput.checked;
+        if (scanDepthSelect) window.__marketFilterConfig.scanDepth = scanDepthSelect.value;
 
         saveMarketFilterConfig();
         const matched = window.applyMarketFilters();
         return matched;
+    };
+
+    window.renderMarketRowsHtml = function(results, cfg) {
+        cfg = cfg || window.__marketFilterConfig || {};
+        if (!results || results.length === 0) {
+            const totalServer = window.__latestMarketResults?.total || 0;
+            const cachedCount = (window.__marketAllListings || []).length;
+            const hasOptions = (cfg && ((cfg.statType1 && cfg.statType1 !== 'none') || (cfg.statType2 && cfg.statType2 !== 'none')));
+            const hintMsg = (hasOptions && cachedCount <= 20 && totalServer > 20)
+                ? `เซิร์ฟเวอร์ส่งมาแค่ 20 รายการแรก (ราคาถูกสุด) ซึ่งยังไม่มี Option ที่คุณเลือก แต่ยังมีอีก <b>${totalServer - cachedCount} รายการ</b> ในหน้าถัดไป!`
+                : `ลองขยายช่วงราคา, ปรับเงื่อนไข Option หรือคลิกสแกนค้นหาหน้าถัดไป`;
+
+            return `
+                <tr>
+                    <td colspan="7" style="padding: 24px; text-align: center; color: #64748b; border: 1px solid #1e293b; background: rgba(15, 23, 42, 0.4);">
+                        <div style="font-size: 13px; font-weight: bold; color: #cbd5e1; margin-bottom: 6px;">⚠️ ไม่พบรายการไอเทมที่ตรงเงื่อนไขในข้อมูลปัจจุบัน</div>
+                        <div style="font-size: 11px; color: #94a3b8; max-width: 520px; margin: 0 auto 12px auto; line-height: 1.4;">
+                            ${hintMsg}
+                        </div>
+                        <div style="display: flex; justify-content: center; gap: 8px;">
+                            <button onclick="window.startMarketMultiPageScan('all');" style="background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: 1px solid #c084fc; padding: 6px 16px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; box-shadow: 0 0 12px rgba(147, 51, 234, 0.4);">⚡ สแกนค้นหาทุกหน้าทันที (Deep Scan All Pages)</button>
+                            <button onclick="window.executeMarketSearch();" style="background: #0284c7; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">🔍 ค้นหาใหม่</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        return results.slice(0, 80).map((listing, idx) => {
+            const it = listing.item || {};
+            const rarityKey = (it.rarity || 'common').toLowerCase();
+            const rarityInfo = (typeof ITEM_RARITY_MAP !== 'undefined' && ITEM_RARITY_MAP[rarityKey]) ? ITEM_RARITY_MAP[rarityKey] : { th: 'ทั่วไป', color: '#cbd5e1' };
+            const refBadge = it.refine ? `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 11px;">+${it.refine}</span>` : '<span style="color: #64748b;">+0</span>';
+
+            const slotCount = it.slots !== undefined ? it.slots : null;
+            const slotSuffix = (slotCount !== null && slotCount > 0) ? ` [${slotCount}]` : '';
+
+            let affHtml = '';
+            if (Array.isArray(it.affixes) && it.affixes.length > 0) {
+                affHtml = it.affixes.map(aff => {
+                    const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[aff.type]) ? STAT_NAMES_MAP[aff.type] : { short: aff.type };
+                    const valStr = (aff.mode === 'increasedPercent' || String(aff.type).includes('PERCENT') || String(aff.type).includes('DAMAGE')) ? `+${aff.value}%` : `+${aff.value}`;
+                    const isMatch = (cfg.statType1 && cfg.statType1 !== 'none' && String(aff.type).toUpperCase() === cfg.statType1.toUpperCase()) ||
+                                    (cfg.statType2 && cfg.statType2 !== 'none' && String(aff.type).toUpperCase() === cfg.statType2.toUpperCase());
+
+                    const bg = isMatch ? 'rgba(234, 179, 8, 0.25)' : (aff.category === 'special' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(34, 197, 94, 0.15)');
+                    const border = isMatch ? '#eab308' : (aff.category === 'special' ? '#c084fc' : '#22c55e');
+                    const color = isMatch ? '#fef08a' : (aff.category === 'special' ? '#e9d5ff' : '#86efac');
+                    const glow = isMatch ? 'box-shadow: 0 0 6px rgba(234, 179, 8, 0.5);' : '';
+
+                    return `<span style="display: inline-block; background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 1px 5px; border-radius: 4px; font-size: 10px; margin: 1px 3px 1px 0; font-weight: 500; ${glow}">${sInfo.short || aff.type} <b>${valStr}</b></span>`;
+                }).join('');
+            } else {
+                affHtml = '<span style="color: #64748b; font-size: 10px;">-</span>';
+            }
+
+            const bg = idx % 2 === 0 ? 'background: rgba(15, 23, 42, 0.6);' : 'background: rgba(30, 41, 59, 0.4);';
+            const buyBtnText = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '🔨 ประมูล' : '🛒 ซื้อ';
+            const buyBtnBg = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '#eab308' : '#0284c7';
+
+            const qty = listing.qty || listing.quantity || listing.amount || it.qty || it.amount || 1;
+            const qtyBadge = (qty > 1) ? `<b class="mk-qty" style="color: #fde047; font-size: 11px; margin-left: 2px; font-weight: bold; background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.45); padding: 1px 5px; border-radius: 4px;">×${qty.toLocaleString()}</b>` : '';
+            const unitPrice = (qty > 1) ? Math.round(Number(listing.price) / qty) : null;
+            const priceHtml = (unitPrice !== null) ? `
+                <div style="font-weight: bold; color: #00ffcc; line-height: 1.2;">${Number(listing.price).toLocaleString()} z</div>
+                <div style="font-size: 9px; color: #94a3b8; font-weight: normal; margin-top: 1px;">(${unitPrice.toLocaleString()} z ต่อชิ้น)</div>
+            ` : `
+                <span style="font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</span>
+            `;
+            const tooltipData = { ...it, qty, price: listing.price, sellerName: listing.sellerName };
+            const iconHtml = (typeof getItemIconHtml === 'function') ? getItemIconHtml(it, 22) : '';
+
+            return `
+                <tr style="${bg} border-bottom: 1px solid #1e293b;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(tooltipData).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
+                    <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center; color: #64748b;">${idx + 1}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            ${iconHtml}
+                            <span style="font-weight: bold; color: ${rarityInfo.color};">${it.name || 'ไอเทม'}${slotSuffix}</span>
+                            ${qtyBadge}
+                            <span style="font-size: 9.5px; color: ${rarityInfo.color}; opacity: 0.85;">(${rarityInfo.th})</span>
+                        </div>
+                    </td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">${refBadge}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155;">${affHtml}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right;">${priceHtml}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155; color: #cbd5e1;">${listing.sellerName || '-'}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">
+                        <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}', this)" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    };
+
+    window.toggleMarketScanFromModal = function() {
+        if (window.__isMarketScanning) {
+            window.stopMarketScan();
+        } else {
+            const depthSelect = document.getElementById('p-mod-mk-scan-depth');
+            const depthVal = depthSelect ? depthSelect.value : 'all';
+            const targetPages = (depthVal === 'all') ? 'all' : (parseInt(depthVal) || 5);
+            window.startMarketMultiPageScan(targetPages);
+        }
     };
 
     window.renderModalTab = function(tabName, query = '') {
@@ -2178,17 +2310,52 @@
             const results = (window.__marketFilteredResults && window.__marketFilteredResults.length > 0) ? window.__marketFilteredResults : cachedListings;
 
             let html = `
+                <!-- 🏷️ ระบบตั้งขายอัตโนมัติ (Auto Sell to Market - ⚖️ Market Median) -->
+                <div style="margin-bottom: 12px; background: #0f172a; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 8px; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.25);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 15px;">🏷️</span>
+                            <span style="font-weight: bold; color: #c084fc; font-size: 13px;">ระบบตั้งขายอัตโนมัติ (Auto Sell to Market)</span>
+                            <span style="background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">⚖️ กลยุทธ์: ราคากลางสมดุล (Market Median)</span>
+                            <span id="p-autosell-quota-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">โควตา: ${window.__myMarketActiveCount ?? 0}/10 รายการ</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <label style="display: flex; align-items: center; gap: 6px; color: #fff; font-size: 11px; cursor: pointer; font-weight: bold; background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">
+                                <input type="checkbox" id="p-autosell-toggle" ${(window.__autoMarketSellConfig?.enabled) ? 'checked' : ''} onchange="window.toggleAutoMarketSell(this.checked)">
+                                <span>เปิดใช้งาน Auto Sell</span>
+                            </label>
+                            <button onclick="window.addAutoMarketSellRule();" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #34d399; padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);">
+                                <span>➕</span>
+                                <span>เพิ่มรายการลงขาย</span>
+                            </button>
+                            <button onclick="window.runAutoMarketSellCycle(true);" style="background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;" title="ตรวจสอบกระเป๋าและประเมินราคาทันที">⚡ ตรวจสอบทันที</button>
+                        </div>
+                    </div>
+                    <div id="p-autosell-rules-container">
+                        ${(typeof window.renderAutoSellRulesHtml === 'function') ? window.renderAutoSellRulesHtml() : ''}
+                    </div>
+                </div>
+
                 <div style="margin-bottom: 12px; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-bottom: 8px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 15px;">🛒</span>
                             <span style="font-weight: bold; color: #38bdf8; font-size: 13px;">ระบบตลาดกลาง & ดักจับ Option สเตตัส (Market Sniper)</span>
-                            <span style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">Server: ${totalServer} รายการ</span>
+                            <span id="p-mod-mk-server-badge" style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">Server: ${totalServer} รายการ</span>
                         </div>
-                        <div style="display: flex; gap: 6px;">
+                        <div style="display: flex; gap: 6px; align-items: center;">
                             <button id="p-mod-btn-search" onclick="window.executeMarketSearch();" style="background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🔍 ค้นหา</button>
+                            <div style="display: flex; align-items: center; background: #1e1b4b; border: 1px solid #7c3aed; border-radius: 5px; overflow: hidden;">
+                                <select id="p-mod-mk-scan-depth" style="background: transparent; border: none; color: #e9d5ff; font-size: 10px; padding: 4px 6px; outline: none; cursor: pointer; font-weight: bold;">
+                                    <option value="all" ${(!cfg.scanDepth || cfg.scanDepth === 'all') ? 'selected' : ''}>⚡ สแกนทุกหน้า (All)</option>
+                                    <option value="5" ${cfg.scanDepth === '5' ? 'selected' : ''}>สแกน 5 หน้า (100)</option>
+                                    <option value="10" ${cfg.scanDepth === '10' ? 'selected' : ''}>สแกน 10 หน้า (200)</option>
+                                    <option value="15" ${cfg.scanDepth === '15' ? 'selected' : ''}>สแกน 15 หน้า (300)</option>
+                                    <option value="20" ${cfg.scanDepth === '20' ? 'selected' : ''}>สแกน 20 หน้า (400)</option>
+                                </select>
+                                <button id="p-mod-btn-scan" onclick="window.toggleMarketScanFromModal();" style="background: #9333ea; color: #fff; border: none; padding: 4px 10px; font-size: 11px; font-weight: bold; cursor: pointer; border-left: 1px solid #7c3aed;">⚡ เริ่มสแกน</button>
+                            </div>
                             <button onclick="window.claimMarketDeliveries();" title="กดรับของทั้งหมดที่ซื้อแล้วเข้ากระเป๋าตัวละครทันที" style="background: #eab308; color: #000; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">🎁 รับของเข้าตัว</button>
-                            <button onclick="window.startMarketMultiPageScan(5);" style="background: #9333ea; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">⚡ สแกน 5 หน้าต่อเนื่อง</button>
                             <button onclick="window.safeCopyToClipboard(JSON.stringify(window.dumpMarketData(), null, 2), '📋 คัดลอก Dump ตลาดสำเร็จ!');" style="background: #059669; color: #fff; border: none; padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: bold; cursor: pointer;">📋 Dump JSON</button>
                         </div>
                     </div>
@@ -2253,11 +2420,21 @@
                             </select>
                         </div>
                     </div>
+
+                    <!-- Auto Deep Scan Row -->
+                    <div style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 4px; padding: 4px 8px;">
+                        <label style="display: flex; align-items: center; gap: 6px; color: #38bdf8; font-size: 11px; cursor: pointer;" title="เมื่อเลือก Option และกดค้นหา ระบบจะสแกนลึกทุกหน้าในตลาดจนครบโดยอัตโนมัติ ไม่หยุดแค่ 20 รายการแรก">
+                            <input type="checkbox" id="p-mod-mk-auto-deep" ${cfg.autoDeepScan !== false ? 'checked' : ''} onchange="window.__marketFilterConfig.autoDeepScan = this.checked; saveMarketFilterConfig();">
+                            <b>⚡ Auto Deep-Scan: สแกนทุกหน้าอัตโนมัติเมื่อค้นหาด้วย Option</b>
+                            <span style="color: #94a3b8; font-size: 10px;">(แก้ปัญหา 20 รายการแรกไม่มี Option ที่ต้องการ)</span>
+                        </label>
+                        <span style="color: #eab308; font-size: 10px; font-weight: bold;">ความเร็ว: ~250ms/หน้า</span>
+                    </div>
                 </div>
 
                 <div style="margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: bold; color: #38bdf8; font-size: 12px;">
-                        📋 ผลลัพธ์ในตลาดที่พบ (${results.length} รายการ จากทั้งหมด ${cachedListings.length} ในแคช):
+                    <span id="p-mod-mk-summary-text" style="font-weight: bold; color: #38bdf8; font-size: 12px;">
+                        📋 ผลลัพธ์ในตลาดที่พบ (${results.length} รายการ จากทั้งหมด ${cachedListings.length} ในแคช · Server มี ${totalServer} รายการ):
                     </span>
                     <span style="color: #eab308; font-size: 11px;">💡 ชี้เมาส์ที่แถวเพื่อดูรายละเอียด Tooltip ในเกมเต็มรูปแบบ</span>
                 </div>
@@ -2274,86 +2451,8 @@
                             <th style="padding: 6px 8px; border: 1px solid #334155; width: 80px; text-align: center;">Action</th>
                         </tr>
                     </thead>
-                    <tbody>
-            `;
-
-            if (results.length === 0) {
-                html += `
-                    <tr>
-                        <td colspan="7" style="padding: 24px; text-align: center; color: #64748b; border: 1px solid #1e293b; background: rgba(15, 23, 42, 0.4);">
-                            ⚠️ ไม่พบรายการไอเทมที่ตรงเงื่อนไข<br/>
-                            <span style="font-size: 10px; color: #475569;">ลองกดปุ่ม "🔍 ค้นหา" หรือ "⚡ สแกน 5 หน้าต่อเนื่อง" เพื่อดึงข้อมูลใหม่จากตลาด</span>
-                        </td>
-                    </tr>
-                `;
-            } else {
-                results.slice(0, 80).forEach((listing, idx) => {
-                    const it = listing.item || {};
-                    const rarityKey = (it.rarity || 'common').toLowerCase();
-                    const rarityInfo = ITEM_RARITY_MAP[rarityKey] || { th: 'ทั่วไป', color: '#cbd5e1' };
-                    const refBadge = it.refine ? `<span style="background: rgba(168, 85, 247, 0.25); border: 1px solid #c084fc; color: #e9d5ff; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 11px;">+${it.refine}</span>` : '<span style="color: #64748b;">+0</span>';
-
-                    const slotCount = it.slots !== undefined ? it.slots : null;
-                    const slotSuffix = (slotCount !== null && slotCount > 0) ? ` [${slotCount}]` : '';
-
-                    let affHtml = '';
-                    if (Array.isArray(it.affixes) && it.affixes.length > 0) {
-                        affHtml = it.affixes.map(aff => {
-                            const sInfo = (typeof STAT_NAMES_MAP !== 'undefined' && STAT_NAMES_MAP[aff.type]) ? STAT_NAMES_MAP[aff.type] : { short: aff.type };
-                            const valStr = (aff.mode === 'increasedPercent' || String(aff.type).includes('PERCENT') || String(aff.type).includes('DAMAGE')) ? `+${aff.value}%` : `+${aff.value}`;
-                            const isMatch = (cfg.statType1 && cfg.statType1 !== 'none' && String(aff.type).toUpperCase() === cfg.statType1.toUpperCase()) ||
-                                            (cfg.statType2 && cfg.statType2 !== 'none' && String(aff.type).toUpperCase() === cfg.statType2.toUpperCase());
-
-                            const bg = isMatch ? 'rgba(234, 179, 8, 0.25)' : (aff.category === 'special' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(34, 197, 94, 0.15)');
-                            const border = isMatch ? '#eab308' : (aff.category === 'special' ? '#c084fc' : '#22c55e');
-                            const color = isMatch ? '#fef08a' : (aff.category === 'special' ? '#e9d5ff' : '#86efac');
-                            const glow = isMatch ? 'box-shadow: 0 0 6px rgba(234, 179, 8, 0.5);' : '';
-
-                            return `<span style="display: inline-block; background: ${bg}; border: 1px solid ${border}; color: ${color}; padding: 1px 5px; border-radius: 4px; font-size: 10px; margin: 1px 3px 1px 0; font-weight: 500; ${glow}">${sInfo.short || aff.type} <b>${valStr}</b></span>`;
-                        }).join('');
-                    } else {
-                        affHtml = '<span style="color: #64748b; font-size: 10px;">-</span>';
-                    }
-
-                    const bg = idx % 2 === 0 ? 'background: rgba(15, 23, 42, 0.6);' : 'background: rgba(30, 41, 59, 0.4);';
-                    const buyBtnText = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '🔨 ประมูล' : '🛒 ซื้อ';
-                    const buyBtnBg = (listing.auctionEndsAt && listing.auctionEndsAt > Date.now()) ? '#eab308' : '#0284c7';
-
-                    const qty = listing.qty || listing.quantity || listing.amount || it.qty || it.amount || 1;
-                    const qtyBadge = (qty > 1) ? `<b class="mk-qty" style="color: #fde047; font-size: 11px; margin-left: 2px; font-weight: bold; background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.45); padding: 1px 5px; border-radius: 4px;">×${qty.toLocaleString()}</b>` : '';
-                    const unitPrice = (qty > 1) ? Math.round(Number(listing.price) / qty) : null;
-                    const priceHtml = (unitPrice !== null) ? `
-                        <div style="font-weight: bold; color: #00ffcc; line-height: 1.2;">${Number(listing.price).toLocaleString()} z</div>
-                        <div style="font-size: 9px; color: #94a3b8; font-weight: normal; margin-top: 1px;">(${unitPrice.toLocaleString()} z ต่อชิ้น)</div>
-                    ` : `
-                        <span style="font-weight: bold; color: #00ffcc;">${Number(listing.price).toLocaleString()} z</span>
-                    `;
-                    const tooltipData = { ...it, qty, price: listing.price, sellerName: listing.sellerName };
-
-                    html += `
-                        <tr style="${bg} border-bottom: 1px solid #1e293b;" onmouseenter="window.showPelicanMarketItemTooltip(${JSON.stringify(tooltipData).replace(/"/g, '&quot;')}, event)" onmousemove="window.movePelicanItemTooltip(event)" onmouseleave="window.hidePelicanItemTooltip()">
-                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center; color: #64748b;">${idx + 1}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155;">
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    ${getItemIconHtml(it, 22)}
-                                    <span style="font-weight: bold; color: ${rarityInfo.color};">${it.name || 'ไอเทม'}${slotSuffix}</span>
-                                    ${qtyBadge}
-                                    <span style="font-size: 9.5px; color: ${rarityInfo.color}; opacity: 0.85;">(${rarityInfo.th})</span>
-                                </div>
-                            </td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">${refBadge}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155;">${affHtml}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: right;">${priceHtml}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155; color: #cbd5e1;">${listing.sellerName || '-'}</td>
-                            <td style="padding: 6px 8px; border: 1px solid #334155; text-align: center;">
-                                <button onclick="window.buyMarketListing(${listing.listingId}, ${listing.price}, '${(it.name || '').replace(/'/g, "\\'")}', '${(listing.sellerName || '').replace(/'/g, "\\'")}', this)" style="background: ${buyBtnBg}; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; cursor: pointer; transition: all 0.15s ease;">${buyBtnText}</button>
-                            </td>
-                        </tr>
-                    `;
-                });
-            }
-
-            html += `
+                    <tbody id="p-mod-mk-tbody">
+                        ${(typeof window.renderMarketRowsHtml === 'function') ? window.renderMarketRowsHtml(results, cfg) : ''}
                     </tbody>
                 </table>
             `;
@@ -2363,19 +2462,31 @@
             // Wire live auto-filtering listeners on all inputs & selects
             const filterInputIds = [
                 'p-mod-mk-q', 'p-mod-mk-cat', 'p-mod-mk-refine', 'p-mod-mk-price',
-                'p-mod-mk-stat1', 'p-mod-mk-stat1-min', 'p-mod-mk-stat2', 'p-mod-mk-stat2-min', 'p-mod-mk-mode'
+                'p-mod-mk-stat1', 'p-mod-mk-stat1-min', 'p-mod-mk-stat2', 'p-mod-mk-stat2-min', 'p-mod-mk-mode',
+                'p-mod-mk-scan-depth', 'p-mod-mk-auto-deep'
             ];
             filterInputIds.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
-                    const evt = (el.tagName === 'SELECT') ? 'change' : 'input';
+                    const evt = (el.tagName === 'SELECT' || el.type === 'checkbox') ? 'change' : 'input';
                     el.addEventListener(evt, () => {
                         window.syncMarketFiltersFromUI();
                         if (evt === 'change') {
-                            window.renderModalTab('market');
+                            const tbody = document.getElementById('p-mod-mk-tbody');
+                            if (tbody && typeof window.renderMarketRowsHtml === 'function') {
+                                const newMatched = window.applyMarketFilters();
+                                tbody.innerHTML = window.renderMarketRowsHtml(newMatched, window.__marketFilterConfig);
+                                const sumText = document.getElementById('p-mod-mk-summary-text');
+                                if (sumText) {
+                                    const srv = window.__latestMarketResults?.total ?? 'รอสแกน';
+                                    sumText.innerText = `📋 ผลลัพธ์ในตลาดที่พบ (${newMatched.length} รายการ จากทั้งหมด ${(window.__marketAllListings || []).length} ในแคช · Server มี ${srv} รายการ):`;
+                                }
+                            } else {
+                                window.renderModalTab('market');
+                            }
                         }
                     });
-                    if (el.tagName === 'INPUT') {
+                    if (el.tagName === 'INPUT' && el.type === 'text') {
                         el.addEventListener('keydown', (e) => {
                             if (e.key === 'Enter') {
                                 window.executeMarketSearch();
@@ -2391,6 +2502,10 @@
                     window.syncMarketFiltersFromUI();
                     window.renderModalTab('market');
                 };
+            }
+
+            if (typeof window.updateMarketScanUIState === 'function') {
+                window.updateMarketScanUIState(window.__isMarketScanning);
             }
         }
     };
@@ -3094,11 +3209,12 @@
     window.__isRefreshingWeight = false;
 
     window.refreshInventoryAndWeight = function(callback, forceOpen = false) {
-        // ถ้ามีข้อมูลน้ำหนักและกระเป๋าอยู่แล้ว และไม่ได้สั่ง forceOpen ให้ใช้ข้อมูลเดิมทันที
-        if (!forceOpen && window.__latestInventory && window.__serverWeight && typeof window.__serverWeight.percent === 'number' && window.__serverWeight.max > 0) {
-            window.__lastKnownWeight = window.__serverWeight;
-            updateWeightHUD(window.__serverWeight);
-            if (typeof callback === 'function') callback(window.__serverWeight);
+        // ถ้ามีข้อมูลน้ำหนักและกระเป๋าอยู่แล้ว และไม่ได้สั่ง forceOpen ให้ใช้ข้อมูลเดิมทันทีโดยไม่ต้องเปิดกระเป๋า
+        const weightData = window.__serverWeight || window.__lastKnownWeight;
+        if (!forceOpen && window.__latestInventory && weightData && typeof weightData.percent === 'number' && weightData.max > 0) {
+            window.__lastKnownWeight = weightData;
+            updateWeightHUD(weightData);
+            if (typeof callback === 'function') callback(weightData);
             return;
         }
 
@@ -3878,7 +3994,17 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican Shop] 📡 ส่ง Packet 'npc_talk' (NPC: ${key})...`, 'color: #f59e0b;');
+
+        let tag = '[Pelican Shop]';
+        let color = '#f59e0b';
+        if (key === 'n6') {
+            tag = '[Pelican Warp/Alice]';
+            color = '#38bdf8';
+        } else if (key === 'n1') {
+            tag = '[Pelican Storage]';
+            color = '#a855f7';
+        }
+        console.log(`%c${tag} 📡 ส่ง Packet 'npc_talk' (NPC: ${key})...`, `color: ${color}; font-weight: bold;`);
     };
 
     window.sendRemoteNpcOption = function(index = 0) {
@@ -3909,18 +4035,78 @@
         console.log('%c[Pelican Heal] 💖 ส่ง Packet ฟื้นฟูเลือด/มานา (npc_option index: 3) สำเร็จ!', 'color: #ec4899; font-weight: bold;');
     };
 
-    window.sendNpcClose = function() {
-        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
-        const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
-        const prefix = [0x0D, 0xA9, 0x6E, 0x70, 0x63, 0x5F, 0x63, 0x6C, 0x6F, 0x73, 0x65];
-        const suffix = [0x90];
+    window.closeShopUI = function() {
+        try {
+            // 1. ค้นหาหน้าต่างร้านค้า / Cart / Dialog ทั้งหมดบนหน้าจอ
+            const shopModals = Array.from(document.querySelectorAll('.shop-window, .cart-shop, [class*="shop-window"], [class*="cart-shop"], .npc-dialog, .dialog')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
+                return el.offsetWidth > 0 || el.offsetHeight > 0;
+            });
 
-        const buf = new Uint8Array(prefix.length + token.length + suffix.length);
-        buf.set(prefix, 0);
-        buf.set(token, prefix.length);
-        buf.set(suffix, prefix.length + token.length);
-        window.__gameSocket.send(buf.buffer);
-        console.log('%c[Pelican Shop] 🚪 ส่ง npc_close ปิดหน้าร้านค้า', 'color: #94a3b8;');
+            // ค้นหา window panel ที่มีเนื้อหาเกี่ยวกับร้านค้า General Goods หรือตะกร้าซื้อ/ขาย
+            const otherShopPanels = Array.from(document.querySelectorAll('.window.panel, .modal, .panel')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
+                const txt = (el.innerText || el.textContent || '');
+                return (txt.includes('General Goods') || txt.includes('ตะกร้าซื้อ') || txt.includes('ตะกร้าขาย') || txt.includes('ตรวจสอบและซื้อ') || txt.includes('ตรวจสอบและขาย')) && (el.offsetWidth > 0 || el.offsetHeight > 0);
+            });
+
+            const allModals = Array.from(new Set([...shopModals, ...otherShopPanels]));
+            let closedCount = 0;
+
+            for (const win of allModals) {
+                // ค้นหาปุ่มปิด win-close หรือ ✕
+                const closeBtn = win.querySelector('button.win-close, button.close, [aria-label="ปิด"], [class*="close"]') ||
+                                 Array.from(win.querySelectorAll('button, div, span, [role="button"]')).find(el => {
+                                     const t = (el.innerText || el.textContent || '').trim();
+                                     return t === '✕' || t === 'X' || (el.className && typeof el.className === 'string' && el.className.includes('close'));
+                                 });
+
+                if (closeBtn) {
+                    if (typeof triggerClick === 'function') {
+                        triggerClick(closeBtn);
+                    } else if (typeof closeBtn.click === 'function') {
+                        closeBtn.click();
+                    }
+                    closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                    closedCount++;
+                }
+
+                // Failsafe: สั่งซ่อน element ทันทีเพื่อไม่ให้บัง Canvas และไม่ขวาง Mouse Pointer
+                setTimeout(() => {
+                    if (win && (win.offsetWidth > 0 || win.offsetHeight > 0)) {
+                        win.style.display = 'none';
+                        try { win.remove(); } catch(e) {}
+                    }
+                }, 120);
+            }
+
+            dispatchKeyAll('Escape', 'Escape', 27);
+
+            if (closedCount > 0) {
+                console.log(`%c[Pelican Shop] 🚪 ปิดหน้าต่างร้านค้าสำเร็จ (${closedCount} หน้าต่าง)`, 'color: #94a3b8; font-weight: bold;');
+            }
+        } catch(e) {
+            console.error('[Pelican Shop] เกิดข้อผิดพลาดในการปิดหน้าต่างร้านค้า:', e);
+        }
+    };
+
+    window.sendNpcClose = function() {
+        if (window.__gameSocket && window.__gameSocket.readyState === 1) {
+            const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
+            const prefix = [0x0D, 0xA9, 0x6E, 0x70, 0x63, 0x5F, 0x63, 0x6C, 0x6F, 0x73, 0x65];
+            const suffix = [0x90];
+
+            const buf = new Uint8Array(prefix.length + token.length + suffix.length);
+            buf.set(prefix, 0);
+            buf.set(token, prefix.length);
+            buf.set(suffix, prefix.length + token.length);
+            window.__gameSocket.send(buf.buffer);
+            console.log('%c[Pelican Shop] 🚪 ส่ง npc_close ปิดหน้าร้านค้า (Packet)', 'color: #94a3b8;');
+        }
+        // ปิด DOM UI ของหน้าร้านค้าเสมอ
+        if (typeof window.closeShopUI === 'function') {
+            window.closeShopUI();
+        }
     };
 
     // ==========================================
@@ -3997,6 +4183,11 @@
     };
 
     window.openAliceWarpService = function(callback) {
+        // ล้างหน้าต่างร้านค้าหรือ dialog ค้างเก่าก่อนเริ่มคุยกับ Alice เสมอ
+        if (typeof window.closeShopUI === 'function') {
+            window.closeShopUI();
+        }
+
         // ตรวจสอบว่าหน้าต่างบทสนทนาของ Alice เปิดอยู่บนจอหรือไม่
         function isAliceDialogOpen() {
             const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
@@ -4213,12 +4404,14 @@
 
             // ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก เฉพาะตอนที่ dialog ยังไม่เปิด
             if (attempts % 5 === 0) {
+                if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 clickAliceOnScreen();
                 window.sendRemoteNpcTalk('n6');
             }
 
             // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice แล้ว) ส่ง packet คุยทันที
             if (isStationary && stillCount === 2) {
+                if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 console.log('%c[Pelican Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (n6)...', 'color: #38bdf8;');
                 window.sendRemoteNpcTalk('n6');
             }
@@ -5278,6 +5471,9 @@
                             executeSellAndBuyActions(() => {
                                 if (!window.__isBotRunning) return;
                                 window.sendNpcClose();
+                                if (typeof window.closeShopUI === 'function') {
+                                    window.closeShopUI();
+                                }
                                 console.log('%c[Pelican Shop] 🔄 ซิงก์จัดเรียงกระเป๋าและอ่านน้ำหนักจริงหลังขาย...', 'color: #38bdf8; font-weight: bold;');
 
                                 // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าทันทีที่หน้า NPC ร้านค้า (~300ms)
@@ -5292,6 +5488,7 @@
                                         console.log(`%c[Pelican Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
                                         setTimeout(() => {
                                             if (!window.__isBotRunning) return;
+                                            if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                             window.__isShopping = false;
                                             window.walkToTargetMap(currentFarmMap);
                                         }, 600);
@@ -5301,6 +5498,7 @@
                                     window.__isKnownOverweight = false;
                                     setTimeout(() => {
                                         if (!window.__isBotRunning) return;
+                                        if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                         window.__isShopping = false;
                                         window.walkToTargetMap(currentFarmMap);
                                     }, 800);
@@ -5390,6 +5588,9 @@
     // 4. World Map Opener (Unfocused-Safe)
     // ==========================================
     function closeAnyOpenMenus() {
+        if (typeof window.closeShopUI === 'function') {
+            window.closeShopUI();
+        }
         const openNavMenu = document.querySelector('nav.hud-menu:not(.closed)');
         if (openNavMenu) {
             const menuToggleBtn = Array.from(document.querySelectorAll('button, div')).find(el => el.innerText && el.innerText.includes('เมนู'));
@@ -5989,17 +6190,87 @@
     }
 
     function checkPostLoginScreen() {
-        // ตรวจสอบหน้าต่างเลือกตัวละคร หรือปุ่ม "เริ่มเกม" หลัง Login
-        const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
-            return !el.closest('#pelican-hud') && el.offsetWidth > 0;
-        });
-        const enterBtn = candidates.find(el => {
-            const txt = (el.innerText || el.textContent || '').trim();
-            return txt === 'เริ่มเกม' || txt === 'เข้าสู่โลก' || txt === 'เข้าเล่น' || txt === 'เลือกตัวละคร' || txt === 'Enter World' || txt === 'Start Game';
-        });
-        if (enterBtn && !isLoginScreenVisible()) {
-            console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${enterBtn.innerText.trim()}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
-            triggerClick(enterBtn);
+        const cfg = window.__authConfig || {};
+        if (isLoginScreenVisible()) return;
+
+        const bodyText = document.body.innerText || '';
+        const isCharSelectScreen = bodyText.includes('เลือกตัวละคร') || 
+                                   bodyText.includes('สร้างตัวละคร') || 
+                                   bodyText.includes('เข้าเกมด้วย') || 
+                                   bodyText.includes('Select Character');
+
+        // Helper: หาปุ่มเข้าเกมที่มีอยู่แล้ว
+        function findEnterButton() {
+            const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn, [class*="btn"], div')).filter(el => {
+                if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+                if (el.offsetHeight > 140) return false; // ไม่ใช่ container ใหญ่
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) return false;
+                if (txt.startsWith('เข้าเกมด้วย') || 
+                    txt === 'เข้าเกม' || 
+                    txt === 'เริ่มเกม' || 
+                    txt === 'เข้าสู่โลก' || 
+                    txt === 'เข้าเล่น' || 
+                    txt === 'เลือกตัวละคร' || 
+                    txt === 'Enter World' || 
+                    txt === 'Start Game') {
+                    return true;
+                }
+                return false;
+            });
+            candidates.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+            return candidates[0] || null;
+        }
+
+        // Helper: หาการ์ดตัวละคร
+        function findCharacterCards() {
+            const cards = Array.from(document.querySelectorAll('div, button, a')).filter(el => {
+                if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+                if (el.offsetWidth < 80 || el.offsetHeight < 80 || el.offsetWidth > 450 || el.offsetHeight > 500) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) return false;
+                if (txt.includes('สร้างตัวละคร') || txt.includes('ช่องว่าง')) return false;
+                return txt.includes('Lv.') || txt.includes('Job') || txt.includes('Hunter') || txt.includes('Novice') || 
+                       txt.includes('Knight') || txt.includes('Wizard') || txt.includes('Priest') || txt.includes('Assassin') || 
+                       txt.includes('Blacksmith') || txt.includes('Bard') || txt.includes('Dancer') || txt.includes('Crusader') || 
+                       txt.includes('Monk') || txt.includes('Sage') || txt.includes('Rogue') || txt.includes('Alchemist');
+            });
+            cards.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+            return cards;
+        }
+
+        if (isCharSelectScreen) {
+            const cards = findCharacterCards();
+            if (cards.length > 0) {
+                let targetCard = null;
+                if (cfg.charName && cfg.charName.trim().length > 0) {
+                    targetCard = cards.find(c => (c.innerText || '').includes(cfg.charName.trim()));
+                }
+                if (!targetCard) {
+                    targetCard = cards[0];
+                }
+
+                if (targetCard) {
+                    triggerClick(targetCard);
+                }
+            }
+
+            // คลิกปุ่มเข้าเกมหลังเลือกตัวละคร
+            setTimeout(() => {
+                const enterBtn = findEnterButton();
+                if (enterBtn && !isLoginScreenVisible()) {
+                    const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
+                    console.log(`%c[Pelican Auth] 🎮 เลือกตัวละคร & คลิกเข้าเกม ("${btnTxt}")...`, 'color: #22c55e; font-weight: bold;');
+                    triggerClick(enterBtn);
+                }
+            }, 350);
+        } else {
+            const enterBtn = findEnterButton();
+            if (enterBtn && !isLoginScreenVisible()) {
+                const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
+                console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${btnTxt}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
+                triggerClick(enterBtn);
+            }
         }
     }
 
@@ -6056,10 +6327,13 @@
             console.log('%c[Pelican Auth] 🚀 คลิกปุ่ม "เข้าเกม"...', 'color: #22c55e; font-weight: bold;');
             triggerClick(loginBtn);
 
-            setTimeout(() => {
-                isLoginInProgress = false;
-                checkPostLoginScreen();
-            }, 2500);
+            // ตรวจสอบหน้าต่างเลือกตัวละครหลายระลอก (1.5s, 3s, 5s) เพื่อความเสถียร
+            [1500, 3000, 5000].forEach(delay => {
+                setTimeout(() => {
+                    isLoginInProgress = false;
+                    checkPostLoginScreen();
+                }, delay);
+            });
         }, 500);
     };
 
@@ -6582,6 +6856,32 @@
         const win = document.querySelector('.market-window');
         if (!win) return;
 
+        // 0. Inject Deep Scan Button into native game .market-window filters form
+        const mkForm = win.querySelector('form.mk-filters, .mk-filters');
+        if (mkForm && !mkForm.querySelector('.pelican-mk-deep-scan-btn')) {
+            const scanBtn = document.createElement('button');
+            scanBtn.type = 'button';
+            scanBtn.className = 'pelican-mk-deep-scan-btn';
+            scanBtn.title = 'สแกนทุกหน้าในตลาดเพื่อดึง Option เข้าสู่ Pelican Inspector';
+            scanBtn.style.cssText = 'margin-left: 6px; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: 1px solid #c084fc; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; height: 26px; vertical-align: middle; box-shadow: 0 2px 6px rgba(147, 51, 234, 0.4);';
+            scanBtn.innerText = window.__isMarketScanning ? '⚡ กำลังสแกน...' : '⚡ สแกนทุกหน้า';
+            scanBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (window.__isMarketScanning) {
+                    window.stopMarketScan();
+                } else {
+                    window.startMarketMultiPageScan('all');
+                }
+            };
+            const submitBtn = mkForm.querySelector('button[type="submit"], button.primary, button');
+            if (submitBtn && submitBtn.nextSibling) {
+                mkForm.insertBefore(scanBtn, submitBtn.nextSibling);
+            } else {
+                mkForm.appendChild(scanBtn);
+            }
+        }
+
         const latestListings = window.__latestMarketResults?.listings || [];
         const rows = Array.from(win.querySelectorAll('.mk-row'));
         const cfg = window.__marketFilterConfig || {};
@@ -6646,6 +6946,36 @@
         if (targetListing) {
             window.updateMarketDetailOverlay(targetListing);
         }
+
+        // 3. Inject Quick-Add Auto Sell Button into In-Game Market "ลงขาย" (Sell) tab
+        const sellSubmitBtn = win.querySelector('button.primary');
+        if (sellSubmitBtn && (sellSubmitBtn.innerText || '').trim() === 'ลงขาย') {
+            const form = sellSubmitBtn.closest('form') || sellSubmitBtn.parentElement;
+            if (form && !form.querySelector('.pelican-quick-autosell-btn')) {
+                const addBtn = document.createElement('button');
+                addBtn.type = 'button';
+                addBtn.className = 'pelican-quick-autosell-btn';
+                addBtn.title = 'เพิ่มไอเทมนี้เข้าสู่ระบบ Auto Sell อัตโนมัติ (⚖️ Market Median)';
+                addBtn.style.cssText = 'margin-top: 6px; width: 100%; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: 1px solid #c084fc; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 6px rgba(147, 51, 234, 0.3); display: flex; align-items: center; justify-content: center; gap: 6px;';
+                addBtn.innerHTML = '<span>➕</span><span>เพิ่มไอเทมนี้เข้า Auto Sell (⚖️ Market Median)</span>';
+                addBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const text = win.innerText || '';
+                    const m = text.match(/([A-Za-z0-9\s()+-]+)\s*×\s*(\d+)/);
+                    const itemName = m ? m[1].trim() : '';
+                    if (itemName && typeof window.addAutoMarketSellRule === 'function') {
+                        window.addAutoMarketSellRule(itemName, 20);
+                        if (typeof window.showDataViewerModal === 'function') {
+                            window.showDataViewerModal('market');
+                        }
+                    } else if (typeof window.addAutoMarketSellRule === 'function') {
+                        window.addAutoMarketSellRule('', 20);
+                    }
+                };
+                sellSubmitBtn.insertAdjacentElement('afterend', addBtn);
+            }
+        }
     };
 
     window.handleIncomingMarketResults = function(dec) {
@@ -6699,12 +7029,31 @@
             }
         }
 
-        const modal = document.getElementById('pelican-data-modal');
-        if (modal && modal.style.display !== 'none' && window.__currentModalTab === 'market') {
-            window.renderModalTab('market');
+        // Live Dynamic DOM update for Market Inspector modal
+        const tbody = document.getElementById('p-mod-mk-tbody');
+        const summaryText = document.getElementById('p-mod-mk-summary-text');
+        const serverBadge = document.getElementById('p-mod-mk-server-badge');
+
+        if (tbody && typeof window.renderMarketRowsHtml === 'function') {
+            tbody.innerHTML = window.renderMarketRowsHtml(matched, cfg);
+            if (summaryText) {
+                const totalServer = dec.total || window.__latestMarketResults?.total || 'รอสแกน';
+                summaryText.innerText = `📋 ผลลัพธ์ในตลาดที่พบ (${matched.length} รายการ จากทั้งหมด ${(window.__marketAllListings || []).length} ในแคช · Server มี ${totalServer} รายการ):`;
+            }
+            if (serverBadge) {
+                serverBadge.innerText = `Server: ${dec.total ?? 'รอสแกน'} รายการ`;
+            }
+        } else {
+            const modal = document.getElementById('pelican-data-modal');
+            if (modal && modal.style.display !== 'none' && window.__currentModalTab === 'market') {
+                window.renderModalTab('market');
+            }
         }
-        const searchBtn = document.getElementById('p-mod-btn-search');
-        if (searchBtn) searchBtn.innerText = '🔍 ค้นหา';
+
+        if (!window.__isMarketScanning) {
+            const searchBtn = document.getElementById('p-mod-btn-search');
+            if (searchBtn) searchBtn.innerText = '🔍 ค้นหา';
+        }
     };
 
     window.dumpMarketData = function() {
@@ -6742,26 +7091,148 @@
         }
     };
 
+    window.stopMarketScan = function() {
+        if (window.__isMarketScanning) {
+            window.__isMarketScanning = false;
+            if (window.__marketScanTimer) {
+                clearTimeout(window.__marketScanTimer);
+                window.__marketScanTimer = null;
+            }
+            console.log('%c[Pelican Market] ⏹️ หยุดการสแกนตลาดเรียบร้อย', 'color: #f59e0b; font-weight: bold;');
+            if (typeof window.updateMarketScanUIState === 'function') {
+                window.updateMarketScanUIState(false);
+            }
+        }
+    };
+
+    window.updateMarketScanUIState = function(isScanning, curPage = 0, totalPages = 0, foundCount = 0) {
+        const scanBtn = document.getElementById('p-mod-btn-scan');
+        const inGameScanBtn = document.querySelector('.pelican-mk-deep-scan-btn');
+        const hudScanBtn = document.getElementById('p-btn-mk-scan');
+
+        const label = isScanning 
+            ? `⚡ สแกน ${curPage}/${totalPages}... (${foundCount} พบ) [⏹️ หยุด]` 
+            : `⚡ เริ่มสแกน`;
+
+        if (scanBtn) {
+            scanBtn.innerText = label;
+            scanBtn.style.background = isScanning ? '#dc2626' : '#9333ea';
+        }
+        if (inGameScanBtn) {
+            inGameScanBtn.innerText = isScanning ? `⚡ สแกน ${curPage}/${totalPages}... [หยุด]` : `⚡ สแกนทุกหน้า`;
+            inGameScanBtn.style.background = isScanning ? '#dc2626' : 'linear-gradient(135deg, #7c3aed, #9333ea)';
+        }
+        if (hudScanBtn) {
+            hudScanBtn.innerText = isScanning ? `⚡ ${curPage}/${totalPages} (${foundCount}) ⏹️` : `⚡ สแกนทุกหน้า`;
+            hudScanBtn.style.background = isScanning ? '#dc2626' : '#9333ea';
+        }
+    };
+
+    window.startMarketMultiPageScan = function(targetPages = 'all') {
+        if (window.__isMarketScanning) {
+            window.stopMarketScan();
+            return;
+        }
+
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const q = (window.__marketFilterConfig?.q || '').trim();
+        const cfg = window.__marketFilterConfig || {};
+
+        const serverTotal = window.__latestMarketResults?.total || 0;
+        let maxPages = 20; // safe cap
+        if (typeof targetPages === 'number' && targetPages > 0) {
+            maxPages = targetPages;
+        } else if (serverTotal > 0) {
+            maxPages = Math.min(25, Math.ceil(serverTotal / 20));
+        }
+
+        window.__isMarketScanning = true;
+        console.log(`%c[Pelican Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติเป้าหมาย ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
+
+        let curPage = 0;
+        if (typeof window.updateMarketScanUIState === 'function') {
+            window.updateMarketScanUIState(true, 1, maxPages, (window.__marketFilteredResults || []).length);
+        }
+
+        const scanNext = () => {
+            if (!window.__isMarketScanning) return;
+
+            const curServerTotal = window.__latestMarketResults?.total || 0;
+            if (targetPages === 'all' && curServerTotal > 0) {
+                maxPages = Math.min(25, Math.ceil(curServerTotal / 20));
+            }
+
+            if (curPage >= maxPages) {
+                window.__isMarketScanning = false;
+                const found = (window.__marketFilteredResults || []).length;
+                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! พบตรงสเปค: ${found} รายการ (ในแคช ${(window.__marketAllListings || []).length})`, 'color: #10b981; font-weight: bold;');
+                if (typeof window.updateMarketScanUIState === 'function') {
+                    window.updateMarketScanUIState(false);
+                }
+                if (typeof window.renderMarketHudTab === 'function') window.renderMarketHudTab();
+                if (found > 0 && typeof playWarningChime === 'function') playWarningChime();
+                return;
+            }
+
+            curPage++;
+            const foundCount = (window.__marketFilteredResults || []).length;
+            if (typeof window.updateMarketScanUIState === 'function') {
+                window.updateMarketScanUIState(true, curPage, maxPages, foundCount);
+            }
+
+            if (room && room.connection?.isOpen) {
+                room.send('market', {
+                    op: 'search',
+                    filters: {
+                        q: q || undefined,
+                        category: cfg.category || undefined,
+                        kind: cfg.kind || undefined,
+                        minRefine: Number(cfg.minRefine) || undefined,
+                        maxPrice: Number(cfg.maxPrice) || undefined,
+                        sort: 'price_asc',
+                        page: curPage - 1
+                    }
+                });
+            } else {
+                const win = document.querySelector('.market-window');
+                const nextBtn = win ? Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').includes('ถัดไป')) : null;
+                if (nextBtn && !nextBtn.disabled) nextBtn.click();
+            }
+
+            window.__marketScanTimer = setTimeout(scanNext, 260);
+        };
+
+        scanNext();
+    };
+
     window.executeMarketSearch = function(filters) {
         window.syncMarketFiltersFromUI();
         filters = Object.assign({}, window.__marketFilterConfig, filters || {});
         const queryText = (filters.q || '').trim();
+        const oldQuery = window.__marketFilterConfig.q;
+
+        // If searching a new item name, clear previous cached listings
+        if (oldQuery && oldQuery.toLowerCase() !== queryText.toLowerCase()) {
+            window.__marketAllListings = [];
+            window.__marketFilteredResults = [];
+        }
+
         window.__marketFilterConfig.q = queryText;
         saveMarketFilterConfig();
 
-        // กรองข้อมูลในแคชทันทีและอัปเดตสถานะปุ่ม
+        // 1. กรองข้อมูลในแคชทันทีและอัปเดตสถานะปุ่ม
         window.applyMarketFilters();
         const searchBtn = document.getElementById('p-mod-btn-search');
         if (searchBtn) searchBtn.innerText = '🔍 กำลังค้นหา...';
 
-        // 1. Send direct search packet via Colyseus Room
+        // 2. ส่งคำสั่งหน้าแรกตรงสู่เซิร์ฟเวอร์
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (room && room.connection?.isOpen) {
             try {
                 room.send('market', {
                     op: 'search',
                     filters: {
-                        q: queryText.trim() || undefined,
+                        q: queryText || undefined,
                         category: filters.category || undefined,
                         kind: filters.kind || undefined,
                         minRefine: Number(filters.minRefine) || undefined,
@@ -6776,7 +7247,7 @@
             }
         }
 
-        // 2. Synchronize In-Game Market Window UI (เฉพาะกรณีที่หน้าต่างตลาดในเกมเปิดอยู่แล้วเท่านั้น จะไม่เปิดหน้าต่างขึ้นมาเอง)
+        // 3. Synchronize In-Game Market Window UI
         const inGameWin = document.querySelector('.market-window');
         if (inGameWin && inGameWin.offsetWidth > 0) {
             const searchInput = inGameWin.querySelector('input[type="text"], input[type="search"]');
@@ -6814,53 +7285,17 @@
                 }
             }, 120);
         }
-    };
 
-    window.startMarketMultiPageScan = function(maxPages = 5) {
-        if (window.__isMarketScanning) {
-            console.log('[Pelican Market] การสแกนกำลังทำงานอยู่แล้ว');
-            return;
+        // 4. Auto Deep Scan: ถ้ามี Option ระบุไว้ หรือเปิด Auto Deep Scan
+        const hasOptionFilter = (filters.statType1 && filters.statType1 !== 'none') || (filters.statType2 && filters.statType2 !== 'none');
+        const autoScan = filters.autoDeepScan !== false;
+        if (hasOptionFilter && autoScan) {
+            setTimeout(() => {
+                const depthVal = window.__marketFilterConfig.scanDepth || 'all';
+                const targetPages = (depthVal === 'all') ? 'all' : (parseInt(depthVal) || 5);
+                window.startMarketMultiPageScan(targetPages);
+            }, 320);
         }
-        window.__isMarketScanning = true;
-        console.log(`%c[Pelican Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติ ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
-
-        let curPage = 0;
-        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
-        const q = (window.__marketFilterConfig?.q || '').trim();
-
-        const scanNext = () => {
-            if (!window.__isMarketScanning) return;
-            if (curPage >= maxPages) {
-                window.__isMarketScanning = false;
-                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! ตรวจพบไอเทมตรงสเปค: ${(window.__marketFilteredResults || []).length} รายการ (ในแคช ${(window.__marketAllListings || []).length})`, 'color: #10b981; font-weight: bold;');
-                if (typeof window.renderMarketHudTab === 'function') window.renderMarketHudTab();
-                return;
-            }
-
-            curPage++;
-            console.log(`%c[Pelican Market] 📄 กำลังดึงข้อมูลหน้า ${curPage}/${maxPages}...`, 'color: #c084fc;');
-
-            if (room && room.connection?.isOpen) {
-                room.send('market', {
-                    op: 'search',
-                    filters: {
-                        q: q || undefined,
-                        category: window.__marketFilterConfig?.category || undefined,
-                        kind: window.__marketFilterConfig?.kind || undefined,
-                        sort: 'price_asc',
-                        page: curPage - 1
-                    }
-                });
-            } else {
-                const win = document.querySelector('.market-window');
-                const nextBtn = win ? Array.from(win.querySelectorAll('button')).find(b => (b.innerText || '').includes('ถัดไป')) : null;
-                if (nextBtn && !nextBtn.disabled) nextBtn.click();
-            }
-
-            setTimeout(scanNext, 850);
-        };
-
-        scanNext();
     };
 
     window.claimMarketDeliveries = function(callback) {
@@ -7014,6 +7449,652 @@
         }, 450);
     };
 
+    // ==========================================
+    // AUTO MARKET SELL ENGINE (⚖️ Market Median Algorithm)
+    // ==========================================
+    window.getBagItems = function() {
+        const rawInv = window.__latestInventory;
+        const items = [];
+        if (rawInv && Array.isArray(rawInv.items)) {
+            rawInv.items.forEach(obj => {
+                if (!obj) return;
+                const id = obj.itemId ?? obj.id ?? obj.item_id ?? obj.code;
+                const name = obj.name ?? obj.itemName ?? obj.title;
+                if (id !== undefined || name !== undefined) {
+                    items.push({
+                        id: id,
+                        name: (name || `Item_${id}`).trim(),
+                        qty: Number(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 1,
+                        slot: obj.slot ?? obj.idx ?? '-',
+                        refine: obj.refine || 0,
+                        raw: obj
+                    });
+                }
+            });
+        } else if (rawInv) {
+            function scanRaw(obj) {
+                if (!obj) return;
+                if (Array.isArray(obj)) {
+                    obj.forEach(scanRaw);
+                } else if (typeof obj === 'object') {
+                    const id = obj.itemId ?? obj.id ?? obj.item_id ?? obj.code;
+                    const name = obj.name ?? obj.itemName ?? obj.title;
+                    if (id !== undefined || name !== undefined) {
+                        items.push({
+                            id: id,
+                            name: (name || `Item_${id}`).trim(),
+                            qty: Number(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 1,
+                            slot: obj.slot ?? obj.idx ?? '-',
+                            refine: obj.refine || 0,
+                            raw: obj
+                        });
+                    }
+                    for (const k in obj) {
+                        if (typeof obj[k] === 'object') scanRaw(obj[k]);
+                    }
+                }
+            }
+            scanRaw(rawInv);
+        }
+        return items;
+    };
+
+    window.fetchMyMarketActiveCount = async function() {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (!room || !room.connection?.isOpen) return window.__myMarketActiveCount || 0;
+
+        return await new Promise((resolve) => {
+            let done = false;
+            const timer = setTimeout(() => {
+                if (!done) {
+                    done = true;
+                    if (typeof unsub === 'function') unsub();
+                    resolve(window.__myMarketActiveCount || 0);
+                }
+            }, 1500);
+
+            const unsub = room.onMessage('market_mine', (msg) => {
+                if (!done) {
+                    done = true;
+                    clearTimeout(timer);
+                    if (typeof unsub === 'function') unsub();
+                    const active = msg?.active || [];
+                    window.__myMarketActiveCount = active.length;
+                    const badge = document.getElementById('p-autosell-quota-badge');
+                    if (badge) badge.innerText = `โควตา: ${active.length}/10 รายการ`;
+                    const badgeHud = document.getElementById('p-autosell-quota-badge-hud');
+                    if (badgeHud) badgeHud.innerText = `โควตา: ${active.length}/10`;
+                    resolve(active.length);
+                }
+            });
+            room.send('market', { op: 'mine' });
+        });
+    };
+
+    window.fetchItemMarketMedianPrice = async function(itemId, refine = 0) {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (!room || !room.connection?.isOpen) return null;
+
+        return await new Promise((resolve) => {
+            let done = false;
+            const timer = setTimeout(() => {
+                if (!done) {
+                    done = true;
+                    if (typeof unsub === 'function') unsub();
+                    resolve(null);
+                }
+            }, 3000);
+
+            const unsub = room.onMessage('market_history', (msg) => {
+                if (msg && Number(msg.itemId) === Number(itemId)) {
+                    if (!done) {
+                        done = true;
+                        clearTimeout(timer);
+                        if (typeof unsub === 'function') unsub();
+
+                        const recent = msg.recent || [];
+                        if (recent.length === 0) {
+                            const lastBucket = (msg.points || []).filter(p => p && p.avg > 0).pop();
+                            const fallbackPrice = lastBucket ? Math.round(lastBucket.avg) : 0;
+                            return resolve({
+                                medianPrice: fallbackPrice,
+                                cleanTradesCount: 0,
+                                totalTrades: 0,
+                                isFallback: true
+                            });
+                        }
+
+                        // Calculate unit price for each trade
+                        const unitPrices = recent.map(r => Math.round(r.price / r.qty)).filter(p => p > 0);
+                        unitPrices.sort((a, b) => a - b);
+
+                        // Robust IQR Outlier Rejection
+                        let cleanPrices = unitPrices;
+                        if (unitPrices.length >= 4) {
+                            const q1 = unitPrices[Math.floor(unitPrices.length * 0.25)];
+                            const q3 = unitPrices[Math.floor(unitPrices.length * 0.75)];
+                            const iqr = q3 - q1;
+                            const lowBound = Math.max(1, q1 - 1.5 * iqr);
+                            const highBound = q3 + 1.5 * iqr;
+                            const filtered = unitPrices.filter(p => p >= lowBound && p <= highBound);
+                            if (filtered.length > 0) cleanPrices = filtered;
+                        }
+
+                        // Calculate median
+                        let median = 0;
+                        const mid = Math.floor(cleanPrices.length / 2);
+                        if (cleanPrices.length % 2 === 0 && cleanPrices.length > 1) {
+                            median = Math.round((cleanPrices[mid - 1] + cleanPrices[mid]) / 2);
+                        } else {
+                            median = cleanPrices[mid];
+                        }
+
+                        resolve({
+                            medianPrice: median,
+                            cleanTradesCount: cleanPrices.length,
+                            totalTrades: recent.length,
+                            minPrice: cleanPrices[0],
+                            maxPrice: cleanPrices[cleanPrices.length - 1]
+                        });
+                    }
+                }
+            });
+
+            room.send('market', { op: 'history', itemId: Number(itemId), refine: Number(refine) || 0, range: '24h' });
+        });
+    };
+
+    window.getAutoSellRuleBagStatusHtml = function(itemName, minQty) {
+        if (!itemName) return '<span style="color: #64748b; font-size: 10px;">รอระบุชื่อ</span>';
+        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        const norm = itemName.trim().toLowerCase();
+        let totalCount = 0;
+        bagItems.forEach(it => {
+            if (it.name && it.name.trim().toLowerCase() === norm) {
+                totalCount += (Number(it.qty) || 1);
+            }
+        });
+        const threshold = Number(minQty) || 1;
+        if (totalCount === 0) {
+            return '<span style="color: #94a3b8; font-size: 10px;">❌ ไม่มีในตัว</span>';
+        } else if (totalCount >= threshold) {
+            return `<span style="color: #4ade80; font-weight: bold; font-size: 10.5px;">✅ มี ${totalCount.toLocaleString()} ชิ้น (พร้อมขาย)</span>`;
+        } else {
+            return `<span style="color: #facc15; font-size: 10px;">⏳ มี ${totalCount.toLocaleString()}/${threshold} ชิ้น (รอฟาร์ม)</span>`;
+        }
+    };
+
+    window.renderAutoSellRulesHtml = function() {
+        const cfg = window.__autoMarketSellConfig || { rules: [] };
+        const rules = cfg.rules || [];
+
+        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        const bagItemNames = new Set();
+        bagItems.forEach(it => {
+            if (it && it.name) bagItemNames.add(it.name.trim());
+        });
+
+        let datalistHtml = `<datalist id="p-bag-datalist">`;
+        Array.from(bagItemNames).sort().forEach(name => {
+            datalistHtml += `<option value="${name}">`;
+        });
+        datalistHtml += `</datalist>`;
+
+        if (rules.length === 0) {
+            return `
+                ${datalistHtml}
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(168, 85, 247, 0.3); border-radius: 6px; padding: 14px; text-align: center; color: #94a3b8; font-size: 11.5px;">
+                    <span style="font-size: 16px;">💡</span> ยังไม่มีรายการตั้งขายอัตโนมัติ — กดปุ่ม <b style="color: #4ade80;">[➕ เพิ่มรายการลงขาย]</b> ด้านบน เพื่อระบุชื่อไอเทมและจำนวนขั้นต่ำที่ต้องการให้บอทลงขายอัตโนมัติเมื่อฟาร์มครบ
+                </div>
+            `;
+        }
+
+        let rowsHtml = '';
+        rules.forEach((rule, idx) => {
+            const statusHtml = window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty);
+            const isReady = statusHtml.includes('✅');
+
+            rowsHtml += `
+                <tr style="border-bottom: 1px solid #1e293b; background: ${idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)'};">
+                    <td style="padding: 6px 8px; text-align: center; color: #64748b; font-family: monospace; border: 1px solid #334155;">${idx + 1}</td>
+                    <td style="padding: 6px 8px; border: 1px solid #334155;">
+                        <input type="text" list="p-bag-datalist" value="${rule.itemName || ''}" placeholder="พิมพ์หรือเลือกชื่อไอเทม..."
+                            oninput="window.updateAutoSellRuleName('${rule.id}', this.value)"
+                            style="width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #475569; color: #f8fafc; padding: 4px 6px; border-radius: 4px; font-size: 11px; font-weight: 500;">
+                    </td>
+                    <td style="padding: 6px 8px; text-align: center; border: 1px solid #334155;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+                            <span style="color: #94a3b8; font-size: 10px;">ครบ ≥</span>
+                            <input type="number" min="1" value="${rule.minQty || 20}"
+                                oninput="window.updateAutoSellRuleMin('${rule.id}', this.value)"
+                                style="width: 65px; box-sizing: border-box; background: #020617; border: 1px solid #475569; color: #38bdf8; padding: 4px; border-radius: 4px; font-size: 11px; font-weight: bold; text-align: center;">
+                            <span style="color: #94a3b8; font-size: 10px;">ชิ้น</span>
+                        </div>
+                    </td>
+                    <td style="padding: 6px 8px; text-align: center; border: 1px solid #334155;">
+                        <select onchange="window.updateAutoSellRule('${rule.id}', 'sellMode', this.value)"
+                            style="background: #020617; border: 1px solid #475569; color: #c084fc; padding: 4px; border-radius: 4px; font-size: 10.5px;">
+                            <option value="all" ${rule.sellMode !== 'min' ? 'selected' : ''}>ขายทั้งหมดในตัว</option>
+                            <option value="min" ${rule.sellMode === 'min' ? 'selected' : ''}>ขายทีละ ${rule.minQty} ชิ้น</option>
+                        </select>
+                    </td>
+                    <td id="p-autosell-status-${rule.id}" style="padding: 6px 8px; text-align: center; border: 1px solid #334155;">
+                        ${statusHtml}
+                    </td>
+                    <td style="padding: 6px 8px; text-align: center; border: 1px solid #334155;">
+                        <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
+                            <button onclick="window.sellSingleRuleNow('${rule.id}');" title="สั่งประเมินราคากลางและลงขายไอเทมนี้ทันที 1 ครั้ง"
+                                style="background: ${isReady ? 'linear-gradient(135deg, #0284c7, #2563eb)' : '#334155'}; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: ${isReady ? 'pointer' : 'not-allowed'}; opacity: ${isReady ? '1' : '0.6'};">
+                                ⚡ ขายทันที
+                            </button>
+                            <button onclick="window.removeAutoMarketSellRule('${rule.id}');" title="ลบรายการนี้ทิ้ง"
+                                style="background: #ef4444; color: #fff; border: none; width: 22px; height: 22px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(239, 68, 68, 0.4);">
+                                ➖
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        return `
+            ${datalistHtml}
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                    <tr style="background: #1e293b; color: #94a3b8; text-align: center;">
+                        <th style="padding: 6px 8px; border: 1px solid #334155; width: 35px;">#</th>
+                        <th style="padding: 6px 8px; border: 1px solid #334155; text-align: left;">ชื่อไอเทม</th>
+                        <th style="padding: 6px 8px; border: 1px solid #334155; width: 140px;">เงื่อนไขลงขาย</th>
+                        <th style="padding: 6px 8px; border: 1px solid #334155; width: 130px;">จำนวนที่ขาย</th>
+                        <th style="padding: 6px 8px; border: 1px solid #334155; width: 160px;">สถานะในกระเป๋า</th>
+                        <th style="padding: 6px 8px; border: 1px solid #334155; width: 110px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+            </table>
+        `;
+    };
+
+    window.renderAutoSellHudRulesHtml = function() {
+        const cfg = window.__autoMarketSellConfig || { rules: [] };
+        const rules = cfg.rules || [];
+
+        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        const bagItemNames = new Set();
+        bagItems.forEach(it => {
+            if (it && it.name) bagItemNames.add(it.name.trim());
+        });
+
+        let datalistHtml = `<datalist id="p-bag-datalist-hud">`;
+        Array.from(bagItemNames).sort().forEach(name => {
+            datalistHtml += `<option value="${name}">`;
+        });
+        datalistHtml += `</datalist>`;
+
+        if (rules.length === 0) {
+            return `
+                ${datalistHtml}
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(168, 85, 247, 0.35); border-radius: 6px; padding: 10px 8px; text-align: center; color: #94a3b8; font-size: 10px; margin: 4px 0;">
+                    <span style="font-size: 14px;">💡</span> ยังไม่มีรายการตั้งขายอัตโนมัติ<br/>
+                    <span style="color: #cbd5e1; font-size: 9px;">กดปุ่ม <b style="color: #4ade80;">[➕ เพิ่มรายการลงขาย]</b> ด้านบน เพื่อระบุชื่อไอเทมและจำนวนขั้นต่ำที่จะลงขาย</span>
+                </div>
+            `;
+        }
+
+        let html = datalistHtml;
+        rules.forEach((rule, idx) => {
+            const statusHtml = (typeof window.getAutoSellRuleBagStatusHtml === 'function')
+                ? window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty)
+                : '';
+            const isReady = statusHtml.includes('✅');
+
+            html += `
+                <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(15, 23, 42, 0.7); padding: 5px; margin-bottom: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+                        <span style="color: #a855f7; font-weight: bold; font-size: 10px; font-family: monospace;">#${idx + 1}</span>
+                        <input type="text" list="p-bag-datalist-hud" value="${rule.itemName || ''}" placeholder="พิมพ์/เลือกชื่อไอเทม..."
+                            oninput="window.updateAutoSellRuleName('${rule.id}', this.value)"
+                            style="flex: 1; min-width: 0; background: #020617; border: 1px solid #475569; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: bold;">
+                        <button onclick="window.removeAutoMarketSellRule('${rule.id}');" title="ลบรายการนี้ทิ้ง"
+                            style="background: #ef4444; color: #fff; border: none; width: 20px; height: 20px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            ➖
+                        </button>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 2px; font-size: 9.5px; color: #cbd5e1;">
+                            <span>ครบ ≥</span>
+                            <input type="number" min="1" value="${rule.minQty || 20}"
+                                oninput="window.updateAutoSellRuleMin('${rule.id}', this.value)"
+                                style="width: 44px; background: #020617; border: 1px solid #475569; color: #38bdf8; padding: 1px 3px; border-radius: 3px; font-size: 10px; text-align: center; font-weight: bold;">
+                            <span>ชิ้น</span>
+                        </div>
+                        <select onchange="window.updateAutoSellRule('${rule.id}', 'sellMode', this.value)"
+                            style="background: #020617; border: 1px solid #475569; color: #c084fc; padding: 1px 4px; border-radius: 3px; font-size: 9.5px;">
+                            <option value="all" ${rule.sellMode !== 'min' ? 'selected' : ''}>ขายหมดในตัว</option>
+                            <option value="min" ${rule.sellMode === 'min' ? 'selected' : ''}>ทีละ ${rule.minQty} ชิ้น</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 3px;">
+                        <div id="p-autosell-hud-status-${rule.id}" style="font-size: 9px;">
+                            ${statusHtml}
+                        </div>
+                        <button onclick="window.sellSingleRuleNow('${rule.id}');" title="ประเมินราคากลางและลงขายทันที"
+                            style="background: ${isReady ? 'linear-gradient(135deg, #0284c7, #2563eb)' : '#334155'}; color: #fff; border: none; padding: 2px 7px; border-radius: 3px; font-size: 9.5px; font-weight: bold; cursor: ${isReady ? 'pointer' : 'not-allowed'}; opacity: ${isReady ? '1' : '0.6'};">
+                            ⚡ ขายทันที
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        return html;
+    };
+
+    window.switchMarketSubTab = function(subtab = 'autosell') {
+        window.__currentMarketSubTab = subtab;
+        localStorage.setItem('pelican_market_subtab', subtab);
+
+        const btnAuto = document.getElementById('p-subtab-btn-autosell');
+        const btnSniper = document.getElementById('p-subtab-btn-sniper');
+        const viewAuto = document.getElementById('p-market-view-autosell');
+        const viewSniper = document.getElementById('p-market-view-sniper');
+
+        if (subtab === 'autosell') {
+            if (btnAuto) {
+                btnAuto.style.background = '#9333ea';
+                btnAuto.style.color = '#fff';
+            }
+            if (btnSniper) {
+                btnSniper.style.background = 'transparent';
+                btnSniper.style.color = '#94a3b8';
+            }
+            if (viewAuto) viewAuto.style.display = 'block';
+            if (viewSniper) viewSniper.style.display = 'none';
+
+            const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+            if (hudContainer && typeof window.renderAutoSellHudRulesHtml === 'function') {
+                hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+            }
+        } else {
+            if (btnAuto) {
+                btnAuto.style.background = 'transparent';
+                btnAuto.style.color = '#94a3b8';
+            }
+            if (btnSniper) {
+                btnSniper.style.background = '#0284c7';
+                btnSniper.style.color = '#fff';
+            }
+            if (viewAuto) viewAuto.style.display = 'none';
+            if (viewSniper) viewSniper.style.display = 'block';
+        }
+    };
+
+    window.switchHudTabToMarketAutoSell = function() {
+        const hud = document.getElementById('pelican-hud');
+        if (!hud) return;
+        const marketTabBtn = hud.querySelector('.p-tab-btn[data-tab="market"]');
+        if (marketTabBtn) {
+            marketTabBtn.click();
+        }
+        if (typeof window.switchMarketSubTab === 'function') {
+            window.switchMarketSubTab('autosell');
+        }
+    };
+
+    window.addAutoMarketSellRule = function(initialName = '', initialMin = 20) {
+        if (!window.__autoMarketSellConfig) window.__autoMarketSellConfig = { rules: [] };
+        if (!Array.isArray(window.__autoMarketSellConfig.rules)) window.__autoMarketSellConfig.rules = [];
+
+        const newRule = {
+            id: 'rule_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            itemName: initialName || '',
+            minQty: initialMin || 20,
+            sellMode: 'all',
+            enabled: true
+        };
+        window.__autoMarketSellConfig.rules.push(newRule);
+        window.saveAutoMarketSellConfig();
+
+        const container = document.getElementById('p-autosell-rules-container');
+        if (container) {
+            container.innerHTML = window.renderAutoSellRulesHtml();
+        } else {
+            const modal = document.getElementById('pelican-data-modal');
+            if (modal && modal.style.display !== 'none' && window.__currentModalTab === 'market') {
+                window.renderModalTab('market');
+            }
+        }
+        const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+        if (hudContainer && typeof window.renderAutoSellHudRulesHtml === 'function') {
+            hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+        }
+        const countBadge = document.getElementById('p-subtab-autosell-count');
+        if (countBadge) {
+            countBadge.innerText = (window.__autoMarketSellConfig?.rules || []).length;
+        }
+        console.log(`%c[Pelican AutoSell] ➕ เพิ่มรายการลงขายใหม่: "${initialName || 'ยังไม่ระบุชื่อ'}" (เมื่อครบ ≥ ${initialMin} ชิ้น)`, 'color: #10b981; font-weight: bold;');
+    };
+
+    window.removeAutoMarketSellRule = function(ruleId) {
+        if (!window.__autoMarketSellConfig?.rules) return;
+        const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
+        window.__autoMarketSellConfig.rules = window.__autoMarketSellConfig.rules.filter(r => r.id !== ruleId);
+        window.saveAutoMarketSellConfig();
+
+        const container = document.getElementById('p-autosell-rules-container');
+        if (container) {
+            container.innerHTML = window.renderAutoSellRulesHtml();
+        } else {
+            const modal = document.getElementById('pelican-data-modal');
+            if (modal && modal.style.display !== 'none' && window.__currentModalTab === 'market') {
+                window.renderModalTab('market');
+            }
+        }
+        const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+        if (hudContainer && typeof window.renderAutoSellHudRulesHtml === 'function') {
+            hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+        }
+        const countBadge = document.getElementById('p-subtab-autosell-count');
+        if (countBadge) {
+            countBadge.innerText = (window.__autoMarketSellConfig?.rules || []).length;
+        }
+        console.log(`%c[Pelican AutoSell] ➖ ลบรายการลงขาย: "${rule?.itemName || ruleId}" เรียบร้อยแล้ว`, 'color: #ef4444; font-weight: bold;');
+    };
+
+    window.updateAutoSellRule = function(ruleId, field, value) {
+        if (!window.__autoMarketSellConfig?.rules) return;
+        const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
+        if (rule) {
+            rule[field] = value;
+            window.saveAutoMarketSellConfig();
+        }
+    };
+
+    window.updateAutoSellRuleName = function(ruleId, newName) {
+        if (!window.__autoMarketSellConfig?.rules) return;
+        const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
+        if (!rule) return;
+        rule.itemName = newName.trim();
+        window.saveAutoMarketSellConfig();
+
+        const statusEl = document.getElementById(`p-autosell-status-${ruleId}`);
+        if (statusEl && typeof window.getAutoSellRuleBagStatusHtml === 'function') {
+            statusEl.innerHTML = window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty);
+        }
+        const hudStatusEl = document.getElementById(`p-autosell-hud-status-${ruleId}`);
+        if (hudStatusEl && typeof window.getAutoSellRuleBagStatusHtml === 'function') {
+            hudStatusEl.innerHTML = window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty);
+        }
+    };
+
+    window.updateAutoSellRuleMin = function(ruleId, newMin) {
+        if (!window.__autoMarketSellConfig?.rules) return;
+        const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
+        if (!rule) return;
+        rule.minQty = Math.max(1, parseInt(newMin) || 1);
+        window.saveAutoMarketSellConfig();
+
+        const statusEl = document.getElementById(`p-autosell-status-${ruleId}`);
+        if (statusEl && typeof window.getAutoSellRuleBagStatusHtml === 'function') {
+            statusEl.innerHTML = window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty);
+        }
+        const hudStatusEl = document.getElementById(`p-autosell-hud-status-${ruleId}`);
+        if (hudStatusEl && typeof window.getAutoSellRuleBagStatusHtml === 'function') {
+            hudStatusEl.innerHTML = window.getAutoSellRuleBagStatusHtml(rule.itemName, rule.minQty);
+        }
+    };
+
+    window.toggleAutoMarketSell = function(enabled) {
+        if (!window.__autoMarketSellConfig) window.__autoMarketSellConfig = { rules: [] };
+        window.__autoMarketSellConfig.enabled = !!enabled;
+        window.saveAutoMarketSellConfig();
+
+        const t1 = document.getElementById('p-autosell-toggle');
+        if (t1) t1.checked = !!enabled;
+        const t2 = document.getElementById('p-autosell-toggle-hud');
+        if (t2) t2.checked = !!enabled;
+
+        console.log(`%c[Pelican AutoSell] ${enabled ? '🟢 เปิดการทำงาน Auto Market Sell 24/7' : '🔴 ปิดการทำงาน Auto Market Sell'}`, 'color: #a855f7; font-weight: bold;');
+        if (enabled) {
+            window.runAutoMarketSellCycle(true);
+        }
+    };
+
+    window.sellSingleRuleNow = async function(ruleId) {
+        if (!window.__autoMarketSellConfig?.rules) return;
+        const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
+        if (!rule || !rule.itemName) {
+            console.warn('[Pelican AutoSell] ⚠️ กรุณาระบุชื่อไอเทมก่อนลงขาย');
+            return;
+        }
+
+        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        const norm = rule.itemName.trim().toLowerCase();
+        const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm);
+
+        if (matchingItems.length === 0) {
+            console.warn(`[Pelican AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ในกระเป๋าตัวละคร`);
+            return;
+        }
+
+        let totalQty = 0;
+        matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
+        const targetSlotItem = matchingItems[0];
+        const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
+
+        console.log(`%c[Pelican AutoSell] 🔍 กำลังคำนวณราคากลางสมดุล (Market Median) ของ ${rule.itemName} (ID: ${targetSlotItem.id})...`, 'color: #38bdf8; font-weight: bold;');
+
+        const priceInfo = await window.fetchItemMarketMedianPrice(targetSlotItem.id, targetSlotItem.refine || 0);
+        if (!priceInfo || !priceInfo.medianPrice || priceInfo.medianPrice <= 0) {
+            console.warn(`[Pelican AutoSell] ❌ ไม่สามารถคำนวณราคาของ ${rule.itemName} ได้จากเซิร์ฟเวอร์`);
+            return;
+        }
+
+        const medianUnitPrice = priceInfo.medianPrice;
+        const totalPrice = medianUnitPrice * qtyToSell;
+
+        console.log(`%c[Pelican AutoSell] 📊 ผลการวิเคราะห์ราคา: มัธยฐาน = ${medianUnitPrice.toLocaleString()} z/ชิ้น (จาก ${priceInfo.cleanTradesCount} ธุรกรรมล่าสุด) | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
+
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (room && room.connection?.isOpen) {
+            room.send('market', {
+                op: 'list',
+                slot: Number(targetSlotItem.slot),
+                qty: Number(qtyToSell),
+                price: Number(totalPrice),
+                hours: 24
+            });
+            console.log(`%c[Pelican AutoSell] 🚀 ยิงคำสั่งลงขายสำเร็จ! { op: 'list', slot: ${targetSlotItem.slot}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
+            if (typeof playWarningChime === 'function') playWarningChime();
+
+            setTimeout(() => {
+                const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+                if (hudContainer && typeof window.renderAutoSellHudRulesHtml === 'function') {
+                    hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+                }
+                const modalContainer = document.getElementById('p-autosell-rules-container');
+                if (modalContainer && typeof window.renderAutoSellRulesHtml === 'function') {
+                    modalContainer.innerHTML = window.renderAutoSellRulesHtml();
+                }
+            }, 600);
+        }
+    };
+
+    window.runAutoMarketSellCycle = async function(manual = false) {
+        const cfg = window.__autoMarketSellConfig;
+        if (!cfg || (!cfg.enabled && !manual)) return;
+        if (window.__isAutoSellingNow) return;
+
+        window.__isAutoSellingNow = true;
+        let soldCount = 0;
+        try {
+            const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+            if (!bagItems || bagItems.length === 0) return;
+
+            const activeCount = await window.fetchMyMarketActiveCount();
+            const maxQuota = cfg.maxActiveListings || 10;
+            if (activeCount >= maxQuota) {
+                console.log(`%c[Pelican AutoSell] ⏸️ โควตาลงขายเต็มแล้ว (${activeCount}/${maxQuota} รายการ) รอขายออกก่อน`, 'color: #f59e0b;');
+                return;
+            }
+
+            let remainingSlots = maxQuota - activeCount;
+
+            for (const rule of (cfg.rules || [])) {
+                if (!rule || !rule.itemName || rule.enabled === false) continue;
+                if (remainingSlots <= 0) break;
+
+                const norm = rule.itemName.trim().toLowerCase();
+                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm);
+                if (matchingItems.length === 0) continue;
+
+                let totalQty = 0;
+                matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
+
+                if (totalQty >= (Number(rule.minQty) || 1)) {
+                    const targetSlotItem = matchingItems[0];
+                    const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
+
+                    const priceInfo = await window.fetchItemMarketMedianPrice(targetSlotItem.id, targetSlotItem.refine || 0);
+                    if (priceInfo && priceInfo.medianPrice > 0) {
+                        const medianUnitPrice = priceInfo.medianPrice;
+                        const totalPrice = medianUnitPrice * qtyToSell;
+
+                        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+                        if (room && room.connection?.isOpen) {
+                            room.send('market', {
+                                op: 'list',
+                                slot: Number(targetSlotItem.slot),
+                                qty: Number(qtyToSell),
+                                price: Number(totalPrice),
+                                hours: 24
+                            });
+                            console.log(`%c[Pelican AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z)`, 'color: #10b981; font-weight: bold;');
+                            if (typeof playWarningChime === 'function') playWarningChime();
+                            remainingSlots--;
+                            soldCount++;
+                            await new Promise(r => setTimeout(r, 1200));
+                        }
+                    }
+                }
+            }
+        } finally {
+            window.__isAutoSellingNow = false;
+            // อัปเดตการแสดงผลของกฎและจำนวนคงเหลือใน HUD และ Modal โดยไม่เปิดปิดกระเป๋าบนจอ
+            setTimeout(() => {
+                const hudContainer = document.getElementById('p-autosell-hud-rules-container');
+                if (hudContainer && typeof window.renderAutoSellHudRulesHtml === 'function') {
+                    hudContainer.innerHTML = window.renderAutoSellHudRulesHtml();
+                }
+                const modalContainer = document.getElementById('p-autosell-rules-container');
+                if (modalContainer && typeof window.renderAutoSellRulesHtml === 'function') {
+                    modalContainer.innerHTML = window.renderAutoSellRulesHtml();
+                }
+            }, 600);
+        }
+    };
+
     window.showPelicanMarketItemTooltip = function(itemData, e) {
         if (!itemData) return;
         const raw = itemData.raw || itemData;
@@ -7158,6 +8239,12 @@
     };
 
     function createUI() {
+        window.createUI = createUI;
+        window.recreateUI = function() {
+            const old = document.getElementById('pelican-hud');
+            if (old) old.remove();
+            createUI();
+        };
         if (document.getElementById('pelican-hud')) return;
 
         const hud = document.createElement('div');
@@ -7318,7 +8405,7 @@
             <div class="p-header" id="pelican-drag-handle">
                 <div style="display: flex; align-items: center; gap: 5px;">
                     <span style="font-size: 13px;">🔄</span>
-                    <span>PELICAN v4.2.1</span>
+                    <span>Pmhee Ma weaw v4.2.1</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${window.__currentAmmo}</span>
@@ -7504,9 +8591,20 @@
                         </div>
                     </div>
 
+                    <!-- Shortcut to Market Auto-Sell -->
+                    <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; padding: 5px 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-size: 10px; font-weight: bold; color: #c084fc;">🏷️ ต้องการตั้งขายที่ตลาดกลาง (Market)?</div>
+                            <div style="font-size: 8.5px; color: #94a3b8;">แท็บนี้สำหรับขายขยะ NPC</div>
+                        </div>
+                        <button onclick="window.switchHudTabToMarketAutoSell();" style="background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: 1px solid #c084fc; padding: 3px 8px; border-radius: 4px; font-size: 9.5px; font-weight: bold; cursor: pointer; white-space: nowrap;">
+                            ไปที่ Auto Sell ตลาด ➔
+                        </button>
+                    </div>
+
                     <label class="p-check-box" style="color: #facc15;">
                         <input type="checkbox" id="p-sell-enabled" ${window.__sellConfig.enabled ? 'checked' : ''}>
-                        <b>เปิดระบบ Auto-Sell คัดกรองอัตโนมัติ</b>
+                        <b>เปิดระบบ Auto-Sell คัดกรองอัตโนมัติ (ขายขยะ NPC)</b>
                     </label>
 
                     <!-- Category Rarity Card -->
@@ -7594,113 +8692,167 @@
 
                 <!-- TAB 4: MARKET & STAT SNIPER -->
                 <div class="p-tab-pane" id="p-tab-market">
-                    <!-- Quick Search Card -->
-                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(56, 189, 248, 0.2); padding-bottom: 2px; margin-bottom: 3px;">
-                            <span style="font-size: 10px; font-weight: bold; color: #38bdf8;">🔍 ค้นหาไอเทมตลาดกลาง</span>
-                            <span id="p-mk-server-count-badge" style="font-size: 8.5px; color: #94a3b8;">Server Sync</span>
-                        </div>
-                        <div>
-                            <input type="text" id="p-mk-search-query" value="${window.__marketFilterConfig.q || ''}" placeholder="ค้นหาชื่อไอเทม (เช่น Bow, Ring, Dagger)..." style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
-                            <select id="p-mk-cat-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
-                                <option value="" ${window.__marketFilterConfig.category === '' ? 'selected' : ''}>ทุกหมวดหมู่</option>
-                                <option value="Weapon" ${window.__marketFilterConfig.category === 'Weapon' ? 'selected' : ''}>⚔️ อาวุธ</option>
-                                <option value="Armor" ${window.__marketFilterConfig.category === 'Armor' ? 'selected' : ''}>🛡️ ชุดเกราะ</option>
-                                <option value="Accessory" ${window.__marketFilterConfig.category === 'Accessory' ? 'selected' : ''}>💍 ประดับ/เจม</option>
-                                <option value="Card" ${window.__marketFilterConfig.category === 'Card' ? 'selected' : ''}>🎴 การ์ด</option>
-                                <option value="Ammo" ${window.__marketFilterConfig.category === 'Ammo' ? 'selected' : ''}>🏹 ลูกธนู</option>
-                            </select>
-                            <select id="p-mk-kind-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
-                                <option value="" ${window.__marketFilterConfig.kind === '' ? 'selected' : ''}>ทุกประเภท</option>
-                                <option value="bow" ${window.__marketFilterConfig.kind === 'bow' ? 'selected' : ''}>ธนู (Bow)</option>
-                                <option value="dagger" ${window.__marketFilterConfig.kind === 'dagger' ? 'selected' : ''}>มีด (Dagger)</option>
-                                <option value="sword" ${window.__marketFilterConfig.kind === 'sword' ? 'selected' : ''}>ดาบ (Sword)</option>
-                                <option value="spear" ${window.__marketFilterConfig.kind === 'spear' ? 'selected' : ''}>หอก (Spear)</option>
-                                <option value="axe" ${window.__marketFilterConfig.kind === 'axe' ? 'selected' : ''}>ขวาน (Axe)</option>
-                                <option value="staff" ${window.__marketFilterConfig.kind === 'staff' ? 'selected' : ''}>คทา (Staff)</option>
-                                <option value="shield" ${window.__marketFilterConfig.kind === 'shield' ? 'selected' : ''}>โล่ (Shield)</option>
-                                <option value="armor" ${window.__marketFilterConfig.kind === 'armor' ? 'selected' : ''}>ชุดเกราะ (Armor)</option>
-                                <option value="boot" ${window.__marketFilterConfig.kind === 'boot' ? 'selected' : ''}>รองเท้า (Boots)</option>
-                                <option value="cape" ${window.__marketFilterConfig.kind === 'cape' ? 'selected' : ''}>ผ้าคลุม (Cape)</option>
-                                <option value="ring" ${window.__marketFilterConfig.kind === 'ring' ? 'selected' : ''}>แหวน (Ring)</option>
-                            </select>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
-                            <div class="p-row">
-                                <span style="font-size: 9.5px; color: #cbd5e1;">ตีบวก ≥:</span>
-                                <input type="number" id="p-mk-min-refine" min="0" max="15" value="${window.__marketFilterConfig.minRefine || 0}" style="width: 42px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                    <!-- Sub-Navigation: Auto Sell vs Sniper -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; background: rgba(0,0,0,0.4); padding: 2px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
+                        <button id="p-subtab-btn-autosell" onclick="window.switchMarketSubTab('autosell')"
+                            style="padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; border: none; background: #9333ea; color: #fff; transition: all 0.2s;">
+                            🏷️ Auto Sell ตั้งขาย (<span id="p-subtab-autosell-count">${(window.__autoMarketSellConfig?.rules || []).length}</span>)
+                        </button>
+                        <button id="p-subtab-btn-sniper" onclick="window.switchMarketSubTab('sniper')"
+                            style="padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; border: none; background: transparent; color: #94a3b8; transition: all 0.2s;">
+                            🎯 Sniper ค้นหาซื้อ
+                        </button>
+                    </div>
+
+                    <!-- VIEW 1: AUTO SELL TO MARKET -->
+                    <div id="p-market-view-autosell" style="display: block;">
+                        <!-- Auto Sell Main Card -->
+                        <div class="p-card" style="border-color: rgba(168, 85, 247, 0.45); background: rgba(168, 85, 247, 0.08); padding: 6px; margin-bottom: 5px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(168, 85, 247, 0.25); padding-bottom: 3px; margin-bottom: 4px;">
+                                <label class="p-check-box" style="color: #c084fc; margin: 0; font-size: 10.5px;">
+                                    <input type="checkbox" id="p-autosell-toggle-hud" ${(window.__autoMarketSellConfig?.enabled) ? 'checked' : ''} onchange="window.toggleAutoMarketSell(this.checked)">
+                                    <b>เปิดใช้งาน Auto Sell</b>
+                                </label>
+                                <span id="p-autosell-quota-badge-hud" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: bold;">
+                                    โควตา: ${window.__myMarketActiveCount ?? 0}/10
+                                </span>
                             </div>
-                            <div class="p-row">
-                                <span style="font-size: 9.5px; color: #cbd5e1;">งบสูงสุด:</span>
-                                <input type="number" id="p-mk-max-price" value="${window.__marketFilterConfig.maxPrice || 0}" placeholder="0=ไม่จำกัด" style="width: 58px; background: #0f172a; border: 1px solid #00ffcc; color: #00ffcc; text-align: right; border-radius: 4px; font-size: 10px; padding: 1px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #d8b4fe; margin-bottom: 4px;">
+                                <span>⚖️ กลยุทธ์: <b>ราคากลางสมดุล (Market Median)</b></span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                                <button onclick="window.addAutoMarketSellRule();" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #34d399; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;">
+                                    <span>➕</span> <span>เพิ่มรายการลงขาย</span>
+                                </button>
+                                <button onclick="window.runAutoMarketSellCycle(true);" style="background: #0284c7; color: #fff; border: none; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer;" title="ตรวจสอบกระเป๋าและประเมินราคาทันที">
+                                    ⚡ ตรวจสอบทันที
+                                </button>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Deep Stat & Affix Filter Card -->
-                    <div class="p-card" style="border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.05);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(234, 179, 8, 0.2); padding-bottom: 2px;">
-                            <span style="font-size: 10px; font-weight: bold; color: #f59e0b;">💎 ตัวกรอง Option (Stat Filter)</span>
-                            <span style="font-size: 8.5px; color: #94a3b8;">ลึกถึง Option สุ่ม</span>
+                        <!-- Rules List in HUD -->
+                        <div id="p-autosell-hud-rules-container" style="max-height: 250px; overflow-y: auto;">
+                            ${(typeof window.renderAutoSellHudRulesHtml === 'function') ? window.renderAutoSellHudRulesHtml() : ''}
                         </div>
-                        <!-- Option 1 -->
-                        <div class="p-row" style="margin-top: 2px;">
-                            <span style="font-size: 9.5px; color: #fde047;">Opt 1:</span>
-                            <select id="p-mk-stat1-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : ''))}
-                            </select>
-                            <input type="number" id="p-mk-stat1-min" value="${window.__marketFilterConfig.statMinVal1 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
-                        </div>
-                        <!-- Option 2 -->
-                        <div class="p-row">
-                            <span style="font-size: 9.5px; color: #c084fc;">Opt 2:</span>
-                            <select id="p-mk-stat2-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
-                                ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : ''))}
-                            </select>
-                            <input type="number" id="p-mk-stat2-min" value="${window.__marketFilterConfig.statMinVal2 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
-                        </div>
-                        <div class="p-row">
-                            <span style="font-size: 9px; color: #94a3b8;">เงื่อนไข:</span>
-                            <select id="p-mk-stat-mode" class="p-select" style="width: 90px; font-size: 9px; padding: 1px 3px;">
-                                <option value="AND" ${window.__marketFilterConfig.statMatchMode === 'AND' ? 'selected' : ''}>AND (ครบทุก Opt)</option>
-                                <option value="OR" ${window.__marketFilterConfig.statMatchMode === 'OR' ? 'selected' : ''}>OR (อย่างน้อย 1 Opt)</option>
-                            </select>
+
+                        <!-- Open Full Modal Button -->
+                        <div style="margin-top: 5px;">
+                            <button onclick="window.showDataViewerModal('market');" style="width: 100%; background: #1e293b; color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); padding: 4px; border-radius: 4px; font-size: 9.5px; font-weight: bold; cursor: pointer;">
+                                🔎 จัดการรายการแบบตารางเต็มจอ (Data Hub)
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Sniper & Auto-Buy Card -->
-                    <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
-                        <label class="p-check-box" style="color: #f59e0b;">
-                            <input type="checkbox" id="p-mk-sniper-alert" ${window.__marketFilterConfig.sniperAlert ? 'checked' : ''}>
-                            <b>🎯 เสียงเตือนเมื่อพบของตรงสเปค</b>
-                        </label>
-                        <label class="p-check-box" style="color: #4ade80; margin-top: 2px;">
-                            <input type="checkbox" id="p-mk-auto-buy" ${window.__marketFilterConfig.autoBuy ? 'checked' : ''}>
-                            <b>⚡ Auto-Buy Sniper (ซื้อทันทีเมื่อพบ)</b>
-                        </label>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="p-btn" id="p-btn-mk-search" style="background: #0284c7; color: #fff; font-size: 10.5px; padding: 5px;">🔍 ค้นหาตลาด</button>
-                        <button class="p-btn" id="p-btn-mk-scan" style="background: #9333ea; color: #fff; font-size: 10.5px; padding: 5px;">⚡ สแกน 5 หน้า</button>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="p-btn" id="p-btn-mk-open-modal" style="background: #0d9488; color: #fff; font-size: 10px; padding: 4px;">🔎 ตลาดเต็มจอ</button>
-                        <button class="p-btn" id="p-btn-mk-copy-json" style="background: #334155; color: #38bdf8; font-size: 10px; padding: 4px; border: 1px solid rgba(56,189,248,0.3);">📋 Dump JSON</button>
-                    </div>
-
-                    <!-- Live Results Section -->
-                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 4px;">
-                        <div style="font-size: 10px; color: #38bdf8; font-weight: bold; display: flex; justify-content: space-between; margin-bottom: 4px;">
-                            <span>📦 รายการตรงสเปค (<span id="p-mk-result-count" style="color: #00ffcc;">0</span>)</span>
-                            <span style="font-size: 9px; color: #94a3b8;">1-Click Buy</span>
+                    <!-- VIEW 2: SNIPER & SEARCH (Original) -->
+                    <div id="p-market-view-sniper" style="display: none;">
+                        <!-- Quick Search Card -->
+                        <div class="p-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(56, 189, 248, 0.2); padding-bottom: 2px; margin-bottom: 3px;">
+                                <span style="font-size: 10px; font-weight: bold; color: #38bdf8;">🔍 ค้นหาไอเทมตลาดกลาง</span>
+                                <span id="p-mk-server-count-badge" style="font-size: 8.5px; color: #94a3b8;">Server Sync</span>
+                            </div>
+                            <div>
+                                <input type="text" id="p-mk-search-query" value="${window.__marketFilterConfig.q || ''}" placeholder="ค้นหาชื่อไอเทม (เช่น Bow, Ring, Dagger)..." style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
+                                <select id="p-mk-cat-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
+                                    <option value="" ${window.__marketFilterConfig.category === '' ? 'selected' : ''}>ทุกหมวดหมู่</option>
+                                    <option value="Weapon" ${window.__marketFilterConfig.category === 'Weapon' ? 'selected' : ''}>⚔️ อาวุธ</option>
+                                    <option value="Armor" ${window.__marketFilterConfig.category === 'Armor' ? 'selected' : ''}>🛡️ ชุดเกราะ</option>
+                                    <option value="Accessory" ${window.__marketFilterConfig.category === 'Accessory' ? 'selected' : ''}>💍 ประดับ/เจม</option>
+                                    <option value="Card" ${window.__marketFilterConfig.category === 'Card' ? 'selected' : ''}>🎴 การ์ด</option>
+                                    <option value="Ammo" ${window.__marketFilterConfig.category === 'Ammo' ? 'selected' : ''}>🏹 ลูกธนู</option>
+                                </select>
+                                <select id="p-mk-kind-select" class="p-select" style="font-size: 10px; padding: 2px 4px;">
+                                    <option value="" ${window.__marketFilterConfig.kind === '' ? 'selected' : ''}>ทุกประเภท</option>
+                                    <option value="bow" ${window.__marketFilterConfig.kind === 'bow' ? 'selected' : ''}>ธนู (Bow)</option>
+                                    <option value="dagger" ${window.__marketFilterConfig.kind === 'dagger' ? 'selected' : ''}>มีด (Dagger)</option>
+                                    <option value="sword" ${window.__marketFilterConfig.kind === 'sword' ? 'selected' : ''}>ดาบ (Sword)</option>
+                                    <option value="spear" ${window.__marketFilterConfig.kind === 'spear' ? 'selected' : ''}>หอก (Spear)</option>
+                                    <option value="axe" ${window.__marketFilterConfig.kind === 'axe' ? 'selected' : ''}>ขวาน (Axe)</option>
+                                    <option value="staff" ${window.__marketFilterConfig.kind === 'staff' ? 'selected' : ''}>คทา (Staff)</option>
+                                    <option value="shield" ${window.__marketFilterConfig.kind === 'shield' ? 'selected' : ''}>โล่ (Shield)</option>
+                                    <option value="armor" ${window.__marketFilterConfig.kind === 'armor' ? 'selected' : ''}>ชุดเกราะ (Armor)</option>
+                                    <option value="boot" ${window.__marketFilterConfig.kind === 'boot' ? 'selected' : ''}>รองเท้า (Boots)</option>
+                                    <option value="cape" ${window.__marketFilterConfig.kind === 'cape' ? 'selected' : ''}>ผ้าคลุม (Cape)</option>
+                                    <option value="ring" ${window.__marketFilterConfig.kind === 'ring' ? 'selected' : ''}>แหวน (Ring)</option>
+                                </select>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px;">
+                                <div class="p-row">
+                                    <span style="font-size: 9.5px; color: #cbd5e1;">ตีบวก ≥:</span>
+                                    <input type="number" id="p-mk-min-refine" min="0" max="15" value="${window.__marketFilterConfig.minRefine || 0}" style="width: 42px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                                </div>
+                                <div class="p-row">
+                                    <span style="font-size: 9.5px; color: #cbd5e1;">งบสูงสุด:</span>
+                                    <input type="number" id="p-mk-max-price" value="${window.__marketFilterConfig.maxPrice || 0}" placeholder="0=ไม่จำกัด" style="width: 58px; background: #0f172a; border: 1px solid #00ffcc; color: #00ffcc; text-align: right; border-radius: 4px; font-size: 10px; padding: 1px;">
+                                </div>
+                            </div>
                         </div>
-                        <div id="p-mk-hud-results" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
-                            <div style="text-align: center; color: #64748b; padding: 12px 6px; font-size: 10px;">
-                                ยังไม่มีผลการค้นหา<br/><span style="color: #475569;">กดปุ่ม '🔍 ค้นหาตลาด' เพื่อเริ่ม</span>
+
+                        <!-- Deep Stat & Affix Filter Card -->
+                        <div class="p-card" style="border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(234, 179, 8, 0.2); padding-bottom: 2px;">
+                                <span style="font-size: 10px; font-weight: bold; color: #f59e0b;">💎 ตัวกรอง Option (Stat Filter)</span>
+                                <span style="font-size: 8.5px; color: #94a3b8;">ลึกถึง Option สุ่ม</span>
+                            </div>
+                            <!-- Option 1 -->
+                            <div class="p-row" style="margin-top: 2px;">
+                                <span style="font-size: 9.5px; color: #fde047;">Opt 1:</span>
+                                <select id="p-mk-stat1-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
+                                    ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType1) : ''))}
+                                </select>
+                                <input type="number" id="p-mk-stat1-min" value="${window.__marketFilterConfig.statMinVal1 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #f59e0b; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                            </div>
+                            <!-- Option 2 -->
+                            <div class="p-row">
+                                <span style="font-size: 9.5px; color: #c084fc;">Opt 2:</span>
+                                <select id="p-mk-stat2-type" class="p-select" style="width: 120px; font-size: 9.5px; padding: 1px 3px;">
+                                    ${(typeof getMarketStatSelectOptionsHtml === 'function' ? getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : (typeof window.getMarketStatSelectOptionsHtml === 'function' ? window.getMarketStatSelectOptionsHtml(window.__marketFilterConfig.statType2) : ''))}
+                                </select>
+                                <input type="number" id="p-mk-stat2-min" value="${window.__marketFilterConfig.statMinVal2 || 1}" min="1" style="width: 38px; background: #0f172a; border: 1px solid #c084fc; color: #fff; text-align: center; border-radius: 4px; font-size: 10px; padding: 1px;">
+                            </div>
+                            <div class="p-row">
+                                <span style="font-size: 9px; color: #94a3b8;">เงื่อนไข:</span>
+                                <select id="p-mk-stat-mode" class="p-select" style="width: 90px; font-size: 9px; padding: 1px 3px;">
+                                    <option value="AND" ${window.__marketFilterConfig.statMatchMode === 'AND' ? 'selected' : ''}>AND (ครบทุก Opt)</option>
+                                    <option value="OR" ${window.__marketFilterConfig.statMatchMode === 'OR' ? 'selected' : ''}>OR (อย่างน้อย 1 Opt)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Sniper & Auto-Buy Card -->
+                        <div class="p-card" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.05);">
+                            <label class="p-check-box" style="color: #f59e0b;">
+                                <input type="checkbox" id="p-mk-sniper-alert" ${window.__marketFilterConfig.sniperAlert ? 'checked' : ''}>
+                                <b>🎯 เสียงเตือนเมื่อพบของตรงสเปค</b>
+                            </label>
+                            <label class="p-check-box" style="color: #4ade80; margin-top: 2px;">
+                                <input type="checkbox" id="p-mk-auto-buy" ${window.__marketFilterConfig.autoBuy ? 'checked' : ''}>
+                                <b>⚡ Auto-Buy Sniper (ซื้อทันทีเมื่อพบ)</b>
+                            </label>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="p-btn" id="p-btn-mk-search" style="background: #0284c7; color: #fff; font-size: 10.5px; padding: 5px;">🔍 ค้นหาตลาด</button>
+                            <button class="p-btn" id="p-btn-mk-scan" style="background: #9333ea; color: #fff; font-size: 10.5px; padding: 5px;">⚡ สแกนทุกหน้า</button>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="p-btn" id="p-btn-mk-open-modal" style="background: #0d9488; color: #fff; font-size: 10px; padding: 4px;">🔎 ตลาดเต็มจอ</button>
+                            <button class="p-btn" id="p-btn-mk-copy-json" style="background: #334155; color: #38bdf8; font-size: 10px; padding: 4px; border: 1px solid rgba(56,189,248,0.3);">📋 Dump JSON</button>
+                        </div>
+
+                        <!-- Live Results Section -->
+                        <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 4px;">
+                            <div style="font-size: 10px; color: #38bdf8; font-weight: bold; display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span>📦 รายการตรงสเปค (<span id="p-mk-result-count" style="color: #00ffcc;">0</span>)</span>
+                                <span style="font-size: 9px; color: #94a3b8;">1-Click Buy</span>
+                            </div>
+                            <div id="p-mk-hud-results" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+                                <div style="text-align: center; color: #64748b; padding: 12px 6px; font-size: 10px;">
+                                    ยังไม่มีผลการค้นหา<br/><span style="color: #475569;">กดปุ่ม '🔍 ค้นหาตลาด' เพื่อเริ่ม</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -7729,6 +8881,10 @@
                                     <input type="password" id="p-auth-pass" value="${window.__authConfig.password || ''}" placeholder="รหัสผ่าน" style="width: 105px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
                                     <button type="button" id="p-auth-toggle-pass" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #64748b; color: #94a3b8; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
                                 </div>
+                            </div>
+                            <div class="p-row">
+                                <span style="font-size: 10px; color: #cbd5e1;">เลือกตัวละคร (Char):</span>
+                                <input type="text" id="p-auth-char" value="${window.__authConfig.charName || ''}" placeholder="ชื่อตัวละคร (เว้นว่าง = ตัวแรก)" style="width: 130px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
                             </div>
                         </div>
 
@@ -7787,6 +8943,12 @@
                 const activePane = hud.querySelector(`#p-tab-${targetTab}`);
                 if (activePane) activePane.classList.add('active');
                 localStorage.setItem('pelican_active_tab', targetTab);
+                if (targetTab === 'market') {
+                    if (typeof window.switchMarketSubTab === 'function') {
+                        const savedSub = localStorage.getItem('pelican_market_subtab') || 'autosell';
+                        window.switchMarketSubTab(savedSub);
+                    }
+                }
             };
         });
         const savedTab = localStorage.getItem('pelican_active_tab') || 'farm';
@@ -7900,6 +9062,14 @@
         if (authPassEl) {
             authPassEl.oninput = (e) => {
                 window.__authConfig.password = e.target.value;
+                saveAuthConfig();
+            };
+        }
+
+        const authCharEl = document.getElementById('p-auth-char');
+        if (authCharEl) {
+            authCharEl.oninput = (e) => {
+                window.__authConfig.charName = e.target.value.trim();
                 saveAuthConfig();
             };
         }
@@ -8166,7 +9336,11 @@
         const btnMkScan = document.getElementById('p-btn-mk-scan');
         if (btnMkScan) {
             btnMkScan.onclick = () => {
-                window.startMarketMultiPageScan(5);
+                if (window.__isMarketScanning) {
+                    window.stopMarketScan();
+                } else {
+                    window.startMarketMultiPageScan('all');
+                }
             };
         }
 
@@ -8319,6 +9493,12 @@
                 window.injectMarketOverlay();
             }
         }, 600);
+
+        setInterval(() => {
+            if (window.__autoMarketSellConfig?.enabled && typeof window.runAutoMarketSellCycle === 'function') {
+                window.runAutoMarketSellCycle(false);
+            }
+        }, 25000);
     }
 
     if (document.readyState === 'loading') {
