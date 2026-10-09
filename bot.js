@@ -4906,6 +4906,16 @@
         function extractItemName(row) {
             if (!row) return '';
 
+            // 0. ตรวจสอบจาก aria-label ของปุ่มใส่ตะกร้า (แม่นยำที่สุด 100% ในหน้าต่างร้านค้า Aetheria)
+            const addBtnWithAria = row.querySelector('button[aria-label*="ใส่ตะกร้า"], [aria-label*="ใส่ตะกร้า"]');
+            if (addBtnWithAria) {
+                const aria = addBtnWithAria.getAttribute('aria-label') || '';
+                const ariaClean = aria.replace(/ใส่ตะกร้า/gi, '').trim();
+                if (ariaClean && ariaClean.length >= 2) {
+                    return ariaClean;
+                }
+            }
+
             function cleanName(str) {
                 if (!str) return '';
                 return str.split('\n')[0]
@@ -5061,11 +5071,19 @@
 
                         // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
-                        const isCard = lower.includes('card') || lower.includes('การ์ด') || 
-                                       rowText.includes('การ์ด') || rowText.includes('card') ||
-                                       (row.querySelector('img') && (row.querySelector('img').src || '').includes('card'));
-                        const isOre = lower.includes('oridecon') || lower.includes('elunium') || lower.includes('steel') || lower.includes('iron') ||
-                                      lower.includes('โอริ') || lower.includes('อีลู') || lower.includes('แร่') || rowText.includes('แร่/ตีบวก');
+                        // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
+                        const isCard = (catName !== 'อาวุธ' && catName !== 'ชุดเกราะ') && (
+                            lower.endsWith(' card') || lower.startsWith('card ') || lower === 'card' || lower.includes('การ์ด') || 
+                            rowText.includes('การ์ด') || rowText.includes('card') ||
+                            (row.querySelector('img') && (row.querySelector('img').src || '').includes('card'))
+                        );
+
+                        // แร่ตีบวก: เช็คเฉพาะถ้าไม่ใช่หมวดอาวุธ/ชุดเกราะ และต้องเป็นชื่อแร่จริง (ไม่ใช่ชื่ออุปกรณ์เช่น Iron Cain, Steel Shield, Oridecon Dagger)
+                        const oreExactList = ['iron', 'iron ore', 'steel', 'phracon', 'emveretarcon', 'oridecon', 'rough oridecon', 'elunium', 'rough elunium', 'gold'];
+                        const isOre = (catName !== 'อาวุธ' && catName !== 'ชุดเกราะ') && (
+                            oreExactList.includes(lower) || lower === 'แร่เหล็ก' || lower === 'เหล็ก' || lower === 'โอริเดคอน' || lower === 'อีลูเนียม' || 
+                            rowText.includes('แร่/ตีบวก')
+                        );
 
                         if (isCard) {
                             console.log(`%c[Pelican Shop] 🛑 [การ์ดมีค่า!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #ef4444; font-weight: bold;');
@@ -5102,23 +5120,7 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 3.5: แดร์ฟูลเซฟเด็ดขาดสำหรับ "ธรรมดา (ขาวเท่านั้น)" (maxRank === 1)
-                        // หากผู้เล่นเลือกขายเฉพาะของขาวธรรมดา ห้ามขายชิ้นที่มี Option, มีรูการ์ด, หรือตีบวกเด็ดขาด
-                        // แม้ว่าผู้เล่นจะไม่ได้ติ๊กช่องล็อกของมี Option ก็ตาม! (ป้องกันการขายของมีค่าโดยเด็ดขาด)
-                        if (maxRank === 1) {
-                            if (hasOptions(rowText, row)) {
-                                console.log(`[Pelican Shop] 🔒 [มี Option] ข้าม: "${itemName}" (ผู้เล่นเลือกขายเฉพาะระดับขาวธรรมดา 0 Option)`);
-                                return;
-                            }
-                            if (hasSockets(itemName, rowText, titleEl)) {
-                                console.log(`[Pelican Shop] 🔒 [มีรูการ์ด] ข้าม: "${itemName}" (ผู้เล่นเลือกขายเฉพาะระดับขาวธรรมดา ไม่มีรูการ์ด)`);
-                                return;
-                            }
-                            if (isRefined(itemName, rowText, titleEl)) {
-                                console.log(`[Pelican Shop] 🔒 [ของตีบวก] ข้าม: "${itemName}" (ผู้เล่นเลือกขายเฉพาะระดับขาวธรรมดา ไม่ตีบวก)`);
-                                return;
-                            }
-                        }
+// (กฎ 4-6 ควบคุมการล็อกตีบวก / รูการ์ด / Option ตามที่ผู้เล่นติ๊กเลือกใน UI โดยตรง)
 
                         // กฎความปลอดภัย 4: ห้ามขายของตีบวก (+1 ขึ้นไป)
                         if (sellCfg.keepRefined && isRefined(itemName, rowText, titleEl)) {
@@ -5132,10 +5134,9 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม (เฉพาะเมื่อผู้เล่นเลือกขายระดับขาวธรรมดา maxRank === 1)
-                        // หากผู้เล่นเลือกขายระดับ "ดี (เขียวลงไป)" ขึ้นไป (maxRank >= 2) ย่อมต้องการขายของระดับดีที่มี Option ได้
-                        if (sellCfg.keepSpecial && maxRank === 1 && hasOptions(rowText, row)) {
-                            console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}"`);
+                        // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม (เฉพาะเมื่อผู้เล่นติ๊ก "ล็อคของมี Option")
+                        if (sellCfg.keepSpecial && hasOptions(rowText, row)) {
+                            console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}" (เนื่องจากติ๊ก 'ล็อคของมี Option')`);
                             return;
                         }
 
