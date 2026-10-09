@@ -1,0 +1,52 @@
+[
+  {
+    "id": "preset_archer_ruins",
+    "name": "Archer ฟาร์มซากโบราณสถาน (ลูป 24 ชม.)",
+    "description": "ลูกธนู 200 ดอก, ขยะขายหมด, ล็อคของตีบวกและออฟชั่น, ลูป 24 ชม.",
+    "createdAt": 1791508155976,
+    "updatedAt": 1791508155976,
+    "config": {
+      "targetMap": "ซากโบราณสถาน Lv.45–55",
+      "autoLoop": true,
+      "sellConfig": {
+        "enabled": true,
+        "weightCheckEnabled": true,
+        "weightThreshold": 80,
+        "sellMaterials": true,
+        "weaponRarity": "normal",
+        "armorRarity": "normal",
+        "accRarity": "none",
+        "sellWeapons": true,
+        "sellArmors": true,
+        "keepRefined": true,
+        "keepSpecial": true,
+        "keepSockets": true,
+        "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow"
+      },
+      "archerConfig": {
+        "requireArrow": true,
+        "arrowType": 90030,
+        "arrowBuyQty": 200,
+        "useBwing": true,
+        "bwingBuyQty": 5,
+        "bwingItemId": 90311,
+        "ammoThreshold": 50,
+        "autoEquipArrow": false,
+        "arrowHotbarSlot": -1
+      },
+      "shopConfig": {
+        "enabled": true,
+        "npcKey": "n2"
+      },
+      "autoMarketSellConfig": {
+        "enabled": false,
+        "rules": []
+      },
+      "authConfig": {
+        "enabled": true,
+        "autoResumeBot": true,
+        "charName": ""
+      }
+    }
+  }
+]

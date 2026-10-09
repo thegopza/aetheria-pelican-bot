@@ -7,6 +7,70 @@ const PORT = 3888;
 const BASE_DIR = path.resolve(__dirname, "..");
 const PROFILES_FILE = path.join(__dirname, "profiles.json");
 const PLANS_FILE = path.join(__dirname, "plans.json");
+const PRESETS_FILE = path.join(__dirname, "presets.json");
+function loadPresets() {
+  if (!fs.existsSync(PRESETS_FILE)) {
+    const defaultPresets = [
+      {
+        id: "preset_archer_ruins",
+        name: "Archer ฟาร์มซากโบราณสถาน (ลูป 24 ชม.)",
+        description: "ลูกธนู 200 ดอก, ขยะขายหมด, ล็อคของตีบวกและออฟชั่น, ลูป 24 ชม.",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        config: {
+          targetMap: "ซากโบราณสถาน Lv.45–55",
+          autoLoop: true,
+          sellConfig: {
+            enabled: true,
+            weightCheckEnabled: true,
+            weightThreshold: 80,
+            sellMaterials: true,
+            weaponRarity: "normal",
+            armorRarity: "normal",
+            accRarity: "none",
+            sellWeapons: true,
+            sellArmors: true,
+            keepRefined: true,
+            keepSpecial: true,
+            keepSockets: true,
+            whitelist: "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow"
+          },
+          archerConfig: {
+            requireArrow: true,
+            arrowType: 90030,
+            arrowBuyQty: 200,
+            useBwing: true,
+            bwingBuyQty: 5,
+            bwingItemId: 90311,
+            ammoThreshold: 50,
+            autoEquipArrow: false,
+            arrowHotbarSlot: -1
+          },
+          shopConfig: {
+            enabled: true,
+            npcKey: "n2"
+          },
+          autoMarketSellConfig: {
+            enabled: false,
+            rules: []
+          },
+          authConfig: {
+            enabled: true,
+            autoResumeBot: true,
+            charName: ""
+          }
+        }
+      }
+    ];
+    fs.writeFileSync(PRESETS_FILE, JSON.stringify(defaultPresets, null, 2), "utf8");
+    return defaultPresets;
+  }
+  try { return JSON.parse(fs.readFileSync(PRESETS_FILE, "utf8")); } catch(e) { return []; }
+}
+function savePresets(presets) {
+  fs.writeFileSync(PRESETS_FILE, JSON.stringify(presets, null, 2), "utf8");
+}
+
 function loadPlans() {
   if (!fs.existsSync(PLANS_FILE)) return {};
   try { return JSON.parse(fs.readFileSync(PLANS_FILE, "utf8")); } catch(e) { return {}; }
@@ -870,6 +934,281 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {}
 
         return sendJSON({ success: true, message: "Plan applied successfully", plan });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  
+  // ==========================================
+  // PRESETS & PROFILE SAVE LIST API (CENTRAL PRESET LIBRARY)
+  // ==========================================
+
+  // GET /api/presets (List all presets)
+  if (req.method === "GET" && pathname === "/api/presets") {
+    return sendJSON({ success: true, presets: loadPresets() });
+  }
+
+  // GET /api/presets/export (Export all presets as downloadable JSON)
+  if (req.method === "GET" && pathname === "/api/presets/export") {
+    const presets = loadPresets();
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="aetheria_profiles_presets.json"'
+    });
+    return res.end(JSON.stringify(presets, null, 2));
+  }
+
+  // POST /api/presets (Create or update single preset)
+  if (req.method === "POST" && pathname === "/api/presets") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body);
+        const presets = loadPresets();
+        const id = data.id || ("preset_" + Date.now());
+        const existingIdx = presets.findIndex(p => p.id === id);
+
+        // Sanitize auth config (strictly exclude username & password)
+        const safeCfg = Object.assign({}, data.config || {});
+        if (safeCfg.authConfig) {
+          safeCfg.authConfig = {
+            enabled: !!safeCfg.authConfig.enabled,
+            autoResumeBot: safeCfg.authConfig.autoResumeBot !== false,
+            charName: safeCfg.authConfig.charName || ''
+          };
+        }
+
+        const presetItem = {
+          id: id,
+          name: (data.name || "โปรไฟล์ส่วนกลาง").trim(),
+          description: data.description || "",
+          updatedAt: Date.now(),
+          createdAt: existingIdx >= 0 ? presets[existingIdx].createdAt : Date.now(),
+          config: safeCfg
+        };
+
+        if (existingIdx >= 0) {
+          presets[existingIdx] = presetItem;
+        } else {
+          presets.unshift(presetItem);
+        }
+        savePresets(presets);
+        return sendJSON({ success: true, preset: presetItem });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/presets/import (Import 1 or multiple profiles/presets)
+  if (req.method === "POST" && pathname === "/api/presets/import") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        let payload = JSON.parse(body);
+        let itemsToImport = [];
+
+        if (Array.isArray(payload)) {
+          itemsToImport = payload;
+        } else if (Array.isArray(payload.presets)) {
+          itemsToImport = payload.presets;
+        } else if (payload.config) {
+          itemsToImport = [payload];
+        } else if (payload.sellConfig || payload.archerConfig) {
+          // Direct exported config object
+          itemsToImport = [{
+            name: payload.name || "โปรไฟล์นำเข้าส่วนกลาง",
+            description: payload.description || "นำเข้าจากการตั้งค่าเดี่ยว",
+            config: payload
+          }];
+        }
+
+        if (itemsToImport.length === 0) {
+          return sendJSON({ success: false, error: "ไม่พบข้อมูลโปรไฟล์ที่สามารถนำเข้าได้" }, 400);
+        }
+
+        const presets = loadPresets();
+        let importedCount = 0;
+
+        itemsToImport.forEach(item => {
+          const cfg = item.config || item;
+          // Sanitize
+          const safeCfg = Object.assign({}, cfg);
+          if (safeCfg.authConfig) {
+            safeCfg.authConfig = {
+              enabled: !!safeCfg.authConfig.enabled,
+              autoResumeBot: safeCfg.authConfig.autoResumeBot !== false,
+              charName: safeCfg.authConfig.charName || ''
+            };
+          }
+
+          const newPreset = {
+            id: "preset_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            name: (item.name || payload.name || "โปรไฟล์นำเข้าส่วนกลาง").trim(),
+            description: item.description || "นำเข้าเมื่อ " + new Date().toLocaleString('th-TH'),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            config: safeCfg
+          };
+          presets.unshift(newPreset);
+          importedCount++;
+        });
+
+        savePresets(presets);
+        return sendJSON({ success: true, count: importedCount, presets });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // DELETE /api/presets/:id (Delete preset)
+  if (req.method === "DELETE" && pathname.match(/^\/api\/presets\/[^/]+$/)) {
+    const id = pathname.split("/")[3];
+    let presets = loadPresets();
+    presets = presets.filter(p => p.id !== id);
+    savePresets(presets);
+    return sendJSON({ success: true });
+  }
+
+  // POST /api/presets/:id/apply (Copy to specified profiles)
+  if (req.method === "POST" && pathname.match(/^\/api\/presets\/[^/]+\/apply$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const targetIds = Array.isArray(data.targetProfileIds) ? data.targetProfileIds : [];
+        const presets = loadPresets();
+        const preset = presets.find(p => p.id === id);
+        if (!preset) return sendJSON({ success: false, error: "Preset not found" }, 404);
+
+        const profiles = loadProfiles();
+        const appliedProfiles = [];
+
+        for (const pId of targetIds) {
+          const profile = profiles.find(p => p.id === pId);
+          if (!profile) continue;
+
+          // 1. Update targetMap in profile
+          if (preset.config?.targetMap) {
+            profile.targetMap = preset.config.targetMap;
+          }
+          appliedProfiles.push(profile.name || profile.id);
+
+          // 2. If running, send importAllBotSettings via debugPort
+          if (profile.debugPort) {
+            const codeToRun = `(() => {
+              if (typeof window.importAllBotSettings === 'function') {
+                return window.importAllBotSettings(${JSON.stringify(preset.config)});
+              } else {
+                return { success: false, error: 'importAllBotSettings not ready' };
+              }
+            })()`;
+
+            try {
+              await new Promise((resolve) => {
+                const clientReq = http.request({
+                  hostname: "127.0.0.1",
+                  port: profile.debugPort,
+                  path: `/api/eval?code=${encodeURIComponent(codeToRun)}`,
+                  method: "GET",
+                  timeout: 2000
+                }, (res) => {
+                  res.resume();
+                  resolve(true);
+                });
+                clientReq.on("error", () => resolve(false));
+                clientReq.on("timeout", () => { clientReq.destroy(); resolve(false); });
+                clientReq.end();
+              });
+            } catch(e) {}
+          }
+        }
+
+        saveProfiles(profiles);
+        return sendJSON({
+          success: true,
+          appliedCount: appliedProfiles.length,
+          appliedProfiles: appliedProfiles,
+          message: `คัดลอกการตั้งค่า "${preset.name}" ไปยัง ${appliedProfiles.length} โปรไฟล์เรียบร้อยแล้ว`
+        });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/profiles/:id/save-as-preset (Save current profile config as a preset)
+  if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/save-as-preset$/)) {
+    const id = pathname.split("/")[3];
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const profiles = loadProfiles();
+        const profile = profiles.find(p => p.id === id);
+        if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
+
+        let liveConfig = null;
+        if (profile.debugPort) {
+          try {
+            liveConfig = await new Promise((resolve) => {
+              const clientReq = http.request({
+                hostname: "127.0.0.1",
+                port: profile.debugPort,
+                path: `/api/eval?code=${encodeURIComponent("typeof window.exportAllBotSettings === 'function' ? window.exportAllBotSettings() : null")}`,
+                method: "GET",
+                timeout: 2500
+              }, (res) => {
+                let d = "";
+                res.on("data", c => d += c);
+                res.on("end", () => {
+                  try {
+                    const parsed = JSON.parse(d);
+                    resolve(parsed?.result?.data || parsed?.result || null);
+                  } catch(e) { resolve(null); }
+                });
+              });
+              clientReq.on("error", () => resolve(null));
+              clientReq.on("timeout", () => { clientReq.destroy(); resolve(null); });
+              clientReq.end();
+            });
+          } catch(e) {}
+        }
+
+        // Fallback default config if client offline
+        const finalConfig = liveConfig || {
+          targetMap: profile.targetMap || "ซากโบราณสถาน Lv.45–55",
+          autoLoop: true,
+          sellConfig: { enabled: true, weightCheckEnabled: true, weightThreshold: 80, sellMaterials: true },
+          archerConfig: { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 },
+          authConfig: { enabled: true, autoResumeBot: true, charName: "" }
+        };
+
+        const presets = loadPresets();
+        const newPreset = {
+          id: "preset_" + Date.now(),
+          name: (data.name || (`เซฟจาก ${profile.name}`)).trim(),
+          description: data.description || (`ดึงการตั้งค่าจากโปรไฟล์ "${profile.name}" เมื่อ ` + new Date().toLocaleString('th-TH')),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          config: finalConfig
+        };
+        presets.unshift(newPreset);
+        savePresets(presets);
+
+        return sendJSON({ success: true, preset: newPreset });
       } catch (err) {
         return sendJSON({ success: false, error: err.message }, 400);
       }

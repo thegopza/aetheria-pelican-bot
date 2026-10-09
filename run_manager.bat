@@ -1,5 +1,5 @@
-@echo off
-title Pelican Multi-Client Hub ? Aetheria Online
+﻿@echo off
+title Pelican Multi-Client Hub — Aetheria Online
 color 0b
 
 echo ========================================================
@@ -26,4 +26,9 @@ echo Keep this window open while using the Multi-Client Manager.
 echo ========================================================
 echo.
 
+:loop
 node manager\server.js
+echo.
+echo [!] Manager server restarted.
+timeout /t 1 /nobreak >nul
+goto loop

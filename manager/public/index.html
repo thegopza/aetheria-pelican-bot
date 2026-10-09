@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1791507840941">
+  <link rel="stylesheet" href="style.css?v=1791508115030">
 </head>
 <body>
   <div class="app-container">
@@ -78,6 +78,15 @@
         <div class="section-actions-row">
           <button id="btn-auto-tile-shrink" class="btn btn-secondary btn-sm" title="จัดเรียงและย่อหน้าต่างเกมทุกจอเป็นขนาดกะทัดรัด (Compact Tiles)">
             <span class="icon">📐</span> จัดเรียงจอย่อจออัตโนมัติ
+          </button>
+          <button id="btn-open-presets-modal" class="btn btn-purple btn-sm" title="ระบบ Save List จัดการการตั้งค่าส่วนกลาง (Presets & Profile Library)">
+            <span class="icon">💾</span> ระบบ Save List โปรไฟล์
+          </button>
+          <button id="btn-import-profile-global" class="btn btn-info btn-sm" title="นำเข้าโปรไฟล์หรือตั้งค่า (Import Profile / Presets)">
+            <span class="icon">📥</span> Import Profile
+          </button>
+          <button id="btn-export-profile-global" class="btn btn-secondary btn-sm" title="ส่งออกโปรไฟล์ทั้งหมด (Export All Profiles)">
+            <span class="icon">📤</span> Export Profile
           </button>
           <button id="btn-global-plan-setup" class="btn btn-primary btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
             <span class="icon">📜</span> Setup Plan script
@@ -257,7 +266,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1791507840941"></script>
+  <script src="app.js?v=1791508115030"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
   <div id="web-huds-container"></div>
 </body>

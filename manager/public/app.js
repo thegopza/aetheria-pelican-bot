@@ -370,6 +370,9 @@ function renderProfiles() {
               <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)">
                 <span>📜</span> Plan
               </button>
+              <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
+                <span>💾</span>
+              </button>
               <button class="btn btn-secondary btn-sm btn-icon" onclick="openEditModal('${p.id}')" title="แก้ไขการตั้งค่าโปรไฟล์">
                 <span>⚙️</span>
               </button>
@@ -389,6 +392,9 @@ function renderProfiles() {
             <div class="card-action-row sub-actions" style="margin-top: 2px;">
               <button class="btn btn-primary btn-sm btn-action-plan" onclick="openScriptPlanModal('${p.id}')" title="ตั้งค่าแผนการเล่น (Script Plan)" style="flex: 1;">
                 <span>📜</span> Plan
+              </button>
+              <button class="btn btn-purple btn-sm btn-icon" onclick="openSaveClientPresetModal('${p.id}')" title="💾 บันทึกการตั้งค่าจอนี้เข้า Save List ส่วนกลาง">
+                <span>💾</span>
               </button>
               <button class="btn btn-secondary btn-sm btn-icon" onclick="openEditModal('${p.id}')" title="แก้ไขการตั้งค่าโปรไฟล์">
                 <span>⚙️</span>
@@ -1720,3 +1726,490 @@ async function deleteProfile(id) {
 // Global Poll interval
 fetchProfiles();
 setInterval(fetchProfiles, 2000);
+
+// ==========================================
+// PRESETS & SAVE LIST SYSTEM (CENTRAL PROFILE LIBRARY)
+// ==========================================
+let currentPresets = [];
+let activeCopyToPresetId = null;
+
+// Fetch all presets from server
+async function fetchPresets() {
+  try {
+    const res = await fetch(`${API_BASE}/api/presets`);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.presets)) {
+      currentPresets = data.presets;
+      renderPresetsList();
+    }
+  } catch (err) {
+    console.error('Failed to fetch presets:', err);
+  }
+}
+
+// Render presets inside presets-modal
+function renderPresetsList() {
+  const container = document.getElementById('presets-list-container');
+  if (!container) return;
+
+  if (currentPresets.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px 20px; background: rgba(15, 23, 42, 0.5); border-radius: 8px; border: 1px dashed rgba(168, 85, 247, 0.25); color: #94a3b8;">
+        <div style="font-size: 28px; margin-bottom: 6px;">📂</div>
+        <div style="font-size: 13px; font-weight: 600; color: #cbd5e1;">ยังไม่มีการตั้งค่าในระบบ Save List ส่วนกลาง</div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">กดปุ่ม "บันทึกจอเกมปัจจุบันเข้า Save List" หรือ "นำเข้า (Import)" เพื่อสร้างหรือโหลดโปรไฟล์</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = currentPresets.map(preset => {
+    const cfg = preset.config || {};
+    const targetMap = cfg.targetMap || cfg.archerConfig?.targetMap || 'ตามเดิม';
+    const ammoMin = cfg.archerConfig?.minAmmoRestock || cfg.minAmmoRestock || null;
+    const sellCount = cfg.sellConfig?.items?.length || 0;
+    const updateTime = new Date(preset.updatedAt || preset.createdAt || Date.now()).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+    return `
+      <div class="preset-card-item" id="preset-card-${preset.id}">
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 13.5px; font-weight: 700; color: #f8fafc;">💾 ${escapeHTML(preset.name)}</span>
+            <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 9.5px; padding: 1px 6px; border-radius: 4px;">
+              🗺️ ${escapeHTML(targetMap)}
+            </span>
+            ${ammoMin ? `<span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 9.5px; padding: 1px 6px; border-radius: 4px;">🏹 ธนู: ${ammoMin} ดอก</span>` : ''}
+            ${sellCount > 0 ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 9.5px; padding: 1px 6px; border-radius: 4px;">💰 ขายตลาด ${sellCount} ชิ้น</span>` : ''}
+            <span style="font-size: 10px; color: #34d399; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); padding: 1px 5px; border-radius: 3px;">🔒 ปลอดภัย (ไม่รวม ID/รหัส)</span>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 5px; line-height: 1.4;">
+            ${escapeHTML(preset.description || 'ไม่มีคำอธิบาย')}
+            <span style="color: #64748b; margin-left: 8px;">🕒 อัปเดต ${updateTime}</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+          <button class="btn btn-purple btn-sm" onclick="openCopyToModal('${preset.id}')" title="คัดลอกการตั้งค่านี้ไปยังจอเกมต่างๆ ทันที">
+            <span>📋</span> Copy to...
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="exportSinglePreset('${preset.id}')" title="ส่งออกเป็นไฟล์ .json แยกโปรไฟล์">
+            <span>📤</span> Export
+          </button>
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="deletePreset('${preset.id}')" title="ลบโปรไฟล์นี้จาก Save List" style="color: #f87171;">
+            <span>🗑️</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// -------------------------------------------------------------
+// PRESETS MODAL CONTROLS
+// -------------------------------------------------------------
+function openPresetsModal() {
+  const modal = document.getElementById('presets-modal');
+  if (modal) {
+    modal.classList.add('active');
+    fetchPresets();
+  }
+}
+
+function closePresetsModal() {
+  const modal = document.getElementById('presets-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+// -------------------------------------------------------------
+// COPY TO PROFILES MODAL & LOGIC
+// -------------------------------------------------------------
+function openCopyToModal(presetId) {
+  activeCopyToPresetId = presetId;
+  const preset = currentPresets.find(p => p.id === presetId);
+  if (!preset) return;
+
+  const titleEl = document.getElementById('copy-to-preset-title');
+  if (titleEl) {
+    titleEl.innerText = `Preset: "${preset.name}" (แมพ: ${preset.config?.targetMap || 'ตามเดิม'})`;
+  }
+
+  const checklistContainer = document.getElementById('copy-to-profiles-checklist');
+  if (checklistContainer) {
+    if (currentProfiles.length === 0) {
+      checklistContainer.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 12px;">ไม่พบจอเกมในระบบ</div>';
+    } else {
+      checklistContainer.innerHTML = currentProfiles.map(p => `
+        <label class="copy-to-check-item">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" class="copy-to-profile-checkbox" value="${p.id}" checked style="width: 16px; height: 16px; cursor: pointer;">
+            <span style="font-weight: 600; color: #f8fafc; font-size: 12px;">${escapeHTML(p.name)}</span>
+            <span style="font-size: 11px; color: #94a3b8;">(${escapeHTML(p.charClass || 'Archer')})</span>
+            <span style="font-size: 10px; color: #64748b;">Port: ${p.debugPort || '--'}</span>
+          </div>
+          <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; ${p.isRunning ? 'background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : 'background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2);'}">
+            ${p.isRunning ? '🟢 ออนไลน์' : '⚪ ออฟไลน์'}
+          </span>
+        </label>
+      `).join('');
+    }
+  }
+
+  const modal = document.getElementById('copy-to-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeCopyToModal() {
+  const modal = document.getElementById('copy-to-modal');
+  if (modal) modal.classList.remove('active');
+  activeCopyToPresetId = null;
+}
+
+async function confirmApplyCopyTo() {
+  if (!activeCopyToPresetId) return;
+  const checkboxes = document.querySelectorAll('.copy-to-profile-checkbox:checked');
+  const targetProfileIds = Array.from(checkboxes).map(cb => cb.value);
+
+  if (targetProfileIds.length === 0) {
+    alert('กรุณาเลือกจอเกมเป้าหมายอย่างน้อย 1 จอ');
+    return;
+  }
+
+  const confirmBtn = document.getElementById('copy-to-modal-confirm');
+  const originalText = confirmBtn ? confirmBtn.innerHTML : '';
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '⏳ กำลังคัดลอกและอัปเดต...';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/presets/${activeCopyToPresetId}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetProfileIds })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(result.message || `คัดลอกการตั้งค่าไปยัง ${result.appliedCount || targetProfileIds.length} จอเรียบร้อยแล้ว!`);
+      closeCopyToModal();
+      fetchProfiles();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + (result.error || 'ไม่สามารถคัดลอกได้'));
+    }
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = originalText;
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// IMPORT PROFILE / PRESETS MODAL
+// -------------------------------------------------------------
+function openImportProfileModal() {
+  const nameInput = document.getElementById('import-preset-name');
+  const textarea = document.getElementById('import-json-textarea');
+  const fileInput = document.getElementById('import-file-input');
+
+  if (nameInput) nameInput.value = 'โปรไฟล์นำเข้าส่วนกลาง ' + (currentPresets.length + 1);
+  if (textarea) textarea.value = '';
+  if (fileInput) fileInput.value = '';
+
+  const modal = document.getElementById('import-profile-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeImportProfileModal() {
+  const modal = document.getElementById('import-profile-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function handleImportProfileSubmit(e) {
+  e.preventDefault();
+  const nameInput = document.getElementById('import-preset-name');
+  const textarea = document.getElementById('import-json-textarea');
+  if (!textarea || !textarea.value.trim()) {
+    alert('กรุณาวางโค้ด JSON การตั้งค่าที่ต้องการนำเข้า');
+    return;
+  }
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(textarea.value.trim());
+  } catch (err) {
+    alert('รูปแบบ JSON ไม่ถูกต้อง: ' + err.message);
+    return;
+  }
+
+  const presetName = nameInput && nameInput.value.trim() ? nameInput.value.trim() : 'โปรไฟล์นำเข้าส่วนกลาง';
+
+  let payload = parsed;
+  if (!Array.isArray(parsed) && !parsed.presets) {
+    // Single preset or single config object
+    if (!parsed.name) parsed.name = presetName;
+    payload = parsed;
+  }
+
+  const submitBtn = document.getElementById('import-modal-submit-btn');
+  const origText = submitBtn ? submitBtn.innerHTML : '';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '⏳ กำลังนำเข้า...';
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/presets/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`นำเข้าการตั้งค่าสำเร็จ ${result.count || 1} รายการเข้าสู่ Save List เรียบร้อย!`);
+      closeImportProfileModal();
+      openPresetsModal();
+      fetchPresets();
+    } else {
+      alert('นำเข้าไม่สำเร็จ: ' + (result.error || 'เกิดข้อผิดพลาด'));
+    }
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = origText;
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// SAVE CLIENT AS PRESET MODAL
+// -------------------------------------------------------------
+function openSaveClientPresetModal(preferredProfileId = null) {
+  const select = document.getElementById('save-client-select');
+  const nameInput = document.getElementById('save-client-preset-name');
+  const descInput = document.getElementById('save-client-preset-desc');
+  const hiddenId = document.getElementById('save-client-profile-id');
+
+  if (!select) return;
+  select.innerHTML = currentProfiles.map(p => `
+    <option value="${p.id}" ${p.id === preferredProfileId ? 'selected' : ''}>
+      ${escapeHTML(p.name)} (${escapeHTML(p.charClass || 'Archer')}) - พอร์ต ${p.debugPort || '--'} ${p.isRunning ? '🟢 ออนไลน์' : '⚪ ออฟไลน์'}
+    </option>
+  `).join('');
+
+  const targetProfile = currentProfiles.find(p => p.id === (preferredProfileId || (select.value || currentProfiles[0]?.id)));
+  const baseName = targetProfile ? targetProfile.name : 'Client';
+
+  if (hiddenId) hiddenId.value = targetProfile ? targetProfile.id : '';
+  if (nameInput) nameInput.value = `${baseName} Setup`;
+  if (descInput) descInput.value = `ดึงการตั้งค่าจาก ${baseName} (พอร์ต ${targetProfile?.debugPort || '--'})`;
+
+  select.onchange = () => {
+    const chosen = currentProfiles.find(p => p.id === select.value);
+    if (chosen) {
+      if (hiddenId) hiddenId.value = chosen.id;
+      if (nameInput) nameInput.value = `${chosen.name} Setup`;
+      if (descInput) descInput.value = `ดึงการตั้งค่าจาก ${chosen.name} (พอร์ต ${chosen.debugPort || '--'})`;
+    }
+  };
+
+  const modal = document.getElementById('save-client-preset-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeSaveClientPresetModal() {
+  const modal = document.getElementById('save-client-preset-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function handleSaveClientPresetSubmit(e) {
+  e.preventDefault();
+  const select = document.getElementById('save-client-select');
+  const nameInput = document.getElementById('save-client-preset-name');
+  const descInput = document.getElementById('save-client-preset-desc');
+
+  const profileId = select ? select.value : null;
+  if (!profileId) {
+    alert('ไม่พบจอเกมที่เลือก');
+    return;
+  }
+
+  const name = nameInput && nameInput.value.trim() ? nameInput.value.trim() : 'โปรไฟล์ส่วนกลาง';
+  const description = descInput ? descInput.value.trim() : '';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${profileId}/save-as-preset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`บันทึก "${name}" เข้า Save List ส่วนกลางเรียบร้อย!`);
+      closeSaveClientPresetModal();
+      openPresetsModal();
+      fetchPresets();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + (result.error || 'ไม่สามารถบันทึกได้'));
+    }
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  }
+}
+
+// -------------------------------------------------------------
+// EXPORT & DELETE PRESETS
+// -------------------------------------------------------------
+function exportAllPresets() {
+  window.location.href = `${API_BASE}/api/presets/export`;
+}
+
+function exportSinglePreset(presetId) {
+  const preset = currentPresets.find(p => p.id === presetId);
+  if (!preset) return;
+
+  const jsonStr = JSON.stringify(preset, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const cleanName = preset.name.replace(/[^a-zA-Z0-9ก-๙_-]/g, '_');
+  a.download = `preset_${cleanName}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function deletePreset(presetId) {
+  const preset = currentPresets.find(p => p.id === presetId);
+  const name = preset ? preset.name : presetId;
+  if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ "${name}" ออกจาก Save List?`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/presets/${presetId}`, { method: 'DELETE' });
+    const result = await res.json();
+    if (result.success) {
+      fetchPresets();
+    } else {
+      alert('ลบไม่สำเร็จ: ' + (result.error || 'เกิดข้อผิดพลาด'));
+    }
+  } catch (err) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+  }
+}
+
+// -------------------------------------------------------------
+// DOM EVENT WIRING FOR PRESETS & SAVE LIST
+// -------------------------------------------------------------
+function setupPresetsEventListeners() {
+  // Top row buttons
+  const btnOpenPresets = document.getElementById('btn-open-presets-modal');
+  if (btnOpenPresets) btnOpenPresets.onclick = openPresetsModal;
+
+  const btnImportGlobal = document.getElementById('btn-import-profile-global');
+  if (btnImportGlobal) btnImportGlobal.onclick = openImportProfileModal;
+
+  const btnExportGlobal = document.getElementById('btn-export-profile-global');
+  if (btnExportGlobal) btnExportGlobal.onclick = exportAllPresets;
+
+  // Presets modal buttons
+  const btnPresetsClose = document.getElementById('presets-modal-close-btn');
+  if (btnPresetsClose) btnPresetsClose.onclick = closePresetsModal;
+
+  const btnPresetsCloseBottom = document.getElementById('presets-modal-close-bottom');
+  if (btnPresetsCloseBottom) btnPresetsCloseBottom.onclick = closePresetsModal;
+
+  const btnCreateFromClient = document.getElementById('btn-create-preset-from-client');
+  if (btnCreateFromClient) btnCreateFromClient.onclick = () => openSaveClientPresetModal();
+
+  const btnPresetsModalImport = document.getElementById('btn-presets-modal-import');
+  if (btnPresetsModalImport) btnPresetsModalImport.onclick = openImportProfileModal;
+
+  const btnPresetsModalExport = document.getElementById('btn-presets-modal-export');
+  if (btnPresetsModalExport) btnPresetsModalExport.onclick = exportAllPresets;
+
+  // Copy-to modal buttons
+  const btnCopyClose = document.getElementById('copy-to-modal-close-btn');
+  if (btnCopyClose) btnCopyClose.onclick = closeCopyToModal;
+
+  const btnCopyCancel = document.getElementById('copy-to-modal-cancel');
+  if (btnCopyCancel) btnCopyCancel.onclick = closeCopyToModal;
+
+  const btnCopyConfirm = document.getElementById('copy-to-modal-confirm');
+  if (btnCopyConfirm) btnCopyConfirm.onclick = confirmApplyCopyTo;
+
+  const btnSelectAll = document.getElementById('btn-copy-to-select-all');
+  if (btnSelectAll) {
+    btnSelectAll.onclick = () => {
+      document.querySelectorAll('.copy-to-profile-checkbox').forEach(cb => cb.checked = true);
+    };
+  }
+
+  const btnDeselectAll = document.getElementById('btn-copy-to-deselect-all');
+  if (btnDeselectAll) {
+    btnDeselectAll.onclick = () => {
+      document.querySelectorAll('.copy-to-profile-checkbox').forEach(cb => cb.checked = false);
+    };
+  }
+
+  // Import modal buttons & form
+  const btnImportClose = document.getElementById('import-modal-close-btn');
+  if (btnImportClose) btnImportClose.onclick = closeImportProfileModal;
+
+  const btnImportCancel = document.getElementById('import-modal-cancel-btn');
+  if (btnImportCancel) btnImportCancel.onclick = closeImportProfileModal;
+
+  const importForm = document.getElementById('import-profile-form');
+  if (importForm) importForm.onsubmit = handleImportProfileSubmit;
+
+  const importFileInput = document.getElementById('import-file-input');
+  if (importFileInput) {
+    importFileInput.onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target.result;
+        const textarea = document.getElementById('import-json-textarea');
+        if (textarea) textarea.value = text;
+        try {
+          const parsed = JSON.parse(text);
+          const nameInput = document.getElementById('import-preset-name');
+          if (nameInput) {
+            if (Array.isArray(parsed) || parsed.presets) {
+              nameInput.value = `ชุดโปรไฟล์นำเข้า (${(parsed.presets || parsed).length} รายการ)`;
+            } else if (parsed.name) {
+              nameInput.value = parsed.name;
+            } else {
+              nameInput.value = file.name.replace(/\.json$/i, '');
+            }
+          }
+        } catch(err) {}
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  // Save client modal buttons & form
+  const btnSaveClientClose = document.getElementById('save-client-modal-close-btn');
+  if (btnSaveClientClose) btnSaveClientClose.onclick = closeSaveClientPresetModal;
+
+  const btnSaveClientCancel = document.getElementById('save-client-modal-cancel');
+  if (btnSaveClientCancel) btnSaveClientCancel.onclick = closeSaveClientPresetModal;
+
+  const saveClientForm = document.getElementById('save-client-preset-form');
+  if (saveClientForm) saveClientForm.onsubmit = handleSaveClientPresetSubmit;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupPresetsEventListeners);
+} else {
+  setupPresetsEventListeners();
+}
+
+// Initial fetch presets
+fetchPresets();
