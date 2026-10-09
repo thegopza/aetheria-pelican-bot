@@ -32,6 +32,116 @@
     window.__isKnownOverweight = false;
     window.__debugSnifferEnabled = false;
 
+    // ==========================================
+    // TOOLTIP GUARDIAN (Persistent Hover & Re-render Rescue)
+    // ==========================================
+    window.initTooltipGuardian = function() {
+        if (window.__tooltipGuardianInitialized) return;
+        window.__tooltipGuardianInitialized = true;
+
+        window.__lastMouseX = 0;
+        window.__lastMouseY = 0;
+
+        const updateMousePos = (e) => {
+            if (e.clientX || e.clientY) {
+                window.__lastMouseX = e.clientX;
+                window.__lastMouseY = e.clientY;
+            }
+            if (window.__gameTooltipSnapFn) {
+                try {
+                    const tx = window.__gameTooltipSnapFn();
+                    if (tx && tx.owner && (!tx.owner.isConnected || !tx.owner.contains(e.target))) {
+                        const elUnderCursor = (e.target && e.target.closest) ? e.target.closest('[class*="slot"], [class*="item"], .inv-item, .cell, .tip, .tooltip, button') : null;
+                        if (elUnderCursor) {
+                            tx.owner = elUnderCursor;
+                        }
+                    }
+                } catch(err) {}
+            }
+        };
+
+        window.addEventListener('mousemove', updateMousePos, true);
+        window.addEventListener('pointermove', updateMousePos, true);
+
+        // 1. Intercept synthetic events (e.g. from bot auto-attack, macro keys) so they don't dismiss the native tooltip
+        window.addEventListener('keydown', (e) => {
+            if (!e.isTrusted) {
+                const tt = document.querySelector('.tooltip.panel, [role="tooltip"]');
+                if (tt && tt.offsetWidth > 0) {
+                    e.stopImmediatePropagation();
+                }
+            }
+        }, true);
+
+        window.addEventListener('keyup', (e) => {
+            if (!e.isTrusted) {
+                const tt = document.querySelector('.tooltip.panel, [role="tooltip"]');
+                if (tt && tt.offsetWidth > 0) {
+                    e.stopImmediatePropagation();
+                }
+            }
+        }, true);
+
+        // 2. Prevent window blur from instantly killing tooltip if user is hovering over game slots
+        window.addEventListener('blur', (e) => {
+            if (window.__lastMouseX > 0 && window.__lastMouseY > 0) {
+                const el = document.elementFromPoint(window.__lastMouseX, window.__lastMouseY);
+                if (el && el.closest('[class*="slot"], [class*="item"], .inv-item, .cell, .tip, .tooltip, .panel')) {
+                    e.stopImmediatePropagation();
+                }
+            }
+        }, true);
+
+        // 3. React Re-render Rescue Loop:
+        // When packets arrive (arrow consumption, loot, exp, market sync), React unmounts & recreates slot DOM nodes.
+        // Game has window.setInterval(() => !tx.owner.isConnected && close(), 150).
+        // Our 40ms rescue loop catches disconnected owner and rebinds it to the slot under the cursor!
+        if (window.__tooltipRescueInterval) clearInterval(window.__tooltipRescueInterval);
+        window.__tooltipRescueInterval = setInterval(() => {
+            try {
+                if (!window.__gameTooltipSnapFn) {
+                    const root = document.querySelector('#root');
+                    const rKey = root ? Object.keys(root).find(k => k.startsWith('__reactContainer')) : null;
+                    if (rKey && root[rKey]) {
+                        let fiber = root[rKey];
+                        let fxFiber = null;
+                        function walk(node, depth = 0) {
+                            if (!node || depth > 30 || fxFiber) return;
+                            if (node.type && node.type.name === 'Fx') { fxFiber = node; return; }
+                            if (node.child) walk(node.child, depth + 1);
+                            if (node.sibling) walk(node.sibling, depth + 1);
+                        }
+                        walk(fiber);
+                        if (fxFiber && fxFiber.memoizedState?.queue?.getSnapshot) {
+                            window.__gameTooltipSnapFn = fxFiber.memoizedState.queue.getSnapshot;
+                        }
+                    }
+                }
+
+                if (window.__gameTooltipSnapFn) {
+                    const tx = window.__gameTooltipSnapFn();
+                    if (tx && tx.owner) {
+                        if (!tx.owner.isConnected || tx.owner.getClientRects().length === 0) {
+                            if (window.__lastMouseX > 0 && window.__lastMouseY > 0) {
+                                const elUnderCursor = document.elementFromPoint(window.__lastMouseX, window.__lastMouseY);
+                                if (elUnderCursor) {
+                                    const newSlot = elUnderCursor.closest('[class*="slot"], [class*="item"], .inv-item, .cell, .tip, .tooltip, button');
+                                    if (newSlot) {
+                                        tx.owner = newSlot;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch(e) {}
+        }, 40);
+
+        console.log('%c[Pelican] Tooltip Guardian (Anti-Dismissal & Re-render Rescue) Active', 'color: #38bdf8; font-weight: bold;');
+    };
+    window.initTooltipGuardian();
+
+
     window.getMarketStatSelectOptionsHtml = function(currentVal) {
         const options = [
             { value: 'none', label: '-- ไม่ระบุ --' },
@@ -7016,7 +7126,7 @@
             window.__currentSelectedMarketListing = targetListing;
         }
 
-        if (targetListing) {
+        if (targetListing && rows.length > 0) {
             window.updateMarketDetailOverlay(targetListing);
         }
 
@@ -9944,7 +10054,14 @@
             actionsEl.appendChild(btn);
         }
 
+        const existingTarget = btn.getAttribute('data-target-item');
+        const existingState = btn.getAttribute('data-in-wl');
+        if (existingTarget === baseName && existingState === String(isInWL)) {
+            return;
+        }
+
         btn.setAttribute('data-target-item', baseName);
+        btn.setAttribute('data-in-wl', String(isInWL));
 
         if (isInWL) {
             btn.innerText = '🛡️ ลบ WL';
