@@ -15,16 +15,30 @@ const args = process.argv;
 let profileName = "";
 let debugPort = 49876;
 let isMulti = false;
+let userDataDir = "";
 
 for (const arg of args) {
-  if (arg.startsWith("--profile-name=")) {
+  if (arg.startsWith("--user-data-dir=")) {
+    userDataDir = arg.slice("--user-data-dir=".length);
+    isMulti = true;
+  } else if (arg.startsWith("--profile-name=")) {
     profileName = decodeURIComponent(arg.slice("--profile-name=".length));
     isMulti = true;
   } else if (arg.startsWith("--debug-port=")) {
     debugPort = parseInt(arg.slice("--debug-port=".length)) || 49876;
     isMulti = true;
-  } else if (arg.includes("--multi-instance") || arg.includes("--user-data-dir")) {
+  } else if (arg.includes("--multi-instance")) {
     isMulti = true;
+  }
+}
+
+// Crucial: Set isolated userData directory for each profile before ready
+if (userDataDir) {
+  try {
+    if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+    app.setPath("userData", userDataDir);
+  } catch (e) {
+    console.error("[Pelican Loader] Failed to set custom userData dir:", e);
   }
 }
 
@@ -75,7 +89,7 @@ function open() {
     const localBotPath = path.join(process.resourcesPath, "bot.js");
 
     function injectScript(code) {
-      win.webContents.executeJavaScript(code)
+      win.webContents.executeJavaScript(code + '\n; void 0;')
         .then(() => console.log("[Pelican Loader] 🚀 Pelican Bot injected and active!"))
         .catch(err => console.error("[Pelican Loader] ❌ Injection error:", err));
     }
