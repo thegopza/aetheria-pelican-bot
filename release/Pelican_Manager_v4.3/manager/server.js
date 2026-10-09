@@ -10,6 +10,7 @@ const PROFILES_FILE = path.join(__dirname, "profiles.json");
 const PLANS_FILE = path.join(__dirname, "plans.json");
 const PRESETS_FILE = path.join(__dirname, "presets.json");
 const installer = require("./installer");
+const { handleInventoryMarketRoute } = require("./inventory_market_api");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -384,7 +385,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const involvedProfiles = [receiverProfile, ...senderProfiles];
     for (const p of involvedProfiles) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
-      await evalProfilePort(p.debugPort, `
+      await evalProfilePort(p.debugPort, `(() => {
         window.__isConsolidating = true;
         window.__isBotRunning = false;
         window.__autoLoopEnabled = false;
@@ -397,12 +398,13 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
         if (typeof window.stopArrivalWatcher === 'function') window.stopArrivalWatcher();
         if (typeof window.clearAllBotTimers === 'function') window.clearAllBotTimers();
         if (typeof window.deactivateInGameAuto === 'function') window.deactivateInGameAuto();
-        localStorage.setItem('pelican_bot_running', 'false');
-        localStorage.setItem('pelican_auto_loop', 'false');
+        try { localStorage.setItem('pelican_bot_running', 'false'); } catch(e){}
+        try { localStorage.setItem('pelican_auto_loop', 'false'); } catch(e){}
         const loopCheckbox = document.getElementById('p-auto-loop');
         if (loopCheckbox) loopCheckbox.checked = false;
         if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
-      `);
+        return { success: true };
+      })()`);
       addConsolidationLog(`🛑 สั่งหยุดบอทหน้าจอ: ${p.name}`, 'info');
     }
     await new Promise(r => setTimeout(r, 1200));
@@ -418,7 +420,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     for (const p of involvedProfiles) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
       addConsolidationLog(`🕊️ ${p.name}: กำลังใช้วาร์ป Butterfly Wing...`, 'info');
-      evalProfilePort(p.debugPort, `
+      evalProfilePort(p.debugPort, `(() => {
         window.__isConsolidating = true;
         window.__isBotRunning = false;
         window.__autoLoopEnabled = false;
@@ -429,7 +431,8 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
         } else if (typeof window.useButterflyWing === 'function') {
           window.useButterflyWing();
         }
-      `);
+        return { success: true };
+      })()`);
       await new Promise(r => setTimeout(r, 800)); // Stagger delay
     }
 
@@ -549,10 +552,14 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
 
     for (const p of involvedProfiles) {
       try {
-        await evalProfilePort(p.debugPort, `
+        const startRes = await evalProfilePort(p.debugPort, `(() => {
           window.__isConsolidating = false;
+          window.__isWalkingToMap = false;
+          window.__isNavigating = false;
           window.__autoLoopEnabled = true;
-          localStorage.setItem('pelican_auto_loop', 'true');
+          window.__isBotRunning = true;
+          try { localStorage.setItem('pelican_auto_loop', 'true'); } catch(e){}
+          try { localStorage.setItem('pelican_bot_running', 'true'); } catch(e){}
           const loopCheckbox = document.getElementById('p-auto-loop');
           if (loopCheckbox) loopCheckbox.checked = true;
           if (typeof window.startMasterBot === 'function') {
@@ -561,8 +568,14 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
             window.startBot();
           }
           if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
-        `);
-        addConsolidationLog(`▶️ สั่งเริ่มบอทหน้าจอ ${p.name} เดินทางกลับไปฟาร์มเรียบร้อย`, 'success');
+          return { success: true, running: window.__isBotRunning };
+        })()`);
+
+        if (startRes && startRes.result && startRes.result.running) {
+          addConsolidationLog(`▶️ สั่งเริ่มบอทหน้าจอ ${p.name} เดินทางกลับไปฟาร์มเรียบร้อย`, 'success');
+        } else {
+          addConsolidationLog(`▶️ ส่งคำสั่งเริ่มบอทหน้าจอ ${p.name} สำเร็จ`, 'info');
+        }
         await new Promise(r => setTimeout(r, 1200));
       } catch(e) {
         addConsolidationLog(`⚠️ ไม่สามารถเริ่มบอทจอ ${p.name}: ${e.message}`, 'warning');
@@ -581,7 +594,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const involvedProfiles = [receiverProfile, ...senderProfiles];
     for (const p of involvedProfiles) {
       try {
-        evalProfilePort(p.debugPort, `window.__isConsolidating = false;`);
+        evalProfilePort(p.debugPort, `(() => { window.__isConsolidating = false; })()`);
       } catch(e) {}
     }
   }
@@ -668,6 +681,9 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+
+  // Bag (inventory) & market endpoints — see inventory_market_api.js
+  if (await handleInventoryMarketRoute(req, res, pathname, { loadProfiles, evalProfilePort, sendJSON })) return;
 
   // 1. GET /api/profiles
   if (req.method === "GET" && pathname === "/api/profiles") {
@@ -1542,6 +1558,7 @@ const server = http.createServer(async (req, res) => {
             if (sockEl && ${JSON.stringify(payload.config.keepSockets)} !== undefined) sockEl.checked = !!window.__sellConfig.keepSockets;
             const wlEl = document.getElementById('p-sell-whitelist');
             if (wlEl && ${JSON.stringify(payload.config.whitelist)} !== undefined) wlEl.value = String(window.__sellConfig.whitelist);
+            if (typeof window.renderSellStatsFilterUI === 'function') window.renderSellStatsFilterUI();
             return { success: true };
           })()`;
         } else if (payload.type === 'sort-inventory') {

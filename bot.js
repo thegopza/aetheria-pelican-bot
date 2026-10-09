@@ -341,6 +341,215 @@
         return window.getMarketStatSelectOptionsHtml(currentVal);
     }
 
+    // ==========================================
+    // SMART STAT & AFFIX FILTER OPTIONS (WHITELIST FILTER)
+    // ==========================================
+    window.MAIN_STATS_OPTIONS = [
+        { value: 'DEX', label: 'DEX (ความแม่นยำ/ระยะไกล)' },
+        { value: 'STR', label: 'STR (พลังโจมตีประชิด/แบกน้ำหนัก)' },
+        { value: 'AGI', label: 'AGI (ความเร็วโจมตี/หลบหลีก)' },
+        { value: 'VIT', label: 'VIT (พลังป้องกัน/HP)' },
+        { value: 'INT', label: 'INT (พลังเวท/มานา)' },
+        { value: 'LUK', label: 'LUK (คริติคอล/โชคลาภ)' }
+    ];
+
+    window.SUB_STATS_OPTIONS = [
+        { value: 'ATK_PERCENT', label: 'ATK% (พลังโจมตีกายภาพ %)' },
+        { value: 'ATK_FLAT', label: 'ATK (พลังโจมตีกายภาพ หน่วยตรง)' },
+        { value: 'RANGED_DAMAGE_PERCENT', label: 'RANGED DMG% (ความแรงระยะไกล %)' },
+        { value: 'RANGE_ATTACK', label: 'RANGE ATK (พลังโจมตีระยะไกล หน่วยตรง)' },
+        { value: 'MELEE_DAMAGE_PERCENT', label: 'MELEE DMG% (ความแรงประชิด %)' },
+        { value: 'MELEE_ATTACK', label: 'MELEE ATK (พลังโจมตีประชิด หน่วยตรง)' },
+        { value: 'MATK_PERCENT', label: 'MATK% (พลังโจมตีเวท %)' },
+        { value: 'MATK_FLAT', label: 'MATK (พลังโจมตีเวท หน่วยตรง)' },
+        { value: 'MAGIC_DAMAGE_PERCENT', label: 'MAGIC DMG% (ความแรงเวท %)' },
+        { value: 'MAGIC_ATTACK', label: 'MAGIC ATK (พลังโจมตีเวท หน่วยตรง)' },
+        { value: 'CRIT', label: 'CRIT (อัตราคริติคอล)' },
+        { value: 'CRIT_DAMAGE', label: 'CRIT DMG% (ความแรงคริ %)' },
+        { value: 'ASPD', label: 'ASPD (ความเร็วโจมตี หน่วยตรง)' },
+        { value: 'ASPD_PERCENT', label: 'ASPD% (ความเร็วโจมตี %)' },
+        { value: 'HIT', label: 'HIT (ความแม่นยำ)' },
+        { value: 'FLEE', label: 'FLEE (การหลบหลีก)' },
+        { value: 'MOVE_SPEED', label: 'MOVE SPEED (ความเร็วเดิน)' },
+        { value: 'CAST_TIME_REDUCTION', label: 'CAST RED% (ลดเวลาร่าย %)' },
+        { value: 'DEF', label: 'DEF (พลังป้องกันกายภาพ)' },
+        { value: 'MDEF', label: 'MDEF (พลังป้องกันเวท)' },
+        { value: 'DAMAGE_REDUCTION', label: 'DMG RED% (ลดดาเมจที่ได้รับ %)' },
+        { value: 'BLOCK_CHANCE', label: 'BLOCK% (โอกาสบล็อก %)' },
+        { value: 'MAXHP_PERCENT', label: 'Max HP% (เลือดสูงสุด %)' },
+        { value: 'MAXHP', label: 'Max HP (เลือดสูงสุด หน่วยตรง)' },
+        { value: 'MAXSP_PERCENT', label: 'Max SP% (มานาสูงสุด %)' },
+        { value: 'MAXSP', label: 'Max SP (มานาสูงสุด หน่วยตรง)' },
+        { value: 'HP_REGEN', label: 'HP REGEN (ฟื้นฟูเลือด)' },
+        { value: 'SP_REGEN', label: 'SP REGEN (ฟื้นฟูมานา)' },
+        { value: 'HEAL_POWER', label: 'HEAL% (พลังการฮีล %)' }
+    ];
+
+    window.matchItemAffix = function(aff, targetStat) {
+        if (!aff || !targetStat || targetStat === 'none') return false;
+        const affType = String(aff.type || '').toUpperCase();
+        const target = String(targetStat).toUpperCase();
+        const isPercent = aff.mode === 'increasedPercent' || affType.includes('PERCENT');
+
+        if (target === 'DEX' || target === 'STR' || target === 'AGI' || target === 'VIT' || target === 'INT' || target === 'LUK') {
+            return affType === target;
+        }
+        if (target === 'ATK_PERCENT') {
+            return (affType === 'ATK' && isPercent) || affType === 'ATK_PERCENT';
+        }
+        if (target === 'ATK_FLAT') {
+            return affType === 'ATK' && !isPercent;
+        }
+        if (target === 'MATK_PERCENT') {
+            return (affType === 'MATK' && isPercent) || affType === 'MATK_PERCENT';
+        }
+        if (target === 'MATK_FLAT') {
+            return affType === 'MATK' && !isPercent;
+        }
+        if (target === 'RANGED_DAMAGE_PERCENT' || target === 'RANGE_DMG%') {
+            return affType === 'RANGED_DAMAGE_PERCENT' || (affType === 'RANGE_ATTACK' && isPercent);
+        }
+        if (target === 'RANGE_ATTACK' || target === 'RANGE_ATK') {
+            return affType === 'RANGE_ATTACK' && !isPercent;
+        }
+        if (target === 'MELEE_DAMAGE_PERCENT' || target === 'MELEE_DMG%') {
+            return affType === 'MELEE_DAMAGE_PERCENT' || (affType === 'MELEE_ATTACK' && isPercent);
+        }
+        if (target === 'MELEE_ATTACK' || target === 'MELEE_ATK') {
+            return affType === 'MELEE_ATTACK' && !isPercent;
+        }
+        if (target === 'MAGIC_DAMAGE_PERCENT' || target === 'MAGIC_DMG%') {
+            return affType === 'MAGIC_DAMAGE_PERCENT' || (affType === 'MAGIC_ATTACK' && isPercent);
+        }
+        if (target === 'MAGIC_ATTACK' || target === 'MAGIC_ATK') {
+            return affType === 'MAGIC_ATTACK' && !isPercent;
+        }
+        if (target === 'MAXHP_PERCENT') {
+            return (affType === 'MAXHP' || affType === 'MAX_HP' || affType === 'HP') && isPercent;
+        }
+        if (target === 'MAXHP' || target === 'MAX_HP') {
+            return (affType === 'MAXHP' || affType === 'MAX_HP' || affType === 'HP') && !isPercent;
+        }
+        if (target === 'MAXSP_PERCENT') {
+            return (affType === 'MAXSP' || affType === 'MAX_SP' || affType === 'SP') && isPercent;
+        }
+        if (target === 'MAXSP' || target === 'MAX_SP') {
+            return (affType === 'MAXSP' || affType === 'MAX_SP' || affType === 'SP') && !isPercent;
+        }
+        if (target === 'ASPD_PERCENT') {
+            return (affType === 'ASPD' || affType === 'ATTACK_SPEED') && isPercent;
+        }
+        if (target === 'ASPD' || target === 'ATTACK_SPEED') {
+            return (affType === 'ASPD' || affType === 'ATTACK_SPEED') && !isPercent;
+        }
+        if (target === 'CRIT_DAMAGE') {
+            return affType === 'CRIT_DAMAGE' || affType === 'CRIT_DMG';
+        }
+        if (target === 'CRIT') {
+            return affType === 'CRIT' && affType !== 'CRIT_DAMAGE';
+        }
+        if (target === 'DAMAGE_REDUCTION') {
+            return affType === 'DAMAGE_REDUCTION' || affType === 'DMG_RED';
+        }
+        if (target === 'BLOCK_CHANCE') {
+            return affType === 'BLOCK_CHANCE' || affType === 'BLOCK';
+        }
+        if (target === 'HEAL_POWER') {
+            return affType === 'HEAL_POWER' || affType === 'HEAL';
+        }
+        if (target === 'CAST_TIME_REDUCTION') {
+            return affType === 'CAST_TIME_REDUCTION' || affType === 'CAST_RED';
+        }
+        if (target === 'MOVE_SPEED') {
+            return affType === 'MOVE_SPEED' || affType === 'SPEED';
+        }
+        return affType === target;
+    };
+
+    window.checkItemStatsFilter = function(item) {
+        const cfg = window.__sellConfig?.statsFilter;
+        if (!cfg || !cfg.enabled) {
+            return { pass: true, reason: 'filter_disabled' };
+        }
+        if (!item) return { pass: true, reason: 'no_item_data' };
+
+        // 1. ตรวจสอบ Gem (เจมสกิลทุกชนิด) -> ป้องกันเด็ดขาด
+        const itemName = (item.name || '').toLowerCase();
+        const equipType = String(item.equipType || '').toLowerCase();
+        const isGem = equipType === 'gem' || itemName.includes('gem') || itemName.includes('เจม');
+        if (isGem) {
+            if (cfg.protectGems !== false) {
+                return { pass: true, reason: 'protected_gem', isGem: true };
+            }
+        }
+
+        // 2. ตรวจสอบหมวดหมู่ว่าเปิดให้กรองหรือไม่
+        const isWeapon = equipType === 'weapon' || !!item.weaponType;
+        const isArmor = equipType === 'armor' || equipType === 'body' || equipType === 'head' || equipType === 'shield' || equipType === 'cape' || equipType === 'pants' || equipType === 'boot' || equipType === 'boots' || equipType === 'glove' || equipType === 'gloves' || equipType === 'garment' || equipType === 'legs';
+        const isAccessory = equipType === 'acc' || equipType === 'accessory';
+
+        if (isWeapon && !cfg.filterWeapons) return { pass: true, reason: 'category_not_filtered' };
+        if (isArmor && !cfg.filterArmors) return { pass: true, reason: 'category_not_filtered' };
+        if (isAccessory && !cfg.filterAccessories) return { pass: true, reason: 'category_not_filtered' };
+        if (!isWeapon && !isArmor && !isAccessory && !isGem) {
+            return { pass: true, reason: 'not_applicable_equipment' };
+        }
+
+        // 3. ตรวจสอบ affixes (Random Options สุ่มเท่านั้น ไม่นับ Base Attributes)
+        const affixes = Array.isArray(item.affixes) ? item.affixes : [];
+        const minOptions = Number(cfg.minOptions) || 1;
+        const mainStats = Array.isArray(cfg.mainStats) ? cfg.mainStats : [];
+        const subStats = Array.isArray(cfg.subStats) ? cfg.subStats : [];
+
+        // รายการ Must Have
+        const mustHaveStats = [
+            ...mainStats.filter(s => s && s.mustHave && s.stat && s.stat !== 'none'),
+            ...subStats.filter(s => s && s.mustHave && s.stat && s.stat !== 'none')
+        ];
+
+        // ตรวจสอบ Must Have ทุกตัว
+        for (const req of mustHaveStats) {
+            const hasIt = affixes.some(aff => window.matchItemAffix(aff, req.stat));
+            if (!hasIt) {
+                return {
+                    pass: false,
+                    reason: `missing_must_have_${req.stat}`,
+                    matchedCount: 0,
+                    affixesCount: affixes.length
+                };
+            }
+        }
+
+        // ตรวจสอบจำนวนออฟชั่นที่ตรงกับเงื่อนไขทั้งหมด (Main + Sub)
+        const validTargets = [
+            ...mainStats.map(s => s.stat).filter(s => s && s !== 'none'),
+            ...subStats.map(s => s.stat).filter(s => s && s !== 'none')
+        ];
+
+        if (validTargets.length === 0) {
+            const pass = affixes.length >= minOptions;
+            return { pass, reason: pass ? 'min_options_met' : 'insufficient_options', matchedCount: affixes.length };
+        }
+
+        let matchedCount = 0;
+        const matchedAffixes = [];
+        for (const aff of affixes) {
+            if (validTargets.some(target => window.matchItemAffix(aff, target))) {
+                matchedCount++;
+                matchedAffixes.push(aff.type);
+            }
+        }
+
+        const pass = matchedCount >= minOptions;
+        return {
+            pass: pass,
+            reason: pass ? 'stat_requirements_met' : 'insufficient_matching_options',
+            matchedCount: matchedCount,
+            matchedAffixes: matchedAffixes,
+            totalAffixes: affixes.length
+        };
+    };
+
 
     // Config & Map Name Migration
     const mapAliases = {
@@ -423,13 +632,44 @@
         keepRefined: true, // ห้ามขายของตีบวก (+1 ขึ้นไป)
         keepSpecial: true, // ห้ามขายของมี Option สุ่ม
         keepSockets: true, // ห้ามขายของมีรูการ์ด [1-4]
-        whitelist: 'Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow'
+        whitelist: 'Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow',
+        statsFilter: {
+            enabled: false,
+            filterWeapons: true,
+            filterArmors: true,
+            filterAccessories: true,
+            protectGems: true,      // ล็อคป้องกันเจมสกิลทุกชนิดเด็ดขาด ไม่ให้ถูกขายทิ้ง
+            minOptions: 2,          // require อย่างน้อย 2 ออฟขึ้นไป
+            mainStats: [
+                { stat: 'DEX', mustHave: true }
+            ],
+            subStats: []
+        }
     };
     try {
         const stored = JSON.parse(localStorage.getItem('pelican_sell_cfg') || '{}');
         window.__sellConfig = Object.assign({}, defaultSellConfig, stored);
         if (typeof window.__sellConfig.weightThreshold !== 'number') window.__sellConfig.weightThreshold = 80;
         if (window.__sellConfig.weightCheckEnabled === undefined) window.__sellConfig.weightCheckEnabled = true;
+
+        // Auto migration for statsFilter
+        if (!window.__sellConfig.statsFilter || typeof window.__sellConfig.statsFilter !== 'object') {
+            window.__sellConfig.statsFilter = JSON.parse(JSON.stringify(defaultSellConfig.statsFilter));
+        } else {
+            if (window.__sellConfig.statsFilter.protectGems === undefined) window.__sellConfig.statsFilter.protectGems = true;
+            if (window.__sellConfig.statsFilter.filterWeapons === undefined) window.__sellConfig.statsFilter.filterWeapons = true;
+            if (window.__sellConfig.statsFilter.filterArmors === undefined) window.__sellConfig.statsFilter.filterArmors = true;
+            if (window.__sellConfig.statsFilter.filterAccessories === undefined) window.__sellConfig.statsFilter.filterAccessories = true;
+            if (!Array.isArray(window.__sellConfig.statsFilter.mainStats)) {
+                window.__sellConfig.statsFilter.mainStats = [{ stat: 'DEX', mustHave: true }];
+            }
+            if (!Array.isArray(window.__sellConfig.statsFilter.subStats)) {
+                window.__sellConfig.statsFilter.subStats = [];
+            }
+            if (typeof window.__sellConfig.statsFilter.minOptions !== 'number') {
+                window.__sellConfig.statsFilter.minOptions = 2;
+            }
+        }
 
         // Auto migration for per-category settings
         if (stored.weaponRarity === undefined) {
@@ -5578,6 +5818,26 @@
                     console.log(`[Pelican Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
 
                     const itemsToSell = [];
+                    const usedBagSlots = new Set();
+                    function findMatchingBagItem(targetName, rText, tEl) {
+                        const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+                        if (!bagItems || bagItems.length === 0) return null;
+                        const baseTarget = normalizeItemBaseName(targetName).toLowerCase();
+                        const isRowRef = isRefined(targetName, rText, tEl);
+                        const hasRowSock = hasSockets(targetName, rText, tEl);
+
+                        for (const b of bagItems) {
+                            if (usedBagSlots.has(b.slot)) continue;
+                            const bBase = normalizeItemBaseName(b.name).toLowerCase();
+                            if (bBase === baseTarget || b.name.toLowerCase() === targetName.toLowerCase() || bBase.includes(baseTarget) || baseTarget.includes(bBase)) {
+                                if (isRowRef && !(b.refine > 0)) continue;
+                                if (hasRowSock && !(b.raw && b.raw.slots > 0)) continue;
+                                usedBagSlots.add(b.slot);
+                                return b.raw || b;
+                            }
+                        }
+                        return null;
+                    }
 
                     plusBtns.forEach((btn, btnIdx) => {
                         const row = findItemRow(btn);
@@ -5598,7 +5858,6 @@
 
                         // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
-                        // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const isCard = (catName !== 'อาวุธ' && catName !== 'ชุดเกราะ') && (
                             lower.endsWith(' card') || lower.startsWith('card ') || lower === 'card' || lower.includes('การ์ด') || 
                             rowText.includes('การ์ด') || rowText.includes('card') ||
@@ -5622,7 +5881,7 @@
                         }
 
                         // กฎความปลอดภัย 1: ห้ามขายของใช้ / ใบวาร์ป / ยา / ลูกธนู (Consumables / Ammo) เด็ดขาด
-                        const isGem = lower.includes('gem') || lower.includes('เจม') || catName.includes('ประดับ') || catName.includes('เจม');
+                        const isGem = lower.includes('gem') || lower.includes('เจม') || rowText.includes('ประเภท เจม') || rowText.includes('ช่องเจม');
                         const isTeleportWing = lower.includes('fly wing') || lower.includes('butterfly wing') || lower === 'wing' || lower.includes('ใบวาร์ป');
                         const isPotion = lower.includes('potion') || lower.includes('ขวดยา');
                         // ข้อสำคัญ: เจมของ Archer/Hunter มักมีชื่อสกิล เช่น "Dancing Arrow Gem", "Arrow Shower Gem" ห้ามกรองทิ้งเป็นลูกธนูจริง
@@ -5633,10 +5892,34 @@
                             return;
                         }
 
-                        // กฎความปลอดภัย 2: ห้ามขายเด็ดขาดถ้าตรงกับ Whitelist
-                        if (isWhitelisted(itemName)) {
-                            console.log(`[Pelican Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
+                        // กฎความปลอดภัย 1.5: ล็อกป้องกันเจมสกิลทุกชนิดเด็ดขาด (Gem Safe Guard)
+                        if (isGem && (sellCfg.statsFilter?.protectGems !== false)) {
+                            console.log(`%c[Pelican Shop] 💎 [Gem Protected] ป้องกันเจมสกิลเด็ดขาด (ห้ามขาย): "${itemName}"`, 'color: #a855f7; font-weight: bold;');
                             return;
+                        }
+
+                        // กฎความปลอดภัย 2: Whitelist & Smart Stats Filter
+                        if (isWhitelisted(itemName)) {
+                            const sf = sellCfg.statsFilter;
+                            if (sf && sf.enabled) {
+                                const bagItem = findMatchingBagItem(itemName, rowText, titleEl);
+                                if (bagItem) {
+                                    const statRes = window.checkItemStatsFilter(bagItem);
+                                    if (statRes.pass) {
+                                        console.log(`%c[Pelican Shop] 🔒 [Whitelist Pass] เก็บไอเทม: "${itemName}" (${statRes.reason} | ${statRes.matchedCount || 0} ออฟชั่นตรงเกณฑ์)`, 'color: #38bdf8; font-weight: bold;');
+                                        return; // ผ่านเกณฑ์ -> ห้ามขายเด็ดขาด!
+                                    } else {
+                                        console.log(`%c[Pelican Shop] 🗑️ [Whitelist Filtered] ปลด Whitelist ไอเทม: "${itemName}" (ออฟชั่นไม่ตรงเกณฑ์: ${statRes.reason}) -> อนุญาตให้ขาย`, 'color: #f59e0b; font-weight: bold;');
+                                        // ไม่ return -> หลุดลงไปขายตามเกณฑ์ปกติ!
+                                    }
+                                } else {
+                                    console.log(`[Pelican Shop] 🔒 [Whitelist Safe] ข้าม: "${itemName}" (ไม่พบข้อมูลในกระเป๋า ปลอดภัยไว้ก่อน)`);
+                                    return;
+                                }
+                            } else {
+                                console.log(`[Pelican Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
+                                return;
+                            }
                         }
 
                         // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกณฑ์เฉพาะของหมวดนี้: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
@@ -9283,7 +9566,14 @@
             if (old) old.remove();
             createUI();
         };
-        if (document.getElementById('pelican-hud')) return;
+        const existingHud = document.getElementById('pelican-hud');
+        if (existingHud) {
+            if (!existingHud.querySelector('#p-sell-stats-filter-card')) {
+                existingHud.remove();
+            } else {
+                return;
+            }
+        }
 
         const hud = document.createElement('div');
         hud.id = 'pelican-hud';
@@ -9846,6 +10136,67 @@
                     <div>
                         <span style="font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px;">🛡️ Whitelist ห้ามขาย (ชื่อไอเทมคั่นด้วย ,):</span>
                         <textarea id="p-sell-whitelist" style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.4); color: #fff; border-radius: 4px; font-size: 9.5px; height: 34px; resize: vertical; padding: 3px;">${window.__sellConfig.whitelist || ''}</textarea>
+                    </div>
+
+                    <!-- Smart Stat & Affix Filter Card (Whitelist Sub-Filter) -->
+                    <div class="p-card" id="p-sell-stats-filter-card" style="border-color: rgba(168, 85, 247, 0.45); background: rgba(15, 23, 42, 0.75); padding: 6px; margin-top: 5px; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(168, 85, 247, 0.25); padding-bottom: 3px;">
+                            <label class="p-check-box" style="color: #c084fc; font-size: 10px; margin: 0; font-weight: bold;" title="คัดกรองออฟชั่นสุ่มของไอเทมใน Whitelist เก็บเฉพาะชิ้นที่ออฟชั่นสวย">
+                                <input type="checkbox" id="p-statfilter-toggle" ${(window.__sellConfig.statsFilter?.enabled) ? 'checked' : ''}>
+                                <span>⚙️ กรองออฟชั่น Whitelist (Stat Filter)</span>
+                            </label>
+                            <span style="font-size: 8.5px; color: #a855f7; font-weight: 500;">เฉพาะ Random Options</span>
+                        </div>
+
+                        <!-- Target Equipment Types & Gem Protection -->
+                        <div style="display: flex; flex-direction: column; gap: 3px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                            <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">หมวดที่ใช้ตัวกรองนี้:</span>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-weap" ${(window.__sellConfig.statsFilter?.filterWeapons !== false) ? 'checked' : ''}>
+                                    <span>⚔️ อาวุธ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-armor" ${(window.__sellConfig.statsFilter?.filterArmors !== false) ? 'checked' : ''}>
+                                    <span>🛡️ ชุดเกราะ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-acc" ${(window.__sellConfig.statsFilter?.filterAccessories !== false) ? 'checked' : ''}>
+                                    <span>💍 เครื่องประดับ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #38bdf8; margin: 0; font-weight: 600;" title="ล็อกคุ้มครองเจมสกิลทุกเม็ด ไม่ให้ถูกขายทิ้งเด็ดขาด">
+                                    <input type="checkbox" id="p-statfilter-protect-gems" ${(window.__sellConfig.statsFilter?.protectGems !== false) ? 'checked' : ''}>
+                                    <span>💎 ล็อกเจมสกิล (ห้ามขาย)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Options Count Required -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 2px;">
+                            <span style="font-size: 9.5px; color: #cbd5e1; font-weight: 500;">🎯 Stats Require (ขั้นต่ำ):</span>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" id="p-statfilter-min-opts" min="1" max="5" value="${window.__sellConfig.statsFilter?.minOptions || 2}" style="width: 42px; background: #0b1329; border: 1px solid rgba(168, 85, 247, 0.4); color: #fff; border-radius: 3px; font-size: 10px; padding: 1px 3px; text-align: center;">
+                                <span style="font-size: 9px; color: #94a3b8;">ออฟขึ้นไป</span>
+                            </div>
+                        </div>
+
+                        <!-- Main Stats List -->
+                        <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                <span style="font-size: 9.5px; color: #38bdf8; font-weight: bold;">🔹 Main Stats (STR, AGI, VIT, INT, DEX, LUK)</span>
+                                <button type="button" id="p-btn-add-mainstat" style="background: #0284c7; color: #fff; border: none; border-radius: 3px; font-size: 8.5px; font-weight: bold; padding: 2px 7px; cursor: pointer; transition: all 0.2s;">+ เพิ่ม</button>
+                            </div>
+                            <div id="p-statfilter-main-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
+                        </div>
+
+                        <!-- Sub Stats List -->
+                        <div style="background: rgba(234, 179, 8, 0.05); border: 1px solid rgba(234, 179, 8, 0.25); border-radius: 4px; padding: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                <span style="font-size: 9.5px; color: #facc15; font-weight: bold;">🔸 Sub Stats (ATK%, MATK%, CRIT, ASPD, ฯลฯ)</span>
+                                <button type="button" id="p-btn-add-substat" style="background: #d97706; color: #fff; border: none; border-radius: 3px; font-size: 8.5px; font-weight: bold; padding: 2px 7px; cursor: pointer; transition: all 0.2s;">+ เพิ่ม</button>
+                            </div>
+                            <div id="p-statfilter-sub-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
+                        </div>
                     </div>
 
                     <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
@@ -10478,6 +10829,197 @@
             window.__sellConfig.whitelist = e.target.value;
             saveSellConfig();
         };
+
+        // ==========================================
+        // SMART STAT FILTER UI RENDERING & EVENTS
+        // ==========================================
+        window.renderSellStatsFilterUI = function() {
+            const filterCfg = window.__sellConfig?.statsFilter || {};
+            const mainContainer = document.getElementById('p-statfilter-main-list');
+            const subContainer = document.getElementById('p-statfilter-sub-list');
+            if (!mainContainer || !subContainer) return;
+
+            // Update toggles & inputs
+            const toggleEl = document.getElementById('p-statfilter-toggle');
+            if (toggleEl) toggleEl.checked = !!filterCfg.enabled;
+            const weapEl = document.getElementById('p-statfilter-weap');
+            if (weapEl) weapEl.checked = filterCfg.filterWeapons !== false;
+            const armorEl = document.getElementById('p-statfilter-armor');
+            if (armorEl) armorEl.checked = filterCfg.filterArmors !== false;
+            const accEl = document.getElementById('p-statfilter-acc');
+            if (accEl) accEl.checked = filterCfg.filterAccessories !== false;
+            const gemEl = document.getElementById('p-statfilter-protect-gems');
+            if (gemEl) gemEl.checked = filterCfg.protectGems !== false;
+            const minOptsEl = document.getElementById('p-statfilter-min-opts');
+            if (minOptsEl) minOptsEl.value = filterCfg.minOptions || 2;
+
+            // 1. Render Main Stats List
+            const mainStats = Array.isArray(filterCfg.mainStats) ? filterCfg.mainStats : [];
+            if (mainStats.length === 0) {
+                mainContainer.innerHTML = `<div style="font-size: 8.5px; color: #64748b; text-align: center; padding: 3px;">(ไม่มีเงื่อนไข Main Stats - คลิก + เพื่อเพิ่ม)</div>`;
+            } else {
+                mainContainer.innerHTML = mainStats.map((item, idx) => `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(56, 189, 248, 0.2);">
+                        <select class="p-sf-main-select" data-index="${idx}" style="flex: 1; min-width: 0; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); color: #fff; border-radius: 3px; font-size: 9px; padding: 1px 3px;">
+                            ${(window.MAIN_STATS_OPTIONS || []).map(opt => `<option value="${opt.value}" ${opt.value === item.stat ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                        </select>
+                        <label class="p-check-box" style="margin: 0; font-size: 8px; color: #38bdf8; display: flex; align-items: center; gap: 2px; white-space: nowrap;" title="ต้องมีออฟชั่นนี้ติดอยู่ในไอเทม">
+                            <input type="checkbox" class="p-sf-main-must" data-index="${idx}" ${item.mustHave ? 'checked' : ''}>
+                            <span>Must Have</span>
+                        </label>
+                        <button type="button" class="p-sf-main-del" data-index="${idx}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 3px; font-size: 8.5px; cursor: pointer; padding: 0 4px; line-height: 14px;" title="ลบ">✕</button>
+                    </div>
+                `).join('');
+            }
+
+            // 2. Render Sub Stats List
+            const subStats = Array.isArray(filterCfg.subStats) ? filterCfg.subStats : [];
+            if (subStats.length === 0) {
+                subContainer.innerHTML = `<div style="font-size: 8.5px; color: #64748b; text-align: center; padding: 3px;">(ไม่มีเงื่อนไข Sub Stats - คลิก + เพื่อเพิ่ม)</div>`;
+            } else {
+                subContainer.innerHTML = subStats.map((item, idx) => `
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(234, 179, 8, 0.2);">
+                        <select class="p-sf-sub-select" data-index="${idx}" style="flex: 1; min-width: 0; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.35); color: #fff; border-radius: 3px; font-size: 9px; padding: 1px 3px;">
+                            ${(window.SUB_STATS_OPTIONS || []).map(opt => `<option value="${opt.value}" ${opt.value === item.stat ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                        </select>
+                        <label class="p-check-box" style="margin: 0; font-size: 8px; color: #facc15; display: flex; align-items: center; gap: 2px; white-space: nowrap;" title="ต้องมีออฟชั่นนี้ติดอยู่ในไอเทม">
+                            <input type="checkbox" class="p-sf-sub-must" data-index="${idx}" ${item.mustHave ? 'checked' : ''}>
+                            <span>Must Have</span>
+                        </label>
+                        <button type="button" class="p-sf-sub-del" data-index="${idx}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 3px; font-size: 8.5px; cursor: pointer; padding: 0 4px; line-height: 14px;" title="ลบ">✕</button>
+                    </div>
+                `).join('');
+            }
+
+            // Wire Row Events for Main
+            mainContainer.querySelectorAll('.p-sf-main-select').forEach(sel => {
+                sel.onchange = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    if (window.__sellConfig?.statsFilter?.mainStats?.[i]) {
+                        window.__sellConfig.statsFilter.mainStats[i].stat = e.target.value;
+                        saveSellConfig();
+                    }
+                };
+            });
+            mainContainer.querySelectorAll('.p-sf-main-must').forEach(cb => {
+                cb.onchange = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    if (window.__sellConfig?.statsFilter?.mainStats?.[i]) {
+                        window.__sellConfig.statsFilter.mainStats[i].mustHave = e.target.checked;
+                        saveSellConfig();
+                    }
+                };
+            });
+            mainContainer.querySelectorAll('.p-sf-main-del').forEach(btn => {
+                btn.onclick = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    window.__sellConfig.statsFilter.mainStats.splice(i, 1);
+                    saveSellConfig();
+                    window.renderSellStatsFilterUI();
+                };
+            });
+
+            // Wire Row Events for Sub
+            subContainer.querySelectorAll('.p-sf-sub-select').forEach(sel => {
+                sel.onchange = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    if (window.__sellConfig?.statsFilter?.subStats?.[i]) {
+                        window.__sellConfig.statsFilter.subStats[i].stat = e.target.value;
+                        saveSellConfig();
+                    }
+                };
+            });
+            subContainer.querySelectorAll('.p-sf-sub-must').forEach(cb => {
+                cb.onchange = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    if (window.__sellConfig?.statsFilter?.subStats?.[i]) {
+                        window.__sellConfig.statsFilter.subStats[i].mustHave = e.target.checked;
+                        saveSellConfig();
+                    }
+                };
+            });
+            subContainer.querySelectorAll('.p-sf-sub-del').forEach(btn => {
+                btn.onclick = (e) => {
+                    const i = parseInt(e.target.dataset.index);
+                    window.__sellConfig.statsFilter.subStats.splice(i, 1);
+                    saveSellConfig();
+                    window.renderSellStatsFilterUI();
+                };
+            });
+        };
+
+        // Wire Header Events for Stat Filter
+        const sfToggleEl = document.getElementById('p-statfilter-toggle');
+        if (sfToggleEl) {
+            sfToggleEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.enabled = e.target.checked;
+                saveSellConfig();
+            };
+        }
+        const sfWeapEl = document.getElementById('p-statfilter-weap');
+        if (sfWeapEl) {
+            sfWeapEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.filterWeapons = e.target.checked;
+                saveSellConfig();
+            };
+        }
+        const sfArmorEl = document.getElementById('p-statfilter-armor');
+        if (sfArmorEl) {
+            sfArmorEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.filterArmors = e.target.checked;
+                saveSellConfig();
+            };
+        }
+        const sfAccEl = document.getElementById('p-statfilter-acc');
+        if (sfAccEl) {
+            sfAccEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.filterAccessories = e.target.checked;
+                saveSellConfig();
+            };
+        }
+        const sfGemEl = document.getElementById('p-statfilter-protect-gems');
+        if (sfGemEl) {
+            sfGemEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.protectGems = e.target.checked;
+                saveSellConfig();
+            };
+        }
+        const sfMinOptsEl = document.getElementById('p-statfilter-min-opts');
+        if (sfMinOptsEl) {
+            sfMinOptsEl.onchange = (e) => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                window.__sellConfig.statsFilter.minOptions = Math.max(1, parseInt(e.target.value) || 2);
+                saveSellConfig();
+            };
+        }
+        const sfAddMainBtn = document.getElementById('p-btn-add-mainstat');
+        if (sfAddMainBtn) {
+            sfAddMainBtn.onclick = () => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                if (!Array.isArray(window.__sellConfig.statsFilter.mainStats)) window.__sellConfig.statsFilter.mainStats = [];
+                window.__sellConfig.statsFilter.mainStats.push({ stat: 'DEX', mustHave: false });
+                saveSellConfig();
+                window.renderSellStatsFilterUI();
+            };
+        }
+        const sfAddSubBtn = document.getElementById('p-btn-add-substat');
+        if (sfAddSubBtn) {
+            sfAddSubBtn.onclick = () => {
+                if (!window.__sellConfig.statsFilter) window.__sellConfig.statsFilter = {};
+                if (!Array.isArray(window.__sellConfig.statsFilter.subStats)) window.__sellConfig.statsFilter.subStats = [];
+                window.__sellConfig.statsFilter.subStats.push({ stat: 'ATK_PERCENT', mustHave: false });
+                saveSellConfig();
+                window.renderSellStatsFilterUI();
+            };
+        }
+
+        // Initial render of Stat Filter
+        window.renderSellStatsFilterUI();
 
         document.getElementById('p-btn-test-sell-only').onclick = () => {
             window.testSellTrash();

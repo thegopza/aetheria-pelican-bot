@@ -1450,6 +1450,67 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                         <textarea id="p-sell-whitelist" style="width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.4); color: #fff; border-radius: 4px; font-size: 9.5px; height: 34px; resize: vertical; padding: 3px;">${escapeHTML(sell.whitelist || "")}</textarea>
                     </div>
 
+                    <!-- Smart Stat & Affix Filter Card (Whitelist Sub-Filter) -->
+                    <div class="p-card" id="p-sell-stats-filter-card" style="border-color: rgba(168, 85, 247, 0.45); background: rgba(15, 23, 42, 0.75); padding: 6px; margin-top: 5px; display: flex; flex-direction: column; gap: 5px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(168, 85, 247, 0.25); padding-bottom: 3px;">
+                            <label class="p-check-box" style="color: #c084fc; font-size: 10px; margin: 0; font-weight: bold;" title="คัดกรองออฟชั่นสุ่มของไอเทมใน Whitelist เก็บเฉพาะชิ้นที่ออฟชั่นสวย">
+                                <input type="checkbox" id="p-statfilter-toggle" ${(sell.statsFilter?.enabled) ? 'checked' : ''}>
+                                <span>⚙️ กรองออฟชั่น Whitelist (Stat Filter)</span>
+                            </label>
+                            <span style="font-size: 8.5px; color: #a855f7; font-weight: 500;">เฉพาะ Random Options</span>
+                        </div>
+
+                        <!-- Target Equipment Types & Gem Protection -->
+                        <div style="display: flex; flex-direction: column; gap: 3px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                            <span style="font-size: 9px; color: #94a3b8; font-weight: 600;">หมวดที่ใช้ตัวกรองนี้:</span>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-weap" ${(sell.statsFilter?.filterWeapons !== false) ? 'checked' : ''}>
+                                    <span>⚔️ อาวุธ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-armor" ${(sell.statsFilter?.filterArmors !== false) ? 'checked' : ''}>
+                                    <span>🛡️ ชุดเกราะ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #e2e8f0; margin: 0;">
+                                    <input type="checkbox" id="p-statfilter-acc" ${(sell.statsFilter?.filterAccessories !== false) ? 'checked' : ''}>
+                                    <span>💍 เครื่องประดับ</span>
+                                </label>
+                                <label class="p-check-box" style="font-size: 9px; color: #38bdf8; margin: 0; font-weight: 600;" title="ล็อกคุ้มครองเจมสกิลทุกเม็ด ไม่ให้ถูกขายทิ้งเด็ดขาด">
+                                    <input type="checkbox" id="p-statfilter-protect-gems" ${(sell.statsFilter?.protectGems !== false) ? 'checked' : ''}>
+                                    <span>💎 ล็อกเจมสกิล (ห้ามขาย)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Options Count Required -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 2px;">
+                            <span style="font-size: 9.5px; color: #cbd5e1; font-weight: 500;">🎯 Stats Require (ขั้นต่ำ):</span>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" id="p-statfilter-min-opts" min="1" max="5" value="${sell.statsFilter?.minOptions || 2}" style="width: 42px; background: #0b1329; border: 1px solid rgba(168, 85, 247, 0.4); color: #fff; border-radius: 3px; font-size: 10px; padding: 1px 3px; text-align: center;">
+                                <span style="font-size: 9px; color: #94a3b8;">ออฟขึ้นไป</span>
+                            </div>
+                        </div>
+
+                        <!-- Main Stats List -->
+                        <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                <span style="font-size: 9.5px; color: #38bdf8; font-weight: bold;">🔹 Main Stats (STR, AGI, VIT, INT, DEX, LUK)</span>
+                                <button type="button" class="p-btn-add-mainstat" style="background: #0284c7; color: #fff; border: none; border-radius: 3px; font-size: 8.5px; font-weight: bold; padding: 2px 7px; cursor: pointer;">+ เพิ่ม</button>
+                            </div>
+                            <div class="p-statfilter-main-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
+                        </div>
+
+                        <!-- Sub Stats List -->
+                        <div style="background: rgba(234, 179, 8, 0.05); border: 1px solid rgba(234, 179, 8, 0.25); border-radius: 4px; padding: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                <span style="font-size: 9.5px; color: #facc15; font-weight: bold;">🔸 Sub Stats (ATK%, MATK%, CRIT, ASPD, ฯลฯ)</span>
+                                <button type="button" class="p-btn-add-substat" style="background: #d97706; color: #fff; border: none; border-radius: 3px; font-size: 8.5px; font-weight: bold; padding: 2px 7px; cursor: pointer;">+ เพิ่ม</button>
+                            </div>
+                            <div class="p-statfilter-sub-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
+                        </div>
+                    </div>
+
                     <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
                 </div>
 
@@ -1704,6 +1765,47 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
         `;
 }
 
+const MANAGER_MAIN_STATS = [
+  { value: 'DEX', label: 'DEX (ความแม่นยำ/ระยะไกล)' },
+  { value: 'STR', label: 'STR (พลังโจมตีประชิด/แบกน้ำหนัก)' },
+  { value: 'AGI', label: 'AGI (ความเร็วโจมตี/หลบหลีก)' },
+  { value: 'VIT', label: 'VIT (พลังป้องกัน/HP)' },
+  { value: 'INT', label: 'INT (พลังเวท/มานา)' },
+  { value: 'LUK', label: 'LUK (คริติคอล/โชคลาภ)' }
+];
+
+const MANAGER_SUB_STATS = [
+  { value: 'ATK_PERCENT', label: 'ATK% (พลังโจมตีกายภาพ %)' },
+  { value: 'ATK_FLAT', label: 'ATK (พลังโจมตีกายภาพ หน่วยตรง)' },
+  { value: 'RANGED_DAMAGE_PERCENT', label: 'RANGED DMG% (ความแรงระยะไกล %)' },
+  { value: 'RANGE_ATTACK', label: 'RANGE ATK (พลังโจมตีระยะไกล หน่วยตรง)' },
+  { value: 'MELEE_DAMAGE_PERCENT', label: 'MELEE DMG% (ความแรงประชิด %)' },
+  { value: 'MELEE_ATTACK', label: 'MELEE ATK (พลังโจมตีประชิด หน่วยตรง)' },
+  { value: 'MATK_PERCENT', label: 'MATK% (พลังโจมตีเวท %)' },
+  { value: 'MATK_FLAT', label: 'MATK (พลังโจมตีเวท หน่วยตรง)' },
+  { value: 'MAGIC_DAMAGE_PERCENT', label: 'MAGIC DMG% (ความแรงเวท %)' },
+  { value: 'MAGIC_ATTACK', label: 'MAGIC ATK (พลังโจมตีเวท หน่วยตรง)' },
+  { value: 'CRIT', label: 'CRIT (อัตราคริติคอล)' },
+  { value: 'CRIT_DAMAGE', label: 'CRIT DMG% (ความแรงคริ %)' },
+  { value: 'ASPD', label: 'ASPD (ความเร็วโจมตี หน่วยตรง)' },
+  { value: 'ASPD_PERCENT', label: 'ASPD% (ความเร็วโจมตี %)' },
+  { value: 'HIT', label: 'HIT (ความแม่นยำ)' },
+  { value: 'FLEE', label: 'FLEE (การหลบหลีก)' },
+  { value: 'MOVE_SPEED', label: 'MOVE SPEED (ความเร็วเดิน)' },
+  { value: 'CAST_TIME_REDUCTION', label: 'CAST RED% (ลดเวลาร่าย %)' },
+  { value: 'DEF', label: 'DEF (พลังป้องกันกายภาพ)' },
+  { value: 'MDEF', label: 'MDEF (พลังป้องกันเวท)' },
+  { value: 'DAMAGE_REDUCTION', label: 'DMG RED% (ลดดาเมจที่ได้รับ %)' },
+  { value: 'BLOCK_CHANCE', label: 'BLOCK% (โอกาสบล็อก %)' },
+  { value: 'MAXHP_PERCENT', label: 'Max HP% (เลือดสูงสุด %)' },
+  { value: 'MAXHP', label: 'Max HP (เลือดสูงสุด หน่วยตรง)' },
+  { value: 'MAXSP_PERCENT', label: 'Max SP% (มานาสูงสุด %)' },
+  { value: 'MAXSP', label: 'Max SP (มานาสูงสุด หน่วยตรง)' },
+  { value: 'HP_REGEN', label: 'HP REGEN (ฟื้นฟูเลือด)' },
+  { value: 'SP_REGEN', label: 'SP REGEN (ฟื้นฟูมานา)' },
+  { value: 'HEAL_POWER', label: 'HEAL% (พลังการฮีล %)' }
+];
+
 async function openWebBotHUD(profileId) {
   const profile = currentProfiles.find(p => p.id === profileId);
   if (!profile) return;
@@ -1891,8 +1993,139 @@ async function openWebBotHUD(profileId) {
   if (buyPotionBtn) buyPotionBtn.onclick = () => sendWebHudAction(profileId, { type: 'buy-buff-potions' });
 
 
-    // Sell event listeners
+    // Sell & Stat Filter State & Listeners
+  let currentStatsFilter = Object.assign({
+    enabled: false,
+    filterWeapons: true,
+    filterArmors: true,
+    filterAccessories: true,
+    protectGems: true,
+    minOptions: 2,
+    mainStats: [],
+    subStats: []
+  }, clientData?.sellConfig?.statsFilter || {});
+
+  const renderWebHudStatsFilter = () => {
+    const mainList = hudEl.querySelector('.p-statfilter-main-list');
+    const subList = hudEl.querySelector('.p-statfilter-sub-list');
+    if (!mainList || !subList) return;
+
+    // Header controls
+    const toggleEl = hudEl.querySelector('#p-statfilter-toggle');
+    if (toggleEl && document.activeElement !== toggleEl) toggleEl.checked = !!currentStatsFilter.enabled;
+    const weapEl = hudEl.querySelector('#p-statfilter-weap');
+    if (weapEl && document.activeElement !== weapEl) weapEl.checked = currentStatsFilter.filterWeapons !== false;
+    const armorEl = hudEl.querySelector('#p-statfilter-armor');
+    if (armorEl && document.activeElement !== armorEl) armorEl.checked = currentStatsFilter.filterArmors !== false;
+    const accEl = hudEl.querySelector('#p-statfilter-acc');
+    if (accEl && document.activeElement !== accEl) accEl.checked = currentStatsFilter.filterAccessories !== false;
+    const gemEl = hudEl.querySelector('#p-statfilter-protect-gems');
+    if (gemEl && document.activeElement !== gemEl) gemEl.checked = currentStatsFilter.protectGems !== false;
+    const minOptsEl = hudEl.querySelector('#p-statfilter-min-opts');
+    if (minOptsEl && document.activeElement !== minOptsEl) minOptsEl.value = currentStatsFilter.minOptions || 2;
+
+    // Main Stats
+    const mStats = Array.isArray(currentStatsFilter.mainStats) ? currentStatsFilter.mainStats : [];
+    if (mStats.length === 0) {
+      mainList.innerHTML = `<div style="font-size: 8.5px; color: #64748b; text-align: center; padding: 2px;">(ไม่มีเงื่อนไข Main Stats - คลิก + เพื่อเพิ่ม)</div>`;
+    } else {
+      mainList.innerHTML = mStats.map((item, idx) => `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(56, 189, 248, 0.2);">
+          <select class="p-sf-main-select" data-index="${idx}" style="flex: 1; min-width: 0; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); color: #fff; border-radius: 3px; font-size: 9px; padding: 1px 3px;">
+            ${MANAGER_MAIN_STATS.map(opt => `<option value="${opt.value}" ${opt.value === item.stat ? 'selected' : ''}>${opt.label}</option>`).join('')}
+          </select>
+          <label class="p-check-box" style="margin: 0; font-size: 8px; color: #38bdf8; display: flex; align-items: center; gap: 2px; white-space: nowrap;">
+            <input type="checkbox" class="p-sf-main-must" data-index="${idx}" ${item.mustHave ? 'checked' : ''}>
+            <span>Must Have</span>
+          </label>
+          <button type="button" class="p-sf-main-del" data-index="${idx}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 3px; font-size: 8.5px; cursor: pointer; padding: 0 4px; line-height: 14px;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    // Sub Stats
+    const sStats = Array.isArray(currentStatsFilter.subStats) ? currentStatsFilter.subStats : [];
+    if (sStats.length === 0) {
+      subList.innerHTML = `<div style="font-size: 8.5px; color: #64748b; text-align: center; padding: 2px;">(ไม่มีเงื่อนไข Sub Stats - คลิก + เพื่อเพิ่ม)</div>`;
+    } else {
+      subList.innerHTML = sStats.map((item, idx) => `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 3px; border: 1px solid rgba(234, 179, 8, 0.2);">
+          <select class="p-sf-sub-select" data-index="${idx}" style="flex: 1; min-width: 0; background: #0f172a; border: 1px solid rgba(234, 179, 8, 0.35); color: #fff; border-radius: 3px; font-size: 9px; padding: 1px 3px;">
+            ${MANAGER_SUB_STATS.map(opt => `<option value="${opt.value}" ${opt.value === item.stat ? 'selected' : ''}>${opt.label}</option>`).join('')}
+          </select>
+          <label class="p-check-box" style="margin: 0; font-size: 8px; color: #facc15; display: flex; align-items: center; gap: 2px; white-space: nowrap;">
+            <input type="checkbox" class="p-sf-sub-must" data-index="${idx}" ${item.mustHave ? 'checked' : ''}>
+            <span>Must Have</span>
+          </label>
+          <button type="button" class="p-sf-sub-del" data-index="${idx}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 3px; font-size: 8.5px; cursor: pointer; padding: 0 4px; line-height: 14px;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    // Row event listeners
+    mainList.querySelectorAll('.p-sf-main-select').forEach(sel => {
+      sel.onchange = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        if (currentStatsFilter.mainStats?.[i]) {
+          currentStatsFilter.mainStats[i].stat = e.target.value;
+          saveSell();
+        }
+      };
+    });
+    mainList.querySelectorAll('.p-sf-main-must').forEach(cb => {
+      cb.onchange = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        if (currentStatsFilter.mainStats?.[i]) {
+          currentStatsFilter.mainStats[i].mustHave = e.target.checked;
+          saveSell();
+        }
+      };
+    });
+    mainList.querySelectorAll('.p-sf-main-del').forEach(btn => {
+      btn.onclick = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        currentStatsFilter.mainStats.splice(i, 1);
+        renderWebHudStatsFilter();
+        saveSell();
+      };
+    });
+
+    subList.querySelectorAll('.p-sf-sub-select').forEach(sel => {
+      sel.onchange = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        if (currentStatsFilter.subStats?.[i]) {
+          currentStatsFilter.subStats[i].stat = e.target.value;
+          saveSell();
+        }
+      };
+    });
+    subList.querySelectorAll('.p-sf-sub-must').forEach(cb => {
+      cb.onchange = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        if (currentStatsFilter.subStats?.[i]) {
+          currentStatsFilter.subStats[i].mustHave = e.target.checked;
+          saveSell();
+        }
+      };
+    });
+    subList.querySelectorAll('.p-sf-sub-del').forEach(btn => {
+      btn.onclick = (e) => {
+        const i = parseInt(e.target.dataset.index);
+        currentStatsFilter.subStats.splice(i, 1);
+        renderWebHudStatsFilter();
+        saveSell();
+      };
+    });
+  };
+
   const saveSell = () => {
+    currentStatsFilter.enabled = !!hudEl.querySelector('#p-statfilter-toggle')?.checked;
+    currentStatsFilter.filterWeapons = hudEl.querySelector('#p-statfilter-weap')?.checked !== false;
+    currentStatsFilter.filterArmors = hudEl.querySelector('#p-statfilter-armor')?.checked !== false;
+    currentStatsFilter.filterAccessories = hudEl.querySelector('#p-statfilter-acc')?.checked !== false;
+    currentStatsFilter.protectGems = hudEl.querySelector('#p-statfilter-protect-gems')?.checked !== false;
+    currentStatsFilter.minOptions = Math.max(1, parseInt(hudEl.querySelector('#p-statfilter-min-opts')?.value) || 2);
+
     const cfg = {
       enabled: hudEl.querySelector('#p-sell-trash')?.checked,
       weightThreshold: parseInt(hudEl.querySelector('#p-sell-weight')?.value || '80'),
@@ -1901,14 +2134,50 @@ async function openWebBotHUD(profileId) {
       keepRefined: hudEl.querySelector('#p-sell-keep-refined')?.checked,
       keepSpecial: hudEl.querySelector('#p-sell-keep-special')?.checked,
       keepSockets: hudEl.querySelector('#p-sell-keep-sockets')?.checked,
-      whitelist: hudEl.querySelector('#p-sell-whitelist')?.value || ''
+      whitelist: hudEl.querySelector('#p-sell-whitelist')?.value || '',
+      statsFilter: currentStatsFilter
     };
     sendWebHudAction(profileId, { type: 'update-sell', config: cfg });
   };
+
   ['#p-sell-trash', '#p-sell-weight', '#p-sell-weap', '#p-sell-armor', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveSell;
   });
+
+  // Stat Filter Header Controls
+  const addMainBtn = hudEl.querySelector('.p-btn-add-mainstat');
+  if (addMainBtn) {
+    addMainBtn.onclick = () => {
+      if (!Array.isArray(currentStatsFilter.mainStats)) currentStatsFilter.mainStats = [];
+      currentStatsFilter.mainStats.push({ stat: 'DEX', mustHave: false });
+      renderWebHudStatsFilter();
+      saveSell();
+    };
+  }
+  const addSubBtn = hudEl.querySelector('.p-btn-add-substat');
+  if (addSubBtn) {
+    addSubBtn.onclick = () => {
+      if (!Array.isArray(currentStatsFilter.subStats)) currentStatsFilter.subStats = [];
+      currentStatsFilter.subStats.push({ stat: 'ATK_PERCENT', mustHave: false });
+      renderWebHudStatsFilter();
+      saveSell();
+    };
+  }
+
+  ['#p-statfilter-toggle', '#p-statfilter-weap', '#p-statfilter-armor', '#p-statfilter-acc', '#p-statfilter-protect-gems', '#p-statfilter-min-opts'].forEach(sel => {
+    const el = hudEl.querySelector(sel);
+    if (el) el.onchange = () => {
+      renderWebHudStatsFilter();
+      saveSell();
+    };
+  });
+
+  if (activeWebHuds[profileId]) {
+    activeWebHuds[profileId].currentStatsFilter = currentStatsFilter;
+    activeWebHuds[profileId].renderStatsFilter = renderWebHudStatsFilter;
+  }
+  renderWebHudStatsFilter();
 
   const refreshInvBtn = hudEl.querySelector('#p-btn-sort-inv') || hudEl.querySelector('#p-quick-weight');
   if (refreshInvBtn) refreshInvBtn.onclick = () => sendWebHudAction(profileId, { type: 'sort-inventory' });
@@ -2151,6 +2420,17 @@ function populateWebHudData(profileId, data) {
 
   const sellWl = hud.querySelector('#p-sell-whitelist');
   if (sellWl && document.activeElement !== sellWl) sellWl.value = sell.whitelist || '';
+
+  // Stat Filter sync
+  const activeHud = activeWebHuds[profileId];
+  const sfCard = hud.querySelector('#p-sell-stats-filter-card');
+  if (sell.statsFilter && activeHud && sfCard && !sfCard.contains(document.activeElement)) {
+    const incStr = JSON.stringify(sell.statsFilter);
+    if (JSON.stringify(activeHud.currentStatsFilter) !== incStr) {
+      activeHud.currentStatsFilter = Object.assign({}, sell.statsFilter);
+      if (typeof activeHud.renderStatsFilter === 'function') activeHud.renderStatsFilter();
+    }
+  }
 
   // Auth
   const auth = data.authConfig || {};
@@ -3986,18 +4266,25 @@ const ITEM_STAT_LABELS = {
   MAXHP: 'Max HP', MAX_HP: 'Max HP', MAXSP: 'Max SP', MAX_SP: 'Max SP',
   HIT: 'HIT', FLEE: 'FLEE', CRIT: 'CRIT', CRITICAL: 'CRIT', CRIT_DAMAGE: 'ดาเมจคริ',
   ASPD: 'ASPD', ATTACK_SPEED: 'ASPD', MOVE_SPEED: 'ความเร็วเดิน', HEAL_POWER: 'พลังฮีล',
-  BLOCK_CHANCE: 'โอกาสบล็อก', DAMAGE_REDUCTION: 'ลดดาเมจ',
-  MELEE_DAMAGE_PERCENT: 'ดาเมจประชิด', RANGED_DAMAGE_PERCENT: 'ดาเมจระยะไกล', MAGIC_DAMAGE_PERCENT: 'ดาเมจเวท'
+  BLOCK_CHANCE: 'โอกาสบล็อก', DAMAGE_REDUCTION: 'ลดดาเมจที่ได้รับ', IGNORE_SIZE: 'ยกเลิกโทษขนาดอาวุธ',
+  MELEE_DAMAGE_PERCENT: 'ดาเมจระยะประชิด', RANGED_DAMAGE_PERCENT: 'ดาเมจระยะไกล', MAGIC_DAMAGE_PERCENT: 'ดาเมจเวท'
 };
+
+// Stats shown with "%" even when rolled in "base" mode (same set the game's formatter uses)
+const ITEM_PERCENT_STATS = new Set(['MOVE_SPEED', 'CRIT_DAMAGE', 'MELEE_DAMAGE_PERCENT', 'RANGED_DAMAGE_PERCENT',
+  'MAGIC_DAMAGE_PERCENT', 'DAMAGE_REDUCTION', 'BLOCK_CHANCE', 'HEAL_POWER']);
 
 function getItemStatLabel(type) {
   return ITEM_STAT_LABELS[type] || String(type || 'Stat').replace(/_/g, ' ');
 }
 
+// Mirrors the game: base mode -> "+v" (+"%" for percent stats); increasedPercent/morePercent -> "+v%"
 function formatItemStatValue(stat) {
+  if (stat.type === 'IGNORE_SIZE') return '';
   const v = Number(stat.value) || 0;
-  const isPercent = stat.mode === 'increasedPercent' || /PERCENT/.test(stat.type || '');
-  return `${v > 0 ? '+' : ''}${v}${isPercent ? '%' : ''}`;
+  const sign = v > 0 ? '+' : '';
+  if (!stat.mode || stat.mode === 'base') return `${sign}${v}${ITEM_PERCENT_STATS.has(stat.type) ? '%' : ''}`;
+  return `${sign}${v}%${stat.mode === 'morePercent' ? ' (คูณ)' : ''}`;
 }
 
 // attributes may arrive as an array of {type, value} or a plain {TYPE: value} object
@@ -4048,17 +4335,19 @@ function renderItemAffixSummary(item, highlightTypes) {
 }
 
 // ---------- Bag filter by random options (affixes only, base stats ignored) ----------
-let gearOptFilter = { slotKey: null, types: [], mode: 'all' };
+// Typed query such as "dex, matk>=5, melee dmg" — parsed by OptionQuery (inventory_market.js)
+let gearOptFilter = { slotKey: null, text: '', mode: 'all' };
 
 function rerenderGearScanner() {
   if (selectedSlotDef && currentCharData) renderGearScanner(selectedSlotDef, currentCharData);
 }
 
-function toggleGearOptFilter(type) {
-  const i = gearOptFilter.types.indexOf(type);
-  if (i >= 0) gearOptFilter.types.splice(i, 1);
-  else gearOptFilter.types.push(type);
-  rerenderGearScanner();
+function getGearOptQuery() {
+  return window.OptionQuery ? window.OptionQuery.parse(gearOptFilter.text) : { terms: [], names: [] };
+}
+
+function getGearOptHighlight() {
+  return getGearOptQuery().terms.map(t => t.type);
 }
 
 function setGearOptFilterMode(mode) {
@@ -4067,20 +4356,28 @@ function setGearOptFilterMode(mode) {
 }
 
 function clearGearOptFilter() {
-  gearOptFilter.types = [];
+  gearOptFilter.text = '';
+  const input = document.querySelector('#scanner-opt-filter .sof-input');
+  if (input) input.value = '';
+  rerenderGearScanner();
+}
+
+// Clicking a suggestion appends it to the typed query
+function appendGearOptToken(type) {
+  const token = String(type).toLowerCase().replace(/_/g, ' ');
+  const cur = gearOptFilter.text.trim().replace(/,\s*$/, '');
+  gearOptFilter.text = cur ? `${cur}, ${token}` : token;
+  const input = document.querySelector('#scanner-opt-filter .sof-input');
+  if (input) { input.value = gearOptFilter.text; input.focus(); }
   rerenderGearScanner();
 }
 
 function applyGearOptFilter(candidates) {
-  const types = gearOptFilter.types;
-  if (types.length === 0) return candidates;
-  const optValue = (item, type) => getItemRandomOptions(item)
-    .filter(o => o.type === type)
-    .reduce((sum, o) => sum + (Number(o.value) || 0), 0);
-  const hasType = (item, type) => getItemRandomOptions(item).some(o => o.type === type);
+  const q = getGearOptQuery();
+  if (!window.OptionQuery || (q.terms.length === 0 && q.names.length === 0)) return candidates;
   return candidates
-    .filter(item => gearOptFilter.mode === 'any' ? types.some(t => hasType(item, t)) : types.every(t => hasType(item, t)))
-    .map(item => ({ item, score: types.reduce((s, t) => s + optValue(item, t), 0) }))
+    .filter(item => window.OptionQuery.matches(item, q, gearOptFilter.mode))
+    .map(item => ({ item, score: window.OptionQuery.score(item, q) }))
     .sort((a, b) => b.score - a.score)
     .map(x => x.item);
 }
@@ -4092,32 +4389,56 @@ function renderGearOptFilterBar(candidates) {
   candidates.forEach(item => {
     new Set(getItemRandomOptions(item).map(o => o.type)).forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
   });
-  gearOptFilter.types.forEach(t => { if (!counts.has(t)) counts.set(t, 0); });
-  if (counts.size === 0) {
+  if (counts.size === 0 && !gearOptFilter.text) {
     el.style.display = 'none';
     el.innerHTML = '';
+    el.dataset.slotKey = '';
     return;
   }
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || getItemStatLabel(a[0]).localeCompare(getItemStatLabel(b[0])));
-  const active = gearOptFilter.types;
   el.style.display = '';
-  el.innerHTML = `
-    <div class="sof-head">
-      <span class="sof-title" title="ออฟชั่นสุ่ม (Random Options / Affixes) คือค่าที่สุ่มตอนไอเทมดรอป ไม่รวมค่าพื้นฐานของไอเทม">🎛️ กรองตามออฟชั่นสุ่ม</span>
-      <div class="sof-actions">
-        <div class="sof-mode" title="เงื่อนไขเมื่อเลือกหลายออฟชั่น">
-          <button type="button" class="${gearOptFilter.mode === 'all' ? 'active' : ''}" onclick="setGearOptFilterMode('all')">ครบทุกข้อ</button>
-          <button type="button" class="${gearOptFilter.mode === 'any' ? 'active' : ''}" onclick="setGearOptFilterMode('any')">ข้อใดข้อหนึ่ง</button>
-        </div>
-        ${active.length ? `<button type="button" class="sof-clear" onclick="clearGearOptFilter()">ล้าง</button>` : ''}
+
+  // Build the input once per slot so re-renders while typing never steal focus
+  if (el.dataset.slotKey !== gearOptFilter.slotKey || !el.querySelector('.sof-input')) {
+    el.dataset.slotKey = gearOptFilter.slotKey;
+    el.innerHTML = `
+      <div class="sof-head">
+        <span class="sof-title" title="ออฟชั่นสุ่ม (Random Options / Affixes) คือค่าที่สุ่มตอนไอเทมดรอป ไม่รวมค่าพื้นฐานของไอเทม">🎛️ กรองตามออฟชั่นสุ่ม</span>
+        <div class="sof-actions"><div class="sof-mode" data-role="mode" title="เงื่อนไขเมื่อพิมพ์หลายออฟชั่น"></div></div>
       </div>
-    </div>
-    <div class="sof-chips">
-      ${sorted.map(([type, n]) => `
-        <button type="button" class="sof-chip ${active.includes(type) ? 'active' : ''}" data-type="${escapeHTML(type)}" onclick="toggleGearOptFilter(this.dataset.type)">
-          ${escapeHTML(getItemStatLabel(type))}<small>${n}</small>
-        </button>`).join('')}
-    </div>`;
+      <div class="sof-input-row">
+        <input type="text" class="sof-input" placeholder="พิมพ์ เช่น dex, matk, melee dmg>=5" autocomplete="off">
+        <button type="button" class="sof-clear" onclick="clearGearOptFilter()">ล้าง</button>
+      </div>
+      <div class="sof-parsed" data-role="parsed"></div>
+      <div class="sof-suggest" data-role="suggest"></div>`;
+    const input = el.querySelector('.sof-input');
+    input.value = gearOptFilter.text;
+    let debounce = null;
+    input.addEventListener('input', () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => { gearOptFilter.text = input.value; rerenderGearScanner(); }, 150);
+    });
+  }
+
+  el.querySelector('[data-role="mode"]').innerHTML = `
+    <button type="button" class="${gearOptFilter.mode === 'all' ? 'active' : ''}" onclick="setGearOptFilterMode('all')">ครบทุกข้อ</button>
+    <button type="button" class="${gearOptFilter.mode === 'any' ? 'active' : ''}" onclick="setGearOptFilterMode('any')">ข้อใดข้อหนึ่ง</button>`;
+
+  const q = getGearOptQuery();
+  el.querySelector('[data-role="parsed"]').innerHTML = [
+    ...q.terms.map(t => `<span class="sof-token ok">✓ ${escapeHTML(window.OptionQuery.describe(t))}</span>`),
+    ...q.names.map(n => `<span class="sof-token name">ชื่อ: ${escapeHTML(n)}</span>`)
+  ].join('');
+
+  const typed = new Set(q.terms.map(t => t.type));
+  const sorted = [...counts.entries()]
+    .filter(([type]) => !typed.has(type))
+    .sort((a, b) => b[1] - a[1] || getItemStatLabel(a[0]).localeCompare(getItemStatLabel(b[0])));
+  el.querySelector('[data-role="suggest"]').innerHTML = sorted.length
+    ? `<span class="sof-suggest-lbl">มีในกระเป๋า:</span>${sorted.map(([type, n]) =>
+        `<button type="button" class="sof-chip" data-type="${escapeHTML(type)}" onclick="appendGearOptToken(this.dataset.type)">${escapeHTML(getItemStatLabel(type))}<small>${n}</small></button>`
+      ).join('')}`
+    : '';
 }
 
 function isItemMatchingSlot(item, slotDef, classId) {
@@ -4185,11 +4506,13 @@ function openCharacterModal(profileId) {
   if (nameEl) nameEl.innerText = 'กำลังโหลดข้อมูลตัวละคร...';
   
   loadCharacterDetail(profileId, false);
+  if (window.InvMarket) window.InvMarket.open(profileId);  // bag panel + market window
 }
 
 function closeCharacterModal() {
   const modal = document.getElementById('char-detail-modal');
   if (modal) modal.style.display = 'none';
+  if (window.InvMarket) window.InvMarket.close();
   currentCharProfileId = null;
   currentCharData = null;
   selectedSlotDef = null;
@@ -4409,12 +4732,12 @@ function renderGearScanner(slotDef, data) {
   const bagItems = data.bagItems || [];
   const candidates = bagItems.filter(item => isItemMatchingSlot(item, slotDef, data.classId));
   if (gearOptFilter.slotKey !== slotDef.key) {
-    gearOptFilter = { slotKey: slotDef.key, types: [], mode: gearOptFilter.mode };
+    gearOptFilter = { slotKey: slotDef.key, text: '', mode: gearOptFilter.mode };
   }
   renderGearOptFilterBar(candidates);
   const shown = applyGearOptFilter(candidates);
   const countEl = document.getElementById('scanner-bag-count');
-  if (countEl) countEl.innerText = gearOptFilter.types.length ? `${shown.length}/${candidates.length}` : candidates.length;
+  if (countEl) countEl.innerText = gearOptFilter.text.trim() ? `${shown.length}/${candidates.length}` : candidates.length;
 
   const bagListEl = document.getElementById('scanner-bag-list');
   if (bagListEl) {
@@ -4447,7 +4770,7 @@ function renderGearScanner(slotDef, data) {
                 ${btnText}
               </button>
             </div>
-            ${renderItemAffixSummary(item, gearOptFilter.types)}
+            ${renderItemAffixSummary(item, getGearOptHighlight())}
           </div>
         `;
       }).join('');
