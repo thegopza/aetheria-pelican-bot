@@ -3215,9 +3215,11 @@ label {
   color: #fbbf24;
 }
 
-/* Candidate cards grow with option rows */
-.gear-cand-card { align-items: flex-start; }
-.gear-cand-card .btn-equip-action { align-self: center; }
+/* Candidate cards: header row (icon, name, button) + full-width option rows */
+.gear-cand-card { flex-direction: column; align-items: stretch; gap: 6px; }
+.gear-cand-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gear-cand-card .item-stat-groups { margin-top: 0; padding-left: 2px; }
+.stat-chip.hit { outline: 1px solid rgba(250, 204, 21, 0.6); }
 .scanner-equipped-box .item-stat-groups {
   background: rgba(0, 0, 0, 0.25);
   border-radius: 6px;

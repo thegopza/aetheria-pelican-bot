@@ -4437,15 +4437,17 @@ function renderGearScanner(slotDef, data) {
         const btnText = equipped ? '🔄 สลับใส่' : '⚡ สวมใส่';
         return `
           <div class="gear-cand-card">
-            <img src="${escapeHTML(gameAssetUrl(item.icon))}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
-            <div class="gear-cand-info">
-              <div class="gear-cand-name" style="color: ${rarityCol};">${escapeHTML(displayName)}</div>
-              <div class="gear-cand-meta">Req Lv.${item.levelReq || 0} ${item.qty > 1 ? `| x${item.qty}` : ''} | ช่องกระเป๋า: ${item.slot}</div>
-              ${renderItemAffixSummary(item, gearOptFilter.types)}
+            <div class="gear-cand-top">
+              <img src="${escapeHTML(gameAssetUrl(item.icon))}" class="gear-cand-icon" alt="" onerror="this.style.opacity=0.3">
+              <div class="gear-cand-info">
+                <div class="gear-cand-name" style="color: ${rarityCol};">${escapeHTML(displayName)}</div>
+                <div class="gear-cand-meta">Req Lv.${item.levelReq || 0} ${item.qty > 1 ? `| x${item.qty}` : ''} | ช่องกระเป๋า: ${item.slot}</div>
+              </div>
+              <button type="button" class="btn-equip-action" onclick="handleEquip(${item.slot}, '${slotDef.key}')">
+                ${btnText}
+              </button>
             </div>
-            <button type="button" class="btn-equip-action" onclick="handleEquip(${item.slot}, '${slotDef.key}')">
-              ${btnText}
-            </button>
+            ${renderItemAffixSummary(item, gearOptFilter.types)}
           </div>
         `;
       }).join('');
