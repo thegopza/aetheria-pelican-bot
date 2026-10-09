@@ -3975,47 +3975,149 @@ function formatItemDisplayName(item) {
   return name;
 }
 
-function renderItemAffixesHtml(item) {
-  if (!item) return '';
-  const lines = [];
-  if (item.attributes && Array.isArray(item.attributes)) {
-    item.attributes.forEach(a => {
-      if (a.value !== undefined) lines.push(`⚡ ${a.type ? a.type.replace(/_/g, ' ') : 'Stat'}: +${a.value}`);
-    });
-  }
-  if (item.affixes && Array.isArray(item.affixes)) {
-    item.affixes.forEach(af => {
-      lines.push(`✨ ${af.type || af.stat || 'Affix'}: +${af.value}`);
-    });
-  }
-  if (item.effects && Array.isArray(item.effects)) {
-    item.effects.forEach(ef => lines.push(`🌟 ${ef}`));
-  }
-  if (item.cards && Array.isArray(item.cards) && item.cards.length > 0) {
-    lines.push(`🎴 การ์ด: ${item.cards.map(c => (typeof c === 'object' ? c.name : c) || 'Card').join(', ')}`);
-  }
-  if (lines.length === 0) return '';
-  return `<div class="equipped-item-affixes">${lines.map(escapeHTML).join('<br>')}</div>`;
+// Item stats come in two groups:
+//   item.attributes = base stats, fixed for the item type (e.g. Formal Suit always DEF +5)
+//   item.affixes    = random options rolled per drop ("ออฟชั่นสุ่ม" / Random Options / Affixes)
+const ITEM_STAT_LABELS = {
+  MELEE_DEFENSE: 'DEF', MAGIC_DEFENSE: 'MDEF', DEFENSE: 'DEF', DEF: 'DEF', MDEF: 'MDEF',
+  RANGE_ATTACK: 'ATK ระยะไกล', RANGED_ATK: 'ATK ระยะไกล', MELEE_ATTACK: 'ATK ประชิด', MELEE_ATK: 'ATK ประชิด',
+  ATTACK: 'ATK', ATK: 'ATK', MAGIC_ATTACK: 'MATK', MATK: 'MATK',
+  STR: 'STR', AGI: 'AGI', VIT: 'VIT', INT: 'INT', DEX: 'DEX', LUK: 'LUK',
+  MAXHP: 'Max HP', MAX_HP: 'Max HP', MAXSP: 'Max SP', MAX_SP: 'Max SP',
+  HIT: 'HIT', FLEE: 'FLEE', CRIT: 'CRIT', CRITICAL: 'CRIT', CRIT_DAMAGE: 'ดาเมจคริ',
+  ASPD: 'ASPD', ATTACK_SPEED: 'ASPD', MOVE_SPEED: 'ความเร็วเดิน', HEAL_POWER: 'พลังฮีล',
+  BLOCK_CHANCE: 'โอกาสบล็อก', DAMAGE_REDUCTION: 'ลดดาเมจ',
+  MELEE_DAMAGE_PERCENT: 'ดาเมจประชิด', RANGED_DAMAGE_PERCENT: 'ดาเมจระยะไกล', MAGIC_DAMAGE_PERCENT: 'ดาเมจเวท'
+};
+
+function getItemStatLabel(type) {
+  return ITEM_STAT_LABELS[type] || String(type || 'Stat').replace(/_/g, ' ');
 }
 
-function renderItemAffixSummary(item) {
+function formatItemStatValue(stat) {
+  const v = Number(stat.value) || 0;
+  const isPercent = stat.mode === 'increasedPercent' || /PERCENT/.test(stat.type || '');
+  return `${v > 0 ? '+' : ''}${v}${isPercent ? '%' : ''}`;
+}
+
+// attributes may arrive as an array of {type, value} or a plain {TYPE: value} object
+function getItemBaseStats(item) {
+  const a = item?.attributes;
+  if (Array.isArray(a)) return a.filter(s => s && s.value !== undefined);
+  if (a && typeof a === 'object') return Object.entries(a).map(([type, value]) => ({ type, value }));
+  return [];
+}
+
+function getItemRandomOptions(item) {
+  return Array.isArray(item?.affixes) ? item.affixes.filter(s => s && s.value !== undefined) : [];
+}
+
+function renderStatChip(stat, kind, highlightTypes) {
+  const isHit = Boolean(highlightTypes && highlightTypes.includes(stat.type));
+  const cls = kind === 'base' ? 'base' : `opt ${stat.category === 'primary' ? 'primary' : 'secondary'}`;
+  const tip = kind === 'base'
+    ? 'ค่าพื้นฐานของไอเทม (คงที่)'
+    : `ออฟชั่นสุ่ม${stat.category === 'primary' ? ' (หลัก)' : ' (รอง)'}`;
+  return `<span class="stat-chip ${cls}${isHit ? ' hit' : ''}" title="${tip}"><span>${escapeHTML(getItemStatLabel(stat.type))}</span><b>${escapeHTML(formatItemStatValue(stat))}</b></span>`;
+}
+
+function renderItemStatGroups(item, highlightTypes) {
   if (!item) return '';
-  const parts = [];
-  if (item.attributes && Array.isArray(item.attributes)) {
-    item.attributes.slice(0, 2).forEach(a => {
-      if (a.value !== undefined) parts.push(`${a.type ? a.type.replace(/_/g, ' ') : ''} +${a.value}`);
-    });
+  const base = getItemBaseStats(item);
+  const opts = getItemRandomOptions(item);
+  const extras = [];
+  if (Array.isArray(item.effects)) item.effects.forEach(ef => extras.push(`🌟 ${typeof ef === 'object' ? (ef.name || ef.type || '') : ef}`));
+  if (Array.isArray(item.cards) && item.cards.length > 0) {
+    extras.push(`🎴 การ์ด: ${item.cards.map(c => (typeof c === 'object' ? c.name : c) || 'Card').join(', ')}`);
   }
-  if (item.affixes && Array.isArray(item.affixes)) {
-    item.affixes.slice(0, 2).forEach(af => {
-      parts.push(`${af.type || af.stat || ''} +${af.value}`);
-    });
+  if (base.length === 0 && opts.length === 0 && extras.length === 0) return '';
+  return `
+    <div class="item-stat-groups">
+      ${base.length ? `<div class="item-stat-row"><span class="isr-label">พื้นฐาน</span><div class="isr-chips">${base.map(s => renderStatChip(s, 'base')).join('')}</div></div>` : ''}
+      ${opts.length ? `<div class="item-stat-row"><span class="isr-label opt">ออฟชั่น</span><div class="isr-chips">${opts.map(s => renderStatChip(s, 'opt', highlightTypes)).join('')}</div></div>` : ''}
+      ${extras.map(t => `<div class="item-stat-extra">${escapeHTML(t)}</div>`).join('')}
+    </div>`;
+}
+
+function renderItemAffixesHtml(item) {
+  return renderItemStatGroups(item);
+}
+
+function renderItemAffixSummary(item, highlightTypes) {
+  return renderItemStatGroups(item, highlightTypes);
+}
+
+// ---------- Bag filter by random options (affixes only, base stats ignored) ----------
+let gearOptFilter = { slotKey: null, types: [], mode: 'all' };
+
+function rerenderGearScanner() {
+  if (selectedSlotDef && currentCharData) renderGearScanner(selectedSlotDef, currentCharData);
+}
+
+function toggleGearOptFilter(type) {
+  const i = gearOptFilter.types.indexOf(type);
+  if (i >= 0) gearOptFilter.types.splice(i, 1);
+  else gearOptFilter.types.push(type);
+  rerenderGearScanner();
+}
+
+function setGearOptFilterMode(mode) {
+  gearOptFilter.mode = mode === 'any' ? 'any' : 'all';
+  rerenderGearScanner();
+}
+
+function clearGearOptFilter() {
+  gearOptFilter.types = [];
+  rerenderGearScanner();
+}
+
+function applyGearOptFilter(candidates) {
+  const types = gearOptFilter.types;
+  if (types.length === 0) return candidates;
+  const optValue = (item, type) => getItemRandomOptions(item)
+    .filter(o => o.type === type)
+    .reduce((sum, o) => sum + (Number(o.value) || 0), 0);
+  const hasType = (item, type) => getItemRandomOptions(item).some(o => o.type === type);
+  return candidates
+    .filter(item => gearOptFilter.mode === 'any' ? types.some(t => hasType(item, t)) : types.every(t => hasType(item, t)))
+    .map(item => ({ item, score: types.reduce((s, t) => s + optValue(item, t), 0) }))
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.item);
+}
+
+function renderGearOptFilterBar(candidates) {
+  const el = document.getElementById('scanner-opt-filter');
+  if (!el) return;
+  const counts = new Map();
+  candidates.forEach(item => {
+    new Set(getItemRandomOptions(item).map(o => o.type)).forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+  });
+  gearOptFilter.types.forEach(t => { if (!counts.has(t)) counts.set(t, 0); });
+  if (counts.size === 0) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
   }
-  if (parts.length === 0 && item.effects && item.effects[0]) {
-    parts.push(item.effects[0]);
-  }
-  if (parts.length === 0) return '';
-  return `<span class="gear-cand-affix" title="${escapeHTML(parts.join(' | '))}">${escapeHTML(parts.join(' | '))}</span>`;
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || getItemStatLabel(a[0]).localeCompare(getItemStatLabel(b[0])));
+  const active = gearOptFilter.types;
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="sof-head">
+      <span class="sof-title" title="ออฟชั่นสุ่ม (Random Options / Affixes) คือค่าที่สุ่มตอนไอเทมดรอป ไม่รวมค่าพื้นฐานของไอเทม">🎛️ กรองตามออฟชั่นสุ่ม</span>
+      <div class="sof-actions">
+        <div class="sof-mode" title="เงื่อนไขเมื่อเลือกหลายออฟชั่น">
+          <button type="button" class="${gearOptFilter.mode === 'all' ? 'active' : ''}" onclick="setGearOptFilterMode('all')">ครบทุกข้อ</button>
+          <button type="button" class="${gearOptFilter.mode === 'any' ? 'active' : ''}" onclick="setGearOptFilterMode('any')">ข้อใดข้อหนึ่ง</button>
+        </div>
+        ${active.length ? `<button type="button" class="sof-clear" onclick="clearGearOptFilter()">ล้าง</button>` : ''}
+      </div>
+    </div>
+    <div class="sof-chips">
+      ${sorted.map(([type, n]) => `
+        <button type="button" class="sof-chip ${active.includes(type) ? 'active' : ''}" data-type="${escapeHTML(type)}" onclick="toggleGearOptFilter(this.dataset.type)">
+          ${escapeHTML(getItemStatLabel(type))}<small>${n}</small>
+        </button>`).join('')}
+    </div>`;
 }
 
 function isItemMatchingSlot(item, slotDef, classId) {
@@ -4303,11 +4405,16 @@ function renderGearScanner(slotDef, data) {
     }
   }
 
-  // Compatible Bag Items
+  // Compatible Bag Items (optionally filtered by random options)
   const bagItems = data.bagItems || [];
   const candidates = bagItems.filter(item => isItemMatchingSlot(item, slotDef, data.classId));
+  if (gearOptFilter.slotKey !== slotDef.key) {
+    gearOptFilter = { slotKey: slotDef.key, types: [], mode: gearOptFilter.mode };
+  }
+  renderGearOptFilterBar(candidates);
+  const shown = applyGearOptFilter(candidates);
   const countEl = document.getElementById('scanner-bag-count');
-  if (countEl) countEl.innerText = candidates.length;
+  if (countEl) countEl.innerText = gearOptFilter.types.length ? `${shown.length}/${candidates.length}` : candidates.length;
 
   const bagListEl = document.getElementById('scanner-bag-list');
   if (bagListEl) {
@@ -4317,8 +4424,14 @@ function renderGearScanner(slotDef, data) {
           🎒 ไม่พบไอเทมในกระเป๋าที่สวมใส่ช่อง "${slotDef.label}" ได้
         </div>
       `;
+    } else if (shown.length === 0) {
+      bagListEl.innerHTML = `
+        <div style="text-align: center; color: #64748b; font-size: 11px; padding: 24px; background: rgba(0,0,0,0.15); border-radius: 6px;">
+          🔍 ไม่มีไอเทมที่มีออฟชั่นตามที่เลือก
+        </div>
+      `;
     } else {
-      bagListEl.innerHTML = candidates.map(item => {
+      bagListEl.innerHTML = shown.map(item => {
         const displayName = formatItemDisplayName(item);
         const rarityCol = getRarityColor(item.rarity);
         const btnText = equipped ? '🔄 สลับใส่' : '⚡ สวมใส่';
@@ -4328,7 +4441,7 @@ function renderGearScanner(slotDef, data) {
             <div class="gear-cand-info">
               <div class="gear-cand-name" style="color: ${rarityCol};">${escapeHTML(displayName)}</div>
               <div class="gear-cand-meta">Req Lv.${item.levelReq || 0} ${item.qty > 1 ? `| x${item.qty}` : ''} | ช่องกระเป๋า: ${item.slot}</div>
-              ${renderItemAffixSummary(item)}
+              ${renderItemAffixSummary(item, gearOptFilter.types)}
             </div>
             <button type="button" class="btn-equip-action" onclick="handleEquip(${item.slot}, '${slotDef.key}')">
               ${btnText}

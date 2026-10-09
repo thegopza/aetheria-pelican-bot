@@ -385,14 +385,27 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     for (const p of involvedProfiles) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
       await evalProfilePort(p.debugPort, `
+        window.__isConsolidating = true;
         window.__isBotRunning = false;
         window.__autoLoopEnabled = false;
+        window.__isWalkingToMap = false;
+        window.__isNavigating = false;
+        window.__isShopping = false;
+        window.__isRecovering = false;
+        if (typeof window.stopMasterBot === 'function') window.stopMasterBot();
         if (typeof window.stopPelicanBot === 'function') window.stopPelicanBot();
-        if (typeof window.stopFollow === 'function') window.stopFollow();
+        if (typeof window.stopArrivalWatcher === 'function') window.stopArrivalWatcher();
+        if (typeof window.clearAllBotTimers === 'function') window.clearAllBotTimers();
+        if (typeof window.deactivateInGameAuto === 'function') window.deactivateInGameAuto();
+        localStorage.setItem('pelican_bot_running', 'false');
+        localStorage.setItem('pelican_auto_loop', 'false');
+        const loopCheckbox = document.getElementById('p-auto-loop');
+        if (loopCheckbox) loopCheckbox.checked = false;
+        if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
       `);
       addConsolidationLog(`🛑 สั่งหยุดบอทหน้าจอ: ${p.name}`, 'info');
     }
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 1200));
 
     // -------------------------------------------------------------
     // STEP 2: ค่อยๆ กด Butterfly Wing กลับบ้าน (โซลเฮเวน)
@@ -406,6 +419,11 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
       addConsolidationLog(`🕊️ ${p.name}: กำลังใช้วาร์ป Butterfly Wing...`, 'info');
       evalProfilePort(p.debugPort, `
+        window.__isConsolidating = true;
+        window.__isBotRunning = false;
+        window.__autoLoopEnabled = false;
+        window.__isWalkingToMap = false;
+        window.__isNavigating = false;
         if (typeof window.executeBwingHome === 'function') {
           window.executeBwingHome();
         } else if (typeof window.useButterflyWing === 'function') {
@@ -522,19 +540,50 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     }
 
     // -------------------------------------------------------------
-    // STEP 5: เสร็จสิ้นสมบูรณ์
+    // STEP 5: เสร็จสิ้นการโอนเงิน และสั่งเริ่มบอท (START BOT) ทุกจอกลับไปฟาร์ม
     // -------------------------------------------------------------
     consolidationState.stepIndex = 5;
-    consolidationState.step = 'เสร็จสิ้นการรวมเงิน!';
+    consolidationState.step = 'เสร็จสิ้นการรวมเงิน! กำลังเปิดบอทให้ทุกจอเดินทางกลับไปฟาร์ม...';
+    addConsolidationLog(`🎉 รวมเงินเสร็จสิ้นสมบูรณ์! ยอดเงินรวมที่โอนให้ ${receiverCharName}: ${consolidationState.totalTransferredZeny.toLocaleString()} z`, 'success');
+    addConsolidationLog('🚀 ขั้นตอนที่ 5/5: เริ่มสั่งเปิดบอท (START BOT) ทุกจอเพื่อเดินทางกลับไปฟาร์ม...', 'info');
+
+    for (const p of involvedProfiles) {
+      try {
+        await evalProfilePort(p.debugPort, `
+          window.__isConsolidating = false;
+          window.__autoLoopEnabled = true;
+          localStorage.setItem('pelican_auto_loop', 'true');
+          const loopCheckbox = document.getElementById('p-auto-loop');
+          if (loopCheckbox) loopCheckbox.checked = true;
+          if (typeof window.startMasterBot === 'function') {
+            window.startMasterBot();
+          } else if (typeof window.startBot === 'function') {
+            window.startBot();
+          }
+          if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
+        `);
+        addConsolidationLog(`▶️ สั่งเริ่มบอทหน้าจอ ${p.name} เดินทางกลับไปฟาร์มเรียบร้อย`, 'success');
+        await new Promise(r => setTimeout(r, 1200));
+      } catch(e) {
+        addConsolidationLog(`⚠️ ไม่สามารถเริ่มบอทจอ ${p.name}: ${e.message}`, 'warning');
+      }
+    }
+
+    consolidationState.step = 'เสร็จสิ้นการรวมเงินและเริ่มบอทกลับฟาร์มเรียบร้อย!';
     consolidationState.running = false;
     consolidationState.status = 'completed';
     consolidationState.endTime = Date.now();
-    addConsolidationLog(`🎉 รวมเงินเสร็จสิ้นสมบูรณ์! ยอดเงินรวมที่โอนให้ ${receiverCharName}: ${consolidationState.totalTransferredZeny.toLocaleString()} z`, 'success');
 
   } catch (err) {
     consolidationState.running = false;
     consolidationState.status = consolidationAborted ? 'stopped' : 'error';
     addConsolidationLog(`⛔ การรวมเงินหยุดทำงาน: ${err.message}`, 'error');
+    const involvedProfiles = [receiverProfile, ...senderProfiles];
+    for (const p of involvedProfiles) {
+      try {
+        evalProfilePort(p.debugPort, `window.__isConsolidating = false;`);
+      } catch(e) {}
+    }
   }
 }
 

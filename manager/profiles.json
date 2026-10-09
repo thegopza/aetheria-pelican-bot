@@ -13,7 +13,10 @@
     "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure",
     "sellConfig": {
       "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure"
-    }
+    },
+    "lastPortrait": "/art/classes/hunter-face.webp",
+    "lastCharName": "G4YSuuuuu",
+    "lastCharClass": "Hunter"
   },
   {
     "id": "profile_2",
@@ -28,7 +31,10 @@
     "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure",
     "sellConfig": {
       "whitelist": "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow, Wind of Verdure"
-    }
+    },
+    "lastPortrait": "/art/classes/bard-face.webp",
+    "lastCharName": "G4YSuuuuuuu",
+    "lastCharClass": "Bard"
   },
   {
     "id": "profile_1791448666985",
@@ -39,7 +45,10 @@
     "debugPort": 49878,
     "autoStart": true,
     "notes": "",
-    "createdAt": 1791448666985
+    "createdAt": 1791448666985,
+    "lastPortrait": "/art/classes/hunter-face.webp",
+    "lastCharName": "G4YSuuuu",
+    "lastCharClass": "Hunter"
   },
   {
     "id": "profile_1791448851533",
@@ -50,7 +59,10 @@
     "debugPort": 49879,
     "autoStart": true,
     "notes": "",
-    "createdAt": 1791448851533
+    "createdAt": 1791448851533,
+    "lastPortrait": "/art/classes/hunter-face.webp",
+    "lastCharName": "G4YSuuuuuu",
+    "lastCharClass": "Hunter"
   },
   {
     "id": "profile_1791509019203",
@@ -61,6 +73,9 @@
     "debugPort": 49880,
     "autoStart": true,
     "notes": "",
-    "createdAt": 1791509019203
+    "createdAt": 1791509019203,
+    "lastPortrait": "/art/classes/novice-face.webp",
+    "lastCharName": "SuuuG4y",
+    "lastCharClass": "Novice"
   }
 ]

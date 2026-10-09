@@ -3144,3 +3144,170 @@ label {
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
 }
 
+
+/* ==========================================================================
+   ITEM STATS (base vs random options) & BAG OPTION FILTER
+   ========================================================================== */
+.item-stat-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.item-stat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.isr-label {
+  flex: 0 0 44px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #64748b;
+  padding-top: 3px;
+}
+.isr-label.opt { color: #a78bfa; }
+.isr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+.stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.stat-chip b {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #4ade80;
+}
+.stat-chip.base {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+.stat-chip.opt.primary {
+  color: #ede9fe;
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(167, 139, 250, 0.45);
+}
+.stat-chip.opt.secondary {
+  color: #e0f2fe;
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+.stat-chip.hit {
+  border-color: #facc15;
+  background: rgba(250, 204, 21, 0.16);
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.3);
+}
+.stat-chip.hit b { color: #fde047; }
+.item-stat-extra {
+  font-size: 10px;
+  color: #fbbf24;
+}
+
+/* Candidate cards grow with option rows */
+.gear-cand-card { align-items: flex-start; }
+.gear-cand-card .btn-equip-action { align-self: center; }
+.scanner-equipped-box .item-stat-groups {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.scanner-opt-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+.sof-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.sof-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c4b5fd;
+  cursor: help;
+}
+.sof-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sof-mode {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}
+.sof-mode button,
+.sof-clear {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sof-mode button:hover { color: #fff; }
+.sof-mode button.active {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.35);
+  border-color: rgba(167, 139, 250, 0.5);
+}
+.sof-clear {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.sof-clear:hover { background: rgba(239, 68, 68, 0.15); }
+.sof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sof-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.08);
+  color: #ddd6fe;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sof-chip small {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  opacity: 0.6;
+}
+.sof-chip:hover { background: rgba(139, 92, 246, 0.2); }
+.sof-chip.active {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.42);
+  border-color: #a78bfa;
+}
+.sof-chip.active small { opacity: 0.9; }

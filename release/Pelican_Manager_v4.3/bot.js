@@ -4420,6 +4420,7 @@
         window.__isNavigating = false;
         window.__isShopping = false;
         window.__isRecovering = false;
+        window.__isWalkingToMap = false;
 
         // 5. ปิดเมนูและหน้าต่างที่อาจค้างอยู่
         if (typeof closeAnyOpenMenus === 'function') {
@@ -4429,6 +4430,14 @@
 
         if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
         console.log('%c[Pelican Master] 🛑 STOP BOT: ปิดระบบการทำงานทั้งหมด เคลียร์ Timer และหยุดส่ง Packet โดยเด็ดขาด!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
+    };
+
+    window.stopPelicanBot = function() {
+        if (typeof window.stopMasterBot === 'function') window.stopMasterBot();
+    };
+
+    window.startPelicanBot = function() {
+        if (typeof window.startMasterBot === 'function') window.startMasterBot();
     };
 
     window.toggleMasterBot = function() {
@@ -6416,6 +6425,10 @@
     }
 
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
+        if (window.__isConsolidating) {
+            console.log('%c[Pelican] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
+            return;
+        }
         if (!mapName) mapName = window.__targetFarmMap;
 
         // ถ้ากำลังนำทางอยู่ แต่เป็นการกดสั่งใหม่ (force) หรือเปลี่ยนแมพเป้าหมาย ให้ยกเลิกการเดินเดิมทันที
@@ -6670,7 +6683,7 @@
     let lastCityToFarmAttempt = 0;
 
     setInterval(() => {
-        if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping) return;
+        if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping || window.__isConsolidating) return;
 
         const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
@@ -6814,7 +6827,7 @@
 
         // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
         // เมื่อบอท START อยู่ แต่ตัวละครยืนค้างอยู่ในเมืองหลวง และไม่ได้อยู่ในลูปซื้อของ/เดินทาง/ฟื้นฟู
-        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering) {
+        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating) {
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
             if (!isTargetCity) {
@@ -11632,9 +11645,12 @@
     };
 
     window.executeBwingHome = async function(timeoutMs = 12000) {
+        window.__isConsolidating = true;
         window.__isBotRunning = false;
         window.__autoLoopEnabled = false;
-        if (typeof window.stopPelicanBot === 'function') window.stopPelicanBot();
+        window.__isWalkingToMap = false;
+        window.__isNavigating = false;
+        if (typeof window.stopMasterBot === 'function') window.stopMasterBot();
         if (typeof window.stopFollow === 'function') window.stopFollow();
         
         const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
