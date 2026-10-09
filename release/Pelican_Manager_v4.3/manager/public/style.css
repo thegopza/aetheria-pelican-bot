@@ -2132,3 +2132,332 @@ label {
 .skill-queue-chip .chip-del:hover {
   opacity: 1;
 }
+
+/* ==========================================
+   ZENY CONSOLIDATION DASHBOARD & WORKFLOW
+   ========================================== */
+.zeny-dashboard-header {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+@media (max-width: 992px) {
+  .zeny-dashboard-header {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zeny-summary-card,
+.zeny-control-card,
+.zeny-progress-card,
+.zeny-table-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.36);
+}
+
+.zeny-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.zeny-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(250, 204, 21, 0.15);
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.2);
+}
+.zeny-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.zeny-total-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 800;
+  color: #facc15;
+  text-shadow: 0 0 18px rgba(250, 204, 21, 0.35);
+  letter-spacing: -0.5px;
+  margin-top: 2px;
+}
+.zeny-summary-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.zeny-stat-chip {
+  font-size: 11.5px;
+  color: #cbd5e1;
+  background: var(--bg-inset);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.zeny-controls-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  justify-content: space-between;
+}
+.zeny-receiver-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.zeny-input-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+.zeny-select {
+  background: #090e1a;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.zeny-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
+
+.zeny-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* PROGRESS CARD & PIPELINE */
+.zeny-progress-card {
+  margin-bottom: 18px;
+  border-color: rgba(14, 165, 233, 0.4);
+  background: linear-gradient(180deg, rgba(14, 21, 40, 0.95), rgba(8, 12, 24, 0.95));
+}
+.zeny-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.zeny-step-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.zeny-step-pill {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.zeny-pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+@media (max-width: 768px) {
+  .zeny-pipeline {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zeny-pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  transition: all 0.25s ease;
+}
+.zeny-pipeline-step .step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.zeny-pipeline-step.active {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #f8fafc;
+  box-shadow: 0 0 14px rgba(14, 165, 233, 0.25);
+}
+.zeny-pipeline-step.active .step-num {
+  background: #0ea5e9;
+  color: #fff;
+}
+.zeny-pipeline-step.completed {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+.zeny-pipeline-step.completed .step-num {
+  background: #22c55e;
+  color: #000;
+}
+
+.zeny-progress-bar-wrap {
+  width: 100%;
+  height: 5px;
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.zeny-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0ea5e9, #38bdf8, #22c55e);
+  transition: width 0.35s ease;
+}
+
+.zeny-logs-container {
+  background: #030712;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.zeny-log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.4;
+  color: #cbd5e1;
+}
+.zeny-log-entry .log-time {
+  color: #64748b;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.zeny-log-entry.success { color: #86efac; }
+.zeny-log-entry.warning { color: #fde047; }
+.zeny-log-entry.error { color: #fca5a5; }
+
+/* TABLE STYLING */
+.zeny-table-card {
+  margin-bottom: 24px;
+}
+.zeny-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.zeny-table-wrapper {
+  overflow-x: auto;
+}
+.zeny-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.zeny-table th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+.zeny-table td {
+  padding: 12px;
+  color: #f1f5f9;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  vertical-align: middle;
+}
+.zeny-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.zeny-table tr.receiver-row td {
+  background: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.25);
+}
+
+.zeny-badge-receiver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.zeny-badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.zeny-badge-status.ready {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+.zeny-badge-status.transferring {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.zeny-badge-status.done {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.zeny-badge-status.offline {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}

@@ -281,8 +281,261 @@ function queryStandardState(port) {
       });
     });
     req.on("error", () => resolve(null));
-    req.on("timeout", () => { req.destroy(); resolve(null); });
   });
+}
+
+function evalProfilePort(port, code, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    if (!port) return resolve({ success: false, error: 'No debug port' });
+    const payload = JSON.stringify({ code });
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: port,
+      path: '/api/eval',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      },
+      timeout: timeoutMs
+    }, (res) => {
+      let d = '';
+      res.on('data', chunk => d += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(d)); } catch(e) { resolve({ success: true, result: d }); }
+      });
+    });
+    req.on('error', err => resolve({ success: false, error: err.message }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ success: false, error: 'Timeout' });
+    });
+    req.write(payload);
+    req.end();
+  });
+}
+
+// ==========================================
+// CENTRALIZED ZENY CONSOLIDATION WORKFLOW
+// ==========================================
+let consolidationState = {
+  running: false,
+  status: 'idle', // 'idle' | 'running' | 'completed' | 'stopped' | 'error'
+  step: 'พร้อมทำงาน',
+  stepIndex: 0,
+  totalSteps: 5,
+  receiver: null,
+  currentSender: null,
+  completedSenders: [],
+  totalTransferredZeny: 0,
+  logs: [],
+  startTime: 0,
+  endTime: 0
+};
+let consolidationAborted = false;
+
+function addConsolidationLog(text, level = 'info') {
+  const time = new Date().toLocaleTimeString('th-TH');
+  consolidationState.logs.push({ time, text, level });
+  if (consolidationState.logs.length > 300) consolidationState.logs.shift();
+  console.log(`[Consolidation] [${level.toUpperCase()}] ${text}`);
+}
+
+async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, keepZeny = 0) {
+  if (consolidationState.running) return;
+  consolidationAborted = false;
+  consolidationState.running = true;
+  consolidationState.status = 'running';
+  consolidationState.stepIndex = 1;
+  consolidationState.step = 'เตรียมพร้อมและหยุดบอททุกจอ...';
+  consolidationState.completedSenders = [];
+  consolidationState.totalTransferredZeny = 0;
+  consolidationState.logs = [];
+  consolidationState.startTime = Date.now();
+  consolidationState.endTime = 0;
+
+  addConsolidationLog(`🚀 เริ่มต้นระบบรวมเงินเข้าตัวหลัก (Receiver ID: ${receiverProfileId})`, 'info');
+
+  const allProfiles = loadProfiles();
+  const receiverProfile = allProfiles.find(p => p.id === receiverProfileId);
+  const senderProfiles = allProfiles.filter(p => senderProfileIds.includes(p.id) && p.id !== receiverProfileId);
+
+  if (!receiverProfile || !receiverProfile.debugPort) {
+    consolidationState.running = false;
+    consolidationState.status = 'error';
+    addConsolidationLog('❌ ไม่พบโปรไฟล์ตัวรับเงิน (Receiver) หรือไม่ได้เปิดจอเกม', 'error');
+    return;
+  }
+
+  consolidationState.receiver = {
+    id: receiverProfile.id,
+    name: receiverProfile.name,
+    port: receiverProfile.debugPort
+  };
+
+  try {
+    // -------------------------------------------------------------
+    // STEP 1: สั่ง Stop Bot ทุกจอที่เกี่ยวข้อง
+    // -------------------------------------------------------------
+    consolidationState.stepIndex = 1;
+    consolidationState.step = 'หยุดการทำงานของบอททุกจอ (Stop Bot)...';
+    addConsolidationLog('⏹️ ขั้นตอนที่ 1/5: กำลังสั่งหยุดบอททุกจอที่เข้าร่วม...', 'info');
+
+    const involvedProfiles = [receiverProfile, ...senderProfiles];
+    for (const p of involvedProfiles) {
+      if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+      await evalProfilePort(p.debugPort, `
+        window.__isBotRunning = false;
+        window.__autoLoopEnabled = false;
+        if (typeof window.stopPelicanBot === 'function') window.stopPelicanBot();
+        if (typeof window.stopFollow === 'function') window.stopFollow();
+      `);
+      addConsolidationLog(`🛑 สั่งหยุดบอทหน้าจอ: ${p.name}`, 'info');
+    }
+    await new Promise(r => setTimeout(r, 1000));
+
+    // -------------------------------------------------------------
+    // STEP 2: ค่อยๆ กด Butterfly Wing กลับบ้าน (โซลเฮเวน)
+    // -------------------------------------------------------------
+    if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+    consolidationState.stepIndex = 2;
+    consolidationState.step = 'วาร์ปกลับเมืองหลวง (โซลเฮเวน) ด้วย Butterfly Wing...';
+    addConsolidationLog('🦋 ขั้นตอนที่ 2/5: ทยอยกด Butterfly Wing กลับเมืองหลวงโซลเฮเวน...', 'info');
+
+    for (const p of involvedProfiles) {
+      if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+      addConsolidationLog(`🕊️ ${p.name}: กำลังใช้วาร์ป Butterfly Wing...`, 'info');
+      evalProfilePort(p.debugPort, `
+        if (typeof window.executeBwingHome === 'function') {
+          window.executeBwingHome();
+        } else if (typeof window.useButterflyWing === 'function') {
+          window.useButterflyWing();
+        }
+      `);
+      await new Promise(r => setTimeout(r, 800)); // Stagger delay
+    }
+
+    addConsolidationLog('⏳ รอตัวละครทุกตัวโหลดเข้าสู่เมืองหลวง (รอ 6 วินาที)...', 'info');
+    await new Promise(r => setTimeout(r, 6000));
+
+    // -------------------------------------------------------------
+    // STEP 3: ตัวรับเงินหา Channel ที่คนน้อยสุด และย้ายไป Channel นั้น
+    // -------------------------------------------------------------
+    if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+    consolidationState.stepIndex = 3;
+    consolidationState.step = 'ตัวรับเงินกำลังค้นหา Channel คนน้อยสุด และย้ายแชนเนล...';
+    addConsolidationLog(`🔍 ขั้นตอนที่ 3/5: ตัวรับเงิน (${receiverProfile.name}) กำลังสแกนหา Channel ที่คนน้อยสุด...`, 'info');
+
+    let targetChannel = 1;
+    const chFindRes = await evalProfilePort(receiverProfile.debugPort, `
+      (async () => {
+        if (typeof window.findLeastPopulatedChannel === 'function') {
+          return await window.findLeastPopulatedChannel();
+        }
+        return null;
+      })()
+    `, 6000);
+
+    if (chFindRes && typeof chFindRes.result === 'number' && chFindRes.result > 0) {
+      targetChannel = chFindRes.result;
+      addConsolidationLog(`📊 สแกน Channel สำเร็จ: CH ${targetChannel} มีผู้เล่นน้อยที่สุด!`, 'success');
+    } else {
+      const curChRes = await evalProfilePort(receiverProfile.debugPort, `
+        window.getCurrentChannel ? window.getCurrentChannel() : 1
+      `);
+      targetChannel = (curChRes && typeof curChRes.result === 'number') ? curChRes.result : 1;
+      addConsolidationLog(`ℹ️ ใช้ Channel ปัจจุบันของตัวรับเงิน: CH ${targetChannel}`, 'info');
+    }
+
+    addConsolidationLog(`👑 ตัวรับเงิน (${receiverProfile.name}) กำลังเปลี่ยนไป Channel ${targetChannel}...`, 'info');
+    await evalProfilePort(receiverProfile.debugPort, `
+      window.switchChannel ? window.switchChannel(${targetChannel}) : null
+    `);
+
+    addConsolidationLog('⏳ รอตัวรับเงินโหลดเข้าสู่ Channel ใหม่ให้เสร็จสมบูรณ์ (4 วินาที)...', 'info');
+    await new Promise(r => setTimeout(r, 4000));
+
+    // -------------------------------------------------------------
+    // STEP 4: จอรองทยอยย้าย Channel ตามมาทีละจอ และเรียงคิวเทรดเงินให้ตัวหลัก
+    // -------------------------------------------------------------
+    if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+    consolidationState.stepIndex = 4;
+    consolidationState.step = `จอรองทยอยวาร์ปมา CH ${targetChannel} และเรียงคิวเทรดเงิน...`;
+    addConsolidationLog(`🤝 ขั้นตอนที่ 4/5: เริ่มเรียงคิวจอรอง (${senderProfiles.length} จอ) เทรดเงินให้ตัวหลัก...`, 'info');
+
+    const receiverLive = await queryClientState(receiverProfile.debugPort);
+    const receiverCharName = receiverLive?.charName || receiverProfile.name;
+
+    for (let i = 0; i < senderProfiles.length; i++) {
+      if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+      const sender = senderProfiles[i];
+      consolidationState.currentSender = sender.name;
+      addConsolidationLog(`----------------------------------------`, 'info');
+      addConsolidationLog(`▶️ ลำดับที่ ${i + 1}/${senderProfiles.length}: ตรวจสอบจอ ${sender.name}...`, 'info');
+
+      const senderLive = await queryClientState(sender.debugPort);
+      const senderCharName = senderLive?.charName || sender.name;
+      const curZeny = (senderLive && typeof senderLive.zeny === 'number') ? senderLive.zeny : 0;
+      const zenyToTransfer = Math.max(0, curZeny - keepZeny);
+
+      if (zenyToTransfer <= 0) {
+        addConsolidationLog(`⏭️ จอ ${sender.name} (${senderCharName}) มีเงิน ${curZeny.toLocaleString()} z (ไม่พอโอนหรือติดเก็บสำรอง) -> ข้าม`, 'warning');
+        consolidationState.completedSenders.push(sender.id);
+        continue;
+      }
+
+      // A. ย้าย Channel ของ Sender ให้ตรงกับ Receiver
+      addConsolidationLog(`🔄 จอ ${sender.name} (${senderCharName}) กำลังย้ายไป Channel ${targetChannel}...`, 'info');
+      await evalProfilePort(sender.debugPort, `
+        window.switchChannel ? window.switchChannel(${targetChannel}) : null
+      `);
+      await new Promise(r => setTimeout(r, 3500));
+
+      // B. ให้ Receiver รอรับคำขอเทรดจาก Sender นี้
+      addConsolidationLog(`👑 ตั้งค่าตัวรับเงิน (${receiverCharName}) รอรับคำขอเทรดจาก '${senderCharName}'...`, 'info');
+      evalProfilePort(receiverProfile.debugPort, `
+        window.setupReceiverTradeWatcher ? window.setupReceiverTradeWatcher(${JSON.stringify(senderCharName)}, 40000) : null
+      `);
+      await new Promise(r => setTimeout(r, 1000));
+
+      // C. ให้ Sender ส่งคำขอเทรด ใส่เงิน ล็อค และยืนยัน
+      addConsolidationLog(`📤 จอ ${sender.name} (${senderCharName}) ส่งคำขอเทรดเงิน ${zenyToTransfer.toLocaleString()} z...`, 'info');
+      const tradeRes = await evalProfilePort(sender.debugPort, `
+        (async () => {
+          if (typeof window.executeSenderTrade === 'function') {
+            return await window.executeSenderTrade(${JSON.stringify(receiverCharName)}, ${zenyToTransfer}, 35000);
+          }
+          return { success: false, error: 'No executeSenderTrade function' };
+        })()
+      `, 40000);
+
+      if (tradeRes && tradeRes.result && tradeRes.result.success) {
+        consolidationState.totalTransferredZeny += zenyToTransfer;
+        consolidationState.completedSenders.push(sender.id);
+        addConsolidationLog(`✅ โอนเงินจาก [${senderCharName}] ให้ [${receiverCharName}] จำนวน ${zenyToTransfer.toLocaleString()} z สำเร็จ!`, 'success');
+      } else {
+        const err = tradeRes?.result?.error || tradeRes?.error || 'เกิดข้อผิดพลาดในการเทรด';
+        addConsolidationLog(`⚠️ จอ ${sender.name} (${senderCharName}) เทรดไม่สำเร็จ: ${err}`, 'error');
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // -------------------------------------------------------------
+    // STEP 5: เสร็จสิ้นสมบูรณ์
+    // -------------------------------------------------------------
+    consolidationState.stepIndex = 5;
+    consolidationState.step = 'เสร็จสิ้นการรวมเงิน!';
+    consolidationState.running = false;
+    consolidationState.status = 'completed';
+    consolidationState.endTime = Date.now();
+    addConsolidationLog(`🎉 รวมเงินเสร็จสิ้นสมบูรณ์! ยอดเงินรวมที่โอนให้ ${receiverCharName}: ${consolidationState.totalTransferredZeny.toLocaleString()} z`, 'success');
+
+  } catch (err) {
+    consolidationState.running = false;
+    consolidationState.status = consolidationAborted ? 'stopped' : 'error';
+    addConsolidationLog(`⛔ การรวมเงินหยุดทำงาน: ${err.message}`, 'error');
+  }
 }
 
 const mimeTypes = {
@@ -1213,10 +1466,91 @@ const server = http.createServer(async (req, res) => {
 
   
   // ==========================================
+  // ZENY CONSOLIDATION & MARKET CLAIM API
+  // ==========================================
+
+  // POST /api/market/claim-all (Claim all items & zeny from market across all active sessions)
+  if (req.method === "POST" && pathname === "/api/market/claim-all") {
+    (async () => {
+      const profiles = loadProfiles();
+      const results = [];
+      for (const p of profiles) {
+        if (p.debugPort) {
+          try {
+            const evalCode = `(async () => {
+              if (typeof window.claimAllMarket === 'function') {
+                return await window.claimAllMarket();
+              }
+              const r = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+              if (r && r.connection?.isOpen) {
+                r.send('market', { op: 'collect_all' });
+                r.send('market', { op: 'mine' });
+                return { success: true };
+              }
+              return { success: false, error: 'No room connection' };
+            })()`;
+            const r = await evalProfilePort(p.debugPort, evalCode, 3000);
+            results.push({ id: p.id, name: p.name, port: p.debugPort, result: r });
+          } catch(e) {
+            results.push({ id: p.id, name: p.name, port: p.debugPort, error: e.message });
+          }
+        }
+      }
+      return sendJSON({ success: true, results });
+    })();
+    return;
+  }
+
+  // POST /api/consolidation/start
+  if (req.method === "POST" && pathname === "/api/consolidation/start") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const receiverId = payload.receiverProfileId;
+        const senderIds = Array.isArray(payload.senderProfileIds) ? payload.senderProfileIds : [];
+        const keepZeny = parseInt(payload.keepZeny) || 0;
+
+        if (!receiverId) {
+          return sendJSON({ success: false, error: "กรุณาระบุโปรไฟล์ตัวรับเงิน (receiverProfileId)" }, 400);
+        }
+        if (senderIds.length === 0) {
+          return sendJSON({ success: false, error: "กรุณาเลือกจอที่จะโอนเงินอย่างน้อย 1 จอ" }, 400);
+        }
+        if (consolidationState.running) {
+          return sendJSON({ success: false, error: "ระบบกำลังดำเนินการรวมเงินอยู่แล้วในขณะนี้" }, 409);
+        }
+
+        // Run in background
+        runConsolidationWorkflow(receiverId, senderIds, keepZeny);
+        return sendJSON({ success: true, message: "เริ่มต้นกระบวนการรวมเงินเรียบร้อยแล้ว" });
+      } catch(e) {
+        return sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // GET /api/consolidation/status
+  if (req.method === "GET" && pathname === "/api/consolidation/status") {
+    return sendJSON({ success: true, ...consolidationState });
+  }
+
+  // POST /api/consolidation/stop
+  if (req.method === "POST" && pathname === "/api/consolidation/stop") {
+    consolidationAborted = true;
+    consolidationState.running = false;
+    consolidationState.status = 'stopped';
+    addConsolidationLog('⏹️ ผู้ใช้สั่งหยุดกระบวนการรวมเงิน', 'warning');
+    return sendJSON({ success: true, message: "ยกเลิกกระบวนการรวมเงินเรียบร้อย" });
+  }
+
+  // ==========================================
   // PLAN PROFILES & WORKFLOW BUILDER API
   // ==========================================
 
-    // ==========================================
+  // ==========================================
   // GAME INSTALLER & PATCHER API
   // ==========================================
 

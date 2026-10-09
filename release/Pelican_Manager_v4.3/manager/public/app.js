@@ -191,6 +191,9 @@ async function fetchProfiles() {
       renderProfiles();
       updateMetrics();
       updateActiveWebHuds();
+      if (typeof updateZenyConsolidationView === 'function') {
+        updateZenyConsolidationView();
+      }
     }
   } catch (err) {
     console.error("Failed to fetch profiles:", err);
@@ -675,6 +678,9 @@ function switchMainTab(tab) {
   document.querySelectorAll("[data-tab-only]").forEach(el => {
     el.style.display = el.dataset.tabOnly === tab ? "" : "none";
   });
+  if (tab === "zeny" && typeof updateZenyConsolidationView === 'function') {
+    updateZenyConsolidationView();
+  }
   try { localStorage.setItem("manager.activeTab", tab); } catch (e) {}
 }
 
@@ -687,6 +693,353 @@ document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
   try { saved = localStorage.getItem("manager.activeTab"); } catch (e) {}
   if (saved && document.querySelector(`.tab-pane[data-pane="${saved}"]`)) switchMainTab(saved);
 })();
+
+// ==========================================
+// ZENY CONSOLIDATION WORKFLOW (UI CONTROLLER)
+// ==========================================
+let selectedReceiverProfileId = null;
+let selectedSenderIds = new Set();
+let consolidationPollTimer = null;
+let isConsolidationRunning = false;
+
+function updateZenyConsolidationView() {
+  const onlineProfiles = currentProfiles.filter(p => p.isRunning);
+  
+  // 1. Update Top Metrics in Zeny Pane
+  const totalOnlineZeny = onlineProfiles.reduce((sum, p) => {
+    const z = p.liveState && typeof p.liveState.zeny === 'number' ? p.liveState.zeny : 0;
+    return sum + z;
+  }, 0);
+
+  const zenyTotalEl = document.getElementById("zeny-total-online-val");
+  if (zenyTotalEl) zenyTotalEl.innerText = `${totalOnlineZeny.toLocaleString()} z`;
+
+  const onlineCountEl = document.getElementById("zeny-online-count");
+  if (onlineCountEl) onlineCountEl.innerText = `${onlineProfiles.length}`;
+
+  const sendersBadge = document.getElementById("zeny-senders-count-badge");
+  if (sendersBadge) sendersBadge.innerText = `${currentProfiles.length} จอ (${onlineProfiles.length} ออนไลน์)`;
+
+  // 2. Populate Receiver Select (Preserve selection or default to isMain/first online)
+  const receiverSelect = document.getElementById("zeny-receiver-select");
+  if (receiverSelect) {
+    if (!selectedReceiverProfileId) {
+      const defaultRec = onlineProfiles.find(p => p.isMain) || onlineProfiles[0] || currentProfiles[0];
+      if (defaultRec) selectedReceiverProfileId = defaultRec.id;
+    }
+
+    const currentVal = selectedReceiverProfileId || receiverSelect.value;
+    receiverSelect.innerHTML = currentProfiles.map(p => {
+      const charName = p.liveState?.charName || p.name;
+      const isOnline = p.isRunning ? "🟢 ออนไลน์" : "⚪ ออฟไลน์";
+      const zeny = p.liveState && typeof p.liveState.zeny === 'number' ? `${p.liveState.zeny.toLocaleString()} z` : '--';
+      const mainStar = p.isMain ? "⭐ " : "";
+      return `<option value="${p.id}" ${p.id === currentVal ? "selected" : ""}>${mainStar}${escapeHTML(p.name)} [${escapeHTML(charName)}] — ${zeny} (${isOnline})</option>`;
+    }).join("");
+  }
+
+  // 3. Render Senders Table
+  const tbody = document.getElementById("zeny-senders-tbody");
+  if (tbody) {
+    if (currentProfiles.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #64748b; padding: 24px;">ไม่พบรายการโปรไฟล์ในระบบ</td></tr>`;
+      return;
+    }
+
+    let pendingTransferSum = 0;
+
+    tbody.innerHTML = currentProfiles.map(p => {
+      const isReceiver = (p.id === selectedReceiverProfileId);
+      const isOnline = !!p.isRunning;
+      const state = p.liveState || {};
+      const charName = state.charName || p.name;
+      const charClass = state.charClass || p.charClass || 'Novice';
+      const mapName = state.map || p.targetMap || '--';
+      const channel = state.channel ? `CH ${state.channel}` : (state.channelText || '--');
+      const zeny = typeof state.zeny === 'number' ? state.zeny : 0;
+      const zenyText = typeof state.zeny === 'number' ? `${zeny.toLocaleString()} z` : '--';
+
+      let isChecked = false;
+      if (isReceiver) {
+        isChecked = false;
+      } else {
+        if (!selectedSenderIds.has(p.id) && selectedSenderIds.size === 0) {
+          if (isOnline) selectedSenderIds.add(p.id);
+        }
+        isChecked = selectedSenderIds.has(p.id) && isOnline;
+        if (isChecked) {
+          pendingTransferSum += zeny;
+        }
+      }
+
+      let statusBadge = '';
+      if (isReceiver) {
+        statusBadge = `<span class="zeny-badge-receiver">👑 ตัวรับเงิน (Receiver)</span>`;
+      } else if (!isOnline) {
+        statusBadge = `<span class="zeny-badge-status offline">⚪ ออฟไลน์</span>`;
+      } else if (isConsolidationRunning) {
+        statusBadge = `<span class="zeny-badge-status transferring">⏳ กำลังทำงาน...</span>`;
+      } else {
+        statusBadge = `<span class="zeny-badge-status ready">🟢 พร้อมโอนเงิน</span>`;
+      }
+
+      const checkboxHtml = isReceiver ? 
+        `<span style="color: #facc15; font-size: 14px;" title="ตัวรับเงิน (ยกเว้นจากการส่งเงิน)">👑</span>` :
+        `<input type="checkbox" class="zeny-sender-cb" data-profile-id="${p.id}" ${isChecked ? 'checked' : ''} ${!isOnline ? 'disabled' : ''} style="accent-color: #0ea5e9; cursor: pointer;">`;
+
+      return `
+        <tr class="${isReceiver ? 'receiver-row' : ''}">
+          <td style="text-align: center;">${checkboxHtml}</td>
+          <td>
+            <div style="font-weight: 700; color: #f8fafc;">${p.isMain ? '⭐ ' : ''}${escapeHTML(p.name)}</div>
+            <div style="font-size: 10.5px; color: #64748b;">Port: ${p.debugPort || '--'}</div>
+          </td>
+          <td>
+            <div style="font-weight: 600; color: #e2e8f0;">${escapeHTML(charName)}</div>
+            <div style="font-size: 10.5px; color: #94a3b8;">${escapeHTML(charClass)}</div>
+          </td>
+          <td>
+            <div style="color: #cbd5e1; font-size: 11.5px;">📍 ${escapeHTML(mapName)}</div>
+            <div style="font-size: 10.5px; color: #38bdf8; font-weight: 600;">📡 ${channel}</div>
+          </td>
+          <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${zeny > 0 ? '#facc15' : '#94a3b8'};">
+            ${zenyText}
+          </td>
+          <td style="text-align: center;">${statusBadge}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const pendingEl = document.getElementById("zeny-pending-transfer-val");
+    if (pendingEl) pendingEl.innerText = `${pendingTransferSum.toLocaleString()} z`;
+  }
+}
+
+function switchMainTab(tabName) {
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.getAttribute("data-tab") === tabName);
+  });
+  document.querySelectorAll(".tab-pane").forEach(pane => {
+    pane.classList.toggle("active", pane.getAttribute("data-pane") === tabName);
+  });
+  document.querySelectorAll("[data-tab-only]").forEach(el => {
+    const only = el.getAttribute("data-tab-only");
+    el.style.display = (only === tabName) ? "" : "none";
+  });
+
+  if (tabName === "zeny") {
+    updateZenyConsolidationView();
+    pollConsolidationStatus();
+  }
+}
+
+function initZenyConsolidationEvents() {
+  // Main Tab Navigation Listeners
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.onclick = () => {
+      const tabName = btn.getAttribute("data-tab");
+      if (tabName) switchMainTab(tabName);
+    };
+  });
+
+  const recSelect = document.getElementById("zeny-receiver-select");
+  if (recSelect) {
+    recSelect.onchange = (e) => {
+      selectedReceiverProfileId = e.target.value;
+      selectedSenderIds.delete(selectedReceiverProfileId);
+      updateZenyConsolidationView();
+    };
+  }
+
+
+  const selectAllCb = document.getElementById("zeny-select-all-checkbox");
+  if (selectAllCb) {
+    selectAllCb.onchange = (e) => {
+      const checked = e.target.checked;
+      currentProfiles.forEach(p => {
+        if (p.id !== selectedReceiverProfileId && p.isRunning) {
+          if (checked) selectedSenderIds.add(p.id);
+          else selectedSenderIds.delete(p.id);
+        }
+      });
+      updateZenyConsolidationView();
+    };
+  }
+
+  const tbody = document.getElementById("zeny-senders-tbody");
+  if (tbody) {
+    tbody.onchange = (e) => {
+      const cb = e.target.closest(".zeny-sender-cb");
+      if (cb) {
+        const pid = cb.dataset.profileId;
+        if (cb.checked) selectedSenderIds.add(pid);
+        else selectedSenderIds.delete(pid);
+        updateZenyConsolidationView();
+      }
+    };
+  }
+
+  const btnClaimMarket = document.getElementById("btn-claim-market-all");
+  if (btnClaimMarket) {
+    btnClaimMarket.onclick = async () => {
+      try {
+        btnClaimMarket.disabled = true;
+        btnClaimMarket.innerHTML = `<span>⏳</span> กำลังรับของ...`;
+        const res = await fetch(`${API_BASE}/api/market/claim-all`, { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          showToast("🛒 ส่งคำสั่งรับของและเงินจากตลาดกลางทุกจอเรียบร้อย!", "success");
+          setTimeout(fetchProfiles, 1500);
+        } else {
+          showToast(`⚠️ ข้อผิดพลาด: ${data.error || 'ล้มเหลว'}`, "warning");
+        }
+      } catch(err) {
+        showToast(`❌ ข้อผิดพลาด: ${err.message}`, "error");
+      } finally {
+        btnClaimMarket.disabled = false;
+        btnClaimMarket.innerHTML = `<span class="icon">🛒</span> รับไอเทมจากตลาดทุกจอ`;
+      }
+    };
+  }
+
+  const btnStartConsolidation = document.getElementById("btn-start-consolidation");
+  const btnStopConsolidation = document.getElementById("btn-stop-consolidation");
+  const progressSection = document.getElementById("zeny-progress-section");
+
+  if (btnStartConsolidation) {
+    btnStartConsolidation.onclick = async () => {
+      if (!selectedReceiverProfileId) {
+        alert("กรุณาเลือกตัวละครที่ต้องการให้เป็นตัวรับเงิน (Receiver) ก่อน");
+        return;
+      }
+      const senderList = Array.from(selectedSenderIds).filter(id => id !== selectedReceiverProfileId);
+      if (senderList.length === 0) {
+        alert("กรุณาเลือกจอที่จะนำเงินมาโอนให้ตัวหลักอย่างน้อย 1 จอ");
+        return;
+      }
+
+      const recProfile = currentProfiles.find(p => p.id === selectedReceiverProfileId);
+      const recName = recProfile?.liveState?.charName || recProfile?.name || selectedReceiverProfileId;
+      if (!confirm(`คุณต้องการเริ่มต้นรวมเงินจาก ${senderList.length} จอ เข้าตัวหลัก [${recName}] ใช่หรือไม่?\n\n(ทุกจอจะหยุดบอท วาร์ปกลับเมืองหลวง และเรียงคิวเทรดเงิน)`)) {
+        return;
+      }
+
+      try {
+        btnStartConsolidation.disabled = true;
+        const res = await fetch(`${API_BASE}/api/consolidation/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            receiverProfileId: selectedReceiverProfileId,
+            senderProfileIds: senderList,
+            keepZeny: 0
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          isConsolidationRunning = true;
+          if (progressSection) progressSection.style.display = "block";
+          btnStartConsolidation.style.display = "none";
+          if (btnStopConsolidation) btnStopConsolidation.style.display = "inline-flex";
+          startConsolidationPolling();
+        } else {
+          alert(data.error || "ไม่สามารถเริ่มการรวมเงินได้");
+        }
+      } catch(err) {
+        alert("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: " + err.message);
+      } finally {
+        btnStartConsolidation.disabled = false;
+      }
+    };
+  }
+
+  if (btnStopConsolidation) {
+    btnStopConsolidation.onclick = async () => {
+      if (!confirm("คุณต้องการหยุดกระบวนการรวมเงินใช่หรือไม่?")) return;
+      try {
+        btnStopConsolidation.disabled = true;
+        await fetch(`${API_BASE}/api/consolidation/stop`, { method: "POST" });
+        showToast("⏹️ สั่งหยุดกระบวนการรวมเงินเรียบร้อย", "warning");
+      } catch(err) {
+        showToast(err.message, "error");
+      } finally {
+        btnStopConsolidation.disabled = false;
+      }
+    };
+  }
+}
+
+function startConsolidationPolling() {
+  if (consolidationPollTimer) clearInterval(consolidationPollTimer);
+  consolidationPollTimer = setInterval(pollConsolidationStatus, 900);
+  pollConsolidationStatus();
+}
+
+async function pollConsolidationStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/consolidation/status`);
+    const state = await res.json();
+    if (!state.success) return;
+
+    const progressSection = document.getElementById("zeny-progress-section");
+    if (state.status === 'running' || state.logs.length > 0) {
+      if (progressSection) progressSection.style.display = "block";
+    }
+
+    const stepBadge = document.getElementById("zeny-current-step-badge");
+    if (stepBadge) stepBadge.innerText = `ขั้นตอนที่ ${state.stepIndex || 1}/${state.totalSteps || 5}`;
+
+    const stepTitle = document.getElementById("zeny-current-step-title");
+    if (stepTitle) stepTitle.innerText = state.step || "กำลังดำเนินการ...";
+
+    document.querySelectorAll(".zeny-pipeline-step").forEach(el => {
+      const stepNum = parseInt(el.dataset.step) || 0;
+      el.classList.toggle("completed", stepNum < state.stepIndex);
+      el.classList.toggle("active", stepNum === state.stepIndex);
+    });
+
+    const barFill = document.getElementById("zeny-progress-bar-fill");
+    if (barFill) {
+      const percent = Math.min(100, Math.round((state.stepIndex / (state.totalSteps || 5)) * 100));
+      barFill.style.width = `${percent}%`;
+    }
+
+    const logsBox = document.getElementById("zeny-logs-box");
+    if (logsBox && Array.isArray(state.logs)) {
+      logsBox.innerHTML = state.logs.map(log => {
+        return `<div class="zeny-log-entry ${log.level || 'info'}"><span class="log-time">${escapeHTML(log.time)}</span> ${escapeHTML(log.text)}</div>`;
+      }).join("");
+      logsBox.scrollTop = logsBox.scrollHeight;
+    }
+
+    if (!state.running) {
+      isConsolidationRunning = false;
+      const btnStart = document.getElementById("btn-start-consolidation");
+      const btnStop = document.getElementById("btn-stop-consolidation");
+      if (btnStart) btnStart.style.display = "inline-flex";
+      if (btnStop) btnStop.style.display = "none";
+      if (state.status === "completed") {
+        if (consolidationPollTimer) {
+          clearInterval(consolidationPollTimer);
+          consolidationPollTimer = null;
+        }
+        showToast("🎉 รวมเงินเสร็จสิ้นสมบูรณ์!", "success");
+        fetchProfiles();
+      } else if (state.status === "stopped" || state.status === "error") {
+        if (consolidationPollTimer) {
+          clearInterval(consolidationPollTimer);
+          consolidationPollTimer = null;
+        }
+      }
+    }
+  } catch(e) {}
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initZenyConsolidationEvents);
+} else {
+  initZenyConsolidationEvents();
+}
 
 // ==========================================
 // FLOATING IN-GAME BOT HUD (DIRECT GITHUB REPLICA)
@@ -3539,3 +3892,4 @@ if (document.readyState === 'loading') {
 } else {
   setupCardWhitelistEventListeners();
 }
+

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -133,11 +133,129 @@
         </div>
       </section>
 
-      <!-- TAB: ZENY CONSOLIDATION (placeholder, to be implemented) -->
+      <!-- TAB: ZENY CONSOLIDATION -->
       <section class="tab-pane" data-pane="zeny" id="zeny-pane">
-        <div class="empty-state">
-          <div class="empty-icon">💰</div>
-          <p>ระบบรวมเงิน (Zeny Consolidation) — กำลังพัฒนา</p>
+        <!-- TOP SUMMARY & ACTION BAR -->
+        <div class="zeny-dashboard-header">
+          <div class="zeny-summary-card">
+            <div class="zeny-card-header">
+              <span class="zeny-badge-icon">💰</span>
+              <div>
+                <div class="zeny-label">ยอดเงินรวมทุกจอที่ออนไลน์ (Total Online Zeny)</div>
+                <div class="zeny-total-value" id="zeny-total-online-val">0 z</div>
+              </div>
+            </div>
+            <div class="zeny-summary-stats">
+              <span class="zeny-stat-chip">🖥️ จอออนไลน์: <b id="zeny-online-count" style="color: #38bdf8;">0</b> จอ</span>
+              <span class="zeny-stat-chip">📦 รอโอนทั้งหมด: <b id="zeny-pending-transfer-val" style="color: #facc15;">0 z</b></span>
+            </div>
+          </div>
+
+          <!-- CONTROLS & RECEIVER SELECTOR -->
+          <div class="zeny-control-card">
+            <div class="zeny-controls-row">
+              <div class="zeny-receiver-box">
+                <label for="zeny-receiver-select" class="zeny-input-label">
+                  👑 ตัวละครที่รับเงิน (Receiver):
+                </label>
+                <select id="zeny-receiver-select" class="zeny-select">
+                  <option value="">-- เลือกตัวละครที่รับเงิน --</option>
+                </select>
+              </div>
+
+              <div class="zeny-btn-group">
+                <button type="button" id="btn-claim-market-all" class="btn btn-warning" title="ส่งคำสั่งรับของและเงินจากการขายในตลาดกลางทุกจอพร้อมกัน">
+                  <span class="icon">🛒</span> รับไอเทมจากตลาดทุกจอ
+                </button>
+                <button type="button" id="btn-start-consolidation" class="btn btn-primary" title="เริ่มขั้นตอนการรวมเงินเข้าตัวหลัก">
+                  <span class="icon">🚀</span> เริ่มต้นรวมเงิน
+                </button>
+                <button type="button" id="btn-stop-consolidation" class="btn btn-danger" style="display: none;" title="ยกเลิก / หยุดกระบวนการรวมเงิน">
+                  <span class="icon">⏹️</span> หยุดการรวมเงิน
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PROGRESS & STEP TRACKER (Active during consolidation) -->
+        <div class="zeny-progress-card" id="zeny-progress-section" style="display: none;">
+          <div class="zeny-progress-header">
+            <div class="zeny-step-info">
+              <span class="zeny-step-pill" id="zeny-current-step-badge">ขั้นตอนที่ 1/5</span>
+              <h4 id="zeny-current-step-title" style="margin: 0; font-size: 13.5px; color: #f8fafc; font-weight: 700;">เตรียมความพร้อมและหยุดบอททุกจอ...</h4>
+            </div>
+            <span class="live-pill" id="zeny-live-indicator"><i></i> Realtime Progress</span>
+          </div>
+
+          <!-- 5-STEP PIPELINE BAR -->
+          <div class="zeny-pipeline">
+            <div class="zeny-pipeline-step" data-step="1">
+              <span class="step-num">1</span>
+              <span class="step-txt">⏹️ หยุดบอททุกจอ</span>
+            </div>
+            <div class="zeny-pipeline-step" data-step="2">
+              <span class="step-num">2</span>
+              <span class="step-txt">🦋 Bwing กลับเมือง</span>
+            </div>
+            <div class="zeny-pipeline-step" data-step="3">
+              <span class="step-num">3</span>
+              <span class="step-txt">👑 ตัวหลักย้าย CH</span>
+            </div>
+            <div class="zeny-pipeline-step" data-step="4">
+              <span class="step-num">4</span>
+              <span class="step-txt">🔄 จอรองย้าย CH</span>
+            </div>
+            <div class="zeny-pipeline-step" data-step="5">
+              <span class="step-num">5</span>
+              <span class="step-txt">🤝 ทยอยโอนเงิน</span>
+            </div>
+          </div>
+
+          <div class="zeny-progress-bar-wrap">
+            <div class="zeny-progress-bar-fill" id="zeny-progress-bar-fill" style="width: 0%;"></div>
+          </div>
+
+          <!-- REALTIME CONSOLIDATION LOG VIEWER -->
+          <div class="zeny-logs-container" id="zeny-logs-box">
+            <div class="zeny-log-entry info"><span class="log-time">--:--:--</span> ยืนยันความพร้อม เริ่มต้นกระบวนการรวมเงิน...</div>
+          </div>
+        </div>
+
+        <!-- SENDERS SELECTION TABLE -->
+        <div class="zeny-table-card">
+          <div class="zeny-table-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <h3 style="font-size: 14px; font-weight: 700; color: #f8fafc; margin: 0;">📋 รายชื่อจอเกม (Sessions) ทั้งหมด</h3>
+              <span class="badge" id="zeny-senders-count-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">0 จอ</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label class="zeny-checkbox-label" style="font-size: 11.5px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" id="zeny-select-all-checkbox" checked style="accent-color: #0ea5e9; cursor: pointer;">
+                <span>เลือกจอที่ส่งเงินทั้งหมด</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="zeny-table-wrapper">
+            <table class="zeny-table">
+              <thead>
+                <tr>
+                  <th style="width: 55px; text-align: center;">เลือก</th>
+                  <th style="width: 180px;">ชื่อจอ / โปรไฟล์</th>
+                  <th>ตัวละคร</th>
+                  <th>แมพ & แชนเนล</th>
+                  <th style="text-align: right; width: 150px;">เงินในตัว (Zeny)</th>
+                  <th style="width: 150px; text-align: center;">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody id="zeny-senders-tbody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: #64748b; padding: 24px;">กำลังโหลดข้อมูลจอเกม...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>

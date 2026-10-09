@@ -5986,6 +5986,13 @@
                 }
             }
         });
+        const bwingEl = document.getElementById('p-bwing-count');
+        if (bwingEl && typeof window.getBagItemCount === 'function') {
+            const count = window.getBagItemCount(90311);
+            bwingEl.innerText = `${count}`;
+            const targetBwing = (window.__archerConfig && window.__archerConfig.bwingBuyQty) ? parseInt(window.__archerConfig.bwingBuyQty) || 5 : 5;
+            bwingEl.style.color = count < targetBwing ? '#fbbf24' : '#38bdf8';
+        }
     };
     
 
@@ -6026,11 +6033,21 @@
                 potionDelay = window.executeBuffPotionRestock();
             }
 
-            // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้
+            // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้ (Smart Restock: คำนวณส่วนต่างให้ครบ targetQty)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (cfg.useBwing) {
-                    window.sendShopBuy(cfg.bwingItemId || 0x000160c7, parseInt(cfg.bwingBuyQty) || 5);
+                    const bwingId = parseInt(cfg.bwingItemId) || 0x000160c7;
+                    const targetBwing = parseInt(cfg.bwingBuyQty) || 5;
+                    const curBwing = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(bwingId) : 0;
+                    const needBwing = Math.max(0, targetBwing - curBwing);
+
+                    if (needBwing > 0) {
+                        console.log(`%c[Pelican Shop] 🦋 คำนวณการเติม Butterfly Wing: ในกระเป๋ามี ${curBwing} ใบ / ตั้งเป้าพก ${targetBwing} ใบ -> ซื้อเพิ่ม ${needBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
+                        window.sendShopBuy(bwingId, needBwing);
+                    } else {
+                        console.log(`%c[Pelican Shop] 🦋 Butterfly Wing มีเพียงพอแล้ว (${curBwing} >= ${targetBwing} ใบ) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                    }
                 }
             }, potionDelay);
 
@@ -9568,6 +9585,9 @@
                             <span>ซื้อ Bwing ติดตัว (ใบ):</span>
                             <input type="number" id="p-archer-bwing-qty" value="${window.__archerConfig.bwingBuyQty || 5}" style="width: 55px; background: #0f172a; border: 1px solid #38bdf8; color: #fff; text-align: center; border-radius: 4px; font-size: 11px; padding: 2px;">
                         </div>
+                        <div style="font-size: 9.5px; color: #94a3b8; margin-top: 3px;">
+                            มีในกระเป๋า: <b id="p-bwing-count" style="color: #38bdf8;">${typeof window.getBagItemCount === 'function' ? window.getBagItemCount(90311) : 0}</b> ใบ (ซื้อเติมส่วนต่างให้ครบ)
+                        </div>
                     </div>
 
                     <div class="p-card" style="border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.05);">
@@ -11515,6 +11535,285 @@
         } catch(e) {}
     }, 4000);
 
+    // ==========================================
+    // CENTRALIZED ZENY CONSOLIDATION, CHANNELS & MARKET CLAIM ENGINE
+    // ==========================================
+    window.claimAllMarket = async function() {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+        if (!room) return { success: false, error: 'No room connection' };
+        console.log('%c[Pelican Market] 🛒 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all)...', 'color: #38bdf8; font-weight: bold;');
+        try {
+            room.send('market', { op: 'collect_all' });
+            room.send('market', { op: 'mine' });
+            return { success: true, timestamp: Date.now() };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    };
+
+    window.getCurrentChannel = function() {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+        if (room && room.state && typeof room.state.channel === 'number') {
+            return room.state.channel;
+        }
+        return window.__currentChannel || 1;
+    };
+
+    window.getChannelsList = function(timeoutMs = 4000) {
+        return new Promise((resolve) => {
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+            if (!room) return resolve({ success: false, error: 'No room connection' });
+            
+            let resolved = false;
+            let unsub = null;
+            try {
+                unsub = room.onMessage('channels', (data) => {
+                    if (resolved) return;
+                    resolved = true;
+                    if (typeof unsub === 'function') unsub();
+                    resolve({
+                        success: true,
+                        currentCh: room.state ? room.state.channel : (data ? data.current : 1),
+                        data: data
+                    });
+                });
+            } catch(e) {}
+            
+            try { room.send('channel_list'); } catch(e) {}
+            
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    if (typeof unsub === 'function') unsub();
+                    resolve({ success: false, error: 'Timeout waiting for channels' });
+                }
+            }, timeoutMs);
+        });
+    };
+
+    window.findLeastPopulatedChannel = async function() {
+        const res = await window.getChannelsList(3500);
+        if (!res.success || !res.data || !Array.isArray(res.data.channels)) {
+            return null;
+        }
+        const list = res.data.channels;
+        const hardCap = res.data.hardCap || 40;
+        const available = list.filter(c => c.players < hardCap);
+        if (available.length === 0) return res.data.current || 1;
+        available.sort((a, b) => a.players - b.players);
+        console.log(`%c[Pelican Channel] 📊 สแกน Channel: พบ CH ${available[0].channel} คนน้อยสุด (${available[0].players} คน)`, 'color: #22c55e; font-weight: bold;');
+        return available[0].channel;
+    };
+
+    window.switchChannel = async function(targetCh, timeoutMs = 8000) {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+        if (!room) return { success: false, error: 'No room connection' };
+        const target = parseInt(targetCh);
+        if (isNaN(target)) return { success: false, error: 'Invalid channel number' };
+        if (room.state && room.state.channel === target) {
+            console.log(`%c[Pelican Channel] ℹ️ ตัวละครอยู่ที่ CH ${target} อยู่แล้ว`, 'color: #94a3b8;');
+            return { success: true, alreadyThere: true, channel: target };
+        }
+        console.log(`%c[Pelican Channel] 🔄 กำลังย้ายไป Channel ${target}...`, 'color: #38bdf8; font-weight: bold;');
+        room.send('channel_switch', { channel: target });
+        
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            await new Promise(r => setTimeout(r, 400));
+            const curRoom = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+            if (curRoom && curRoom.state && curRoom.state.channel === target) {
+                console.log(`%c[Pelican Channel] ✅ ย้ายไป CH ${target} สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+                return { success: true, channel: target };
+            }
+        }
+        return { success: false, error: 'Timeout waiting for channel switch', channel: room.state?.channel };
+    };
+
+    window.executeBwingHome = async function(timeoutMs = 12000) {
+        window.__isBotRunning = false;
+        window.__autoLoopEnabled = false;
+        if (typeof window.stopPelicanBot === 'function') window.stopPelicanBot();
+        if (typeof window.stopFollow === 'function') window.stopFollow();
+        
+        const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
+        if (curMap.includes('โซลเฮเวน') || curMap.includes('เมืองหลวง')) {
+            console.log('%c[Pelican Bwing] 🏛️ ตัวละครอยู่ที่เมืองหลวงโซลเฮเวนอยู่แล้ว', 'color: #94a3b8;');
+            return { success: true, alreadyHome: true, map: curMap };
+        }
+
+        console.log('%c[Pelican Bwing] 🦋 ใช้วาร์ป Butterfly Wing เพื่อกลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
+        if (typeof window.useButterflyWing === 'function') {
+            window.useButterflyWing();
+        }
+        
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            await new Promise(r => setTimeout(r, 500));
+            const mapNow = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
+            if (mapNow.includes('โซลเฮเวน') || mapNow.includes('เมืองหลวง')) {
+                console.log('%c[Pelican Bwing] ✅ วาร์ปถึงเมืองหลวงโซลเฮเวนสำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                return { success: true, map: mapNow };
+            }
+        }
+        return { success: false, error: 'Timeout waiting to arrive at capital' };
+    };
+
+    window.setupReceiverTradeWatcher = function(allowedSenderName, timeoutMs = 60000) {
+        return new Promise((resolve) => {
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+            if (!room) return resolve({ success: false, error: 'No room connection' });
+            
+            window.__consolidationReceiverMode = true;
+            window.__consolidationExpectedSender = allowedSenderName ? allowedSenderName.trim().toLowerCase() : null;
+            console.log(`%c[Pelican Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${allowedSenderName || 'ทุกคน'}'...`, 'color: #a855f7; font-weight: bold;');
+
+            let unsubInvite = null;
+            let unsubTrade = null;
+            let unsubInv = null;
+            let done = false;
+            let receivedZeny = 0;
+
+            const cleanup = () => {
+                if (typeof unsubInvite === 'function') unsubInvite();
+                if (typeof unsubTrade === 'function') unsubTrade();
+                if (typeof unsubInv === 'function') unsubInv();
+                window.__consolidationReceiverMode = false;
+                window.__consolidationExpectedSender = null;
+            };
+
+            const timer = setTimeout(() => {
+                if (!done) {
+                    done = true;
+                    cleanup();
+                    resolve({ success: false, error: 'Receiver timeout waiting for trade' });
+                }
+            }, timeoutMs);
+
+            unsubInvite = room.onMessage('invite', (inv) => {
+                if (!inv || done) return;
+                if (inv.kind === 'trade') {
+                    const senderClean = (inv.from || '').trim().toLowerCase();
+                    if (!window.__consolidationExpectedSender || senderClean === window.__consolidationExpectedSender) {
+                        console.log(`%c[Pelican Trade] 👑 Receiver: ได้รับคำขอเทรดจาก ${inv.from} -> ตอบรับ (accept)!`, 'color: #22c55e; font-weight: bold;');
+                        room.send('trade', { action: 'accept' });
+                    }
+                }
+            });
+
+            unsubTrade = room.onMessage('trade', (tr) => {
+                if (!tr || done) return;
+                if (tr.theirs && typeof tr.theirs.zeny === 'number') {
+                    receivedZeny = tr.theirs.zeny;
+                }
+                if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked) {
+                    console.log(`%c[Pelican Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${tr.theirs.zeny?.toLocaleString()} z) -> กดล็อค (lock)...`, 'color: #38bdf8;');
+                    setTimeout(() => {
+                        if (!done) room.send('trade', { action: 'lock' });
+                    }, 300);
+                }
+                if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed) {
+                    console.log(`%c[Pelican Trade] 👑 Receiver: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...`, 'color: #22c55e; font-weight: bold;');
+                    setTimeout(() => {
+                        if (!done) room.send('trade', { action: 'confirm' });
+                    }, 400);
+                }
+            });
+
+            unsubInv = room.onMessage('inventory', (inv) => {
+                if (done) return;
+                console.log('%c[Pelican Trade] 👑 Receiver: Inventory อัปเดตหลังเทรดสำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                done = true;
+                clearTimeout(timer);
+                setTimeout(() => {
+                    cleanup();
+                    resolve({ success: true, receivedZeny });
+                }, 1000);
+            });
+        });
+    };
+
+    window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000) {
+        return new Promise((resolve) => {
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+            if (!room) return resolve({ success: false, error: 'No room connection' });
+            if (!receiverCharName) return resolve({ success: false, error: 'Missing receiver name' });
+            
+            const amount = Math.max(0, parseInt(zenyAmount) || 0);
+            console.log(`%c[Pelican Trade] 📤 Sender: เริ่มขั้นตอนเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
+
+            let unsubTrade = null;
+            let unsubInv = null;
+            let done = false;
+            let offered = false;
+            let locked = false;
+            let confirmed = false;
+
+            const cleanup = () => {
+                if (typeof unsubTrade === 'function') unsubTrade();
+                if (typeof unsubInv === 'function') unsubInv();
+            };
+
+            const timer = setTimeout(() => {
+                if (!done) {
+                    done = true;
+                    cleanup();
+                    try { room.send('trade', { action: 'cancel' }); } catch(e) {}
+                    resolve({ success: false, error: 'Sender timeout in trade process' });
+                }
+            }, timeoutMs);
+
+            unsubTrade = room.onMessage('trade', (tr) => {
+                if (!tr || done) return;
+                
+                if (!offered) {
+                    offered = true;
+                    console.log(`%c[Pelican Trade] 📤 Sender: ส่งข้อเสนอเงิน ${amount.toLocaleString()} z...`, 'color: #38bdf8;');
+                    setTimeout(() => {
+                        if (!done) room.send('trade', { action: 'offer', items: [], zeny: amount });
+                    }, 350);
+                    return;
+                }
+
+                if (offered && !locked && tr.mine && tr.mine.zeny === amount && !tr.mine.locked) {
+                    locked = true;
+                    console.log('%c[Pelican Trade] 📤 Sender: ล็อคข้อเสนอเงิน (lock)...', 'color: #38bdf8;');
+                    setTimeout(() => {
+                        if (!done) room.send('trade', { action: 'lock' });
+                    }, 400);
+                    return;
+                }
+
+                if (locked && !confirmed && tr.mine && tr.mine.locked && tr.theirs && tr.theirs.locked && !tr.mine.confirmed) {
+                    confirmed = true;
+                    console.log('%c[Pelican Trade] 📤 Sender: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...', 'color: #22c55e; font-weight: bold;');
+                    setTimeout(() => {
+                        if (!done) room.send('trade', { action: 'confirm' });
+                    }, 400);
+                }
+            });
+
+            unsubInv = room.onMessage('inventory', (inv) => {
+                if (done) return;
+                if (confirmed) {
+                    console.log('%c[Pelican Trade] 📤 Sender: เทรดเสร็จสิ้นสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
+                    done = true;
+                    clearTimeout(timer);
+                    setTimeout(() => {
+                        cleanup();
+                        resolve({ success: true, transferredZeny: amount });
+                    }, 1000);
+                }
+            });
+
+            setTimeout(() => {
+                if (!done) {
+                    console.log(`%c[Pelican Trade] 📤 Sender: ส่งคำขอเทรดไปยัง '${receiverCharName}'...`, 'color: #38bdf8;');
+                    room.send('trade', { action: 'request', name: receiverCharName });
+                }
+            }, 600);
+        });
+    };
+
     // MULTI-CLIENT HUB REAL-TIME STATE SYNC
     // ==========================================
     window.__getClientLiveState = function() {
@@ -11590,6 +11889,8 @@
             weight: weightText,
             zeny: (typeof currentZeny === 'number') ? currentZeny : null,
             zenyText: (typeof currentZeny === 'number') ? (currentZeny.toLocaleString() + ' z') : '--',
+            channel: (typeof window.getCurrentChannel === 'function') ? window.getCurrentChannel() : 1,
+            channelText: 'CH ' + ((typeof window.getCurrentChannel === 'function') ? window.getCurrentChannel() : 1),
             botStatus: activity,
             navigating: !!window.__isNavigating,
             recovering: !!window.__isRecovering,
