@@ -48,131 +48,328 @@ const CLASS_TREE_MAP = {
   }
 };
 
-const SKILLS_DATABASE = {
-  novice: [
-    { id: 'basic-skill', name: "Adventurer's Instinct", thai: "ทักษะพื้นฐาน", maxLevel: 9, kind: 'passive', desc: 'เงื่อนไขสำคัญสำหรับเปลี่ยนอาชีพ Class 1 (ต้องอัปเต็ม 9)' },
-    { id: 'first-aid', name: "Field Mend", thai: "ปฐมพยาบาล", maxLevel: 1, kind: 'active', desc: 'ฟื้นฟู HP เล็กน้อยทันที' }
-  ],
-  archer: [
-    { id: 'owl-eye', name: "Keen Eye", thai: "ตานกฮูก", maxLevel: 10, kind: 'passive', desc: 'เพิ่มค่า DEX อย่างถาวร' },
-    { id: 'vulture-eye', name: "Eagle Sight", thai: "ตาแร้ง", maxLevel: 10, kind: 'passive', req: 'Keen Eye Lv.3', desc: 'เพิ่มระยะยิงธนูและความแม่นยำ' },
-    { id: 'double-strafe', name: "Twin Shot", thai: "ยิงคู่", maxLevel: 10, kind: 'active', desc: 'ยิงลูกธนู 2 ดอกใส่เป้าหมายอย่างรวดเร็ว' },
-    { id: 'arrow-shower', name: "Arrow Rain", thai: "ฝนธนู", maxLevel: 10, kind: 'active', req: 'Twin Shot Lv.5', desc: 'ยิงห่าฝนธนูโจมตีหมู่รอบพื้นที่' },
-    { id: 'improve-concentration', name: "Hunter's Focus", thai: "เพิ่มสมาธิ", maxLevel: 10, kind: 'active', req: 'Eagle Sight Lv.1', desc: 'บัฟเพิ่มค่า AGI และ DEX ชั่วคราว' }
-  ],
-  hunter: [
-    { id: 'falconry-mastery', name: "Falcon Bond", thai: "ฝึกเหยี่ยว", maxLevel: 1, kind: 'passive', desc: 'เช่าและควบคุมนกเหยี่ยวผู้ซื่อสัตย์' },
-    { id: 'blitz-beat', name: "Falcon Strike", thai: "เหยี่ยวจู่โจม", maxLevel: 10, kind: 'active', req: 'Falcon Bond Lv.1', desc: 'สั่งเหยี่ยวบินโฉบโจมตีเป้าหมายและรอบข้าง' },
-    { id: 'auto-blitz-beat', name: "Falcon Instinct", thai: "เหยี่ยวจู่โจมอัตโนมัติ", maxLevel: 5, kind: 'passive', req: 'Falcon Bond Lv.1', desc: 'เหยี่ยวมีโอกาสบินโจมตีเองอัตโนมัติตามค่า LUK' },
-    { id: 'steel-crow', name: "Steel Talons", thai: "กรงเล็บเหล็ก", maxLevel: 10, kind: 'passive', req: 'Falcon Strike Lv.5', desc: 'เพิ่มพลังโจมตีของเหยี่ยวทุกรูปแบบ' },
-    { id: 'land-mine', name: "Blast Mine", thai: "กับระเบิด", maxLevel: 10, kind: 'active', desc: 'วางกับดักระเบิดธาตุดิน' },
-    { id: 'ankle-snare', name: "Snare Trap", thai: "กับดักข้อเท้า", maxLevel: 10, kind: 'active', req: 'Blast Mine Lv.1', desc: 'ตรึงเป้าหมายให้อยู่กับที่ชั่วขณะ' },
-    { id: 'claymore-trap', name: "Inferno Trap", thai: "กับดักเพลิง", maxLevel: 10, kind: 'active', req: 'Blast Mine Lv.3', desc: 'วางกับดักระเบิดเพลิงเผาผลาญศัตรู' },
-    { id: 'detecting', name: "Falcon Scout", thai: "เหยี่ยวสอดแนม", maxLevel: 1, kind: 'active', req: 'Falcon Bond Lv.1', desc: 'ใช้นกเหยี่ยวตรวจหาศัตรูที่พรางตัว' }
-  ],
-  bard: [
-    { id: 'musical-strike', name: "Musical Strike", thai: "โน้ตสังหาร", maxLevel: 10, kind: 'active', desc: 'ดีดเครื่องดนตรีปล่อยคลื่นเสียงโจมตีศัตรู' },
-    { id: 'poem-of-bragi', name: "Poem of Bragi", thai: "บทเพลงแห่งบรากิ", maxLevel: 10, kind: 'active', desc: 'ลดเวลาการร่ายเวทและคูลดาวน์สกิลแก่ปาร์ตี้' },
-    { id: 'assassin-cross-of-sunset', name: "Sunset Cross", thai: "บทเพลงซันเซ็ต", maxLevel: 10, kind: 'active', desc: 'เพิ่มความเร็วการโจมตี (ASPD) แก่ปาร์ตี้' },
-    { id: 'apple-of-idun', name: "Apple of Idun", thai: "แอปเปิ้ลแห่งอิดุน", maxLevel: 10, kind: 'active', desc: 'เพิ่ม Max HP และฟื้นฟูเลือดแก่ปาร์ตี้' },
-    { id: 'frost-joke', name: "Frost Joke", thai: "มุกแป้กแช่แข็ง", maxLevel: 5, kind: 'active', desc: 'เล่นมุกตลกแช่แข็งศัตรูทั้งหน้าจอ' }
-  ],
-  dancer: [
-    { id: 'throw-arrow', name: "Throw Arrow", thai: "ปาลูกธนู", maxLevel: 10, kind: 'active', desc: 'ปาลูกธนูโจมตีศัตรูเป้าหมายเดี่ยว' },
-    { id: 'service-for-you', name: "Service For You", thai: "เซอร์วิสฟอร์ยู", maxLevel: 10, kind: 'active', desc: 'เพิ่ม Max SP และลดการใช้ SP ของปาร์ตี้' },
-    { id: 'fortune-kiss', name: "Fortune's Kiss", thai: "จูบแห่งโชค", maxLevel: 10, kind: 'active', desc: 'เพิ่มอัตราคริติคอลอย่างมหาศาล' },
-    { id: 'scream', name: "Scream", thai: "กรีดร้องสตั๊น", maxLevel: 5, kind: 'active', desc: 'กรีดร้องทำให้ศัตรูรอบตัวติดสตั๊น' }
-  ],
-  swordsman: [
-    { id: 'sword-mastery', name: "Sword Mastery", thai: "ชำนาญดาบมือเดียว", maxLevel: 10, kind: 'passive', desc: 'เพิ่มพลังโจมตีเมื่อถือดาบมือเดียว' },
-    { id: 'two-hand-sword-mastery', name: "Two-Hand Sword", thai: "ชำนาญดาบสองมือ", maxLevel: 10, kind: 'passive', desc: 'เพิ่มพลังโจมตีดาบสองมือ' },
-    { id: 'hp-recovery', name: "HP Recovery", thai: "ฟื้นฟู HP ไว", maxLevel: 10, kind: 'passive', desc: 'เร่งการฟื้นฟู HP ขณะยืนนิ่ง' },
-    { id: 'bash', name: "Bash", thai: "ฟาดฟัน", maxLevel: 10, kind: 'active', desc: 'ฟาดฟันอย่างรุนแรงใส่เป้าหมาย' },
-    { id: 'magnum-break', name: "Magnum Break", thai: "ระเบิดเพลิง", maxLevel: 10, kind: 'active', req: 'Bash Lv.5', desc: 'ระเบิดเพลิงรอบตัวและเพิ่มพลังโจมตีธาตุไฟ' },
-    { id: 'provoke', name: "Provoke", thai: "ยั่วยุ", maxLevel: 10, kind: 'active', desc: 'ยั่วยุศัตรูลดพลังป้องกันแต่เพิ่มพลังโจมตี' },
-    { id: 'endure', name: "Endure", thai: "อดทน", maxLevel: 10, kind: 'active', req: 'Provoke Lv.5', desc: 'เดินทะลุการโจมตีไม่กระตุกและเพิ่ม MDef' }
-  ],
-  knight: [
-    { id: 'two-hand-quicken', name: "Two-Hand Quicken", thai: "เร่งฟันดาบสองมือ", maxLevel: 10, kind: 'active', desc: 'เพิ่มความเร็วการโจมตี (ASPD) 30% ทันที' },
-    { id: 'bowling-bash', name: "Bowling Bash", thai: "โบลิ่งบาช", maxLevel: 10, kind: 'active', desc: 'ฟาดศัตรูกระเด็นชนต่อกันทำดาเมจมหาศาล' },
-    { id: 'peco-peco-ride', name: "Peco Peco Ride", thai: "ขี่เปโกะ", maxLevel: 1, kind: 'passive', desc: 'ขี่สัตว์พาหนะเปโกะเพิ่มความเร็วเดิน' },
-    { id: 'spear-mastery', name: "Spear Mastery", thai: "ชำนาญหอก", maxLevel: 10, kind: 'passive', desc: 'เพิ่มพลังโจมตีเมื่อใช้อาวุธหอก' },
-    { id: 'pierce', name: "Pierce", thai: "แทงทะลวง", maxLevel: 10, kind: 'active', desc: 'แทงรัวหลายฮิตตามขนาดศัตรู' },
-    { id: 'brandish-spear', name: "Brandish Spear", thai: "กวาดหอก", maxLevel: 10, kind: 'active', desc: 'กวาดหอกโจมตีศัตรูรูปพัดด้านหน้า' }
-  ],
-  crusader: [
-    { id: 'faith', name: "Faith", thai: "ศรัทธา", maxLevel: 10, kind: 'passive', desc: 'เพิ่ม Max HP และความต้านทานธาตุแสง' },
-    { id: 'auto-guard', name: "Auto Guard", thai: "การ์ดป้องกันอัตโนมัติ", maxLevel: 10, kind: 'active', desc: 'ยกโล่บล็อกการโจมตีกายภาพ' },
-    { id: 'shield-charge', name: "Shield Charge", thai: "กระแทกโล่", maxLevel: 5, kind: 'active', desc: 'กระแทกโล่ทำให้ศัตรูกระเด็นและติดสตั๊น' },
-    { id: 'shield-boomerang', name: "Shield Boomerang", thai: "บูมเมอแรงโล่", maxLevel: 5, kind: 'active', desc: 'ขว้างโล่โจมตีศัตรูระยะไกลตามน้ำหนักโล่' },
-    { id: 'holy-cross', name: "Holy Cross", thai: "กางเขนศักดิ์สิทธิ์", maxLevel: 10, kind: 'active', desc: 'ฟันรูปไม้กางเขนธาตุแสงใส่ศัตรู' },
-    { id: 'grand-cross', name: "Grand Cross", thai: "แกรนด์ครอส", maxLevel: 10, kind: 'active', desc: 'ระเบิดกางเขนแสงศักดิ์สิทธิ์รอบตัว' }
-  ],
-  mage: [
-    { id: 'sp-recovery', name: "SP Recovery", thai: "ฟื้นฟู SP ไว", maxLevel: 10, kind: 'passive', desc: 'เร่งการฟื้นฟูค่า SP ขณะยืนนิ่ง' },
-    { id: 'fire-bolt', name: "Fire Bolt", thai: "ศรเพลิง", maxLevel: 10, kind: 'active', desc: 'ยิงลูกศรเพลิงหลายดอกใส่เป้าหมาย' },
-    { id: 'cold-bolt', name: "Cold Bolt", thai: "ศรน้ำแข็ง", maxLevel: 10, kind: 'active', desc: 'ยิงลูกศรเยือกแข็งหลายดอกใส่เป้าหมาย' },
-    { id: 'lightning-bolt', name: "Lightning Bolt", thai: "สายฟ้าฟาด", maxLevel: 10, kind: 'active', desc: 'ผ่าสายฟ้าฟาดใส่เป้าหมาย' },
-    { id: 'soul-strike', name: "Soul Strike", thai: "วิญญาณสังหาร", maxLevel: 10, kind: 'active', desc: 'ยิงกระสุนวิญญาณรวดเร็วใส่เป้าหมาย' },
-    { id: 'frost-diver', name: "Frost Diver", thai: "คลื่นเยือกแข็ง", maxLevel: 10, kind: 'active', req: 'Cold Bolt Lv.5', desc: 'ปล่อยคลื่นเยือกแข็งแช่แข็งศัตรู' },
-    { id: 'safety-wall', name: "Safety Wall", thai: "กำแพงคุ้มภัย", maxLevel: 10, kind: 'active', desc: 'สร้างม่านพลังป้องกันการโจมตีกายภาพ' }
-  ],
-  wizard: [
-    { id: 'storm-gust', name: "Storm Gust", thai: "พายุน้ำแข็ง", maxLevel: 10, kind: 'active', desc: 'ร่ายพายุหิมะซัดกระเด็นและแช่แข็งศัตรู' },
-    { id: 'lord-of-vermilion', name: "Lord of Vermilion", thai: "พายุอัสนีบาต", maxLevel: 10, kind: 'active', desc: 'เรียกพายุสายฟ้าถล่มพื้นที่เป็นวงกว้าง' },
-    { id: 'meteor-storm', name: "Meteor Storm", thai: "ฝนอุกกาบาต", maxLevel: 10, kind: 'active', desc: 'เรียกอุกกาบาตเพลิงตกลงมาสร้างความเสียหายมหาศาล' },
-    { id: 'jupitel-thunder', name: "Jupitel Thunder", thai: "จูปิเตอร์ธันเดอร์", maxLevel: 10, kind: 'active', desc: 'ยิงบอลสายฟ้าผลักกระเด็นทำความเสียหายรัว' },
-    { id: 'quagmire', name: "Quagmire", thai: "โคลนดูด", maxLevel: 5, kind: 'active', desc: 'สร้างบึงโคลนดูดลดความเร็วเดิน, AGI และ DEX' },
-    { id: 'earth-spike', name: "Earth Spike", thai: "เสาหินทิ่มแทง", maxLevel: 5, kind: 'active', desc: 'เรียกแท่งหินพุ่งขึ้นมาทิ่มแทงศัตรู' },
-    { id: 'heavens-drive', name: "Heaven's Drive", thai: "แผ่นดินสะเทือน", maxLevel: 5, kind: 'active', desc: 'ทำให้แผ่นดินไหวโจมตีศัตรูในพื้นที่' }
-  ],
-  thief: [
-    { id: 'double-attack', name: "Double Attack", thai: "โจมตีสองจังหวะ", maxLevel: 10, kind: 'passive', desc: 'มีโอกาสโจมตีเบิ้ล 2 ครั้งเมื่อใช้มีด' },
-    { id: 'improve-dodge', name: "Flee Mastery", thai: "ชำนาญหลบหลีก", maxLevel: 10, kind: 'passive', desc: 'เพิ่มอัตราการหลบหลีก (Flee) อย่างถาวร' },
-    { id: 'steal', name: "Steal", thai: "ขโมยของ", maxLevel: 10, kind: 'active', desc: 'ขโมยไอเทมจากมอนสเตอร์' },
-    { id: 'hiding', name: "Hiding", thai: "ซ่อนตัว", maxLevel: 10, kind: 'active', desc: 'ซ่อนตัวใต้ดินหลบสายตาศัตรู' },
-    { id: 'envenom', name: "Envenom", thai: "พิษสังหาร", maxLevel: 10, kind: 'active', desc: 'โจมตีด้วยพิษทำให้ติดสถานะพิษ' },
-    { id: 'back-slide', name: "Back Slide", thai: "สไลด์ถอยหลัง", maxLevel: 1, kind: 'active', desc: 'สไลด์ถอยหลัง 5 ช่องอย่างรวดเร็ว' }
-  ],
-  assassin: [
-    { id: 'katar-mastery', name: "Katar Mastery", thai: "ชำนาญกาตาร์", maxLevel: 10, kind: 'passive', desc: 'เพิ่มพลังโจมตีเมื่อใช้อาวุธประเภทกาตาร์' },
-    { id: 'sonic-blow', name: "Sonic Blow", thai: "โซนิคโบลว์", maxLevel: 10, kind: 'active', desc: 'ฟันรัว 8 ครั้งอย่างรวดเร็วและมีโอกาสติดสตั๊น' },
-    { id: 'grimtooth', name: "Grimtooth", thai: "กริมทูธ", maxLevel: 5, kind: 'active', desc: 'โจมตีศัตรูระยะไกลขณะซ่อนตัวใต้ดิน' },
-    { id: 'enchant-poison', name: "Enchant Poison", thai: "เคลือบพิษ", maxLevel: 10, kind: 'active', desc: 'เคลือบพิษใส่อาวุธโจมตีเป็นธาตุพิษ' },
-    { id: 'venom-dust', name: "Venom Dust", thai: "หมอกพิษ", maxLevel: 10, kind: 'active', desc: 'โปรยหมอกพิษใส่พื้นที่ศัตรูที่เหยียบจะติดพิษ' },
-    { id: 'cloaking', name: "Cloaking", thai: "พรางกาย", maxLevel: 10, kind: 'active', desc: 'เดินพรางกายเลียบกำแพงโดยไม่ถูกตรวจพบ' }
-  ],
-  acolyte: [
-    { id: 'heal', name: "Heal", thai: "รักษาฟื้นฟู", maxLevel: 10, kind: 'active', desc: 'ฟื้นฟู HP ให้ตนเองหรือเพื่อนร่วมทีม' },
-    { id: 'increase-agi', name: "Increase AGI", thai: "เร่งความเร็ว", maxLevel: 10, kind: 'active', req: 'Heal Lv.2', desc: 'เพิ่มค่า AGI และความเร็วในการเดิน' },
-    { id: 'blessing', name: "Blessing", thai: "อวยพรเทพ", maxLevel: 10, kind: 'active', req: 'Divine Protection Lv.5', desc: 'เพิ่มค่า STR, INT, DEX อย่างละ 10' },
-    { id: 'divine-protection', name: "Divine Protection", thai: "คุ้มกันศักดิ์สิทธิ์", maxLevel: 10, kind: 'passive', desc: 'ลดความเสียหายจากมอนสเตอร์ Undead และ Demon' },
-    { id: 'pneuma', name: "Pneuma", thai: "เกราะวายุ", maxLevel: 1, kind: 'active', desc: 'สร้างเกราะป้องกันการโจมตีระยะไกลทุกชนิด' },
-    { id: 'holy-light', name: "Holy Light", thai: "แสงศักดิ์สิทธิ์", maxLevel: 1, kind: 'active', desc: 'ยิงลำแสงศักดิ์สิทธิ์ธาตุแสงใส่ศัตรู' }
-  ],
-  priest: [
-    { id: 'kyrie-eleison', name: "Kyrie Eleison", thai: "เกราะป้องกันกายภาพ", maxLevel: 10, kind: 'active', desc: 'สร้างบาเรียคุ้มกันบล็อกการโจมตีกายภาพ' },
-    { id: 'magnus-exorcismus', name: "Magnus Exorcismus", thai: "วงแหวนขับไล่ปีศาจ", maxLevel: 10, kind: 'active', desc: 'สร้างวงแหวนศักดิ์สิทธิ์ทำลายล้าง Undead/Demon' },
-    { id: 'gloria', name: "Gloria", thai: "กลอเรีย", maxLevel: 5, kind: 'active', desc: 'เพิ่มค่า LUK +30 ให้ปาร์ตี้ทั้งหมด' },
-    { id: 'impositio-manus', name: "Impositio Manus", thai: "เพิ่มพลังโจมตีอาวุธ", maxLevel: 5, kind: 'active', desc: 'เพิ่มพลังโจมตีกายภาพโดยตรงแก่อาวุธ' },
-    { id: 'aspersio', name: "Aspersio", thai: "เคลือบธาตุแสง", maxLevel: 5, kind: 'active', desc: 'เปลี่ยนธาตุอาวุธให้เป็นธาตุแสง' },
-    { id: 'sanctuary', name: "Sanctuary", thai: "แซงชัวรี", maxLevel: 10, kind: 'active', desc: 'สร้างพื้นที่ฟื้นฟู HP ให้ทุกคนในรัศมี' },
-    { id: 'resurrection', name: "Resurrection", thai: "ชุบชีวิต", maxLevel: 4, kind: 'active', desc: 'ชุบชีวิตเพื่อนร่วมทีมที่เสียชีวิต' }
-  ],
-  merchant: [
-    { id: 'enlarge-weight', name: "Enlarge Weight", thai: "แบกน้ำหนักเพิ่ม", maxLevel: 10, kind: 'passive', desc: 'เพิ่มขีดจำกัดน้ำหนักกระเป๋า' },
-    { id: 'discount', name: "Discount", thai: "ส่วนลดร้านค้า", maxLevel: 10, kind: 'passive', desc: 'ซื้อไอเทมจาก NPC ถูกลงสูงสุด 24%' },
-    { id: 'over-thrust', name: "Over Thrust", thai: "เพิ่มพลังอาวุธ", maxLevel: 10, kind: 'active', desc: 'เพิ่มพลังโจมตีของปาร์ตี้อย่างมหาศาล' },
-    { id: 'mammonite', name: "Mammonite", thai: "ฟาดด้วยเงิน", maxLevel: 10, kind: 'active', desc: 'จ่าย Zeny ฟาดศัตรูทำดาเมจ 600%' },
-    { id: 'loud-exclamation', name: "Shout", thai: "ตะโกนฮึกเหิม", maxLevel: 1, kind: 'active', desc: 'ตะโกนเพิ่มค่า STR +4' }
-  ],
-  blacksmith: [
-    { id: 'adrenaline-rush', name: "Adrenaline Rush", thai: "อะดรีนาลีนเร่งตี", maxLevel: 5, kind: 'active', desc: 'เพิ่มความเร็วการโจมตี (ASPD) 30% เมื่อใช้ขวาน/ค้อน' },
-    { id: 'weapon-perfection', name: "Weapon Perfection", thai: "อาวุธไร้ขนาด", maxLevel: 5, kind: 'active', desc: 'ทำดาเมจ 100% ใส่มอนสเตอร์ทุกขนาด (เล็ก กลาง ใหญ่)' },
-    { id: 'hammer-fall', name: "Hammer Fall", thai: "ค้อนสตั๊น", maxLevel: 5, kind: 'active', desc: 'ฟาดค้อนลงพื้นทำให้ศัตรูรอบข้างติดสตั๊น' },
-    { id: 'weaponry-research', name: "Weaponry Research", thai: "วิจัยอาวุธ", maxLevel: 10, kind: 'passive', desc: 'เพิ่มพลังโจมตีและความแม่นยำอย่างถาวร' }
-  ]
-};
+// Generated from the game's own skill catalog (window.__skillCatalog): names, learnable max level and
+// prerequisites match the game. Regenerate when the game adds skills.
+const SKILLS_DATABASE = { "novice": [
+    { "id": "basic-skill", "name": "Adventurer's Instinct", "thai": "ทักษะพื้นฐาน", "maxLevel": 9, "kind": "passive", "desc": "ทักษะพื้นฐานของนักผจญภัย ต้องฝึกจนถึง Lv.9 จึงเปลี่ยนอาชีพได้" },
+    { "id": "first-aid", "name": "Field Mend", "thai": "ปฐมพยาบาล", "maxLevel": 1, "kind": "active", "desc": "ทำแผลเบื้องต้นให้ตัวเอง ฟื้นฟู HP เล็กน้อย" }
+  ], "swordsman": [
+    { "id": "sword-mastery", "name": "Blade Mastery", "thai": "ชำนาญดาบ", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีเมื่อใช้ดาบ เป็นพื้นฐานของสายนักดาบ" },
+    { "id": "bash", "name": "Crushing Blow", "thai": "ฟันกระแทก", "maxLevel": 10, "kind": "active", "desc": "ฟันศัตรูอย่างรุนแรง ตั้งแต่ Lv.6 มีโอกาสทำให้เป้าหมายมึนงง" },
+    { "id": "provoke", "name": "Challenger's Roar", "thai": "ยั่วยุ", "maxLevel": 10, "kind": "active", "desc": "ยั่วยุศัตรูทุกตัวในรัศมี 5 ช่องรอบตัวให้หันมาสู้ (ดึงมอน) และลดพลังป้องกันของพวกมัน (ไม่มีผลกับเผ่า Undead)" },
+    { "id": "hp-recovery", "name": "Iron Vitality", "thai": "ฟื้นฟูพลังชีวิต", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มการฟื้นฟู HP ตามธรรมชาติ" },
+    { "id": "magnum-break", "name": "Inferno Burst", "thai": "ระเบิดเพลิง", "maxLevel": 10, "kind": "active", "req": "ฟันกระแทก Lv.3", "prereq": [
+    { "skill": "bash", "level": 3 }
+  ], "desc": "ระเบิดพลังเพลิงรอบตัว ทำความเสียหายธาตุไฟต่อศัตรูรอบด้าน และผลักศัตรูที่โดนกระเด็น 2 ช่อง หลังใช้ได้รับบัพ ความเสียหายกายภาพ +10% เป็นเวล..." },
+    { "id": "endure", "name": "Unbroken Will", "thai": "จิตมั่นคง", "maxLevel": 10, "kind": "active", "req": "ยั่วยุ Lv.3", "prereq": [
+    { "skill": "provoke", "level": 3 }
+  ], "desc": "ตั้งสติต้านทานการโจมตี เพิ่มพลังป้องกันเวทชั่วคราว" }
+  ], "mage": [
+    { "id": "staff-mastery", "name": "Arcane Focus", "thai": "ชำนาญไม้เท้า", "maxLevel": 10, "kind": "passive", "desc": "ถือไม้เท้า MATK +3 ต่อเลเวล (Lv.10 = +30)" },
+    { "id": "sp-recovery", "name": "Mana Flow", "thai": "ฟื้นฟูพลังเวท", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มการฟื้นฟู SP ตามธรรมชาติ" },
+    { "id": "fire-bolt", "name": "Flame Lance", "thai": "ศรเพลิง", "maxLevel": 10, "kind": "active", "desc": "ยิงศรเพลิงตามจำนวนเลเวลสกิล ธาตุไฟ" },
+    { "id": "cold-bolt", "name": "Frost Lance", "thai": "ศรน้ำแข็ง", "maxLevel": 10, "kind": "active", "desc": "ยิงศรน้ำแข็งตามจำนวนเลเวลสกิล ธาตุน้ำ" },
+    { "id": "lightning-bolt", "name": "Thunder Lance", "thai": "ศรสายฟ้า", "maxLevel": 10, "kind": "active", "desc": "ยิงศรสายฟ้าตามจำนวนเลเวลสกิล ธาตุลม" },
+    { "id": "soul-strike", "name": "Spirit Barrage", "thai": "ดวงวิญญาณพุ่งชน", "maxLevel": 10, "kind": "active", "desc": "ปล่อยดวงวิญญาณธาตุวิญญาณ จำนวนลูกเพิ่มทุก 2 เลเวล" },
+    { "id": "napalm-beat", "name": "Psychic Burst", "thai": "คลื่นจิต", "maxLevel": 10, "kind": "active", "desc": "คลื่นพลังจิตระเบิดรอบเป้าหมาย ธาตุวิญญาณ" },
+    { "id": "frost-diver", "name": "Glacial Spike", "thai": "ธาราเยือกแข็ง", "maxLevel": 10, "kind": "active", "req": "ศรน้ำแข็ง Lv.5", "prereq": [
+    { "skill": "cold-bolt", "level": 5 }
+  ], "desc": "ยิงคลื่นน้ำแข็ง มีโอกาสแช่แข็งเป้าหมาย" },
+    { "id": "sight", "name": "Revealing Flame", "thai": "ไฟส่องทาง", "maxLevel": 1, "kind": "active", "desc": "เรียกลูกไฟวนรอบตัว 10 วินาที ผู้เล่นฝ่ายศัตรูที่หายตัวอยู่ในรัศมี 6 ช่องจะโผล่ออกมา" }
+  ], "archer": [
+    { "id": "owl-eye", "name": "Keen Eye", "thai": "ตานกฮูก", "maxLevel": 10, "kind": "passive", "desc": "สายตาแหลมคม เพิ่ม DEX ถาวร" },
+    { "id": "vulture-eye", "name": "Eagle Sight", "thai": "ตาแร้ง", "maxLevel": 10, "kind": "passive", "req": "ตานกฮูก Lv.3", "prereq": [
+    { "skill": "owl-eye", "level": 3 }
+  ], "desc": "เพิ่มระยะยิงและความแม่นยำ" },
+    { "id": "double-strafe", "name": "Twin Shot", "thai": "ยิงคู่", "maxLevel": 10, "kind": "active", "desc": "ยิงลูกธนูสองดอกติดกัน" },
+    { "id": "arrow-shower", "name": "Arrow Rain", "thai": "ฝนธนู", "maxLevel": 10, "kind": "active", "req": "ยิงคู่ Lv.5", "prereq": [
+    { "skill": "double-strafe", "level": 5 }
+  ], "desc": "ยิงธนูเป็นห่าฝนลงพื้นที่ที่เลือก โดนศัตรูทุกตัวในวง (ใช้ดึงมอนเป็นกลุ่มได้)" },
+    { "id": "improve-concentration", "name": "Hunter's Focus", "thai": "เพิ่มสมาธิ", "maxLevel": 10, "kind": "active", "req": "ตาแร้ง Lv.1", "prereq": [
+    { "skill": "vulture-eye", "level": 1 }
+  ], "desc": "รวบรวมสมาธิ เพิ่ม AGI และ DEX ชั่วคราว" }
+  ], "acolyte": [
+    { "id": "heal", "name": "Mending Light", "thai": "แสงเยียวยา", "maxLevel": 10, "kind": "active", "desc": "ฟื้นฟู HP ให้ตัวเองหรือพันธมิตร ปริมาณขึ้นกับ Base Level และ INT และ INT ทุก 2 แต้มเพิ่มพลังฮีลอีก 1% ใช้กับมอนเผ่า Undead จะทำดาเมจศักดิ..." },
+    { "id": "divine-protection", "name": "Sacred Ward", "thai": "พรคุ้มครอง", "maxLevel": 10, "kind": "passive", "desc": "พลังศักดิ์สิทธิ์ปกป้อง ลดดาเมจที่ได้รับจากมอนเผ่า Undead และ Demon" },
+    { "id": "blessing", "name": "Heaven's Favor", "thai": "พรแห่งสวรรค์", "maxLevel": 10, "kind": "active", "req": "พรคุ้มครอง Lv.5", "prereq": [
+    { "skill": "divine-protection", "level": 5 }
+  ], "desc": "อวยพรให้ STR INT DEX เพิ่มขึ้นชั่วคราว" },
+    { "id": "increase-agi", "name": "Swiftness", "thai": "เพิ่มความว่องไว", "maxLevel": 10, "kind": "active", "req": "แสงเยียวยา Lv.3", "prereq": [
+    { "skill": "heal", "level": 3 }
+  ], "desc": "เพิ่ม AGI และความเร็วเคลื่อนที่ชั่วคราว" },
+    { "id": "holy-light", "name": "Radiant Smite", "thai": "แสงศักดิ์สิทธิ์", "maxLevel": 5, "kind": "active", "desc": "ยิงลำแสงธาตุศักดิ์สิทธิ์ ดาเมจเวท 300% ที่ Lv.1 เพิ่มขึ้นเลเวลละ 50% (500% ที่ Lv.5) มอนเผ่า Undead และ Demon โดนแรงเป็น 2 เท่า" },
+    { "id": "mace-mastery", "name": "Mace Discipline", "thai": "ชำนาญกระบอง", "maxLevel": 10, "kind": "passive", "desc": "ถือกระบอง ATK +3 ต่อเลเวล" }
+  ], "merchant": [
+    { "id": "enlarge-weight", "name": "Pack Mule", "thai": "ขยายน้ำหนักบรรทุก", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มน้ำหนักที่แบกได้" },
+    { "id": "discount", "name": "Haggler", "thai": "ต่อราคา", "maxLevel": 10, "kind": "passive", "req": "ขยายน้ำหนักบรรทุก Lv.3", "prereq": [
+    { "skill": "enlarge-weight", "level": 3 }
+  ], "desc": "ซื้อของจาก NPC ถูกลง" },
+    { "id": "axe-mastery", "name": "Axe Discipline", "thai": "ชำนาญขวาน", "maxLevel": 10, "kind": "passive", "desc": "ถือขวานมือเดียว ATK +4 ต่อเลเวล" },
+    { "id": "mammonite", "name": "Gold Smash", "thai": "ทุบด้วยเงิน", "maxLevel": 10, "kind": "active", "desc": "ทุ่มเงินทุบศัตรูอย่างแรง ใช้ Zeny ทุกครั้ง" },
+    { "id": "loud-exclamation", "name": "Battle Shout", "thai": "ตะโกนปลุกใจ", "maxLevel": 1, "kind": "active", "req": "ต่อราคา Lv.3", "prereq": [
+    { "skill": "discount", "level": 3 }
+  ], "desc": "ตะโกนปลุกใจตัวเอง เพิ่ม STR และพลังโจมตี" }
+  ], "thief": [
+    { "id": "dagger-mastery", "name": "Dagger Finesse", "thai": "ชำนาญมีดสั้น", "maxLevel": 10, "kind": "passive", "desc": "ติดตัว: พลังโจมตีเพิ่มขึ้นเมื่อถือมีดสั้น" },
+    { "id": "double-attack", "name": "Twin Fang", "thai": "โจมตีสองจังหวะ", "maxLevel": 10, "kind": "passive", "desc": "มีโอกาสโจมตีปกติสองครั้งเมื่อใช้มีดสั้น" },
+    { "id": "improve-dodge", "name": "Evasion Art", "thai": "หลบหลีกชำนาญ", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มอัตราการหลบหลีก" },
+    { "id": "steal", "name": "Pickpocket", "thai": "ขโมย", "maxLevel": 10, "kind": "active", "desc": "ขโมยไอเทมจากมอนสเตอร์ ได้ครั้งเดียวต่อมอนหนึ่งตัว" },
+    { "id": "hiding", "name": "Vanish", "thai": "ซ่อนตัว", "maxLevel": 10, "kind": "toggle", "req": "ขโมย Lv.5", "prereq": [
+    { "skill": "steal", "level": 5 }
+  ], "desc": "ซ่อนตัวใต้ดิน มอนเลิกไล่ แต่เคลื่อนที่ไม่ได้และเสีย SP ต่อเนื่อง" },
+    { "id": "back-slide", "name": "Backflip", "thai": "ถอยฉาก", "maxLevel": 1, "kind": "active", "desc": "กระโดดถอยหลัง 5 ช่อง ทิศตรงข้ามกับที่ตัวละครหันอยู่ (แบบ RO) ตัวละครยังหันหน้าเดิม ชนกำแพงแล้วหยุด" },
+    { "id": "envenom", "name": "Venom Strike", "thai": "จู่โจมพิษ", "maxLevel": 10, "kind": "active", "desc": "โจมตีด้วยพิษ มีโอกาสทำให้เป้าหมายติดพิษ" }
+  ], "dragon-knight": [
+    { "id": "dragon-breath", "name": "Wyrmfire", "thai": "ลมหายใจมังกร", "maxLevel": 10, "kind": "active", "desc": "อัญเชิญมังกรเพลิงจากวงเวทย์ด้านหลัง พ่นไฟเป็นรูปกรวยใส่ศัตรูทุกตัวด้านหน้า โดน 5 ครั้ง" }
+  ], "wizard": [
+    { "id": "safety-wall", "name": "Aegis Barrier", "thai": "กำแพงนิรภัย", "maxLevel": 10, "kind": "active", "desc": "วางวงเวทบนพื้น ใครยืนในวงไม่โดนดาเมจกายภาพ (เวทยังโดน) อยู่ 8 วินาที +3 ต่อเลเวล" },
+    { "id": "jupitel-thunder", "name": "Thunder Orb", "thai": "ลูกบอลสายฟ้า", "maxLevel": 10, "kind": "active", "req": "ศรสายฟ้า Lv.5", "prereq": [
+    { "skill": "lightning-bolt", "level": 5 }
+  ], "desc": "ยิงลูกบอลสายฟ้าที่ระเบิดหลายครั้ง ธาตุลม ผลักเป้าหมายกระเด็นออกไป" },
+    { "id": "heavens-drive", "name": "Earth Rupture", "thai": "ธรณีทะลวง", "maxLevel": 10, "kind": "active", "req": "คลื่นจิต Lv.3", "prereq": [
+    { "skill": "napalm-beat", "level": 3 }
+  ], "desc": "หนามหินพุ่งขึ้นจากพื้นในพื้นที่ที่เลือก ธาตุดิน โดนศัตรูทุกตัวในวง" },
+    { "id": "quagmire", "name": "Sinking Mire", "thai": "บึงโคลน", "maxLevel": 10, "kind": "active", "req": "ธรณีทะลวง Lv.1", "prereq": [
+    { "skill": "heavens-drive", "level": 1 }
+  ], "desc": "เปลี่ยนพื้นเป็นบึงโคลน มอนในวงเดินช้าลง" },
+    { "id": "storm-gust", "name": "Blizzard Tempest", "thai": "พายุหิมะ", "maxLevel": 10, "kind": "active", "req": "ธาราเยือกแข็ง Lv.3, ลูกบอลสายฟ้า Lv.3", "prereq": [
+    { "skill": "frost-diver", "level": 3 },
+    { "skill": "jupitel-thunder", "level": 3 }
+  ], "desc": "พายุหิมะโหมกระหน่ำในพื้นที่กว้าง ธาตุน้ำ โดนหลายครั้งและมีโอกาสแช่แข็ง" },
+    { "id": "meteor-storm", "name": "Meteor Rain", "thai": "ฝนอุกกาบาต", "maxLevel": 10, "kind": "active", "req": "ศรเพลิง Lv.5, ธรณีทะลวง Lv.3", "prereq": [
+    { "skill": "fire-bolt", "level": 5 },
+    { "skill": "heavens-drive", "level": 3 }
+  ], "desc": "เรียกอุกกาบาตเพลิงถล่มพื้นที่ ธาตุไฟ ตกลงมาทีละลูกช้าๆ มีโอกาสทำให้มึนงง" },
+    { "id": "lord-of-vermilion", "name": "Wrath of Thunder", "thai": "อสนีบาตพิโรธ", "maxLevel": 10, "kind": "active", "req": "ลูกบอลสายฟ้า Lv.5", "prereq": [
+    { "skill": "jupitel-thunder", "level": 5 }
+  ], "desc": "สายฟ้านับร้อยฟาดลงพื้นที่กว้าง ธาตุลม โดนหลายครั้ง" }
+  ], "sage": [
+    { "id": "advanced-book", "name": "Tome Mastery", "thai": "ชำนาญหนังสือ", "maxLevel": 10, "kind": "passive", "desc": "ชำนาญการใช้หนังสือ: เพิ่มพลังโจมตีและความเร็วโจมตีเมื่อถือหนังสือ · เดินขณะร่ายได้ (ความเร็ว 10% ต่อเลเวล, Lv.10 เต็มความเร็ว) และโจมตีปก..." },
+    { "id": "dragonology", "name": "Dragon Lore", "thai": "ปราชญ์มังกร", "maxLevel": 5, "kind": "passive", "desc": "ศึกษาศาสตร์แห่งมังกร: MATK และ DEF +4% ต่อเลเวล (Lv.5 +20%), INT +1/+1/+2/+2/+3" },
+    { "id": "earth-spike", "name": "Stone Spikes", "thai": "หนามปฐพี", "maxLevel": 10, "kind": "active", "desc": "หนามหินแทงขึ้นใต้เป้าหมายตามจำนวนเลเวลสกิล ธาตุดิน" },
+    { "id": "endow-blaze", "name": "Flame Enchant", "thai": "อาวุธเพลิง", "maxLevel": 5, "kind": "active", "req": "ชำนาญหนังสือ Lv.2, ศรเพลิง Lv.1", "prereq": [
+    { "skill": "advanced-book", "level": 2 },
+    { "skill": "fire-bolt", "level": 1 }
+  ], "desc": "ใส่พลังธาตุไฟให้อาวุธของตัวเองหรือพันธมิตร การโจมตีปกติกลายเป็นธาตุไฟ (มีได้ทีละธาตุ)" },
+    { "id": "endow-tsunami", "name": "Tide Enchant", "thai": "อาวุธวารี", "maxLevel": 5, "kind": "active", "req": "ชำนาญหนังสือ Lv.2, ศรน้ำแข็ง Lv.1", "prereq": [
+    { "skill": "advanced-book", "level": 2 },
+    { "skill": "cold-bolt", "level": 1 }
+  ], "desc": "ใส่พลังธาตุน้ำให้อาวุธของตัวเองหรือพันธมิตร การโจมตีปกติกลายเป็นธาตุน้ำ (มีได้ทีละธาตุ)" },
+    { "id": "endow-tornado", "name": "Gale Enchant", "thai": "อาวุธวายุ", "maxLevel": 5, "kind": "active", "req": "ชำนาญหนังสือ Lv.2, ศรสายฟ้า Lv.1", "prereq": [
+    { "skill": "advanced-book", "level": 2 },
+    { "skill": "lightning-bolt", "level": 1 }
+  ], "desc": "ใส่พลังธาตุลมให้อาวุธของตัวเองหรือพันธมิตร การโจมตีปกติกลายเป็นธาตุลม (มีได้ทีละธาตุ)" },
+    { "id": "endow-quake", "name": "Stone Enchant", "thai": "อาวุธปฐพี", "maxLevel": 5, "kind": "active", "req": "ชำนาญหนังสือ Lv.2, หนามปฐพี Lv.1", "prereq": [
+    { "skill": "advanced-book", "level": 2 },
+    { "skill": "earth-spike", "level": 1 }
+  ], "desc": "ใส่พลังธาตุดินให้อาวุธของตัวเองหรือพันธมิตร การโจมตีปกติกลายเป็นธาตุดิน (มีได้ทีละธาตุ)" },
+    { "id": "auto-spell", "name": "Spell Echo", "thai": "เวทอัตโนมัติ", "maxLevel": 10, "kind": "active", "req": "ชำนาญหนังสือ Lv.3", "prereq": [
+    { "skill": "advanced-book", "level": 3 }
+  ], "desc": "ช่วงเวลาหนึ่ง การโจมตีปกติที่โดนมีโอกาสร่าย Flame/Frost/Thunder Lance หรือ Stone Spikes ที่เรียนแล้วโดยอัตโนมัติ ที่เลเวลของสกิลนั้นในตัว..." },
+    { "id": "create-converter", "name": "Craft Element Scroll", "thai": "สร้างใบธาตุ", "maxLevel": 1, "kind": "active", "req": "ชำนาญหนังสือ Lv.5", "prereq": [
+    { "skill": "advanced-book", "level": 5 }
+  ], "desc": "สร้างใบธาตุ (ไฟ น้ำ ลม ดิน) จาก Blank Scroll 1 แผ่น + หินธาตุ 2 ก้อนต่อใบ (Red Blood, Crystal Blue, Wind of Verdure, Green Live ดรอปจากมอ..." },
+    { "id": "land-protector", "name": "Sealed Ground", "thai": "ผนึกปฐพี", "maxLevel": 1, "kind": "active", "desc": "วางผนึกบนพื้น 11 ช่อง (รัศมี 5.5) ผู้เล่นที่ยืนในวงไม่รับผลเวทมนต์ใดๆ: เวทของมอน สกิลเวทของบอส (รวมมึน/แช่แข็งที่ติดมา) และเวทใน PvP อยู่..." }
+  ], "knight": [
+    { "id": "two-hand-sword-mastery", "name": "Greatsword Mastery", "thai": "ชำนาญดาบสองมือ", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีเมื่อใช้ดาบสองมือ" },
+    { "id": "spear-dynamo", "name": "Spear Fervor", "thai": "พลังหอก", "maxLevel": 10, "kind": "passive", "req": "ชำนาญหอก Lv.1", "prereq": [
+    { "skill": "spear-mastery", "level": 1 }
+  ], "desc": "ติดตัว: ความเสียหายระยะประชิดเพิ่มขึ้นเมื่อถือหอก (มือเดียวหรือสองมือ) คู่กับ Greatsword Haste ของสายดาบ แต่เพิ่มแรงแทนความเร็ว" },
+    { "id": "pierce", "name": "Piercing Lunge", "thai": "แทงทะลวง", "maxLevel": 10, "kind": "active", "req": "ฟันกระแทก Lv.5", "prereq": [
+    { "skill": "bash", "level": 5 }
+  ], "desc": "แทงเป้าหมายต่อเนื่องหลายครั้ง จำนวนครั้งเพิ่มตามเลเวล" },
+    { "id": "bowling-bash", "name": "Cleaving Storm", "thai": "ฟันกวาดกระแทก", "maxLevel": 10, "kind": "active", "req": "ฟันกระแทก Lv.5, ระเบิดเพลิง Lv.3", "prereq": [
+    { "skill": "bash", "level": 5 },
+    { "skill": "magnum-break", "level": 3 }
+  ], "desc": "เลือกจุดบนพื้น ฟาดศัตรูทุกตัวในรัศมี 3 ช่องรอบจุดนั้นสองครั้ง แล้วผลักกระเด็นออกจากจุดกลาง" },
+    { "id": "brandish-spear", "name": "Spear Sweep", "thai": "กวาดใบมีด", "maxLevel": 10, "kind": "active", "req": "แทงทะลวง Lv.3", "prereq": [
+    { "skill": "pierce", "level": 3 }
+  ], "desc": "เลือกจุดบนพื้นในระยะ 4 ช่อง กวาดอาวุธโดนศัตรูทุกตัวในรัศมี 3 ช่องรอบจุดนั้น" },
+    { "id": "two-hand-quicken", "name": "Greatsword Haste", "thai": "เร่งดาบสองมือ", "maxLevel": 10, "kind": "active", "req": "ชำนาญดาบสองมือ Lv.1", "prereq": [
+    { "skill": "two-hand-sword-mastery", "level": 1 }
+  ], "desc": "เร่งความเร็วโจมตีและคริติคอลชั่วคราว" },
+    { "id": "parry", "name": "Riposte Guard", "thai": "ปัดป้อง", "maxLevel": 10, "kind": "active", "req": "ยั่วยุ Lv.5, ชำนาญดาบสองมือ Lv.10, เร่งดาบสองมือ Lv.3", "prereq": [
+    { "skill": "provoke", "level": 5 },
+    { "skill": "two-hand-sword-mastery", "level": 10 },
+    { "skill": "two-hand-quicken", "level": 3 }
+  ], "desc": "ตั้งท่าปัดป้องด้วยดาบสองมือ ช่วงบัพมีโอกาสปัดการโจมตีทางกายภาพทิ้ง (ไม่โดนดาเมจ) ต้องถือดาบสองมือ" },
+    { "id": "charge-attack", "name": "Valiant Charge", "thai": "พุ่งโจมตี", "maxLevel": 1, "kind": "active", "desc": "พุ่งเข้าหาศัตรูจากระยะไกลแล้วฟาดทันที ยิ่งพุ่งไกลยิ่งแรง แบบ RO: ทุก 2 ช่องที่พุ่ง +100% (100% ถึง 500% ที่ระยะ 9 ช่อง) เลเวลเดียว ไม่ต้อ..." },
+    { "id": "spear-mastery", "name": "Lance Mastery", "thai": "ชำนาญหอก", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีเมื่อใช้หอก" },
+    { "id": "peco-peco-ride", "name": "Peco Rider", "thai": "ขี่เปโก้เปโก้", "maxLevel": 1, "kind": "passive", "req": "จิตมั่นคง Lv.1", "prereq": [
+    { "skill": "endure", "level": 1 }
+  ], "desc": "ขี่ Peco Peco ได้ (เช่าที่ Healer Mira 2,500 z) ขี่แล้วเดินเร็วขึ้น 25% แต่ตีช้าลง 25%" },
+    { "id": "peco-peco-master", "name": "Cavalry Mastery", "thai": "ชำนาญการขี่", "maxLevel": 5, "kind": "passive", "req": "ขี่เปโก้เปโก้ Lv.1", "prereq": [
+    { "skill": "peco-peco-ride", "level": 1 }
+  ], "desc": "ขี่ Peco Peco แล้วตีช้าลงน้อยลง 5% ต่อเลเวล (Lv5 ไม่ช้าลงเลย)" }
+  ], "crusader": [
+    { "id": "faith", "name": "Devotion", "thai": "ศรัทธา", "maxLevel": 10, "kind": "passive", "desc": "เพิ่ม HP สูงสุดถาวร +200 ต่อเลเวล (Lv.10 = +2,000) HP ปัจจุบันไม่เต็มเอง ต้องฟื้นขึ้นมา" },
+    { "id": "holy-cross", "name": "Sacred Cross", "thai": "กางเขนศักดิ์สิทธิ์", "maxLevel": 10, "kind": "active", "req": "ศรัทธา Lv.3", "prereq": [
+    { "skill": "faith", "level": 3 }
+  ], "desc": "ฟันเป็นรูปกางเขนสองครั้ง ธาตุศักดิ์สิทธิ์" },
+    { "id": "grand-cross", "name": "Divine Crucible", "thai": "กางเขนมหาศักดิ์สิทธิ์", "maxLevel": 10, "kind": "active", "req": "กางเขนศักดิ์สิทธิ์ Lv.5, ศรัทธา Lv.5", "prereq": [
+    { "skill": "holy-cross", "level": 5 },
+    { "skill": "faith", "level": 5 }
+  ], "desc": "ปลดปล่อยกางเขนแสงสีขาวรอบตัว ธาตุศักดิ์สิทธิ์ (ATK + MATK) โดนศัตรูรอบด้าน 6 ครั้ง" },
+    { "id": "shield-charge", "name": "Shield Rush", "thai": "พุ่งชนด้วยโล่", "maxLevel": 10, "kind": "active", "req": "ป้องกันอัตโนมัติ Lv.5", "prereq": [
+    { "skill": "auto-guard", "level": 5 }
+  ], "desc": "พุ่งชนด้วยโล่ ผลักกระเด็นและมีโอกาสทำให้มึนงง" },
+    { "id": "shield-boomerang", "name": "Aegis Throw", "thai": "โล่บูมเมอแรง", "maxLevel": 10, "kind": "active", "req": "พุ่งชนด้วยโล่ Lv.3", "prereq": [
+    { "skill": "shield-charge", "level": 3 }
+  ], "desc": "ขว้างโล่หมุนใส่ศัตรูระยะไกล กระแทก 5 ครั้งแล้วบินกลับมือ แรงขึ้นตามค่าตีบวกโล่ (+5% ต่อขั้น) และ VIT (+0.5% ต่อแต้ม)" },
+    { "id": "auto-guard", "name": "Bulwark", "thai": "ป้องกันอัตโนมัติ", "maxLevel": 10, "kind": "active", "desc": "ยกโล่ตั้งรับ มีโอกาสกันการโจมตีได้ทั้งหมดชั่วคราว" },
+    { "id": "grand-peco-ride", "name": "Grand Peco Rider", "thai": "ขี่แกรนด์เปโก้", "maxLevel": 1, "kind": "passive", "req": "ศรัทธา Lv.1", "prereq": [
+    { "skill": "faith", "level": 1 }
+  ], "desc": "ขี่ Peco Peco ได้ (เช่าที่ Healer Mira 2,500 z) ขี่แล้วเดินเร็วขึ้น 25% แต่ตีช้าลง 25% (ผลเหมือน Peco Rider ของ Knight)" },
+    { "id": "grand-peco-master", "name": "Holy Cavalry", "thai": "ชำนาญการขี่แกรนด์เปโก้", "maxLevel": 5, "kind": "passive", "req": "ขี่แกรนด์เปโก้ Lv.1", "prereq": [
+    { "skill": "grand-peco-ride", "level": 1 }
+  ], "desc": "ขี่ Peco Peco แล้วตีช้าลงน้อยลง 5% ต่อเลเวล (Lv5 ไม่ช้าลงเลย)" }
+  ], "hunter": [
+    { "id": "falconry-mastery", "name": "Falcon Bond", "thai": "ฝึกเหยี่ยว", "maxLevel": 1, "kind": "passive", "desc": "ปลดล็อกการเช่าเหยี่ยวที่ Healer Mira (2,500 z) เหยี่ยวบินตามอยู่เหนือไหล่ขวา จำเป็นสำหรับ Falcon Strike, Steel Talons, Falcon Instinct แล..." },
+    { "id": "blitz-beat", "name": "Falcon Strike", "thai": "เหยี่ยวจู่โจม", "maxLevel": 10, "kind": "active", "req": "ฝึกเหยี่ยว Lv.1, ยิงคู่ Lv.5", "prereq": [
+    { "skill": "falconry-mastery", "level": 1 },
+    { "skill": "double-strafe", "level": 5 }
+  ], "desc": "สั่งเหยี่ยวพุ่งจิกเป้าหมายหลายครั้ง ต้องมีเหยี่ยว (Falcon Bond) จิกโดนเสมอ ไม่สน DEF และขนาดเป้า แรงตาม DEX และ AGI บวกATK / 3 + ดาเมจจาก..." },
+    { "id": "steel-crow", "name": "Steel Talons", "thai": "เหยี่ยวเหล็ก", "maxLevel": 10, "kind": "passive", "req": "เหยี่ยวจู่โจม Lv.5", "prereq": [
+    { "skill": "blitz-beat", "level": 5 }
+  ], "desc": "ฝึกกรงเล็บเหยี่ยว ดาเมจเหยี่ยว +6 ต่อเลเวลต่อการจิก 1 ครั้ง (Falcon Strike และ Falcon Instinct)" },
+    { "id": "auto-blitz-beat", "name": "Falcon Instinct", "thai": "เหยี่ยวจู่โจมอัตโนมัติ", "maxLevel": 5, "kind": "passive", "req": "ฝึกเหยี่ยว Lv.1", "prereq": [
+    { "skill": "falconry-mastery", "level": 1 }
+  ], "desc": "ตีปกติโดนแล้วมีโอกาส (LUK ÷ 3)% ที่เหยี่ยวพุ่งจิกศัตรูเอง (LUK 99 = 33%) จำนวนจิกเท่ากับ Falcon Strike เลเวลที่มีอยู่ (เช่น Lv.10 = 6 ครั..." },
+    { "id": "land-mine", "name": "Blast Mine", "thai": "กับระเบิด", "maxLevel": 10, "kind": "active", "desc": "วางกับระเบิดบนพื้น มอนเดินมาชนแล้วระเบิด ธาตุดิน โดนรอบจุดวาง มีโอกาสทำให้มึนงง ไม่มีใครชน 60 วิหายไป วางได้พร้อมกัน 3 อัน (อันที่ 4 แทนอ..." },
+    { "id": "ankle-snare", "name": "Snare Trap", "thai": "กับดักข้อเท้า", "maxLevel": 10, "kind": "active", "req": "กับระเบิด Lv.1", "prereq": [
+    { "skill": "land-mine", "level": 1 }
+  ], "desc": "วางกับดักข้อเท้าบนพื้น มอนเดินมาเหยียบแล้วถูกล็อกขา เดินไม่ได้ (ยังตีได้ถ้าอยู่ในระยะ) 3.5–8 วิ ไม่มีใครเหยียบ 60 วิหายไป วางได้พร้อมกัน ..." },
+    { "id": "claymore-trap", "name": "Inferno Trap", "thai": "กับดักเพลิง", "maxLevel": 10, "kind": "active", "req": "กับระเบิด Lv.3", "prereq": [
+    { "skill": "land-mine", "level": 3 }
+  ], "desc": "วางกับดักเพลิงบนพื้น มอนเดินมาชนแล้วระเบิดวงกว้าง ธาตุไฟ ไม่มีใครชน 60 วิหายไป วางได้พร้อมกัน 3 อัน (อันที่ 4 แทนอันเก่าสุด) · แรงขึ้นตาม..." },
+    { "id": "detecting", "name": "Falcon Scout", "thai": "เหยี่ยวสอดแนม", "maxLevel": 1, "kind": "active", "desc": "ปล่อยเหยี่ยวบินวนจิกในพื้นที่รัศมี 6 ช่อง ไม่มีดาเมจ ผู้เล่นฝ่ายศัตรูที่หายตัวอยู่ในวงจะโผล่ออกมา ต้องมีเหยี่ยว" }
+  ], "bard": [
+    { "id": "musical-strike", "name": "Melody Arrow", "thai": "ศรทำนอง", "maxLevel": 10, "kind": "active", "req": "ยิงคู่ Lv.3", "prereq": [
+    { "skill": "double-strafe", "level": 3 }
+  ], "desc": "ยิงลูกศรที่พาเสียงดนตรีพุ่งใส่เป้าหมาย ไม่เสียลูกธนู ธาตุตามลูกธนูที่ใส่อยู่" },
+    { "id": "frost-joke", "name": "Chilling Jest", "thai": "มุกเยือกแข็ง", "maxLevel": 10, "kind": "active", "req": "ศรทำนอง Lv.3", "prereq": [
+    { "skill": "musical-strike", "level": 3 }
+  ], "desc": "เล่นมุกตลกหนาวเหน็บ มอนรอบตัวมีโอกาสแข็งตัว" },
+    { "id": "poem-of-bragi", "name": "Ballad of Swiftcast", "thai": "บทเพลงเร่งเวท", "maxLevel": 10, "kind": "active", "desc": "บทเพลงที่ทำให้ร่ายเวทเร็วขึ้น เพิ่ม DEX และ INT" },
+    { "id": "assassin-cross-of-sunset", "name": "Dusk Tempo", "thai": "เพลงยามอัสดง", "maxLevel": 10, "kind": "active", "req": "บทเพลงเร่งเวท Lv.3", "prereq": [
+    { "skill": "poem-of-bragi", "level": 3 }
+  ], "desc": "บทเพลงเร่งจังหวะ เพิ่มความเร็วโจมตี" },
+    { "id": "apple-of-idun", "name": "Song of Renewal", "thai": "เพลงฟื้นชีวา", "maxLevel": 10, "kind": "active", "req": "บทเพลงเร่งเวท Lv.3", "prereq": [
+    { "skill": "poem-of-bragi", "level": 3 }
+  ], "desc": "บทเพลงแห่งชีวิต เพิ่ม HP สูงสุดและพลังการฟื้นฟู" }
+  ], "dancer": [
+    { "id": "throw-arrow", "name": "Dancing Arrow", "thai": "เหวี่ยงศร", "maxLevel": 10, "kind": "active", "req": "ยิงคู่ Lv.3", "prereq": [
+    { "skill": "double-strafe", "level": 3 }
+  ], "desc": "หมุนตัวเหวี่ยงลูกศรใส่เป้าหมาย ไม่เสียลูกธนู ธาตุตามลูกธนูที่ใส่อยู่" },
+    { "id": "service-for-you", "name": "Enchanting Dance", "thai": "ระบำบริการ", "maxLevel": 10, "kind": "active", "desc": "ท่าเต้นที่เพิ่ม SP สูงสุดและ INT" },
+    { "id": "fortune-kiss", "name": "Lucky Kiss", "thai": "จุมพิตแห่งโชค", "maxLevel": 10, "kind": "active", "req": "ระบำบริการ Lv.3", "prereq": [
+    { "skill": "service-for-you", "level": 3 }
+  ], "desc": "ส่งจูบนำโชค เพิ่มโอกาสคริติคอล" },
+    { "id": "scream", "name": "Banshee Scream", "thai": "กรีดร้อง", "maxLevel": 10, "kind": "active", "req": "จุมพิตแห่งโชค Lv.1", "prereq": [
+    { "skill": "fortune-kiss", "level": 1 }
+  ], "desc": "กรีดร้องสุดเสียง มอนรอบตัวมีโอกาสมึนงง" }
+  ], "priest": [
+    { "id": "magnus-exorcismus", "name": "Holy Judgment", "thai": "มหาไล่ผี", "maxLevel": 10, "kind": "active", "req": "แสงศักดิ์สิทธิ์ Lv.5", "prereq": [
+    { "skill": "holy-light", "level": 5 }
+  ], "desc": "กางเขนแสงยักษ์ปักลงพื้น วงรัศมี 5 ช่อง ศัตรูในวงโดนดาเมจเวทศักดิ์สิทธิ์ 10 ครั้ง (Lv.10 ครั้งละ 150%) มอนเผ่า Undead และ Demon โดนแรงเป็น..." },
+    { "id": "kyrie-eleison", "name": "Divine Shield", "thai": "โล่ศักดิ์สิทธิ์", "maxLevel": 10, "kind": "active", "req": "แสงเยียวยา Lv.3", "prereq": [
+    { "skill": "heal", "level": 3 }
+  ], "desc": "โล่แสงปกป้อง ลดดาเมจที่ได้รับ" },
+    { "id": "impositio-manus", "name": "Blessed Might", "thai": "หัตถ์ประทานพลัง", "maxLevel": 10, "kind": "active", "desc": "วางมืออวยพร เพิ่มพลังโจมตี" },
+    { "id": "gloria", "name": "Hymn of Fortune", "thai": "บทสรรเสริญ", "maxLevel": 5, "kind": "active", "req": "โล่ศักดิ์สิทธิ์ Lv.4", "prereq": [
+    { "skill": "kyrie-eleison", "level": 4 }
+  ], "desc": "ขับร้องบทสรรเสริญ เพิ่ม LUK ให้ตัวเองและปาร์ตี้ เลเวลละ 6 (Lv.5 = +30) นาน 30 วินาที" },
+    { "id": "sanctuary", "name": "Holy Ground", "thai": "แดนศักดิ์สิทธิ์", "maxLevel": 10, "kind": "active", "req": "แสงเยียวยา Lv.5", "prereq": [
+    { "skill": "heal", "level": 5 }
+  ], "desc": "วางวงศักดิ์สิทธิ์บนพื้น รัศมี 2.5 ช่อง ฟื้น HP ผู้เล่นทุกคนที่ยืนในวงทุก 1 วินาที (Lv.10 = 777 HP/วินาที) อยู่ 10 วินาที + 1 วินาทีต่อเลเ..." },
+    { "id": "aspersio", "name": "Holy Water", "thai": "น้ำมนต์", "maxLevel": 5, "kind": "active", "req": "หัตถ์ประทานพลัง Lv.3", "prereq": [
+    { "skill": "impositio-manus", "level": 3 }
+  ], "desc": "ประพรมน้ำมนต์ อาวุธของเป้าหมายกลายเป็นธาตุศักดิ์สิทธิ์" },
+    { "id": "pneuma", "name": "Wind Veil", "thai": "ม่านลมคุ้มภัย", "maxLevel": 1, "kind": "active", "desc": "วางวงเวทบนพื้น ใครยืนในวงไม่โดนการโจมตีระยะไกลทางกายภาพ (ธนู, มอนยิงไกล) ระยะประชิดและเวทยังโดน อยู่ 10 วินาที" },
+    { "id": "resurrection", "name": "Rebirth", "thai": "ชุบชีวิต", "maxLevel": 4, "kind": "active", "req": "หัตถ์ประทานพลัง Lv.3", "prereq": [
+    { "skill": "impositio-manus", "level": 3 }
+  ], "desc": "ชุบชีวิตผู้เล่นที่ตาย ณ จุดที่ล้ม ฟื้นมาพร้อม HP 12% +22% ต่อเลเวล (Lv.4 = 78%) ใช้กับคนที่ยังไม่ตายไม่ได้" }
+  ], "monk": [
+    { "id": "iron-fists", "name": "Steel Knuckles", "thai": "หมัดเหล็ก", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีเมื่อใช้สนับมือ" },
+    { "id": "triple-attack", "name": "Threefold Strike", "thai": "หมัดสามจังหวะ", "maxLevel": 10, "kind": "passive", "desc": "ตีปกติมีโอกาส 30% -1% ต่อเลเวล ต่อยสามหมัดติด รวมพลัง 120% +20% ต่อเลเวลของ ATK (Lv.10 = 320%) ใช้ได้ทุกอาวุธ" },
+    { "id": "call-spirits", "name": "Summon Spirit Orbs", "thai": "เรียกลูกแก้ววิญญาณ", "maxLevel": 10, "kind": "active", "req": "หมัดเหล็ก Lv.2", "prereq": [
+    { "skill": "iron-fists", "level": 2 }
+  ], "desc": "เรียกลูกแก้ววิญญาณมาโคจรรอบตัว เพิ่มพลังโจมตี" },
+    { "id": "finger-offensive", "name": "Spirit Shot", "thai": "ดีดลูกแก้ววิญญาณ", "maxLevel": 10, "kind": "active", "req": "เรียกลูกแก้ววิญญาณ Lv.3", "prereq": [
+    { "skill": "call-spirits", "level": 3 }
+  ], "desc": "ดีดลูกแก้ววิญญาณใส่เป้าหมายระยะไกล จำนวนลูกเพิ่มตามเลเวล" },
+    { "id": "six-saint", "name": "Six-Step Leap", "thai": "หกก้าวเทพ", "maxLevel": 3, "kind": "active", "req": "หมัดสามจังหวะ Lv.5", "prereq": [
+    { "skill": "triple-attack", "level": 5 }
+  ], "desc": "กระโดดไปยังจุดที่คลิกทันที ไม่มีร่าย ไม่มีดาเมจ ระยะ 7 ช่อง คูลดาวน์ 1.5 วิ ลดลงทุกเลเวล (Lv.2 = 0.85 วิ, Lv.3 = 0.2 วิ)" },
+    { "id": "investigate", "name": "Piercing Palm", "thai": "ฝ่ามือทะลวง", "maxLevel": 10, "kind": "active", "req": "เรียกลูกแก้ววิญญาณ Lv.5", "prereq": [
+    { "skill": "call-spirits", "level": 5 }
+  ], "desc": "กระแทกฝ่ามือทะลุเกราะ ไม่โดนหักพลังป้องกัน ยิ่งศัตรู DEF สูงยิ่งแรง (+1% ต่อ DEF 1 แต้ม) และลดพลังป้องกันของเป้าหมาย" },
+    { "id": "asura-strike", "name": "Asura Fist", "thai": "หมัดอสูร", "maxLevel": 10, "kind": "active", "req": "ฝ่ามือทะลวง Lv.5, ดีดลูกแก้ววิญญาณ Lv.3", "prereq": [
+    { "skill": "investigate", "level": 5 },
+    { "skill": "finger-offensive", "level": 3 }
+  ], "desc": "ทุ่ม SP ทั้งหมดเป็นหมัดเดียว (เหลือ SP 1) ยิ่งมี SP เยอะยิ่งแรง: พลัง ATK × (4 + 1 ต่อเลเวล + SP ที่ใช้ × 0.08) ร่ายนาน 3 วินาที โดนเสมอ" }
+  ], "blacksmith": [
+    { "id": "weaponry-research", "name": "Forge Expertise", "thai": "วิจัยอาวุธ", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีและความแม่นยำถาวร" },
+    { "id": "two-hand-axe-mastery", "name": "Greataxe Mastery", "thai": "ชำนาญขวานสองมือ", "maxLevel": 10, "kind": "passive", "desc": "ถือขวานสองมือ ATK +4 ต่อเลเวล" },
+    { "id": "hammer-fall", "name": "Earthshaker", "thai": "ทุบพสุธา", "maxLevel": 10, "kind": "active", "desc": "ทุบพื้นให้สะเทือน ทำความเสียหายศัตรูรอบตัว และมีโอกาสทำให้มึนงง" },
+    { "id": "adrenaline-rush", "name": "Battle Frenzy", "thai": "อะดรีนาลีนพลุ่ง", "maxLevel": 10, "kind": "active", "req": "ทุบพสุธา Lv.2", "prereq": [
+    { "skill": "hammer-fall", "level": 2 }
+  ], "desc": "เลือดสูบฉีด เพิ่มความเร็วโจมตี (ตัวเองและสมาชิกปาร์ตี้ในระยะ 13 ช่อง)" },
+    { "id": "over-thrust", "name": "Overdrive", "thai": "พลังเหนือขีด", "maxLevel": 10, "kind": "active", "req": "อะดรีนาลีนพลุ่ง Lv.4", "prereq": [
+    { "skill": "adrenaline-rush", "level": 4 }
+  ], "desc": "ปลุกพลังอาวุธของตัวเองและปาร์ตี้ เพิ่มดาเมจระยะประชิด (ตัวเองและสมาชิกปาร์ตี้ในระยะ 13 ช่อง)" },
+    { "id": "weapon-perfection", "name": "True Edge", "thai": "อาวุธสมบูรณ์แบบ", "maxLevel": 10, "kind": "active", "req": "วิจัยอาวุธ Lv.2", "prereq": [
+    { "skill": "weaponry-research", "level": 2 }
+  ], "desc": "ลับอาวุธจนคมกริบ เพิ่มความแม่นยำและดาเมจคริติคอล (ตัวเองและสมาชิกปาร์ตี้ในระยะ 13 ช่อง)" }
+  ], "alchemist": [
+    { "id": "acid-terror", "name": "Acid Flask", "thai": "ขวดกรดกัดเกราะ", "maxLevel": 10, "kind": "active", "desc": "ขว้างขวดกรด ทำดาเมจและกัดพลังป้องกันของเป้าหมาย ศัตรูที่ยืนบนพื้นไฟ Firebomb โดนแรงขึ้น 50%" },
+    { "id": "demonstration", "name": "Firebomb", "thai": "ระเบิดเพลิงขวด", "maxLevel": 10, "kind": "active", "desc": "ขว้างขวดระเบิดลงพื้น เกิดพื้นไฟวงรัศมี 2 ช่องนาน 5 วินาที ศัตรูที่ยืนในวงโดนไฟเผาทุก 1 วินาที (ดาเมจมาจากพื้นไฟ ไม่ใช่ตัวขวด) Lv.10 รวม 9..." },
+    { "id": "potion-pitcher", "name": "Potion Toss", "thai": "ขว้างยา", "maxLevel": 10, "kind": "active", "req": "ขวดกรดกัดเกราะ Lv.1", "prereq": [
+    { "skill": "acid-terror", "level": 1 }
+  ], "desc": "ขว้าง White Potion ใส่ตัวเองหรือพันธมิตร ฟื้น HP 5 เท่าของยา (ใช้ White Potion 1 ขวดต่อครั้ง)" },
+    { "id": "chemical-protection", "name": "Alchemic Coating", "thai": "เคลือบสารป้องกัน", "maxLevel": 10, "kind": "active", "req": "ขว้างยา Lv.3", "prereq": [
+    { "skill": "potion-pitcher", "level": 3 }
+  ], "desc": "เคลือบสารเคมีบนชุดเกราะ เพิ่มพลังป้องกันกายภาพและเวท" }
+  ], "assassin": [
+    { "id": "katar-mastery", "name": "Katar Edge", "thai": "ชำนาญคาตาร์", "maxLevel": 10, "kind": "passive", "desc": "เพิ่มพลังโจมตีเมื่อใช้คาตาร์" },
+    { "id": "righthand-mastery", "name": "Main-Hand Finesse", "thai": "ชำนาญมือขวา", "maxLevel": 5, "kind": "passive", "desc": "ถืออาวุธสองมือ: ดาเมจมือขวาจาก 50% เป็น 60 / 70 / 80 / 90 / 100% (Lv1-5) ไม่มีผลกับ Katar และสกิล" },
+    { "id": "lefthand-mastery", "name": "Off-Hand Finesse", "thai": "ชำนาญมือซ้าย", "maxLevel": 5, "kind": "passive", "req": "ชำนาญมือขวา Lv.2", "prereq": [
+    { "skill": "righthand-mastery", "level": 2 }
+  ], "desc": "ถืออาวุธสองมือ: ดาเมจมือซ้ายจาก 30% เป็น 40 / 50 / 60 / 70 / 80% (Lv1-5) ไม่มีผลกับ Katar และสกิล" },
+    { "id": "sonic-blow", "name": "Shadow Fang", "thai": "ฟันเสียงสะท้าน", "maxLevel": 10, "kind": "active", "req": "ชำนาญคาตาร์ Lv.4", "prereq": [
+    { "skill": "katar-mastery", "level": 4 }
+  ], "desc": "ฟันรัวแปดครั้งในพริบตา มีโอกาสทำให้มึนงง" },
+    { "id": "sonic-acceleration", "name": "Swift Fang", "thai": "เร่งโซนิค", "maxLevel": 5, "kind": "passive", "req": "ฟันเสียงสะท้าน Lv.5", "prereq": [
+    { "skill": "sonic-blow", "level": 5 }
+  ], "desc": "เพิ่มความเสียหายของ Shadow Fang เลเวลละ 20% (Lv.5 = +100%)" },
+    { "id": "cloaking", "name": "Shadow Walk", "thai": "เดินในเงา", "maxLevel": 5, "kind": "toggle", "req": "ซ่อนตัว Lv.2", "prereq": [
+    { "skill": "hiding", "level": 2 }
+  ], "desc": "หายตัวแบบ Vanish แต่ยังเดินได้ช้าลง (Lv1 36% ถึง Lv5 60% ของความเร็วปกติ) มอนเลิกไล่ เสีย SP ต่อเนื่อง ใช้ Reaper's Bite ได้ระหว่างหายตัว" },
+    { "id": "grimtooth", "name": "Reaper's Bite", "thai": "เขี้ยวเงา", "maxLevel": 10, "kind": "active", "req": "ฟันเสียงสะท้าน Lv.5, ซ่อนตัว Lv.2", "prereq": [
+    { "skill": "sonic-blow", "level": 5 },
+    { "skill": "hiding", "level": 2 }
+  ], "desc": "แทงใบมีดเงาผุดขึ้นจากพื้นใต้เป้าหมาย โดนศัตรูรอบข้าง ใช้ได้ตอนซ่อนตัว (Vanish / Shadow Walk) เท่านั้น และไม่หลุดจากการซ่อนตัว" },
+    { "id": "enchant-poison", "name": "Venom Coat", "thai": "อาบยาพิษ", "maxLevel": 10, "kind": "active", "req": "จู่โจมพิษ Lv.1", "prereq": [
+    { "skill": "envenom", "level": 1 }
+  ], "desc": "อาบยาพิษบนอาวุธ การโจมตีปกติกลายเป็นธาตุพิษ" },
+    { "id": "venom-dust", "name": "Toxic Cloud", "thai": "ผงพิษ", "maxLevel": 10, "kind": "active", "req": "อาบยาพิษ Lv.5", "prereq": [
+    { "skill": "enchant-poison", "level": 5 }
+  ], "desc": "โปรยผงพิษลงพื้น มอนในวงโดนดาเมจพิษและมีโอกาสติดพิษ" }
+  ], "rogue": [
+    { "id": "plagiarism", "name": "Mimicry", "thai": "ลอกเลียน", "maxLevel": 10, "kind": "passive", "desc": "ติดตัว: ความเร็วโจมตี +1% ต่อเลเวล · วางบนแถบปุ่มลัด เลือกผู้เล่นใกล้ๆ แล้วกด (หรือคลิกขวาผู้เล่น → ลอกเลียนสกิล) แล้วเลือก 1 สกิลกดใช้ขอ..." },
+    { "id": "back-stab", "name": "Blink Stab", "thai": "แทงข้างหลัง", "maxLevel": 10, "kind": "active", "req": "ขโมย Lv.4", "prereq": [
+    { "skill": "steal", "level": 4 }
+  ], "desc": "พุ่งไปโผล่ด้านหลังศัตรูแล้วแทงจุดตาย ดาเมจสูง" },
+    { "id": "raid", "name": "Ambush", "thai": "จู่โจมจากเงา", "maxLevel": 10, "kind": "active", "req": "แทงข้างหลัง Lv.2, ซ่อนตัว Lv.3", "prereq": [
+    { "skill": "back-stab", "level": 2 },
+    { "skill": "hiding", "level": 3 }
+  ], "desc": "โผล่จากเงาฟันศัตรูรอบตัว มีโอกาสทำให้มึนงง" },
+    { "id": "strip-armor", "name": "Armor Break", "thai": "ปลดเกราะ", "maxLevel": 10, "kind": "active", "req": "ขโมย Lv.3", "prereq": [
+    { "skill": "steal", "level": 3 }
+  ], "desc": "ปลดเกราะของเป้าหมาย ลดพลังป้องกันอย่างมาก" },
+    { "id": "snatcher", "name": "Snatch Strike", "thai": "ฉกชิง", "maxLevel": 10, "kind": "active", "req": "ขโมย Lv.5", "prereq": [
+    { "skill": "steal", "level": 5 }
+  ], "desc": "ฟันพร้อมฉกไอเทมจากมอน (ขโมยได้ครั้งเดียวต่อมอน)" } ] };
 
 let currentSkillBuilderTab = 'novice';
 
@@ -352,16 +549,14 @@ function renderSkillBuilderUI() {
       const iconUrl = `https://www.aetheria-online.in.th/art/icons/skills/${skill.id}.webp`;
 
       return `
-        <div class="skill-builder-card ${curLv > 0 ? 'is-allocated' : ''} ${isMaxed ? 'is-maxed' : ''}">
+        <div class="skill-builder-card ${curLv > 0 ? 'is-allocated' : ''} ${isMaxed ? 'is-maxed' : ''}" title="${escapeHTML(skill.desc || '')}">
           <div class="skill-card-top">
             <img src="${iconUrl}" class="skill-card-icon" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'38\\' height=\\'38\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%231e293b\\'/><text x=\\'50%\\' y=\\'55%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23a855f7\\' font-size=\\'18\\'>⚡</text></svg>';">
             <div class="skill-card-info">
               <div class="skill-card-title">${escapeHTML(skill.name)}</div>
               <div class="skill-card-subtitle">
                 <span>${escapeHTML(skill.thai)}</span>
-                <span class="badge" style="background: ${skill.kind === 'passive' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(234, 179, 8, 0.15)'}; color: ${skill.kind === 'passive' ? '#38bdf8' : '#fbbf24'}; font-size: 9px; padding: 0 4px;">
-                  ${skill.kind === 'passive' ? 'Passive' : 'Active'}
-                </span>
+                <span class="skill-kind ${skill.kind}">${skill.kind === 'passive' ? 'Passive' : skill.kind === 'toggle' ? 'Toggle' : 'Active'}</span>
               </div>
             </div>
           </div>
@@ -399,6 +594,7 @@ function renderSkillBuilderUI() {
     if (queue.length === 0) {
       qContainer.innerHTML = '<span style="font-size: 11px; color: #64748b; font-style: italic;">ยังไม่มีแต้มสกิลในคิว — คลิกปุ่ม + ที่สกิลด้านบนเพื่อเริ่มบันทึกลำดับ</span>';
     } else {
+      const badSteps = findQueuePrereqProblems(queue);
       qContainer.innerHTML = queue.map((sId, idx) => {
         let skillMeta = null;
         for (const k in SKILLS_DATABASE) {
@@ -407,7 +603,7 @@ function renderSkillBuilderUI() {
         }
         const sName = skillMeta ? (skillMeta.thai || skillMeta.name) : sId;
         return `
-          <span class="skill-queue-chip" title="ลำดับที่ ${idx + 1}: ${sName}">
+          <span class="skill-queue-chip ${badSteps.has(idx) ? 'bad' : ''}" title="ลำดับที่ ${idx + 1}: ${sName}${badSteps.has(idx) ? ' — ยังไม่ผ่านเงื่อนไขสกิลก่อนหน้า ณ จุดนี้ (บอทจะข้ามไปก่อนจนกว่าจะผ่าน)' : ''}">
             <span class="chip-step">#${idx + 1}</span>
             <span class="chip-name">${escapeHTML(sName)}</span>
             <span class="chip-del" onclick="removeSkillPointAtIndex(${idx})">&times;</span>
@@ -419,7 +615,7 @@ function renderSkillBuilderUI() {
 }
 
 // 5. Add / Remove Skill Points
-function addSkillPoint(skillId) {
+function addSkillPoint(skillId, silent = false) {
   if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
   const queue = activeEditingPlan.skillBuild.skillPointQueue;
   const planned = activeEditingPlan.skillBuild.plannedLevels;
@@ -435,17 +631,52 @@ function addSkillPoint(skillId) {
   const curLv = planned[skillId] || 0;
   if (curLv >= skillMeta.maxLevel) return;
 
+  // Prerequisites first (the game refuses a skill whose required skills aren't high enough)
+  for (const p of (skillMeta.prereq || [])) {
+    while ((planned[p.skill] || 0) < p.level) {
+      const before = queue.length;
+      addSkillPoint(p.skill, true);
+      if (queue.length === before) {
+        alert(`ต้องอัป ${skillMetaName(p.skill)} ให้ถึง Lv.${p.level} ก่อน แต่แต้มของสายนั้นไม่พอ`);
+        renderSkillBuilderUI();
+        return;
+      }
+    }
+  }
+
   const tierBudget = (skillTier === 'novice') ? 9 : 49;
   const tierSkills = SKILLS_DATABASE[skillTier] || [];
   const tierSpent = queue.filter(id => tierSkills.some(s => s.id === id)).length;
   if (tierSpent >= tierBudget) {
-    alert(`แต้มสกิลของสายนี้เต็มแล้ว (${tierBudget}/${tierBudget} แต้ม)!`);
+    if (!silent) alert(`แต้มสกิลของสายนี้เต็มแล้ว (${tierBudget}/${tierBudget} แต้ม)!`);
     return;
   }
 
   queue.push(skillId);
   planned[skillId] = curLv + 1;
-  renderSkillBuilderUI();
+  if (!silent) renderSkillBuilderUI();
+}
+
+function skillMetaName(skillId) {
+  for (const t in SKILLS_DATABASE) {
+    const f = SKILLS_DATABASE[t].find(x => x.id === skillId);
+    if (f) return f.thai || f.name;
+  }
+  return skillId;
+}
+
+// Queue positions whose prerequisites aren't met yet at that point (e.g. after removing points)
+function findQueuePrereqProblems(queue) {
+  const meta = {};
+  for (const t in SKILLS_DATABASE) SKILLS_DATABASE[t].forEach(x => { meta[x.id] = x; });
+  const lv = {};
+  const bad = new Set();
+  queue.forEach((id, idx) => {
+    const m = meta[id];
+    if (m && (m.prereq || []).some(p => (lv[p.skill] || 0) < p.level)) bad.add(idx);
+    lv[id] = (lv[id] || 0) + 1;
+  });
+  return bad;
 }
 
 function removeSkillPoint(skillId) {
@@ -530,6 +761,7 @@ function applySkillPreset() {
 function saveSkillBuild() {
   const modal = document.getElementById("skill-builder-modal");
   if (modal) modal.style.display = 'none';
+  if (typeof markPlanDirty === 'function') markPlanDirty();
   updatePlanEditorBadges();
 }
 
@@ -594,13 +826,14 @@ function saveStatBuild() {
   ['str', 'agi', 'vit', 'int', 'dex', 'luk'].forEach(st => {
     const key = st.toUpperCase();
     const numInput = document.getElementById(`stat-target-${st}`);
-    targets[key] = numInput ? parseInt(numInput.value, 10) || 1 : 1;
+    targets[key] = Math.min(99, Math.max(1, numInput ? parseInt(numInput.value, 10) || 1 : 1));
   });
 
   const pSel = document.getElementById("stat-priority-order-select");
   const priorityOrder = pSel ? pSel.value.split(',') : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
 
   activeEditingPlan.statBuild = { targets, priorityOrder };
+  if (typeof markPlanDirty === 'function') markPlanDirty();
   updatePlanEditorBadges();
 
   const modal = document.getElementById("stat-builder-modal");

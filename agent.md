@@ -95,6 +95,13 @@
    - **Master Switch**: `window.__planScriptEnabled` มีค่าเริ่มต้นเป็น `false` เสมอ
    - ระบบตั้งค่าพิเศษ (เช่น ระยะล่าทั้งแมพ `huntRadiusTiles: 'all'`, ติ๊ก Auto สกิล, ปิดประกาศบนจอ, ปิดหน้าต่างข่าวสาร) ต้องทำงานภายใต้เงื่อนไข `window.__planScriptEnabled && window.__currentScriptPlan` เท่านั้น
    - ห้ามรบกวนหรือทับการตั้งค่าของตัวละครฟาร์มปกติที่ไม่ได้เปิด Plan Script
+   - **ทำงานเฉพาะตอน START BOT** (`window.__isBotRunning`): Trigger, อัปสกิล/สเตตัส และเปลี่ยนอาชีพของแผน ห้ามทำงานตอนบอทหยุด และห้ามทำระหว่างระบบอื่นยุ่งอยู่ (`planBusyReason`: เดินไปแมพ/ซื้อของ/ฟื้นตัว/รวมเงิน/เปลี่ยนอาชีพ/ขายของ)
+   - **Trigger แบบ "ข้ามผ่านเลเวล"**: ทำเมื่อ `lastLevel < target <= currentLevel` (ไม่ใช่เลเวลตรงเป๊ะ) และเก็บสถานะแยกต่อ ตัวละคร+แผน ใน `pelican_plan_state_<char>_<planId>` (`done`/`pending`) — Action ที่ยังไม่สำเร็จจะลองใหม่ทุก 60 วิ (ใส่ของยอมแพ้หลัง 30 นาที)
+   - **Action**: `change_map` ใช้ `window.setTargetFarmMap(map, walkNow)` (เขียน `pelican_farm_map` ด้วย), `equip_item` ใช้ `findAndEquipItemByName` (ชื่อตรงตัว + optionFilter; ซื้อจากตลาดต้อง `collect_all` ก่อนใส่ และต้องพัก sniper ระหว่างค้นหา), `change_class` รอจนเป้าหมายอยู่ใน `char.jobChangeOptions`
+   - **คำสั่งอัปสเตตัส** คือ `stat_up {stat, n}` (ไม่ใช่ `amount`) ราคา/แต้ม = `floor((v-1)/10)+2`, ตันที่ 99; อัปสกิลใช้ `skill_up {skillId}` และต้องข้ามสกิลที่ยังเรียนไม่ได้ (สายอาชีพ/prerequisites/learnMaxLevel)
+   - **`__applyScriptPlan(plan, enable)`** เปลี่ยนสวิตช์เฉพาะเมื่อส่ง `enable` เป็น boolean — การแก้ไขแผนใน Manager ต้องไม่เปิด Plan Script ให้เอง
+   - **ส่งแผนเข้าจอ** ผ่าน `manager/plan_sync.js` เท่านั้น (POST eval): ผูกแผน = ส่ง+เปิด, แก้แผน = ส่งแต่คงสวิตช์เดิม, ลบแผน = ล้างแผนในจอที่ใช้อยู่, จอออฟไลน์จะได้แผนจาก `reconcile` (ทุก 30 วิ, ใช้ `pendingEnable`)
+   - ฐานข้อมูลสกิลใน `manager/public/builder_module.js` (`SKILLS_DATABASE`) สร้างจาก `window.__skillCatalog` ของเกม — ถ้าเกมเพิ่ม/แก้สกิลให้ดึงใหม่ ห้ามพิมพ์เอง
 2. **Alice Service Priority**:
    - เมื่อกำลังเดินกลับไปฟาร์มผ่าน Alice Service (`window.__isWalkingToMap === true`) ห้ามระบบอื่น (เช่น เปลี่ยนอาชีพ, Auto-update รีเฟรชหน้า) ขัดจังหวะเด็ดขาด
 3. **Auto Sell ลงตลาดกลาง**: รอบอัตโนมัติ (`runAutoMarketSellCycle(false)`) ทำงาน **เฉพาะตอน START BOT อยู่** (`window.__isBotRunning`) — ปุ่ม "ตรวจสอบทันที" (manual) กดได้ตลอด

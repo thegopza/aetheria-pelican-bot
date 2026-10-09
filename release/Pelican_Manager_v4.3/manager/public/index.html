@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4400">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
+  <link rel="stylesheet" href="plan_editor.css?v=4500">
 </head>
 <body>
   <div class="app-container">
@@ -425,6 +426,8 @@
           </div>
         </div>
 
+        <div id="plan-live-status" class="pl-status"><span class="pl-muted">⏳ กำลังอ่านสถานะ Plan Script ของจอนี้...</span></div>
+
         <!-- Toolbar: Add, Import, Export -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <div style="display: flex; gap: 8px;">
@@ -462,11 +465,12 @@
               <span>⬅️</span> รายชื่อแผน
             </button>
             <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
-              <input type="text" id="plan-editor-title" class="form-input" placeholder="ตั้งชื่อแผน เช่น Archer Speedrun Lv.1-50" style="font-weight: 700; font-size: 14px; padding: 6px 10px; flex: 1; max-width: 320px;">
-              <input type="text" id="plan-editor-desc" class="form-input" placeholder="คำอธิบายสั้นๆ (ไม่บังคับ)" style="font-size: 12px; padding: 6px 10px; flex: 1; color: #94a3b8;">
+              <input type="text" id="plan-editor-title" class="form-input" placeholder="ตั้งชื่อแผน เช่น Archer Speedrun Lv.1-50" style="font-weight: 700; font-size: 14px; padding: 6px 10px; flex: 1.6; min-width: 190px; max-width: 340px;">
+              <input type="text" id="plan-editor-desc" class="form-input" placeholder="คำอธิบายสั้นๆ (ไม่บังคับ)" style="font-size: 12px; padding: 6px 10px; flex: 1; min-width: 90px; color: #94a3b8;">
             </div>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="plan-editor-dirty" class="pe-dirty" style="display: none;" title="มีการแก้ไขที่ยังไม่ได้บันทึก">● ยังไม่บันทึก</span>
             <button type="button" class="btn btn-primary btn-sm" id="btn-save-plan" style="padding: 6px 14px; font-weight: 600;">
               <span>💾</span> บันทึกแผน
             </button>
@@ -523,14 +527,14 @@
 
         <!-- Canvas Controls & Info -->
         <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 11.5px; color: #c7d2fe; display: flex; justify-content: space-between; align-items: center;">
-          <span>💡 <b>One-Shot Triggers:</b> บอทจะเช็คและประมวลผล Action เมื่อตัวละครถึงเลเวลนั้นพอดี และทำเพียง 1 ครั้ง ไม่ทำซ้ำเมื่อเลเวลเกิน</span>
+          <span>💡 <b>One-Shot Triggers:</b> แต่ละเงื่อนไขทำครั้งเดียวเมื่อเลเวลถึงหรือเลยค่าที่ตั้ง (ถ้าเลเวลข้ามไปตอนปิดบอทก็ยังทำให้) — ทำงานเฉพาะตอนกด START BOT</span>
           <button type="button" class="btn btn-primary btn-sm" id="btn-add-level-trigger" style="padding: 4px 12px; font-size: 11.5px; font-weight: 600; white-space: nowrap;">
-            <span>➕</span> เพิ่มเงื่อนไขเลเวล (Trigger)
+            <span>➕</span> เพิ่มเงื่อนไขเลเวล
           </button>
         </div>
 
         <!-- Canvas Area (Node sequence) -->
-        <div id="plan-workflow-canvas" style="flex: 1; overflow-y: auto; max-height: 480px; padding: 6px 4px 14px 4px; display: flex; flex-direction: column; gap: 14px;">
+        <div id="plan-workflow-canvas" style="flex: 1; overflow-y: auto; max-height: max(240px, calc(100vh - 440px)); padding: 6px 4px 14px 4px; display: flex; flex-direction: column; gap: 14px;">
           <!-- Dynamically rendered Trigger Nodes & Action Flows -->
         </div>
       </div>
@@ -1042,9 +1046,9 @@
     </div>
   </div>
 
-  <script src="app.js?v=4400"></script>
+  <script src="app.js?v=4500"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
-  <script src="builder_module.js?v=1791535335343"></script>
+  <script src="builder_module.js?v=4500"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=4390"></script>
   <script src="config_copy.js?v=4400"></script>

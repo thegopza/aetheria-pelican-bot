@@ -1,0 +1,185 @@
+/* manager/public/plan_editor.css — Plan Script editor: trigger timeline, actions, live status */
+
+/* ---------- Live status row (plan list) ---------- */
+.pl-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(2, 6, 18, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 12px;
+  color: #cbd5e1;
+}
+.pl-status small { color: #94a3b8; }
+.pl-muted { color: #94a3b8; }
+.pl-warn { color: #fcd34d; }
+.pl-sep { width: 1px; height: 16px; background: rgba(148, 163, 184, 0.25); }
+.pl-switch { display: inline-flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; color: #f1f5f9; }
+.pl-switch input { display: none; }
+.pl-switch > span { position: relative; width: 36px; height: 20px; border-radius: 999px; background: #334155; transition: background 0.18s; flex-shrink: 0; }
+.pl-switch > span::before { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #cbd5e1; transition: transform 0.18s; }
+.pl-switch input:checked + span { background: #10b981; }
+.pl-switch input:checked + span::before { transform: translateX(16px); background: #fff; }
+
+/* ---------- Editor header ---------- */
+.pe-dirty {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fcd34d;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  white-space: nowrap;
+}
+
+/* ---------- Empty state ---------- */
+.pe-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 20px;
+  border: 2px dashed rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  color: #94a3b8;
+  text-align: center;
+  font-size: 12.5px;
+}
+.pe-empty b { color: #e2e8f0; }
+.pe-empty-icon { font-size: 30px; opacity: 0.7; }
+
+/* ---------- Trigger timeline ---------- */
+.pe-timeline { display: flex; flex-direction: column; }
+.pe-node { display: grid; grid-template-columns: 34px 1fr; gap: 8px; }
+.pe-rail { position: relative; display: flex; justify-content: center; }
+.pe-rail::before { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(148, 163, 184, 0.18); }
+.pe-node:first-child .pe-rail::before { top: 20px; }
+.pe-node:last-child .pe-rail::before { bottom: calc(100% - 20px); }
+.pe-dot {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0b1222;
+}
+.pe-node.base .pe-dot { background: #fbbf24; box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.15); }
+.pe-node.job .pe-dot { background: #c084fc; box-shadow: 0 0 0 4px rgba(192, 132, 252, 0.15); }
+
+.pe-card {
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+}
+.pe-node.base .pe-card { border-left: 3px solid rgba(251, 191, 36, 0.7); }
+.pe-node.job .pe-card { border-left: 3px solid rgba(192, 132, 252, 0.7); }
+
+.pe-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(2, 6, 18, 0.35);
+}
+.pe-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 8px; background: rgba(0, 0, 0, 0.35); flex-shrink: 0; }
+.pe-seg button { padding: 3px 9px; border: none; border-radius: 6px; background: transparent; color: #94a3b8; font-size: 11px; font-weight: 700; cursor: pointer; }
+.pe-node.base .pe-seg button.on { background: #fbbf24; color: #1f1300; }
+.pe-node.job .pe-seg button.on { background: #c084fc; color: #1e0b33; }
+
+.pe-stepper { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: #e2e8f0; }
+.pe-stepper button { width: 24px; height: 26px; border-radius: 6px; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(255, 255, 255, 0.04); color: #e2e8f0; font-weight: 800; cursor: pointer; }
+.pe-stepper button:hover { background: rgba(255, 255, 255, 0.1); }
+.pe-stepper span { margin: 0 2px 0 4px; color: #94a3b8; }
+.pe-stepper input {
+  width: 52px;
+  height: 26px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(2, 6, 18, 0.7);
+  color: #fff;
+  outline: none;
+}
+.pe-stepper input:focus { border-color: #38bdf8; }
+
+.pe-summary { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.pe-chip { max-width: 100%; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-chip.equip_item { color: #fde68a; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); }
+.pe-chip.change_map { color: #a7f3d0; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35); }
+.pe-chip.change_class { color: #e9d5ff; background: rgba(168, 85, 247, 0.14); border-color: rgba(168, 85, 247, 0.4); }
+.pe-chip.empty { color: #94a3b8; border-style: dashed; border-color: rgba(148, 163, 184, 0.3); }
+
+.pe-head-btns { display: flex; gap: 4px; flex-shrink: 0; }
+.pe-icon-btn { width: 28px; height: 26px; border-radius: 7px; border: 1px solid rgba(148, 163, 184, 0.22); background: rgba(255, 255, 255, 0.04); color: #cbd5e1; font-size: 13px; cursor: pointer; }
+.pe-icon-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.pe-icon-btn.danger:hover { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border-color: rgba(239, 68, 68, 0.45); }
+.pe-icon-btn.sm { width: 24px; height: 22px; font-size: 11px; }
+.pe-fold { border: none; background: transparent; font-size: 14px; }
+
+.pe-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.pe-node.collapsed .pe-body { display: none; }
+
+/* ---------- Actions ---------- */
+.pe-action {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+.pe-act-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 17px; }
+.pe-action.equip_item .pe-act-icon { background: rgba(245, 158, 11, 0.15); }
+.pe-action.change_map .pe-act-icon { background: rgba(16, 185, 129, 0.15); }
+.pe-action.change_class .pe-act-icon { background: rgba(168, 85, 247, 0.16); }
+.pe-act-main { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.pe-act-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #f1f5f9; }
+.pe-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pe-fields label, .pe-budget { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 10.5px; font-weight: 600; color: #94a3b8; }
+.pe-action .form-input, .pe-action .form-select { padding: 6px 9px; font-size: 12px; }
+.pe-inline { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pe-check { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-size: 11.5px; font-weight: 600; color: #cbd5e1; cursor: pointer; }
+.pe-check input { width: 15px; height: 15px; accent-color: #10b981; }
+.pe-budget { flex-direction: row; align-items: center; gap: 6px; }
+.pe-budget .form-input { width: 110px; }
+.pe-hint { font-size: 10.5px; color: #94a3b8; }
+
+.pe-add-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 2px; font-size: 11px; color: #94a3b8; }
+.pe-add-row button {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pe-add-row button:hover { border-style: solid; background: rgba(56, 189, 248, 0.1); color: #fff; border-color: rgba(56, 189, 248, 0.45); }
+
+/* ---------- Skill builder additions ---------- */
+.skill-kind { font-size: 9px; font-weight: 700; padding: 0 5px; border-radius: 4px; }
+.skill-kind.passive { color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
+.skill-kind.active { color: #fbbf24; background: rgba(234, 179, 8, 0.15); }
+.skill-kind.toggle { color: #c084fc; background: rgba(168, 85, 247, 0.15); }
+.skill-queue-chip.bad { border-color: rgba(239, 68, 68, 0.6); background: rgba(127, 29, 29, 0.35); }
+
+@media (max-width: 760px) {
+  .pe-head { flex-wrap: wrap; }
+  .pe-fields { grid-template-columns: 1fr; }
+}

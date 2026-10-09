@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.4.2
+// @version      4.5.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.4.2';
+    const PELICAN_BOT_VERSION = '4.5.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -175,9 +175,8 @@
         const curClass = (char.classId || char.class || window.__charClass || '').toLowerCase();
         const baseLv = char.baseLevel || char.level || 1;
 
-        // 1. ถ้าตัวละครเลเวลสูง (>= 50) หรือเป็นอาชีพ Class 2 อยู่แล้ว ห้ามเปลี่ยนอาชีพซ้ำ
-        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist', 'sniper', 'paladin'];
-        if (baseLv >= 50 || secondClasses.some(sc => curClass.includes(sc))) {
+        // 1. Already this class (or a later class of the same line): nothing to do
+        if (planClassLineage(curClass).includes(targetClean)) {
             return true;
         }
 
@@ -270,6 +269,15 @@
                         targetIdx = idx;
                     }
                 });
+
+                const thaiName = (PLAN_CLASS_TREE[targetClean] || [])[0];
+                if (targetIdx < 0 && thaiName) {
+                    targetIdx = btns.findIndex(b => (b.innerText || '').includes(thaiName));
+                }
+                if (targetIdx < 0) {
+                    const opts = planJobOptions(char);
+                    if (opts.length && (btns.length === opts.length || btns.length === opts.length + 1)) targetIdx = opts.indexOf(targetClean);
+                }
 
                 if (targetIdx >= 0) {
                     console.log(`%c[PmheeAether Plan] 🎯 เลือกเปลี่ยนเป็นอาชีพ "${targetClass}" (Option ${targetIdx}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
@@ -9294,6 +9302,7 @@
             if (data.targetMap) {
                 window.__targetFarmMap = data.targetMap;
                 localStorage.setItem('pelican_target_map', data.targetMap);
+                localStorage.setItem('pelican_farm_map', data.targetMap);
                 const sel = document.getElementById('p-target-map-select');
                 if (sel) sel.value = data.targetMap;
             }
@@ -11441,9 +11450,9 @@
         if (savedExec) window.__executedPlanTriggers = JSON.parse(savedExec);
     } catch(e) {}
 
-    window.__applyScriptPlan = function(plan, enable = true) {
+    window.__applyScriptPlan = function(plan, enable) {
         window.__currentScriptPlan = plan;
-        if (enable !== undefined) {
+        if (typeof enable === 'boolean') {
             window.__planScriptEnabled = !!enable;
             try {
                 localStorage.setItem('pelican_plan_script_enabled', String(window.__planScriptEnabled));
@@ -11458,131 +11467,292 @@
         }
     };
 
-    window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
-        if (!itemName) return;
-        const targetClean = itemName.trim().toLowerCase();
-        console.log(`%c[PmheeAether Plan] 🛡️ เริ่มขั้นตอนตรวจสอบอุปกรณ์ "${itemName}"...`, 'color: #38bdf8; font-weight: bold;');
+    // Class tree (from manager/public/game-classes.json): id -> [thai name, previous class, tier]
+    const PLAN_CLASS_TREE = {"novice":["โนวิซ",null,0],"swordsman":["นักดาบ","novice",1],"mage":["นักเวท","novice",1],"archer":["นักธนู","novice",1],"acolyte":["นักบวชฝึกหัด","novice",1],"merchant":["พ่อค้า","novice",1],"thief":["โจร","novice",1],"knight":["อัศวิน","swordsman",2],"crusader":["ครูเซเดอร์","swordsman",2],"wizard":["จอมเวท","mage",2],"sage":["นักปราชญ์","mage",2],"hunter":["นักล่า","archer",2],"bard":["กวี","archer",2],"dancer":["นักเต้น","archer",2],"priest":["พรีสต์","acolyte",2],"monk":["มองค์","acolyte",2],"blacksmith":["ช่างตีเหล็ก","merchant",2],"alchemist":["นักเล่นแร่แปรธาตุ","merchant",2],"assassin":["นักฆ่า","thief",2],"rogue":["โร้ก","thief",2],"dragon-knight":["อัศวินมังกร","knight",3],"paladin":["พาลาดิน","crusader",3],"revenant":["เรเวแนนท์","crusader",3],"stormweaver":["จอมเวทพายุ","wizard",3],"frost-sage":["ปราชญ์น้ำแข็ง","sage",3],"sniper":["สไนเปอร์","hunter",3],"high-priest":["ไฮพรีสต์","priest",3],"champion":["แชมเปียน","monk",3],"whitesmith":["ไวท์สมิธ","blacksmith",3],"creator":["ครีเอเตอร์","alchemist",3],"assassin-cross":["แอสแซสซินครอส","assassin",3],"stalker":["สตอล์คเกอร์","rogue",3],"draken-paladin":["พาลาดินมังกร","paladin",4]};
 
-        // 1. ตรวจสอบว่าสวมใส่อยู่บนตัวละครแล้วหรือไม่
-        const isAlreadyEquipped = () => {
-            const charSlots = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (el.closest('#pelican-hud') || el.closest('#pelican-market-inspector')) return false;
-                const text = (el.innerText || el.textContent || '').trim().toLowerCase();
-                return text.includes(targetClean) && el.offsetWidth > 0;
-            });
-            return charSlots.length > 0;
-        };
-
-        if (isAlreadyEquipped()) {
-            console.log(`%c[PmheeAether Plan] 🛡️ "${itemName}" สวมใส่อยู่บนตัวละครแล้ว (ข้ามการทำงาน)`, 'color: #22c55e;');
-            return true;
+    // ['novice', 'archer', 'hunter'] for a hunter
+    function planClassLineage(classId) {
+        const out = [];
+        let c = String(classId || '').trim().toLowerCase();
+        for (let i = 0; c && i < 8; i++) {
+            out.unshift(c);
+            c = PLAN_CLASS_TREE[c] ? PLAN_CLASS_TREE[c][1] : null;
         }
+        return out;
+    }
+    const planClassTier = id => { const e = PLAN_CLASS_TREE[String(id || '').trim().toLowerCase()]; return e ? e[2] : null; };
+    const planJobOptions = ch => (Array.isArray(ch && ch.jobChangeOptions) ? ch.jobChangeOptions : [])
+        .map(o => String((o && (o.id || o.classId)) || o).trim().toLowerCase()).filter(Boolean);
 
-        // 2. ตรวจสอบในกระเป๋าเซิร์ฟเวอร์
-        const invItem = (typeof findItemInServerInv === 'function') ? findItemInServerInv(it => {
-            const name = (it.name || '').toLowerCase();
-            return name.includes(targetClean) && typeof (it.slot ?? it.idx) === 'number';
-        }) : null;
+    function getPlanRoom() {
+        return (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null)
+            || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null);
+    }
 
-        if (invItem) {
-            const slot = invItem.slot ?? invItem.idx;
-            console.log(`%c[PmheeAether Plan] 🎒 พบ "${itemName}" ในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
-            if (typeof window.sendEquip === 'function') {
-                window.sendEquip(slot);
-            }
-            return true;
+    // States during which plan actions must wait (AGENTS.md: never interrupt the Alice walk)
+    function planBusyReason() {
+        if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
+        if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
+        if (window.__isRecovering) return 'กำลังชุบชีวิต';
+        if (window.__isConsolidating || window.__consolidationReceiverMode) return 'กำลังรวมเงิน/เทรด';
+        if (window.__isChangingJob) return 'กำลังเปลี่ยนอาชีพ';
+        if (window.__isManualSelling || window.__isAutoSellingNow) return 'กำลังขายของ';
+        return null;
+    }
+
+    // Plan action "change_map": remember the new farm map (same key the bot loads) and walk there now
+    window.setTargetFarmMap = function(mapName, walkNow = false) {
+        if (!mapName) return;
+        window.__targetFarmMap = mapName;
+        try { localStorage.setItem('pelican_farm_map', mapName); } catch (e) {}
+        const sel = document.getElementById('p-target-map-select');
+        if (sel) sel.value = mapName;
+        if (walkNow && window.__isBotRunning && !planBusyReason() && typeof window.walkToTargetMap === 'function') {
+            const cur = (typeof getCurrentMapName === 'function') ? (getCurrentMapName() || '') : '';
+            if (!cur.includes(mapName)) window.walkToTargetMap(mapName, true);
         }
-
-        // 3. ถ้าไม่มีในกระเป๋า และเปิดตัวเลือกซื้อจากตลาด
-        if (buyFromMarketIfMissing) {
-            console.log(`%c[PmheeAether Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${Number(maxPrice).toLocaleString()} z)...`, 'color: #f59e0b; font-weight: bold;');
-            try {
-                if (typeof window.executeMarketSearch === 'function') {
-                    if (window.__marketFilterConfig) {
-                        window.__marketFilterConfig.q = itemName;
-                        window.__marketFilterConfig.maxPrice = maxPrice;
-                    }
-                    window.executeMarketSearch();
-                    await new Promise(r => setTimeout(r, 600));
-
-                    // ตรวจสอบผลลัพธ์ในตลาด
-                    const candidates = (window.__latestMarketResults?.listings || window.__marketAllListings || [])
-                        .filter(l => l && l.item && (l.item.name || '').toLowerCase().includes(targetClean))
-                        .filter(l => (Number(l.price) || 0) <= maxPrice)
-                        .sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
-
-                    if (candidates.length > 0) {
-                        const best = candidates[0];
-                        console.log(`%c[PmheeAether Plan] ⚡ สั่งซื้อ "${best.item.name}" ในราคา ${Number(best.price).toLocaleString()} z ทันที!`, 'color: #10b981; font-weight: bold;');
-                        if (typeof window.buyMarketListing === 'function') {
-                            window.buyMarketListing(best.listingId, best.price, best.item.name, best.sellerName);
-                            // รอไอเทมเข้ากระเป๋า แล้วสั่งสวมใส่
-                            setTimeout(() => {
-                                const bought = (typeof findItemInServerInv === 'function') ? findItemInServerInv(it => (it.name || '').toLowerCase().includes(targetClean)) : null;
-                                if (bought && typeof window.sendEquip === 'function') {
-                                    window.sendEquip(bought.slot ?? bought.idx);
-                                }
-                            }, 1500);
-                            return true;
-                        }
-                    } else {
-                        console.warn(`[PmheeAether Plan] ⚠️ ไม่พบ "${itemName}" ในตลาดที่ราคาต่ำกว่า ${Number(maxPrice).toLocaleString()} z`);
-                    }
-                }
-            } catch(e) {
-                console.warn('[PmheeAether Plan] Market buy error:', e);
-            }
-        }
-
-        return false;
     };
+
+    // ---------- Random-option filter for plan equip actions: "dex, atk>=5, melee dmg" ----------
+    const PLAN_OPTION_ALIASES = {
+        ATK: ['atk', 'attack'], MATK: ['matk', 'magicatk'], DEF: ['def'], MDEF: ['mdef'], HIT: ['hit'], FLEE: ['flee'],
+        CRIT: ['crit', 'cri', 'critical'], ASPD: ['aspd'], MAXHP: ['hp', 'maxhp'], MAXSP: ['sp', 'maxsp'],
+        MOVE_SPEED: ['move', 'movespeed', 'speed'], CRIT_DAMAGE: ['critdmg', 'critdamage'],
+        MELEE_DAMAGE_PERCENT: ['meleedmg', 'meleedamage', 'melee'], RANGED_DAMAGE_PERCENT: ['rangeddmg', 'rangedmg', 'rangeddamage', 'ranged', 'range'],
+        MAGIC_DAMAGE_PERCENT: ['magicdmg', 'magicdamage', 'magic'], DAMAGE_REDUCTION: ['reduction', 'dmgreduction', 'dr'],
+        BLOCK_CHANCE: ['block', 'blockchance'], HEAL_POWER: ['heal', 'healpower'],
+        STR: ['str'], AGI: ['agi'], VIT: ['vit'], INT: ['int'], DEX: ['dex'], LUK: ['luk', 'luck']
+    };
+    const PLAN_PERCENT_STATS = new Set(['MOVE_SPEED', 'CRIT_DAMAGE', 'MELEE_DAMAGE_PERCENT', 'RANGED_DAMAGE_PERCENT', 'MAGIC_DAMAGE_PERCENT', 'DAMAGE_REDUCTION', 'BLOCK_CHANCE', 'HEAL_POWER']);
+    function parsePlanOptionFilter(text) {
+        const norm = s => String(s || '').toLowerCase().replace(/[\s_\-.]+/g, '');
+        const terms = [];
+        String(text || '').split(/[,;]+/).map(s => s.trim()).filter(Boolean).forEach(tok => {
+            const m = tok.match(/^(.*?)\s*(?:>=|≥|>|=|\s)\s*(\d+)\s*%?\s*$/);
+            let name = m && m[1].trim() ? m[1] : tok;
+            const min = m && m[1].trim() ? Number(m[2]) : 0;
+            const pct = /%\s*$/.test(name);
+            name = norm(name.replace(/%\s*$/, ''));
+            const type = Object.keys(PLAN_OPTION_ALIASES).find(t => norm(t) === name || PLAN_OPTION_ALIASES[t].includes(name));
+            if (type) terms.push({ type, min, pct });
+            else console.warn(`[PmheeAether Plan] ⚠️ ไม่รู้จักออปชั่น "${tok}" ในตัวกรอง (ข้าม)`);
+        });
+        return terms;
+    }
+    function itemPassesPlanOptions(item, terms) {
+        if (!terms.length) return true;
+        const affixes = Array.isArray(item && item.affixes) ? item.affixes : [];
+        return terms.every(t => {
+            const hits = affixes.filter(a => a && a.type === t.type && (!t.pct || a.mode !== 'base' || PLAN_PERCENT_STATS.has(a.type)));
+            return hits.length > 0 && hits.reduce((s, a) => s + (Number(a.value) || 0), 0) >= t.min;
+        });
+    }
+
+    // Market search for plan purchases. The bot's own sniper/auto-buy is paused meanwhile so these
+    // results can never trigger an unrelated automatic purchase.
+    async function planMarketSearch(room, q, term) {
+        const cfg = window.__marketFilterConfig || {};
+        const saved = { autoBuy: cfg.autoBuy, sniperAlert: cfg.sniperAlert };
+        cfg.autoBuy = false;
+        cfg.sniperAlert = false;
+        try {
+            const filters = { q, sort: 'price_asc', page: 0 };
+            if (term) { filters.affix = term.type; if (term.min) filters.affixMin = term.min; }
+            const res = await new Promise(resolve => {
+                let unsub;
+                const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 4000);
+                unsub = room.onMessage('market_results', msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); resolve(msg); });
+                room.send('market', { op: 'search', filters });
+            });
+            return (res && Array.isArray(res.listings)) ? res.listings : [];
+        } finally {
+            setTimeout(() => { cfg.autoBuy = saved.autoBuy; cfg.sniperAlert = saved.sniperAlert; }, 400);
+        }
+    }
+
+    // Plan action "equip_item". Returns 'done' | 'pending' (try again later) | 'failed'.
+    window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
+        if (!itemName) return 'failed';
+        const want = itemName.trim().toLowerCase();
+        const terms = parsePlanOptionFilter(optionFilter);
+        const nameOf = it => String((it && it.name) || '').trim().toLowerCase();
+        const matches = it => it && nameOf(it) === want && itemPassesPlanOptions(it, terms);
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const baseLv = Number(ch.baseLevel) || 0;
+        const room = getPlanRoom();
+        const bagItems = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items : [];
+
+        // 1. Already wearing it (character equipment data, not text on screen)
+        const worn = ch.equipment ? Object.values(ch.equipment).filter(Boolean) : [];
+        if (worn.some(matches)) {
+            console.log(`%c[PmheeAether Plan] 🛡️ สวม "${itemName}" อยู่แล้ว`, 'color: #22c55e;');
+            return 'done';
+        }
+
+        // 2. In the bag: exact name + options + level requirement -> equip (best refine first)
+        const inBag = bagItems().filter(matches);
+        const wearable = inBag.filter(it => !it.levelReq || it.levelReq <= baseLv).sort((a, b) => (b.refine || 0) - (a.refine || 0));
+        if (wearable.length) {
+            if (!room) return 'pending';
+            room.send('equip', { slot: wearable[0].slot });
+            console.log(`%c[PmheeAether Plan] 🎒 สวมใส่ "${itemName}" จากกระเป๋า (ช่อง ${wearable[0].slot})`, 'color: #22c55e; font-weight: bold;');
+            return 'done';
+        }
+        if (inBag.length) {
+            console.log(`[PmheeAether Plan] ⏳ มี "${itemName}" ในกระเป๋าแต่เลเวลยังไม่ถึง (ต้อง Lv.${inBag[0].levelReq}) รอเลเวลก่อน`);
+            return 'pending';
+        }
+        if (!buyFromMarketIfMissing) {
+            console.log(`[PmheeAether Plan] ⏳ ไม่พบ "${itemName}"${terms.length ? ' ที่ออปชั่นตรง' : ''} ในตัว/กระเป๋า (ไม่ได้เปิดซื้อจากตลาด) รอเก็บได้ก่อน`);
+            return 'pending';
+        }
+
+        // 3. Buy the cheapest exact match (instant-buy listings only), then collect it and equip
+        if (!room || window.__planMarketBuyInFlight) return 'pending';
+        window.__planMarketBuyInFlight = true;
+        try {
+            const listings = await planMarketSearch(room, itemName, terms[0]);
+            const now = Date.now();
+            const best = listings
+                .filter(l => l && !l.mine && Number(l.qty) === 1 && matches(l.item))
+                .filter(l => !(l.auctionEndsAt && l.auctionEndsAt > now))
+                .filter(l => !maxPrice || Number(l.price) <= maxPrice)
+                .filter(l => !l.item.levelReq || l.item.levelReq <= baseLv)
+                .sort((a, b) => Number(a.price) - Number(b.price))[0];
+            if (!best) {
+                console.log(`[PmheeAether Plan] ⏳ ยังไม่มีคนขาย "${itemName}"${terms.length ? ' ที่ออปชั่นตรง' : ''} ในราคาไม่เกิน ${Number(maxPrice).toLocaleString()} z — จะลองใหม่ภายหลัง`);
+                return 'pending';
+            }
+            console.log(`%c[PmheeAether Plan] 🛒 ซื้อ "${best.item.name}" ราคา ${Number(best.price).toLocaleString()} z จาก ${best.sellerName}`, 'color: #10b981; font-weight: bold;');
+            room.send('market', { op: 'buy', listingId: Number(best.listingId), price: Number(best.price) });
+            await new Promise(r => setTimeout(r, 1200));
+            room.send('market', { op: 'collect_all' });   // purchases wait in the market "รับของ" tab
+            for (let i = 0; i < 16; i++) {
+                await new Promise(r => setTimeout(r, 500));
+                const got = bagItems().find(matches);
+                if (got) {
+                    room.send('equip', { slot: got.slot });
+                    console.log(`%c[PmheeAether Plan] 🛡️ สวมใส่ "${itemName}" ที่ซื้อมาแล้ว`, 'color: #22c55e; font-weight: bold;');
+                    return 'done';
+                }
+            }
+            return 'pending';   // bought but not in the bag yet: next retry equips it from the bag
+        } catch (e) {
+            console.warn('[PmheeAether Plan] Market buy error:', e);
+            return 'pending';
+        } finally {
+            window.__planMarketBuyInFlight = false;
+        }
+    };
+
+    // ---------- Level triggers (n8n-style: trigger -> actions) ----------
+    // A trigger fires when the level *crosses* its target (so multi-level jumps or bot downtime can't
+    // skip it). Progress is stored per character + plan; actions that can't finish yet are retried.
+    const PLAN_RETRY_MS = 60 * 1000;
+    const PLAN_EQUIP_GIVEUP_MS = 30 * 60 * 1000;
+    const planTriggerId = (t, i) => t.id || `${t.type || 'base_level'}_${t.targetLevel}_${i}`;
+    let planTriggersRunning = false;
+
+    function readPlanLevels() {
+        const text = (document.querySelector('.hud-levels') || {}).innerText || '';
+        const b = text.match(/Base\s*(?:Lv\.?|Level)?\s*(\d+)/i);
+        const j = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
+        if (!b || !j) return null;   // HUD not ready: never guess a level
+        return { base: parseInt(b[1], 10), job: parseInt(j[1], 10) };
+    }
+
+    async function runPlanAction(act) {
+        if (act.type === 'change_map' && act.targetMap) {
+            console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
+            window.setTargetFarmMap(act.targetMap, true);
+            return 'done';
+        }
+        if (act.type === 'equip_item' && act.itemName) {
+            return await window.findAndEquipItemByName(act.itemName, act.buyFromMarket !== false, Number(act.maxPrice) || 0, act.optionFilter || '');
+        }
+        if (act.type === 'change_class' && act.targetClass) {
+            const target = String(act.targetClass).trim().toLowerCase();
+            const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+            if (planClassLineage(ch.classId).includes(target)) return 'done';
+            if (!planJobOptions(ch).includes(target)) return 'pending';   // not eligible yet: keep waiting
+            return (await window.executeAutoJobChange(target)) ? 'done' : 'pending';
+        }
+        return 'failed';
+    }
 
     window.checkAndExecutePlanTriggers = async function() {
         const plan = window.__currentScriptPlan;
-        if (!plan || !Array.isArray(plan.triggers) || plan.triggers.length === 0) return;
+        if (!plan || !Array.isArray(plan.triggers) || plan.triggers.length === 0 || planTriggersRunning) return;
+        const lv = readPlanLevels();
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        if (!lv || !charName || charName === 'default_char') return;
 
-        const levelsEl = document.querySelector('.hud-levels');
-        const text = levelsEl ? levelsEl.innerText : '';
-        const baseMatch = text.match(/Base\s*(?:Lv\.?|Level)?\s*(\d+)/i);
-        const jobMatch = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
-        const curBase = baseMatch ? parseInt(baseMatch[1], 10) : 1;
-        const curJob = jobMatch ? parseInt(jobMatch[1], 10) : 1;
+        const key = `pelican_plan_state_${charName}_${plan.id || plan.name || 'plan'}`;
+        let st = null;
+        try { st = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+        // First run of this plan for this character: triggers at the current level still fire once,
+        // levels already passed don't (no retroactive buying or map hopping)
+        if (!st) st = { lastBase: lv.base - 1, lastJob: lv.job - 1, done: {}, pending: {} };
+        const save = () => { try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
 
-        for (const trig of plan.triggers) {
-            const isJob = (trig.type === 'job_level');
-            const targetLvl = parseInt(trig.targetLevel, 10);
-            const trigKey = (isJob ? 'job_' : 'base_') + targetLvl;
+        // 1. Queue triggers whose level was crossed since the last check
+        const crossed = [];
+        plan.triggers.forEach((t, i) => {
+            const id = planTriggerId(t, i);
+            const lvl = parseInt(t.targetLevel, 10);
+            if (!lvl || st.done[id] || st.pending[id]) return;
+            const isJob = t.type === 'job_level';
+            const last = isJob ? st.lastJob : st.lastBase;
+            const cur = isJob ? lv.job : lv.base;
+            if (last < lvl && lvl <= cur) crossed.push({ id, t, lvl });
+        });
+        st.lastBase = lv.base;
+        st.lastJob = lv.job;
+        crossed.sort((a, b) => a.lvl - b.lvl);
+        // When several triggers are crossed at once only the last map change matters
+        const lastMapTrigger = [...crossed].reverse().find(c => (c.t.actions || []).some(a => a.type === 'change_map'));
+        crossed.forEach(c => {
+            const actions = (c.t.actions || []).map((a, i) => i).filter(i => c.t.actions[i].type !== 'change_map' || c === lastMapTrigger);
+            st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level' };
+            console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${c.t.type === 'job_level' ? 'Job' : 'Base'} Lv.${c.lvl} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
+        });
+        save();
 
-            const matched = isJob ? (curJob === targetLvl) : (curBase === targetLvl);
+        // 2. Run pending actions (one trigger per cycle), unless the bot is busy with something that must not be interrupted
+        const busy = planBusyReason();
+        if (busy) return;
+        const nextId = Object.keys(st.pending).sort((a, b) => st.pending[a].level - st.pending[b].level)
+            .find(id => Date.now() >= (st.pending[id].nextAt || 0));
+        if (!nextId) return;
+        const trig = plan.triggers.find((t, i) => planTriggerId(t, i) === nextId);
+        if (!trig) { delete st.pending[nextId]; save(); return; }
 
-            if (matched && !window.__executedPlanTriggers[trigKey]) {
-                window.__executedPlanTriggers[trigKey] = true;
-                try {
-                    localStorage.setItem('pelican_executed_triggers', JSON.stringify(window.__executedPlanTriggers));
-                } catch(e) {}
-
-                console.log(`%c[PmheeAether Plan] 🎯 ทำตามแผน Trigger เลเวล ${targetLvl} (${isJob ? 'Job Lv' : 'Base Lv'})!`, 'color: #f59e0b; font-weight: bold;');
-
-                for (const act of (trig.actions || [])) {
-                    try {
-                        if (act.type === 'change_map' && act.targetMap) {
-                            console.log(`%c[PmheeAether Plan] 🗺️ แผนสั่งเปลี่ยนแมพฟาร์มไปที่: "${act.targetMap}"`, 'color: #38bdf8;');
-                            if (typeof window.setTargetFarmMap === 'function') {
-                                window.setTargetFarmMap(act.targetMap);
-                            }
-                        } else if (act.type === 'change_class' && act.targetClass) {
-                            console.log(`%c[PmheeAether Plan] 🏹 แผนสั่งเปลี่ยนอาชีพเป็น: "${act.targetClass}"`, 'color: #a855f7; font-weight: bold;');
-                            if (typeof window.executeAutoJobChange === 'function') {
-                                await window.executeAutoJobChange(act.targetClass);
-                            }
-                        } else if (act.type === 'equip_item' && act.itemName) {
-                            await window.findAndEquipItemByName(act.itemName, act.buyFromMarket, act.maxPrice, act.optionFilter);
-                        }
-                    } catch(err) {
-                        console.warn('[PmheeAether Plan] Action execution error:', err);
-                    }
-                }
+        planTriggersRunning = true;
+        try {
+            const p = st.pending[nextId];
+            const remaining = [];
+            for (const ai of p.actions) {
+                const act = (trig.actions || [])[ai];
+                if (!act) continue;
+                let r = 'failed';
+                try { r = await runPlanAction(act); } catch (e) { console.warn('[PmheeAether Plan] Action error:', e); r = 'pending'; }
+                if (r === 'pending') remaining.push(ai);
+                else if (r === 'failed') console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
             }
+            const equipTimedOut = Date.now() - p.firstAt > PLAN_EQUIP_GIVEUP_MS;
+            const stillWaiting = remaining.filter(ai => !(equipTimedOut && trig.actions[ai].type === 'equip_item'));
+            if (stillWaiting.length === 0) {
+                if (remaining.length) console.warn(`[PmheeAether Plan] ⌛ เลิกพยายามสวมใส่ไอเทมของเงื่อนไข Lv.${p.level} (เกิน 30 นาที)`);
+                else console.log(`%c[PmheeAether Plan] ✅ ทำเงื่อนไข Lv.${p.level} ครบแล้ว`, 'color: #22c55e; font-weight: bold;');
+                delete st.pending[nextId];
+                st.done[nextId] = Date.now();
+            } else {
+                p.actions = stillWaiting;
+                p.nextAt = Date.now() + PLAN_RETRY_MS;
+            }
+            save();
+        } finally {
+            planTriggersRunning = false;
         }
     };
 
@@ -11616,75 +11786,102 @@
         return charData;
     };
 
-    // 1. Automated Skill Allocation Engine (Sequential Points)
+    // 1. Automated Skill Allocation (follows the plan's point queue)
+    // A queued skill is skipped (not blocking the rest) while it can't be learned yet: wrong class
+    // for now, prerequisite not met, or the server refused it (no progress -> retry in 10 min).
+    const planSkillBlockedUntil = {};
+    let planLastSkillAttempt = null;
     window.autoAllocateSkills = async function() {
         const plan = window.__currentScriptPlan;
-        if (!plan || !plan.skillBuild || !Array.isArray(plan.skillBuild.skillPointQueue) || plan.skillBuild.skillPointQueue.length === 0) return;
-        
-        const charData = window.getLiveCharacterData();
-        if (!charData || !charData.skillPoints || charData.skillPoints <= 0) return;
-
-        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        const queue = plan && plan.skillBuild && Array.isArray(plan.skillBuild.skillPointQueue) ? plan.skillBuild.skillPointQueue : [];
+        if (!queue.length) return;
+        const ch = window.getLiveCharacterData();
+        if (!ch || !(ch.skillPoints > 0)) { planLastSkillAttempt = null; return; }
+        const room = getPlanRoom();
         if (!room) return;
+        const skills = ch.skills || {};
 
-        const queue = plan.skillBuild.skillPointQueue;
-        const currentSkills = charData.skills || {};
-
-        const targetCounts = {};
-        let skillToUpgrade = null;
-
-        for (const skillId of queue) {
-            targetCounts[skillId] = (targetCounts[skillId] || 0) + 1;
-            const curLv = currentSkills[skillId] || 0;
-            if (curLv < targetCounts[skillId]) {
-                skillToUpgrade = skillId;
-                break;
+        if (planLastSkillAttempt) {
+            const a = planLastSkillAttempt;
+            if ((skills[a.id] || 0) <= a.level && ch.skillPoints >= a.points) {
+                planSkillBlockedUntil[a.id] = Date.now() + 10 * 60 * 1000;
+                console.warn(`[PmheeAether Plan] ⚠️ อัปสกิล "${a.id}" ไม่สำเร็จ (เกมไม่รับ) — ข้ามไปสกิลถัดไปในคิว แล้วจะลองใหม่ใน 10 นาที`);
             }
+            planLastSkillAttempt = null;
         }
 
-        if (skillToUpgrade) {
-            console.log(`%c[PmheeAether Plan] ⚡ อัปสกิลอัตโนมัติตามลำดับแผน: "${skillToUpgrade}" (แต้มคงเหลือ: ${charData.skillPoints})`, 'color: #a855f7; font-weight: bold;');
-            try {
-                room.send('skill_up', { skillId: skillToUpgrade });
-            } catch(err) {
-                console.warn('[PmheeAether Plan] Error sending skill_up packet:', err);
-            }
+        const catalog = (window.__skillCatalog && Array.isArray(window.__skillCatalog.skills)) ? window.__skillCatalog.skills : [];
+        const meta = {};
+        catalog.forEach(s => { meta[s.id] = s; });
+        const lineage = planClassLineage(ch.classId);
+        const canLearnNow = id => {
+            if ((planSkillBlockedUntil[id] || 0) > Date.now()) return false;
+            const s = meta[id];
+            if (!s) return catalog.length === 0;   // no catalog yet: let the server decide
+            if (lineage.length && !lineage.includes(s.classId)) return false;
+            if ((skills[id] || 0) >= (s.learnMaxLevel || s.maxLevel || 10)) return false;
+            return (s.prerequisites || []).every(p => (skills[p.skill] || 0) >= p.level);
+        };
+
+        const wanted = {};
+        let pick = null;
+        for (const id of queue) {
+            wanted[id] = (wanted[id] || 0) + 1;
+            if ((skills[id] || 0) >= wanted[id]) continue;
+            if (canLearnNow(id)) { pick = id; break; }
         }
+        if (!pick) return;
+        planLastSkillAttempt = { id: pick, level: skills[pick] || 0, points: ch.skillPoints };
+        console.log(`%c[PmheeAether Plan] ⚡ อัปสกิลตามแผน: "${pick}" Lv.${(skills[pick] || 0) + 1} (แต้มคงเหลือ ${ch.skillPoints})`, 'color: #a855f7; font-weight: bold;');
+        try { room.send('skill_up', { skillId: pick }); } catch (err) { console.warn('[PmheeAether Plan] skill_up error:', err); }
     };
 
-    // 2. Automated Stat Allocation Engine
+    // 2. Automated Stat Allocation: fill stats to their targets in priority order.
+    // The game's stat_up payload is { stat, n }. Cost per point = floor((value - 1) / 10) + 2.
+    const planStatCost = v => Math.floor((v - 1) / 10) + 2;
+    let planLastStatAttempt = null;
     window.autoAllocateStats = async function() {
         const plan = window.__currentScriptPlan;
         if (!plan || !plan.statBuild || !plan.statBuild.targets) return;
-
-        const charData = window.getLiveCharacterData();
-        if (!charData || !charData.statusPoints || charData.statusPoints <= 0) return;
-
-        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        const ch = window.getLiveCharacterData();
+        if (!ch || !(ch.statusPoints > 0)) { planLastStatAttempt = null; return; }
+        const room = getPlanRoom();
         if (!room) return;
 
-        const targets = plan.statBuild.targets;
-        const priority = plan.statBuild.priorityOrder || ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
-        const currentStats = charData.stats || {};
-
-        let statToUpgrade = null;
-        for (const st of priority) {
-            const key = st.toUpperCase();
-            const targetVal = targets[key] || 1;
-            const curVal = currentStats[key] || 1;
-            if (curVal < targetVal) {
-                statToUpgrade = key;
-                break;
+        const stats = ch.stats || {};
+        let singleStep = false;
+        if (planLastStatAttempt) {
+            const a = planLastStatAttempt;
+            const noProgress = (Number(stats[a.stat]) || 1) <= a.value && ch.statusPoints >= a.points;
+            if (noProgress && a.n > 1) singleStep = true;   // batch refused: fall back to one point at a time
+            else if (noProgress) {
+                console.warn(`[PmheeAether Plan] ⚠️ อัปสเตตัส ${a.stat} ไม่สำเร็จ — พักไว้ 1 รอบ`);
+                planLastStatAttempt = null;
+                return;
             }
+            planLastStatAttempt = null;
         }
 
-        if (statToUpgrade) {
-            console.log(`%c[PmheeAether Plan] 📊 อัปสเตตัสอัตโนมัติตามแผน: "${statToUpgrade}" (แต้มคงเหลือ: ${charData.statusPoints})`, 'color: #38bdf8; font-weight: bold;');
-            try {
-                room.send('stat_up', { stat: statToUpgrade, amount: 1 });
-            } catch(err) {
-                console.warn('[PmheeAether Plan] Error sending stat_up packet:', err);
+        const targets = plan.statBuild.targets;
+        const priority = (plan.statBuild.priorityOrder && plan.statBuild.priorityOrder.length) ? plan.statBuild.priorityOrder : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
+        for (const st of priority) {
+            const key = String(st).toUpperCase();
+            const target = Math.min(99, Math.max(1, Number(targets[key]) || 1));
+            const cur = Number(stats[key]) || 1;
+            if (cur >= target) continue;
+            let n = 0, spent = 0;
+            const firstCost = (ch.statCosts && Number(ch.statCosts[key])) || planStatCost(cur);
+            while (cur + n < target && !(singleStep && n >= 1)) {
+                const c = n === 0 ? firstCost : planStatCost(cur + n);
+                if (spent + c > ch.statusPoints) break;
+                spent += c;
+                n++;
             }
+            if (n === 0) return;   // can't afford the next point of the top-priority stat yet: wait for more points
+            planLastStatAttempt = { stat: key, value: cur, points: ch.statusPoints, n };
+            console.log(`%c[PmheeAether Plan] 📊 อัปสเตตัสตามแผน: ${key} +${n} (${cur} → ${cur + n}, ใช้ ${spent} แต้ม)`, 'color: #38bdf8; font-weight: bold;');
+            try { room.send('stat_up', { stat: key, n }); } catch (err) { console.warn('[PmheeAether Plan] stat_up error:', err); }
+            return;
         }
     };
 
@@ -11699,101 +11896,40 @@
         return 'default_char';
     };
 
-    // 3. Automated Class 1 & Class 2 Promotion Engine (Per-Character Storage)
+    // 3. Automated Class 1 & Class 2 job change.
+    // The game itself says when a job change is possible (character.jobChangeOptions), so no guessing
+    // from Base/Job level. Novice -> plan.class1Target, first class -> plan.class2Target.
+    let planJobWarned = '';
     window.checkAndExecuteAutoJobChange = async function() {
         if (!window.__planScriptEnabled) return false;
         const plan = window.__currentScriptPlan;
         if (!plan) return false;
+        const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : null;
+        if (!ch) return false;
+        const options = planJobOptions(ch);
+        if (!options.length || window.__isWalkingToMap || window.__isChangingJob) return false;
 
-        const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
-        if (!charData) return false;
-
-        const charName = charData.name || (typeof window.getCharacterName === 'function' ? window.getCharacterName() : 'default_char');
-        if (!charName || charName === 'default_char') return false;
-
-        let jobState = { class1Done: false, class2Done: false };
-        try {
-            const s = localStorage.getItem(`pelican_job_state_${charName}`);
-            if (s) jobState = JSON.parse(s);
-        } catch(e) {}
-
-        const curClass = (charData.classId || charData.class || '').trim().toLowerCase();
-        const baseLv = charData.baseLevel || charData.level || 1;
-        const curJob = charData.jobLevel || (() => {
-            const text = document.querySelector('.hud-levels')?.innerText || '';
-            const m = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
-            return m ? parseInt(m[1], 10) : 1;
-        })();
-
-        const secondClasses = ['hunter', 'bard', 'dancer', 'knight', 'crusader', 'wizard', 'sage', 'assassin', 'rogue', 'priest', 'monk', 'blacksmith', 'alchemist', 'sniper', 'paladin'];
-        const firstClasses = ['archer', 'swordsman', 'mage', 'thief', 'acolyte', 'merchant'];
-
-        // ถ้าเป็น Class 2 อยู่แล้ว หรือ Base Level >= 50 ถือว่าผ่านทุกคลาสแล้ว ไม่ต้องเปลี่ยนอาชีพ
-        const isSecondClass = secondClasses.some(sc => curClass.includes(sc)) || baseLv >= 50;
-        if (isSecondClass) {
-            if (!jobState.class1Done || !jobState.class2Done) {
-                jobState.class1Done = true;
-                jobState.class2Done = true;
-                try { localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState)); } catch(e) {}
+        const tier = planClassTier(ch.classId);
+        const wanted = tier === 0 ? plan.class1Target : tier === 1 ? plan.class2Target : null;
+        if (!wanted) return false;
+        const target = String(wanted).trim().toLowerCase();
+        if (!options.includes(target)) {
+            const warn = `${ch.classId}->${target}`;
+            if (planJobWarned !== warn) {
+                planJobWarned = warn;
+                console.warn(`[PmheeAether Plan] ⚠️ แผนตั้งให้เปลี่ยนเป็น "${target}" แต่ ${ch.classId} เปลี่ยนได้แค่: ${options.join(', ')} — ตรวจ Class 1/Class 2 ในแผน`);
             }
             return false;
         }
 
-        // ถ้าเป็น Class 1 แล้ว
-        const isFirstClass = firstClasses.some(fc => curClass.includes(fc)) || (curClass && curClass !== 'novice' && !curClass.includes('novice'));
-        if (isFirstClass) {
-            if (!jobState.class1Done) {
-                jobState.class1Done = true;
-                try { localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState)); } catch(e) {}
-            }
+        console.log(`%c[PmheeAether Plan] 👑 เปลี่ยนอาชีพได้แล้ว! ${ch.classId} → ${target}`, 'color: #a855f7; font-weight: bold;');
+        window.__isChangingJob = true;
+        try {
+            await window.executeAutoJobChange(target);
+        } finally {
+            window.__isChangingJob = false;
         }
-
-        // หากบอทกำลังเดินกลับแมพฟาร์มผ่าน Alice Service ห้ามแทรกแซง
-        if (window.__isWalkingToMap) return false;
-
-        // Check Class 1 auto-change (Novice reaching Job Lv >= 10)
-        if (!jobState.class1Done && (curClass === 'novice' || curClass.includes('novice'))) {
-            if (curJob >= 10 && !window.__isChangingJob) {
-                const targetC1 = plan.class1Target || 'archer';
-                console.log(`%c[PmheeAether Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 1! (Job Lv.${curJob} >= 10) -> ดำเนินการเปลี่ยนเป็น "${targetC1}"... `, 'color: #38bdf8; font-weight: bold;');
-                window.__isChangingJob = true;
-                try {
-                    if (typeof window.executeAutoJobChange === 'function') {
-                        const ok = await window.executeAutoJobChange(targetC1);
-                        if (ok) {
-                            jobState.class1Done = true;
-                            localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
-                        }
-                    }
-                } finally {
-                    window.__isChangingJob = false;
-                }
-                return true;
-            }
-        }
-
-        // Check Class 2 auto-change (Class 1 reaching Job Lv >= 50)
-        if (jobState.class1Done && !jobState.class2Done && isFirstClass) {
-            if (curJob >= 50 && !window.__isChangingJob) {
-                const targetC2 = plan.class2Target || 'hunter';
-                console.log(`%c[PmheeAether Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 2! (Job Lv.${curJob} >= 50) -> ดำเนินการเปลี่ยนเป็น "${targetC2}"... `, 'color: #a855f7; font-weight: bold;');
-                window.__isChangingJob = true;
-                try {
-                    if (typeof window.executeAutoJobChange === 'function') {
-                        const ok = await window.executeAutoJobChange(targetC2);
-                        if (ok) {
-                            jobState.class2Done = true;
-                            localStorage.setItem(`pelican_job_state_${charName}`, JSON.stringify(jobState));
-                        }
-                    }
-                } finally {
-                    window.__isChangingJob = false;
-                }
-                return true;
-            }
-        }
-
-        return false;
+        return true;
     };
 
     // ==========================================
@@ -12007,32 +12143,26 @@
         } catch(e) {}
     };
 
-    // Auto-check plan triggers, auto-job change, skills, stats, auto-combat & settings every 4 seconds
+    // Plan Script loop (every 4 s). Display settings apply whenever the plan is enabled; everything that
+    // acts on the character (combat config, job change, skills, stats, level triggers) runs only while
+    // START BOT is on, so it never interferes with manual play.
+    let planLoopRunning = false;
     setInterval(async () => {
+        if (planLoopRunning || !window.__planScriptEnabled || !window.__currentScriptPlan) return;
+        planLoopRunning = true;
         try {
-            // Only execute Plan Script actions if explicitly enabled by user
-            if (window.__planScriptEnabled && window.__currentScriptPlan) {
-                if (typeof window.applyPelicanSettings === 'function') {
-                    window.applyPelicanSettings();
-                }
-                if (typeof window.autoConfigureCombat === 'function') {
-                    await window.autoConfigureCombat();
-                }
-                if (typeof window.checkAndExecuteAutoJobChange === 'function') {
-                    const isBusy = await window.checkAndExecuteAutoJobChange();
-                    if (isBusy) return;
-                }
-                if (typeof window.autoAllocateSkills === 'function') {
-                    await window.autoAllocateSkills();
-                }
-                if (typeof window.autoAllocateStats === 'function') {
-                    await window.autoAllocateStats();
-                }
-                if (typeof window.checkAndExecutePlanTriggers === 'function') {
-                    await window.checkAndExecutePlanTriggers();
-                }
-            }
-        } catch(e) {}
+            if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
+            if (!window.__isBotRunning) return;
+            if (typeof window.autoConfigureCombat === 'function') await window.autoConfigureCombat();
+            if (await window.checkAndExecuteAutoJobChange()) return;
+            await window.autoAllocateSkills();
+            await window.autoAllocateStats();
+            await window.checkAndExecutePlanTriggers();
+        } catch (e) {
+            console.warn('[PmheeAether Plan] loop error:', e);
+        } finally {
+            planLoopRunning = false;
+        }
     }, 4000);
 
     // ==========================================

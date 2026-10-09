@@ -2467,14 +2467,217 @@ let currentPlanAssignments = {};
 let activePlanClientProfileId = null;
 let activeEditingPlan = null;
 
+// Same map values as the in-game HUD select (the bot walks by these names)
 const PLAN_MAP_OPTIONS = [
-  { group: "🏰 เขตเมือง & ปลอดภัย", maps: ["เมืองหลวงโซลเฮเวน", "ตลาดคาราวาน"] },
-  { group: "🌱 แมพระดับเริ่มต้น (Lv. 1-12)", maps: ["ถนนต้นหลิว", "ทุ่งโคลเวอร์", "ทุ่งหญ้าตะวันออก", "ไร่ซันเกรน"] },
-  { group: "⚔️ แมพยอดนิยม (Lv. 12-55)", maps: ["ซากโบราณสถาน", "ทะเลสาบอาซูร์", "ป่ามูนลีฟ", "เส้นทางก็อบลิน", "เหมืองคริสตัลเก่า", "ค่ายออร์ค", "ที่ราบสูงเกล"] }
+  {
+    "group": "🏰 เขตเมือง & พื้นที่ปลอดภัย",
+    "maps": [
+      {
+        "value": "เมืองหลวงโซลเฮเวน",
+        "label": "เมืองหลวงโซลเฮเวน (ปลอดภัย)"
+      },
+      {
+        "value": "ตลาดคาราวาน",
+        "label": "ตลาดคาราวาน (ปลอดภัย)"
+      }
+    ]
+  },
+  {
+    "group": "🌱 แมพระดับเริ่มต้น (Lv. 1-12)",
+    "maps": [
+      {
+        "value": "สวนนักผจญภัยมือใหม่",
+        "label": "สวนนักผจญภัยมือใหม่ (Lv. 1-3)"
+      },
+      {
+        "value": "ทุ่งโคลเวอร์",
+        "label": "ทุ่งโคลเวอร์ (Lv. 1-5)"
+      },
+      {
+        "value": "ทุ่งหญ้าตะวันออก",
+        "label": "ทุ่งหญ้าตะวันออก (Lv. 1-5)"
+      },
+      {
+        "value": "ไร่ซันเกรน",
+        "label": "ไร่ซันเกรน (Lv. 1-6)"
+      },
+      {
+        "value": "ถนนต้นหลิว",
+        "label": "ถนนต้นหลิว (Lv. 6-12)"
+      }
+    ]
+  },
+  {
+    "group": "⚔️ แมพยอดนิยมระดับกลาง (Lv. 12-35)",
+    "maps": [
+      {
+        "value": "ทะเลสาบอาซูร์",
+        "label": "ทะเลสาบอาซูร์ (Lv. 12-20)"
+      },
+      {
+        "value": "ป่ามูนลีฟ",
+        "label": "ป่ามูนลีฟ (Lv. 14-22)"
+      },
+      {
+        "value": "เส้นทางก็อบลิน",
+        "label": "เส้นทางก็อบลิน (Lv. 16-20)"
+      },
+      {
+        "value": "เหมืองคริสตัลเก่า",
+        "label": "เหมืองคริสตัลเก่า (Lv. 18-28)"
+      },
+      {
+        "value": "ค่ายออร์ค",
+        "label": "ค่ายออร์ค (Lv. 22-32)"
+      },
+      {
+        "value": "ถ้ำเอมเบอร์",
+        "label": "ถ้ำเอมเบอร์ (Lv. 22-32)"
+      },
+      {
+        "value": "ที่ราบสูงเกล",
+        "label": "ที่ราบสูงเกล (Lv. 25-35)"
+      }
+    ]
+  },
+  {
+    "group": "🏔️ แมพระดับกลางสูง (Lv. 30-60)",
+    "maps": [
+      {
+        "value": "แอ่งเวอร์แดนท์",
+        "label": "แอ่งเวอร์แดนท์ (Lv. 30-40)"
+      },
+      {
+        "value": "ช่องเขาฟรอสต์พีค",
+        "label": "ช่องเขาฟรอสต์พีค (Lv. 35-45)"
+      },
+      {
+        "value": "ชายฝั่งปะการัง",
+        "label": "ชายฝั่งปะการัง (Lv. 40-50)"
+      },
+      {
+        "value": "ซากโบราณสถาน",
+        "label": "ซากโบราณสถาน (Lv. 45-55)"
+      },
+      {
+        "value": "สุสานเงา",
+        "label": "สุสานเงา (Lv. 50-60)"
+      }
+    ]
+  },
+  {
+    "group": "🔥 แมพระดับสูง & แดนอันตราย (Lv. 60-150)",
+    "maps": [
+      {
+        "value": "หนองพิษ",
+        "label": "หนองพิษ (Lv. 60-70)"
+      },
+      {
+        "value": "โบสถ์อเวจี",
+        "label": "โบสถ์อเวจี (Lv. 80-95)"
+      },
+      {
+        "value": "บึงรากเน่า",
+        "label": "บึงรากเน่า (Lv. 90-105)"
+      },
+      {
+        "value": "เนินทรายแผดเผา",
+        "label": "เนินทรายแผดเผา (Lv. 100-115)"
+      },
+      {
+        "value": "พีระมิดจมทราย",
+        "label": "พีระมิดจมทราย (Lv. 115-130)"
+      },
+      {
+        "value": "แกนลาวา",
+        "label": "แกนลาวา (Lv. 135-150)"
+      }
+    ]
+  }
 ];
 
+// Class ids as the game uses them (lowercase)
 const PLAN_CLASS_OPTIONS = [
-  "Novice", "Archer", "Hunter", "Rogue", "Mage", "Wizard", "Swordsman", "Knight", "Acolyte", "Priest"
+  {
+    "value": "novice",
+    "label": "Novice (โนวิซ)"
+  },
+  {
+    "value": "archer",
+    "label": "Archer (นักธนู)"
+  },
+  {
+    "value": "swordsman",
+    "label": "Swordsman (นักดาบ)"
+  },
+  {
+    "value": "mage",
+    "label": "Mage (นักเวท)"
+  },
+  {
+    "value": "thief",
+    "label": "Thief (โจร)"
+  },
+  {
+    "value": "acolyte",
+    "label": "Acolyte (นักบวชฝึกหัด)"
+  },
+  {
+    "value": "merchant",
+    "label": "Merchant (พ่อค้า)"
+  },
+  {
+    "value": "hunter",
+    "label": "Hunter (นักล่า)"
+  },
+  {
+    "value": "bard",
+    "label": "Bard (กวี)"
+  },
+  {
+    "value": "dancer",
+    "label": "Dancer (นักเต้น)"
+  },
+  {
+    "value": "knight",
+    "label": "Knight (อัศวิน)"
+  },
+  {
+    "value": "crusader",
+    "label": "Crusader (ครูเซเดอร์)"
+  },
+  {
+    "value": "wizard",
+    "label": "Wizard (จอมเวท)"
+  },
+  {
+    "value": "sage",
+    "label": "Sage (นักปราชญ์)"
+  },
+  {
+    "value": "assassin",
+    "label": "Assassin (นักฆ่า)"
+  },
+  {
+    "value": "rogue",
+    "label": "Rogue (โร้ก)"
+  },
+  {
+    "value": "priest",
+    "label": "Priest (พรีสต์)"
+  },
+  {
+    "value": "monk",
+    "label": "Monk (มองค์)"
+  },
+  {
+    "value": "blacksmith",
+    "label": "Blacksmith (ช่างตีเหล็ก)"
+  },
+  {
+    "value": "alchemist",
+    "label": "Alchemist (นักเล่นแร่แปรธาตุ)"
+  }
 ];
 
 // Open Plan Modal
@@ -2493,6 +2696,7 @@ async function openScriptPlanModal(profileId) {
   if (modal) modal.classList.add("active");
 
   await fetchAndRenderPlanProfiles();
+  startPlanLiveStatus();
 }
 
 function closeScriptPlanModal() {
@@ -2745,8 +2949,51 @@ function openPlanWorkflowEditor(planId) {
     updatePlanEditorBadges();
   }
 
+  sortPlanTriggers();
   renderPlanWorkflowCanvas();
+  markPlanDirty(false);
   switchPlanModalView('editor');
+}
+
+// ---------- Plan editor: trigger timeline (n8n-style) ----------
+const planCollapsedTriggers = new Set();
+let planEditorDirty = false;
+
+function markPlanDirty(dirty = true) {
+  planEditorDirty = dirty;
+  const badge = document.getElementById('plan-editor-dirty');
+  if (badge) badge.style.display = dirty ? '' : 'none';
+}
+
+function confirmDiscardPlanChanges() {
+  return !planEditorDirty || confirm('แผนนี้มีการแก้ไขที่ยังไม่ได้บันทึก — ปิดโดยไม่บันทึกใช่ไหม?');
+}
+
+function planMapLabel(value) {
+  for (const g of PLAN_MAP_OPTIONS) {
+    const m = g.maps.find(x => x.value === value);
+    if (m) return m.label;
+  }
+  return value || '-';
+}
+
+function planClassLabel(value) {
+  const c = PLAN_CLASS_OPTIONS.find(x => x.value === String(value || '').toLowerCase());
+  return c ? c.label : (value || '-');
+}
+
+// Short chips shown in the trigger header so the whole plan reads at a glance
+function planActionSummary(act) {
+  if (act.type === 'equip_item') return `🛡️ ${act.itemName || '(ยังไม่ใส่ชื่อ)'}${act.optionFilter ? ` [${act.optionFilter}]` : ''}`;
+  if (act.type === 'change_map') return `🗺️ ${planMapLabel(act.targetMap)}`;
+  if (act.type === 'change_class') return `🏹 ${planClassLabel(act.targetClass)}`;
+  return act.type;
+}
+
+function sortPlanTriggers() {
+  const t = activeEditingPlan && activeEditingPlan.triggers;
+  if (!Array.isArray(t)) return;
+  t.sort((a, b) => (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1) || (parseInt(a.targetLevel, 10) || 0) - (parseInt(b.targetLevel, 10) || 0));
 }
 
 // Render Triggers and Action nodes
@@ -2755,150 +3002,115 @@ function renderPlanWorkflowCanvas() {
   if (!canvas || !activeEditingPlan) return;
 
   const triggers = activeEditingPlan.triggers || [];
-
   if (triggers.length === 0) {
     canvas.innerHTML = `
-      <div style="text-align: center; color: #94a3b8; padding: 40px; border: 2px dashed rgba(255, 255, 255, 0.1); border-radius: 10px;">
-        <span style="font-size: 32px; opacity: 0.6; display: block; margin-bottom: 8px;">🎯</span>
-        ยังไม่มีเงื่อนไขเลเวลในแผนนี้<br>
-        คลิกปุ่ม <b>"➕ เพิ่มเงื่อนไขเลเวล (Trigger)"</b> ด้านบนเพื่อเริ่มสร้างเงื่อนไขแรก (เช่น เลเวล 8)
-      </div>
-    `;
+      <div class="pe-empty">
+        <div class="pe-empty-icon">🎯</div>
+        <b>ยังไม่มีเงื่อนไขเลเวลในแผนนี้</b>
+        <span>กด <b>"➕ เพิ่มเงื่อนไขเลเวล"</b> แล้วเลือกว่าถึงเลเวลไหนให้ทำอะไร เช่น Lv.8 → สวม Gakkung Bow + ย้ายไปทะเลสาบอาซูร์</span>
+      </div>`;
     return;
   }
 
-  canvas.innerHTML = triggers.map((trig, trigIdx) => {
-    const isJob = (trig.type === 'job_level');
+  canvas.innerHTML = `<div class="pe-timeline">${triggers.map((trig, trigIdx) => {
+    const isJob = trig.type === 'job_level';
     const actions = trig.actions || [];
-
+    const key = trig.id || `idx_${trigIdx}`;
+    const collapsed = planCollapsedTriggers.has(key);
     return `
-      <div class="plan-trigger-card ${isJob ? 'job-type' : ''}" data-trigger-idx="${trigIdx}">
-        <!-- Trigger Node Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <span style="font-size: 16px;">🎯</span>
-            <select class="form-select" style="font-size: 11.5px; padding: 3px 8px; width: auto;" onchange="updateTriggerType(${trigIdx}, this.value)">
-              <option value="base_level" ${trig.type === 'base_level' ? 'selected' : ''}>เลเวลตัวละคร (Base Level)</option>
-              <option value="job_level" ${trig.type === 'job_level' ? 'selected' : ''}>เลเวลอาชีพ (Job Level)</option>
-            </select>
-            <span style="font-size: 12px; font-weight: 700; color: #f8fafc;">เลเวล:</span>
-            <input type="number" class="form-input" value="${trig.targetLevel || 1}" min="1" max="150" style="width: 65px; font-size: 12px; padding: 3px 6px; font-weight: 700;" onchange="updateTriggerLevel(${trigIdx}, this.value)">
-            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px;">
-              ⚡ One-Shot (ทำ 1 ครั้งตอนถึงเลเวลนี้)
-            </span>
-          </div>
-          <button type="button" class="btn btn-danger btn-sm btn-icon" onclick="removeTrigger(${trigIdx})" title="ลบเงื่อนไขเลเวลนี้">
-            <span>🗑️</span>
-          </button>
-        </div>
-
-        <!-- Connector line -->
-        <div class="plan-node-connector"></div>
-
-        <!-- Actions Container -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-          ${actions.length === 0 ? `
-            <div style="font-size: 11px; color: #94a3b8; text-align: center; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
-              ยังไม่มีการทำงานในเงื่อนไขนี้ — กดปุ่ม "+ เพิ่ม Action" ด้านล่าง
+      <div class="pe-node ${isJob ? 'job' : 'base'} ${collapsed ? 'collapsed' : ''}" data-trigger-idx="${trigIdx}">
+        <div class="pe-rail"><span class="pe-dot">${isJob ? 'J' : 'B'}</span></div>
+        <div class="pe-card">
+          <div class="pe-head">
+            <button type="button" class="pe-icon-btn pe-fold" onclick="togglePlanTriggerCollapse(${trigIdx})" title="${collapsed ? 'ขยาย' : 'ย่อ'}">${collapsed ? '▸' : '▾'}</button>
+            <div class="pe-seg" title="นับจากเลเวลตัวละคร (Base) หรือเลเวลอาชีพ (Job)">
+              <button type="button" class="${!isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'base_level')">Base</button>
+              <button type="button" class="${isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'job_level')">Job</button>
             </div>
-          ` : actions.map((act, actIdx) => renderActionNodeHtml(trigIdx, actIdx, act)).join('')}
-        </div>
-
-        <!-- Add Action Bar -->
-        <div style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 6px;">
-          <div style="display: flex; gap: 6px;">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'equip_item')" style="font-size: 11px; padding: 3px 8px;">
-              <span>🛡️</span> + สวมใส่ของ
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'change_map')" style="font-size: 11px; padding: 3px 8px;">
-              <span>🗺️</span> + ย้ายแมพ
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="addActionToTrigger(${trigIdx}, 'change_class')" style="font-size: 11px; padding: 3px 8px;">
-              <span>🏹</span> + เปลี่ยนอาชีพ
-            </button>
+            <div class="pe-stepper" title="ถึงเลเวลนี้แล้วทำ 1 ครั้ง">
+              <button type="button" onclick="stepTriggerLevel(${trigIdx}, -1)">−</button>
+              <span>Lv.</span>
+              <input type="number" min="1" max="200" value="${parseInt(trig.targetLevel, 10) || 1}" onchange="updateTriggerLevel(${trigIdx}, this.value)">
+              <button type="button" onclick="stepTriggerLevel(${trigIdx}, 1)">+</button>
+            </div>
+            <div class="pe-summary">
+              ${actions.length ? actions.map(a => `<span class="pe-chip ${a.type}">${escapeHTML(planActionSummary(a))}</span>`).join('') : '<span class="pe-chip empty">ยังไม่มี Action</span>'}
+            </div>
+            <div class="pe-head-btns">
+              <button type="button" class="pe-icon-btn" onclick="duplicateTrigger(${trigIdx})" title="ทำสำเนาเงื่อนไขนี้">⧉</button>
+              <button type="button" class="pe-icon-btn danger" onclick="removeTrigger(${trigIdx})" title="ลบเงื่อนไขนี้">🗑</button>
+            </div>
+          </div>
+          <div class="pe-body">
+            ${actions.map((act, actIdx) => renderActionNodeHtml(trigIdx, actIdx, act)).join('')}
+            <div class="pe-add-row">
+              <span>เพิ่ม Action:</span>
+              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'equip_item')">🛡️ สวมใส่ของ</button>
+              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_map')">🗺️ ย้ายแมพ</button>
+              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_class')">🏹 เปลี่ยนอาชีพ</button>
+            </div>
           </div>
         </div>
-      </div>
-    `;
-  }).join('');
+      </div>`;
+  }).join('')}</div>`;
 }
 
 // Render single Action Node
 function renderActionNodeHtml(trigIdx, actIdx, act) {
+  const del = `<button type="button" class="pe-icon-btn danger sm" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">✕</button>`;
   if (act.type === 'equip_item') {
     return `
-      <div class="plan-action-card type-equip">
-        <div class="plan-action-header">
-          <span class="plan-action-title">
-            <span>🛡️</span> ${actIdx + 1}. สวมใส่อุปกรณ์ (Equip Item)
-          </span>
-          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
-        </div>
-        <div class="plan-action-grid">
-          <div>
-            <label style="font-size: 10px; color: #94a3b8;">ชื่อไอเทม:</label>
-            <input type="text" class="form-input" style="font-size: 11.5px; padding: 4px 8px;" placeholder="เช่น Gakkung Bow, Angelic Protection" value="${escapeHTML(act.itemName || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'itemName', this.value)">
+      <div class="pe-action equip_item">
+        <div class="pe-act-icon">🛡️</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>สวมใส่อุปกรณ์</b>${del}</div>
+          <div class="pe-fields">
+            <label>ชื่อไอเทม (ตรงตัว)
+              <input type="text" class="form-input" placeholder="เช่น Gakkung Bow" value="${escapeHTML(act.itemName || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'itemName', this.value.trim())">
+            </label>
+            <label>ออปชั่นที่ต้องมี (ว่าง = ไม่กรอง)
+              <input type="text" class="form-input" placeholder="เช่น dex>=3, luk, melee dmg" title="ออปชั่นสุ่มที่ต้องมี คั่นด้วย , ใส่ค่าขั้นต่ำได้ เช่น dex>=3" value="${escapeHTML(act.optionFilter || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'optionFilter', this.value.trim())">
+            </label>
           </div>
-          <div>
-            <label style="font-size: 10px; color: #94a3b8;">ออปชั่นขั้นต่ำ (เว้นว่างได้):</label>
-            <input type="text" class="form-input" style="font-size: 11.5px; padding: 4px 8px;" placeholder="เช่น dex, atk, cri" value="${escapeHTML(act.optionFilter || '')}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'optionFilter', this.value)">
-          </div>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1; cursor: pointer;">
-            <input type="checkbox" ${act.buyFromMarket !== false ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'buyFromMarket', this.checked)">
-            <span>🛒 ถ้าไม่มีในตัวและกระเป๋า ให้ค้นหาและซื้อจากตลาดอัตโนมัติ</span>
-          </label>
-          <div style="display: flex; align-items: center; gap: 4px;">
-            <span style="font-size: 10px; color: #94a3b8;">งบสูงสุด:</span>
-            <input type="number" class="form-input" style="width: 80px; font-size: 11px; padding: 2px 6px;" value="${act.maxPrice || 100000}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'maxPrice', parseInt(this.value)||0)">
-            <span style="font-size: 10px; color: #eab308;">z</span>
+          <div class="pe-inline">
+            <label class="pe-check">
+              <input type="checkbox" ${act.buyFromMarket !== false ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'buyFromMarket', this.checked)">
+              ถ้าไม่มีในตัว/กระเป๋า ให้ซื้อจากตลาด
+            </label>
+            <label class="pe-budget">งบสูงสุด
+              <input type="number" class="form-input" min="0" value="${Number(act.maxPrice) || 100000}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'maxPrice', parseInt(this.value, 10) || 0)"> z
+            </label>
           </div>
         </div>
-      </div>
-    `;
-  } else if (act.type === 'change_map') {
+      </div>`;
+  }
+  if (act.type === 'change_map') {
     return `
-      <div class="plan-action-card type-map">
-        <div class="plan-action-header">
-          <span class="plan-action-title">
-            <span>🗺️</span> ${actIdx + 1}. เปลี่ยนแมพฟาร์ม (Change Farm Map)
-          </span>
-          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
-        </div>
-        <div>
-          <label style="font-size: 10px; color: #94a3b8;">เลือกแมพเป้าหมาย:</label>
-          <select class="form-select" style="font-size: 11.5px; padding: 4px 8px;" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetMap', this.value)">
+      <div class="pe-action change_map">
+        <div class="pe-act-icon">🗺️</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>เปลี่ยนแมพฟาร์ม</b>${del}</div>
+          <select class="form-select" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetMap', this.value)">
             ${PLAN_MAP_OPTIONS.map(grp => `
-              <optgroup label="${grp.group}">
-                ${grp.maps.map(m => `
-                  <option value="${m}" ${act.targetMap === m ? 'selected' : ''}>${m}</option>
-                `).join('')}
-              </optgroup>
-            `).join('')}
+              <optgroup label="${escapeHTML(grp.group)}">
+                ${grp.maps.map(m => `<option value="${escapeHTML(m.value)}" ${act.targetMap === m.value ? 'selected' : ''}>${escapeHTML(m.label)}</option>`).join('')}
+              </optgroup>`).join('')}
           </select>
         </div>
-      </div>
-    `;
-  } else if (act.type === 'change_class') {
+      </div>`;
+  }
+  if (act.type === 'change_class') {
     return `
-      <div class="plan-action-card type-class">
-        <div class="plan-action-header">
-          <span class="plan-action-title">
-            <span>🏹</span> ${actIdx + 1}. เปลี่ยนอาชีพ (Change Class)
-          </span>
-          <button type="button" class="plan-action-del-btn" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">&times;</button>
-        </div>
-        <div>
-          <label style="font-size: 10px; color: #94a3b8;">เลือกอาชีพเป้าหมาย:</label>
-          <select class="form-select" style="font-size: 11.5px; padding: 4px 8px;" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetClass', this.value)">
-            ${PLAN_CLASS_OPTIONS.map(cls => `
-              <option value="${cls}" ${act.targetClass === cls ? 'selected' : ''}>${cls}</option>
-            `).join('')}
+      <div class="pe-action change_class">
+        <div class="pe-act-icon">🏹</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>เปลี่ยนอาชีพ</b>${del}</div>
+          <select class="form-select" onchange="updateActionField(${trigIdx}, ${actIdx}, 'targetClass', this.value)">
+            ${PLAN_CLASS_OPTIONS.map(cls => `<option value="${cls.value}" ${String(act.targetClass || '').toLowerCase() === cls.value ? 'selected' : ''}>${cls.label}</option>`).join('')}
           </select>
+          <small class="pe-hint">บอทจะเปลี่ยนเมื่อเกมเปิดให้เปลี่ยนอาชีพนี้ได้ (คุยกับ Valkyrie ในเมืองหลวงให้เอง)</small>
         </div>
-      </div>
-    `;
+      </div>`;
   }
   return '';
 }
@@ -2907,60 +3119,83 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
 function addLevelTrigger() {
   if (!activeEditingPlan) return;
   if (!Array.isArray(activeEditingPlan.triggers)) activeEditingPlan.triggers = [];
-
-  const nextLevel = (activeEditingPlan.triggers.length > 0)
-    ? (parseInt(activeEditingPlan.triggers[activeEditingPlan.triggers.length - 1].targetLevel, 10) + 5)
-    : 8;
-
-  activeEditingPlan.triggers.push({
-    id: "trig_" + Date.now(),
-    type: "base_level",
-    targetLevel: nextLevel,
-    actions: []
-  });
-
+  const baseLevels = activeEditingPlan.triggers.filter(t => t.type !== 'job_level').map(t => parseInt(t.targetLevel, 10) || 0);
+  const nextLevel = baseLevels.length ? Math.max(...baseLevels) + 5 : 8;
+  activeEditingPlan.triggers.push({ id: "trig_" + Date.now(), type: "base_level", targetLevel: nextLevel, actions: [] });
+  sortPlanTriggers();
+  markPlanDirty();
   renderPlanWorkflowCanvas();
 }
 
 function removeTrigger(trigIdx) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  const t = activeEditingPlan.triggers[trigIdx];
+  if (t && (t.actions || []).length && !confirm(`ลบเงื่อนไข ${t.type === 'job_level' ? 'Job' : 'Base'} Lv.${t.targetLevel} และ Action ทั้ง ${(t.actions || []).length} รายการ?`)) return;
   activeEditingPlan.triggers.splice(trigIdx, 1);
+  markPlanDirty();
+  renderPlanWorkflowCanvas();
+}
+
+function duplicateTrigger(trigIdx) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  const src = activeEditingPlan.triggers[trigIdx];
+  if (!src) return;
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.id = "trig_" + Date.now();
+  copy.targetLevel = (parseInt(src.targetLevel, 10) || 1) + 1;
+  (copy.actions || []).forEach(a => { a.id = "act_" + Date.now() + "_" + Math.floor(Math.random() * 1000); });
+  activeEditingPlan.triggers.push(copy);
+  sortPlanTriggers();
+  markPlanDirty();
+  renderPlanWorkflowCanvas();
+}
+
+function togglePlanTriggerCollapse(trigIdx) {
+  const t = activeEditingPlan && activeEditingPlan.triggers && activeEditingPlan.triggers[trigIdx];
+  if (!t) return;
+  const key = t.id || `idx_${trigIdx}`;
+  if (planCollapsedTriggers.has(key)) planCollapsedTriggers.delete(key);
+  else planCollapsedTriggers.add(key);
   renderPlanWorkflowCanvas();
 }
 
 function updateTriggerType(trigIdx, type) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
   activeEditingPlan.triggers[trigIdx].type = type;
+  sortPlanTriggers();
+  markPlanDirty();
   renderPlanWorkflowCanvas();
 }
 
 function updateTriggerLevel(trigIdx, level) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
-  activeEditingPlan.triggers[trigIdx].targetLevel = parseInt(level, 10) || 1;
+  activeEditingPlan.triggers[trigIdx].targetLevel = Math.max(1, parseInt(level, 10) || 1);
+  sortPlanTriggers();
+  markPlanDirty();
+  renderPlanWorkflowCanvas();
+}
+
+function stepTriggerLevel(trigIdx, delta) {
+  const t = activeEditingPlan && activeEditingPlan.triggers && activeEditingPlan.triggers[trigIdx];
+  if (!t) return;
+  updateTriggerLevel(trigIdx, (parseInt(t.targetLevel, 10) || 1) + delta);
 }
 
 function addActionToTrigger(trigIdx, actionType) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
   const trig = activeEditingPlan.triggers[trigIdx];
   if (!Array.isArray(trig.actions)) trig.actions = [];
-
-  const newAction = {
-    id: "act_" + Date.now() + "_" + Math.floor(Math.random() * 100),
-    type: actionType
-  };
-
+  const newAction = { id: "act_" + Date.now() + "_" + Math.floor(Math.random() * 100), type: actionType };
   if (actionType === 'equip_item') {
-    newAction.itemName = "Gakkung Bow";
-    newAction.optionFilter = "";
-    newAction.buyFromMarket = true;
-    newAction.maxPrice = 100000;
+    Object.assign(newAction, { itemName: "", optionFilter: "", buyFromMarket: true, maxPrice: 100000 });
   } else if (actionType === 'change_map') {
     newAction.targetMap = "ซากโบราณสถาน";
   } else if (actionType === 'change_class') {
-    newAction.targetClass = "Archer";
+    newAction.targetClass = activeEditingPlan.class1Target || "archer";
   }
-
   trig.actions.push(newAction);
+  planCollapsedTriggers.delete(trig.id || `idx_${trigIdx}`);
+  markPlanDirty();
   renderPlanWorkflowCanvas();
 }
 
@@ -2969,6 +3204,7 @@ function removeAction(trigIdx, actIdx) {
   const trig = activeEditingPlan.triggers[trigIdx];
   if (trig && trig.actions) {
     trig.actions.splice(actIdx, 1);
+    markPlanDirty();
     renderPlanWorkflowCanvas();
   }
 }
@@ -2978,7 +3214,94 @@ function updateActionField(trigIdx, actIdx, field, val) {
   const trig = activeEditingPlan.triggers[trigIdx];
   if (trig && trig.actions && trig.actions[actIdx]) {
     trig.actions[actIdx][field] = val;
+    markPlanDirty();
+    // Refresh the header chips (cheap) without re-rendering the inputs being edited
+    const node = document.querySelector(`.pe-node[data-trigger-idx="${trigIdx}"] .pe-summary`);
+    if (node) node.innerHTML = trig.actions.map(a => `<span class="pe-chip ${a.type}">${escapeHTML(planActionSummary(a))}</span>`).join('');
   }
+}
+
+// ---------- Plan list: live Plan Script status of the selected client ----------
+let planLiveStatusTimer = null;
+
+async function refreshPlanLiveStatus() {
+  const box = document.getElementById('plan-live-status');
+  if (!box || !activePlanClientProfileId) return;
+  let st = null;
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${encodeURIComponent(activePlanClientProfileId)}/plan-state`);
+    st = await res.json();
+  } catch (e) {}
+  if (!st || !st.success) {
+    box.innerHTML = `<span class="pl-muted">⚪ จอนี้ออฟไลน์ — แผนที่ผูกไว้จะถูกส่งและเปิดใช้งานให้เองเมื่อเปิดจอ</span>`;
+    return;
+  }
+  const assignedId = currentPlanAssignments[activePlanClientProfileId];
+  const assigned = currentPlanProfiles.find(p => p.id === assignedId);
+  const total = assigned && Array.isArray(assigned.triggers) ? assigned.triggers.length : 0;
+  const syncing = assigned && st.planId !== assigned.id;
+  const pending = (st.pending || []).map(p => `${p.type === 'job_level' ? 'Job' : 'Base'} Lv.${p.level}`).join(', ');
+  box.innerHTML = `
+    <label class="pl-switch" title="เปิด/ปิด Plan Script ของจอนี้">
+      <input type="checkbox" ${st.enabled ? 'checked' : ''} onchange="togglePlanScriptEnabled(this.checked)">
+      <span></span>
+      <b>Plan Script ${st.enabled ? 'เปิดอยู่' : 'ปิดอยู่'}</b>
+    </label>
+    <span class="pl-sep"></span>
+    <span>${st.botRunning ? '🟢 บอทกำลังทำงาน' : '⏸️ บอทหยุดอยู่ <small>(แผนจะทำงานเมื่อกด START BOT)</small>'}</span>
+    ${syncing ? '<span class="pl-warn">⏳ กำลังส่งแผนล่าสุดไปที่จอ...</span>' : ''}
+    ${st.planId && !syncing && total ? `<span>✅ ทำแล้ว <b>${Math.min((st.done || []).length, total)}/${total}</b> เงื่อนไข</span>` : ''}
+    ${pending ? `<span class="pl-warn">⏳ กำลังรอทำ: ${escapeHTML(pending)}</span>` : ''}`;
+}
+
+async function togglePlanScriptEnabled(enabled) {
+  if (!activePlanClientProfileId) return;
+  if (enabled && !currentPlanAssignments[activePlanClientProfileId]) {
+    alert('ยังไม่ได้เลือกแผนให้จอนี้ — กด "ใช้งาน" ที่แผนที่ต้องการก่อน');
+    refreshPlanLiveStatus();
+    return;
+  }
+  try {
+    await fetch(`${API_BASE}/api/profiles/${encodeURIComponent(activePlanClientProfileId)}/plan-enabled`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled })
+    });
+  } catch (e) {}
+  refreshPlanLiveStatus();
+}
+
+function startPlanLiveStatus() {
+  clearInterval(planLiveStatusTimer);
+  refreshPlanLiveStatus();
+  planLiveStatusTimer = setInterval(() => {
+    const modal = document.getElementById('plan-modal');
+    if (!modal || !modal.classList.contains('active')) { clearInterval(planLiveStatusTimer); return; }
+    refreshPlanLiveStatus();
+  }, 5000);
+}
+
+// Sort triggers by level and list anything that would not work in the bot
+function validatePlanForSave(plan) {
+  const problems = [];
+  const triggers = Array.isArray(plan.triggers) ? plan.triggers : [];
+  triggers.forEach(t => { t.targetLevel = Math.max(1, parseInt(t.targetLevel, 10) || 1); if (!t.id) t.id = "trig_" + Date.now() + "_" + Math.floor(Math.random() * 1000); });
+  triggers.sort((a, b) => (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1) || a.targetLevel - b.targetLevel);
+  const seen = {};
+  triggers.forEach(t => {
+    const label = `${t.type === 'job_level' ? 'Job' : 'Base'} Lv.${t.targetLevel}`;
+    const key = `${t.type}_${t.targetLevel}`;
+    if (seen[key]) problems.push(`มีเงื่อนไข ${label} ซ้ำกัน (รวมไว้ในอันเดียวจะอ่านง่ายกว่า)`);
+    seen[key] = true;
+    if (!(t.actions || []).length) problems.push(`${label} ยังไม่มี Action`);
+    (t.actions || []).forEach(a => {
+      if (a.type === 'equip_item' && !String(a.itemName || '').trim()) problems.push(`${label}: Action สวมใส่ยังไม่ได้ใส่ชื่อไอเทม`);
+      if (a.type === 'equip_item' && a.buyFromMarket !== false && !(Number(a.maxPrice) > 0)) problems.push(`${label}: ซื้อจากตลาดแต่งบสูงสุดเป็น 0`);
+    });
+  });
+  const tree = (typeof CLASS_TREE_MAP !== 'undefined') ? CLASS_TREE_MAP[plan.class1Target] : null;
+  if (tree && plan.class2Target && !tree.secondClasses.some(c => c.id === plan.class2Target)) {
+    problems.push(`Class 2 "${plan.class2Target}" ไม่ได้ต่อจาก Class 1 "${plan.class1Target}"`);
+  }
+  return problems;
 }
 
 // Save Plan
@@ -2995,6 +3318,9 @@ async function saveActivePlan(applyLive = false) {
   if (c1Sel) activeEditingPlan.class1Target = c1Sel.value;
   if (c2Sel) activeEditingPlan.class2Target = c2Sel.value;
 
+  const problems = validatePlanForSave(activeEditingPlan);
+  if (problems.length && !confirm("พบจุดที่ควรตรวจในแผนนี้:\n\n• " + problems.join("\n• ") + "\n\nบันทึกต่อเลยไหม?")) return;
+
   try {
     const res = await fetch(`${API_BASE}/api/plan-profiles/${activeEditingPlan.id}`, {
       method: 'PUT',
@@ -3003,6 +3329,7 @@ async function saveActivePlan(applyLive = false) {
     });
     const result = await res.json();
     if (result.success) {
+      markPlanDirty(false);
       if (applyLive && activePlanClientProfileId) {
         await assignPlanToActiveClient(activeEditingPlan.id);
       } else {
@@ -3062,10 +3389,14 @@ function setupPlanModalEventListeners() {
   if (btnListClose) btnListClose.onclick = closeScriptPlanModal;
 
   const btnEditorClose = document.getElementById("plan-editor-close-btn");
-  if (btnEditorClose) btnEditorClose.onclick = closeScriptPlanModal;
+  if (btnEditorClose) btnEditorClose.onclick = () => { if (confirmDiscardPlanChanges()) { markPlanDirty(false); closeScriptPlanModal(); } };
 
   const btnBack = document.getElementById("btn-back-to-plan-list");
-  if (btnBack) btnBack.onclick = () => switchPlanModalView('list');
+  if (btnBack) btnBack.onclick = () => { if (confirmDiscardPlanChanges()) { markPlanDirty(false); switchPlanModalView('list'); } };
+  ['plan-editor-title', 'plan-editor-desc', 'plan-editor-class1', 'plan-editor-class2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => markPlanDirty());
+  });
 
   const btnCreate = document.getElementById("btn-create-new-plan");
   if (btnCreate) btnCreate.onclick = createNewPlanProfile;

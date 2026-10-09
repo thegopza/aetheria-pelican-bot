@@ -70,6 +70,7 @@ const { handleInventoryMarketRoute } = require("./inventory_market_api");
 const { createBotAutoUpdater } = require("./bot_auto_update");
 const { createManagerSelfUpdater } = require("./manager_self_update");
 const { handleConfigCopyRoute } = require("./config_copy_api");
+const { createPlanSync } = require("./plan_sync");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -138,7 +139,8 @@ function normalizePlansData(raw) {
   if (raw && Array.isArray(raw.profiles)) {
     return {
       profiles: raw.profiles,
-      assignments: raw.assignments || {}
+      assignments: raw.assignments || {},
+      pendingEnable: raw.pendingEnable || {}
     };
   }
 
@@ -725,6 +727,8 @@ const botAutoUpdater = createBotAutoUpdater({
   dataDir: path.join(__dirname, "data")
 });
 
+const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
+
 const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
   dataDir: path.join(__dirname, "data"),
@@ -755,6 +759,9 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+
+  // Plan Script live status / on-off switch per client — see plan_sync.js
+  if (await planSync.handleRoute(req, res, pathname, sendJSON)) return;
 
   // Copy bot settings to other clients (no ID/password/character) — see config_copy_api.js
   if (await handleConfigCopyRoute(req, res, pathname, { loadProfiles, saveProfiles, evalProfilePort, sendJSON })) return;
@@ -1912,26 +1919,8 @@ const server = http.createServer(async (req, res) => {
 
         savePlans(plansData);
 
-        // Sync live to any connected game clients assigned to this plan
-        const assignedClientIds = Object.keys(plansData.assignments || {}).filter(cId => plansData.assignments[cId] === id);
-        if (assignedClientIds.length > 0) {
-          const profiles = loadProfiles();
-          const targetPlan = plansData.profiles[idx];
-          assignedClientIds.forEach(cId => {
-            const clientProf = profiles.find(p => p.id === cId);
-            if (clientProf && clientProf.debugPort) {
-              const code = `
-                if (typeof window.__applyScriptPlan === 'function') {
-                  window.__applyScriptPlan(${JSON.stringify(targetPlan)});
-                } else {
-                  window.__currentScriptPlan = ${JSON.stringify(targetPlan)};
-                }
-              `;
-              const evalUrl = `http://127.0.0.1:${clientProf.debugPort}/api/eval?code=` + encodeURIComponent(code);
-              http.get(evalUrl, () => {}).on('error', () => {});
-            }
-          });
-        }
+        // Send the edited plan to clients using it (their Plan Script on/off switch is left as is)
+        planSync.pushToAssigned(plansData.profiles[idx]).catch(() => {});
 
         return sendJSON({ success: true, profile: plansData.profiles[idx] });
       } catch (err) {
@@ -1948,7 +1937,9 @@ const server = http.createServer(async (req, res) => {
     const idx = plansData.profiles.findIndex(p => p.id === id);
     if (idx === -1) return sendJSON({ success: false, error: "Plan profile not found" }, 404);
 
+    const usedBy = planSync.assignedProfiles(id);
     plansData.profiles.splice(idx, 1);
+    planSync.clearClients(usedBy).catch(() => {});
     // Remove assignments
     if (plansData.assignments) {
       Object.keys(plansData.assignments).forEach(cId => {
@@ -1965,7 +1956,7 @@ const server = http.createServer(async (req, res) => {
     const id = pathname.split("/")[3];
     let body = "";
     req.on("data", chunk => body += chunk);
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const payload = JSON.parse(body);
         const clientProfileId = payload.clientProfileId;
@@ -1977,24 +1968,14 @@ const server = http.createServer(async (req, res) => {
 
         if (!plansData.assignments) plansData.assignments = {};
         plansData.assignments[clientProfileId] = id;
-        savePlans(plansData);
 
-        // Sync live to client if running
-        const profiles = loadProfiles();
-        const clientProf = profiles.find(p => p.id === clientProfileId);
-        let syncedLive = false;
-        if (clientProf && clientProf.debugPort) {
-          const code = `
-            if (typeof window.__applyScriptPlan === 'function') {
-              window.__applyScriptPlan(${JSON.stringify(plan)});
-            } else {
-              window.__currentScriptPlan = ${JSON.stringify(plan)};
-            }
-          `;
-          const evalUrl = `http://127.0.0.1:${clientProf.debugPort}/api/eval?code=` + encodeURIComponent(code);
-          http.get(evalUrl, () => {}).on('error', () => {});
-          syncedLive = true;
-        }
+        // Send to the client now and switch Plan Script on; if it's offline, do that when it comes online
+        const clientProf = loadProfiles().find(p => p.id === clientProfileId);
+        const syncedLive = await planSync.push(clientProf, plan, true);
+        if (!plansData.pendingEnable) plansData.pendingEnable = {};
+        if (syncedLive) delete plansData.pendingEnable[clientProfileId];
+        else plansData.pendingEnable[clientProfileId] = true;
+        savePlans(plansData);
 
         return sendJSON({
           success: true,
@@ -2455,6 +2436,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   botAutoUpdater.start();
   managerUpdater.start();
+  planSync.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);
