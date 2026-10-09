@@ -71,6 +71,7 @@
   (ใช้ `node scratch/sync_all_files.js` ได้ — สคริปต์นี้ซิงค์ bot.js / server.js / app.js และเช็ก syntax ให้)
 - แก้/เพิ่มไฟล์ใน `manager/` → คัดลอกไปที่ `release/Pelican_Manager_v4.3/manager/` ด้วย (ไฟล์ใหม่ต้องคัดลอกเองทุกไฟล์)
 - แก้ `main.js` (ตัวโหลดเกม) → คัดลอกไป `manager/game_loader/main.js` และ `release/Pelican_Manager_v4.3/main.js` ด้วย (เครื่องที่ใช้ zip ได้ไฟล์ใหม่ผ่าน Manager self-update เฉพาะใน `manager/` — ปุ่ม "สคริปต์เกม" ติดตั้งจาก `manager/game_loader/main.js`) และขึ้นเลข `version` ใน `package.json` + `installer.js` — มีผลเมื่อปิด-เปิดจอเกมใหม่เท่านั้น
+- **ตัวติดตั้งสคริปต์เกม** (`manager/installer.js`): เกมอาจติดตั้งที่ `%LOCALAPPDATA%Programs` หรือ `C:Program Files` (หาจาก registry ได้) — ต้องเช็กว่ามี `Aetheria Online.exe` ก่อนติดตั้งเสมอ (ห้ามสร้างโฟลเดอร์ใหม่แล้วบอกว่าสำเร็จ), ต้องเปลี่ยนชื่อ `resources/app.asar` → `app.asar.disabled` (ถ้ายังมี app.asar เกมจะไม่โหลดตัวโหลดของเรา = ECONNREFUSED), Program Files ต้องขอสิทธิ์ผ่าน UAC (`installScriptAsync`) และปุ่มเปิดจอต้องเช็ก `gameLaunchProblem()` ก่อน
 - ทุกครั้งที่ release เปลี่ยน ต้องบีบอัด `release/Pelican_Manager_v4.3.zip` ใหม่
   - ไฟล์ zip มักถูกโปรแกรมอื่นล็อก (`user-mapped section open`) → ให้ `Compress-Archive` ไปที่โฟลเดอร์ชั่วคราวก่อน ตรวจว่าเปิดได้ แล้วค่อย `Copy-Item` ทับ และเทียบ hash
 - แก้ `manager/server.js` หรือไฟล์ฝั่ง server → commit แล้ว Manager จะรีสตาร์ท server เอง (ดูข้อ 3.1) — **ไม่ต้องให้ผู้ใช้ปิด-เปิด PelicanManager.exe** (การทำแบบนั้นจะปิดจอเกมทั้งหมด)

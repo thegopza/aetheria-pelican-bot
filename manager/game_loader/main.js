@@ -385,6 +385,10 @@ function startDebugServer(port = DEBUG_PORT) {
     }, null, 2));
   });
 
+  // Port already taken (e.g. two windows with the same port): log it instead of crashing the game window
+  debugServer.on("error", (e) => {
+    console.error(`[PmheeAether Debug API] Cannot listen on 127.0.0.1:${DEBUG_PORT}: ${e.message}`);
+  });
   debugServer.listen(DEBUG_PORT, "127.0.0.1", () => {
     console.log(`[PmheeAether Debug API] Listening on http://127.0.0.1:${DEBUG_PORT}`);
   });

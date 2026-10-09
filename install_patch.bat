@@ -8,10 +8,23 @@ echo ========================================================
 echo.
 
 set "GAME_DIR=%LOCALAPPDATA%\Programs\Aetheria Online"
+if not exist "%GAME_DIR%\Aetheria Online.exe" if exist "%ProgramFiles%\Aetheria Online\Aetheria Online.exe" set "GAME_DIR=%ProgramFiles%\Aetheria Online"
+if not exist "%GAME_DIR%\Aetheria Online.exe" if exist "%ProgramFiles(x86)%\Aetheria Online\Aetheria Online.exe" set "GAME_DIR=%ProgramFiles(x86)%\Aetheria Online"
 set "RES_DIR=%GAME_DIR%\resources"
 set "APP_DIR=%RES_DIR%\app"
 
-if not exist "%GAME_DIR%" (
+rem Program Files needs admin rights: re-run this file elevated
+echo %GAME_DIR% | find /i "Program Files" >nul
+if %errorlevel% equ 0 (
+    net session >nul 2>&1
+    if errorlevel 1 (
+        echo [INFO] Game is in Program Files - requesting administrator rights...
+        powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+        exit /b 0
+    )
+)
+
+if not exist "%GAME_DIR%\Aetheria Online.exe" (
     echo [ERROR] Game directory not found at:
     echo "%GAME_DIR%"
     echo Please make sure Aetheria Online is installed.

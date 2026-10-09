@@ -548,7 +548,10 @@ async function toggleBotExecution(id, start, btnEl) {
     if (data.success) {
       await fetchProfiles();
     } else {
-      alert("❌ ไม่สามารถสั่งงานบอทได้: " + (data.error || "เกิดข้อผิดพลาด"));
+      const err = String(data.error || "เกิดข้อผิดพลาด");
+      alert(/ECONNREFUSED/.test(err)
+        ? "❌ จอนี้ยังไม่เชื่อมต่อกับบอท\n\n• ถ้าเพิ่งเปิดจอ รอให้เกมโหลดเสร็จสักครู่แล้วลองใหม่\n• ถ้ายังไม่ได้ ไปที่ปุ่ม \"สคริปต์เกม\" ตรวจว่าโฟลเดอร์เกมถูกต้องแล้วกด \"ติดตั้ง\" จากนั้นปิด-เปิดจอเกมใหม่"
+        : "❌ ไม่สามารถสั่งงานบอทได้: " + err);
       await fetchProfiles();
     }
   } catch (err) {
@@ -638,7 +641,11 @@ if (btnToggleAllWindows) {
 
 document.getElementById("btn-launch-all").onclick = async () => {
   if (confirm("ยืนยันเปิดจอเกมทั้งหมดพร้อมกัน?")) {
-    await fetch(`${API_BASE}/api/launch-all`, { method: "POST" });
+    try {
+      const res = await fetch(`${API_BASE}/api/launch-all`, { method: "POST" });
+      const data = await res.json();
+      if (!data.success) alert("❌ เปิดจอไม่สำเร็จ: " + (data.error || "เกิดข้อผิดพลาด"));
+    } catch (e) {}
     fetchProfiles();
   }
 };

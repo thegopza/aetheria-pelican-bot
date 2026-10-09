@@ -66,7 +66,10 @@
 
         // 2. Loader status
         if (cardLoaderStatus) {
-          if (data.isInstalled && data.loaderUpToDate === false) {
+          if (data.isInstalled && data.asarActive) {
+            cardLoaderStatus.innerText = '⚠️ เกมยังใช้ app.asar เดิม (บอทจะไม่ทำงาน) — กดติดตั้งอีกครั้ง';
+            cardLoaderStatus.style.color = '#f87171';
+          } else if (data.isInstalled && data.loaderUpToDate === false) {
             cardLoaderStatus.innerText = '⚡ มี Loader ใหม่ — กดติดตั้งแล้วปิด-เปิดจอเกมใหม่';
             cardLoaderStatus.style.color = '#fbbf24';
           } else if (data.isInstalled) {
@@ -157,7 +160,7 @@
         if (defaultGamePath) {
           pathInput.value = defaultGamePath;
           fetchStatus(defaultGamePath);
-          showMsg('ตั้งค่าเป็นโฟลเดอร์เริ่มต้นของ Windows แล้ว');
+          showMsg(`ตรวจพบโฟลเดอร์เกม: ${defaultGamePath}`);
         }
       });
     }
@@ -210,7 +213,7 @@
           btnInstall.innerText = '🚀 ติดตั้ง / อัปเดตสคริปต์ลงตัวเกมทันที';
 
           if (data && data.success) {
-            showMsg('🎉 ติดตั้งและอัปเดตสคริปต์ PmheeAether ลงในตัวเกมเรียบร้อยแล้ว! พร้อมเข้าเกมได้ทันที');
+            showMsg('🎉 ติดตั้งสคริปต์ PmheeAether ลงในตัวเกมเรียบร้อยแล้ว! จอเกมที่เปิดอยู่ให้ปิดแล้วเปิดใหม่ 1 ครั้งเพื่อใช้ตัวโหลดใหม่');
             fetchStatus(targetPath);
           } else {
             showMsg('❌ ติดตั้งไม่สำเร็จ: ' + (data.error || 'Unknown error'), true);

@@ -2,8 +2,18 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { exec } = require('child_process');
+const { exec, execFile, execFileSync } = require('child_process');
+const os = require('os');
 const https = require('https');
+
+const LOADER_PACKAGE = {
+    name: 'aetheria-launcher',
+    productName: 'Aetheria Online',
+    version: '1.0.4',
+    description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
+    main: 'main.js',
+    private: true
+};
 
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -35,9 +45,43 @@ function saveSettings(settings) {
     }
 }
 
+const GAME_EXE = 'Aetheria Online.exe';
+const hasGameExe = dir => { try { return !!dir && fs.existsSync(path.join(dir, GAME_EXE)); } catch (e) { return false; } };
+
+// Install folder from the game's uninstall entry (per-user or all-users install), looked up once
+let registryGamePath;
+function findGameInRegistry() {
+    if (registryGamePath !== undefined) return registryGamePath;
+    registryGamePath = null;
+    try {
+        const keys = [
+            'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+            'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+            'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+        ].map(k => `'${k}'`).join(',');
+        const ps = `Get-ItemProperty ${keys} -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'Aetheria Online*' } | ForEach-Object { $_.InstallLocation; $_.DisplayIcon }`;
+        const out = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+        for (const line of out.split(/\r?\n/)) {
+            let p = line.trim().replace(/"/g, '').replace(/,\s*\d+$/, '');
+            if (!p) continue;
+            if (/\.exe$/i.test(p)) p = path.dirname(p);
+            if (hasGameExe(p)) { registryGamePath = p; break; }
+        }
+    } catch (e) {}
+    return registryGamePath;
+}
+
+// Where the game is installed on this PC: per-user (LocalAppData\Programs) or all-users (Program Files)
 function getDefaultGamePath() {
     const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Local');
-    return path.join(localAppData, 'Programs', 'Aetheria Online');
+    const perUser = path.join(localAppData, 'Programs', 'Aetheria Online');
+    const candidates = [
+        perUser,
+        path.join(process.env.ProgramW6432 || 'C:\\Program Files', 'Aetheria Online'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Aetheria Online'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Aetheria Online')
+    ];
+    return candidates.find(hasGameExe) || findGameInRegistry() || perUser;
 }
 
 function getEffectiveGamePath(overridePath) {
@@ -46,7 +90,7 @@ function getEffectiveGamePath(overridePath) {
     }
     const settings = loadSettings();
     // A saved path from another PC (e.g. settings.json shipped in a zip) must not win over the real install
-    if (settings.gamePath && typeof settings.gamePath === 'string' && settings.gamePath.trim() && fs.existsSync(settings.gamePath.trim())) {
+    if (settings.gamePath && typeof settings.gamePath === 'string' && hasGameExe(settings.gamePath.trim())) {
         return settings.gamePath.trim();
     }
     return getDefaultGamePath();
@@ -74,7 +118,7 @@ function checkStatus(overridePath) {
 
     const hasExe = fs.existsSync(exePath);
     const hasResources = fs.existsSync(resourcesPath);
-    const isValidFolder = hasExe || hasResources;
+    const isValidFolder = hasExe;
 
     const hasLoader = fs.existsSync(loaderPath);
     const hasBotScript = fs.existsSync(installedBotPath);
@@ -86,7 +130,8 @@ function checkStatus(overridePath) {
     const srcHash = getFileHash(BOT_SRC);
     const installedHash = getFileHash(installedBotPath);
     const loaderSrcHash = getFileHash(LOADER_SRC);
-    const loaderUpToDate = hasLoader && (loaderSrcHash === null || getFileHash(loaderPath) === loaderSrcHash);
+    const asarActive = fs.existsSync(path.join(resourcesPath, 'app.asar'));
+    const loaderUpToDate = hasLoader && !asarActive && (loaderSrcHash === null || getFileHash(loaderPath) === loaderSrcHash);
     const isUpToDate = isInstalled && (srcHash !== null) && (installedHash === srcHash) && loaderUpToDate;
 
     // Read installed package.json version if available
@@ -108,6 +153,7 @@ function checkStatus(overridePath) {
         isInstalled,
         isUpToDate,
         loaderUpToDate,
+        asarActive,
         hasBackup,
         loaderVersion,
         botModifiedTime: fs.existsSync(installedBotPath) ? fs.statSync(installedBotPath).mtime : null,
@@ -120,13 +166,20 @@ function installScript(overridePath) {
     const gamePath = status.gamePath;
     const resourcesPath = path.join(gamePath, 'resources');
 
-    if (!fs.existsSync(resourcesPath)) {
-        try {
-            fs.mkdirSync(resourcesPath, { recursive: true });
-        } catch (e) {
-            return { success: false, error: 'ไม่พบโฟลเดอร์ resources หรือไม่มีสิทธิ์สร้างโฟลเดอร์: ' + e.message };
-        }
+    // Never "install" into a folder that isn't the game (it would report success but the game wouldn't load it)
+    if (!hasGameExe(gamePath)) {
+        return { success: false, error: `ไม่พบ ${GAME_EXE} ในโฟลเดอร์ "${gamePath}" — กด Auto-Detect หรือ Browse แล้วเลือกโฟลเดอร์ที่มีไฟล์ ${GAME_EXE}` };
     }
+    try {
+        return installFiles(gamePath, resourcesPath);
+    } catch (e) {
+        if (e && (e.code === 'EPERM' || e.code === 'EACCES')) return { success: false, needsAdmin: true, gamePath, error: e.message };
+        return { success: false, error: 'ติดตั้งไม่สำเร็จ: ' + (e && e.message) };
+    }
+}
+
+function installFiles(gamePath, resourcesPath) {
+    if (!fs.existsSync(resourcesPath)) fs.mkdirSync(resourcesPath, { recursive: true });
 
     // 1. Backup app.asar if not already backed up
     const asarPath = path.join(resourcesPath, 'app.asar');
@@ -136,8 +189,15 @@ function installScript(overridePath) {
             fs.copyFileSync(asarPath, originalAsar);
             console.log('[Installer] Backed up original app.asar -> app.asar.original');
         } catch (e) {
+            if (e.code === 'EPERM' || e.code === 'EACCES') throw e;
             console.warn('[Installer] Warning backing up app.asar:', e.message);
         }
+    }
+    // Move app.asar aside (like install_patch.bat) so the game always starts our loader in resources/app
+    if (fs.existsSync(asarPath)) {
+        const disabledAsar = path.join(resourcesPath, 'app.asar.disabled');
+        if (fs.existsSync(disabledAsar)) fs.unlinkSync(disabledAsar);
+        fs.renameSync(asarPath, disabledAsar);
     }
 
     // 2. Create resources/app directory
@@ -148,14 +208,7 @@ function installScript(overridePath) {
 
     // 3. Write package.json
     const packageJsonPath = path.join(appDir, 'package.json');
-    const pkgContent = {
-        name: 'aetheria-launcher',
-        productName: 'Aetheria Online',
-        version: '1.0.3',
-        description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
-        main: 'main.js',
-        private: true
-    };
+    const pkgContent = LOADER_PACKAGE;
     fs.writeFileSync(packageJsonPath, JSON.stringify(pkgContent, null, 2), 'utf8');
 
     // 4. Copy loader main.js
@@ -163,7 +216,7 @@ function installScript(overridePath) {
     if (fs.existsSync(LOADER_SRC)) {
         fs.copyFileSync(LOADER_SRC, targetLoaderPath);
     } else {
-        return { success: false, error: 'ไม่พบไฟล์ต้นฉบับ main.js ในโฟลเดอร์โปรเจกต์' };
+        throw new Error('ไม่พบไฟล์ต้นฉบับ main.js ในโฟลเดอร์ Manager');
     }
 
     // 5. Copy bot.js
@@ -171,7 +224,7 @@ function installScript(overridePath) {
     if (fs.existsSync(BOT_SRC)) {
         fs.copyFileSync(BOT_SRC, targetBotPath);
     } else {
-        return { success: false, error: 'ไม่พบไฟล์ต้นฉบับ bot.js ในโฟลเดอร์โปรเจกต์' };
+        throw new Error('ไม่พบไฟล์ต้นฉบับ bot.js ในโฟลเดอร์ Manager');
     }
 
     // Save game path to settings
@@ -191,6 +244,46 @@ function installScript(overridePath) {
     };
 }
 
+// Game in Program Files needs admin rights: stage the files, then copy them with one UAC prompt
+function installScriptAsync(overridePath) {
+    const first = installScript(overridePath);
+    if (!first.needsAdmin) return Promise.resolve(first);
+    const gamePath = first.gamePath;
+    const res = path.join(gamePath, 'resources');
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-install-'));
+    fs.copyFileSync(LOADER_SRC, path.join(stage, 'main.js'));
+    fs.copyFileSync(BOT_SRC, path.join(stage, 'bot.js'));
+    fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify(LOADER_PACKAGE, null, 2), 'utf8');
+    const q = p => "'" + String(p).replace(/'/g, "''") + "'";
+    const script = [
+        '$ErrorActionPreference = "Stop"',
+        `$res = ${q(res)}; $stage = ${q(stage)}`,
+        'New-Item -ItemType Directory -Force -Path (Join-Path $res "app") | Out-Null',
+        'if ((Test-Path (Join-Path $res "app.asar")) -and -not (Test-Path (Join-Path $res "app.asar.original"))) { Copy-Item (Join-Path $res "app.asar") (Join-Path $res "app.asar.original") }',
+        'if (Test-Path (Join-Path $res "app.asar")) { Remove-Item (Join-Path $res "app.asar.disabled") -Force -ErrorAction SilentlyContinue; Rename-Item (Join-Path $res "app.asar") "app.asar.disabled" }',
+        'Copy-Item (Join-Path $stage "main.js") (Join-Path $res "app\\main.js") -Force',
+        'Copy-Item (Join-Path $stage "package.json") (Join-Path $res "app\\package.json") -Force',
+        'Copy-Item (Join-Path $stage "bot.js") (Join-Path $res "bot.js") -Force'
+    ].join('\r\n');
+    const ps1 = path.join(stage, 'install.ps1');
+    fs.writeFileSync(ps1, '﻿' + script, 'utf8');
+    const outer = `Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',${q('"' + ps1 + '"')}`;
+    return new Promise(resolve => {
+        execFile('powershell', ['-NoProfile', '-Command', outer], { windowsHide: true, timeout: 120000 }, (err) => {
+            try { fs.rmSync(stage, { recursive: true, force: true }); } catch (e) {}
+            const st = checkStatus(gamePath);
+            if (st.isInstalled && st.loaderUpToDate) {
+                const settings = loadSettings();
+                settings.gamePath = gamePath;
+                saveSettings(settings);
+                resolve({ success: true, message: 'ติดตั้งสคริปต์ PmheeAether ลงในเกมเรียบร้อยแล้ว (ใช้สิทธิ์ผู้ดูแลระบบ)', gamePath });
+            } else {
+                resolve({ success: false, error: `เกมอยู่ในโฟลเดอร์ที่ต้องใช้สิทธิ์ผู้ดูแลระบบ (${gamePath}) — กด "Yes" ในหน้าต่างขอสิทธิ์ (UAC) หรือเปิด PelicanManager.exe แบบ Run as administrator แล้วกดติดตั้งอีกครั้ง` });
+            }
+        });
+    });
+}
+
 function restoreOriginal(overridePath) {
     const status = checkStatus(overridePath);
     const gamePath = status.gamePath;
@@ -203,7 +296,9 @@ function restoreOriginal(overridePath) {
         try {
             fs.copyFileSync(originalAsar, asarPath);
         } catch (e) {
-            return { success: false, error: 'กู้คืน app.asar ไม่สำเร็จ: ' + e.message };
+            return { success: false, error: (e.code === 'EPERM' || e.code === 'EACCES')
+                ? 'กู้คืนไม่สำเร็จ: โฟลเดอร์เกมต้องใช้สิทธิ์ผู้ดูแลระบบ — เปิด PelicanManager.exe แบบ Run as administrator แล้วลองใหม่'
+                : 'กู้คืน app.asar ไม่สำเร็จ: ' + e.message };
         }
     }
 
@@ -283,6 +378,7 @@ module.exports = {
     getEffectiveGamePath,
     checkStatus,
     installScript,
+    installScriptAsync,
     restoreOriginal,
     browseFolder,
     saveSettings,

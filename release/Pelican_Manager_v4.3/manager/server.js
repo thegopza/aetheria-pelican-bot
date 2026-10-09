@@ -227,6 +227,15 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 
 // Game executable on *this* PC: the patcher's saved folder if it exists, else %LOCALAPPDATA%/Programs/Aetheria Online
 const getGameExe = () => path.join(installer.getEffectiveGamePath(), "Aetheria Online.exe");
+// Why opening a game window would not work (null = fine)
+function gameLaunchProblem() {
+  const exe = getGameExe();
+  if (!fs.existsSync(exe)) return `ไม่พบตัวเกม (${exe}) — กดปุ่ม "สคริปต์เกม" แล้วกด Auto-Detect หรือ Browse เลือกโฟลเดอร์เกม`;
+  const st = installer.checkStatus();
+  if (!st.isInstalled) return `ยังไม่ได้ติดตั้งสคริปต์ PmheeAether ในโฟลเดอร์เกม (${st.gamePath}) — กดปุ่ม "สคริปต์เกม" แล้วกด "ติดตั้ง" ก่อน`;
+  if (st.asarActive) return `ตัวเกมยังใช้ไฟล์ app.asar เดิมอยู่ บอทจะไม่ทำงาน — กดปุ่ม "สคริปต์เกม" แล้วกด "ติดตั้ง" อีกครั้ง (อาจมีหน้าต่างขอสิทธิ์ผู้ดูแลระบบ ให้กด Yes)`;
+  return null;
+}
 
 // Ensure sessions directory exists
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -1101,9 +1110,8 @@ const server = http.createServer(async (req, res) => {
     const sessionDir = path.join(SESSIONS_DIR, profile.id);
     if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-    if (!fs.existsSync(getGameExe())) {
-      return sendJSON({ success: false, error: "Aetheria Online.exe not found at: " + getGameExe() }, 500);
-    }
+    const launchProblem = gameLaunchProblem();
+    if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
 
     const args = [
       `--user-data-dir=${sessionDir}`,
@@ -1151,6 +1159,8 @@ const server = http.createServer(async (req, res) => {
 
   // 7. POST /api/launch-all
   if (req.method === "POST" && pathname === "/api/launch-all") {
+    const launchProblem = gameLaunchProblem();
+    if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
     const profiles = loadProfiles();
     const launched = [];
     for (const p of profiles) {
@@ -1787,8 +1797,10 @@ const server = http.createServer(async (req, res) => {
     req.on("end", () => {
       try {
         const payload = body ? JSON.parse(body) : {};
-        const result = installer.installScript(payload.gamePath);
-        return sendJSON(result, result.success ? 200 : 500);
+        // Program Files installs need admin rights -> installScriptAsync asks once through UAC
+        installer.installScriptAsync(payload.gamePath)
+          .then(result => sendJSON(result, result.success ? 200 : 500))
+          .catch(e => sendJSON({ success: false, error: e.message }, 500));
       } catch (e) {
         return sendJSON({ success: false, error: e.message }, 400);
       }
