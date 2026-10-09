@@ -100,6 +100,8 @@
 3. **Auto Sell ลงตลาดกลาง**: รอบอัตโนมัติ (`runAutoMarketSellCycle(false)`) ทำงาน **เฉพาะตอน START BOT อยู่** (`window.__isBotRunning`) — ปุ่ม "ตรวจสอบทันที" (manual) กดได้ตลอด
 4. **ค้นหาตลาดจาก Manager**: ต้องพัก `autoBuy`/`sniperAlert` ของบอทชั่วคราวระหว่างค้นหา (ผลค้นหาไหลเข้า sniper ของบอท อาจซื้ออัตโนมัติโดยไม่ตั้งใจ) — ดู `manager/inventory_market_api.js`
 5. **Action ที่แตะไอเทม** (ล็อค/ทิ้ง/ลงขาย): ต้องเช็กซ้ำว่าไอเทมในช่อง (slot) ยังเป็น itemId เดิมก่อนส่งคำสั่งเสมอ
+5.1 **คัดลอกการตั้งค่าไปจออื่น** (`manager/config_copy_api.js`, ปุ่ม "📋 คัดลอกไปจออื่น" ในเมนูบอทบนเว็บ และ "Copy to" ของ Save List): ห้ามส่ง `username`, `password`, `charName` ของ `authConfig` ไปจออื่นเด็ดขาด
+5.2 **คีย์ localStorage ต้องตรงกับตอนโหลด**: `pelican_auto_market_sell_cfg`, `pelican_market_filter_cfg`, `pelican_sell_cfg`, `pelican_archer_cfg`, `pelican_shop_cfg`, `pelican_buff_potion_config`, `pelican_auth_cfg`, `pelican_target_map` — เขียนผิดชื่อ = ค่าหายหลังรีเฟรชหน้า (ซึ่งเกิดบ่อยเพราะ Auto-update)
 6. **ข้อมูลไอเทม**: `attributes` = ค่าพื้นฐาน (คงที่), `affixes` = ออฟชั่นสุ่ม (Random Options) — ไอคอนไอเทมต้องหาจาก `/art/icons/manifest.json` (ตาม itemId) ห้ามเดาจากชื่อ และต้องเป็น URL เต็มของเว็บเกมเมื่อแสดงใน Manager
 7. **คำสั่งเกม (Colyseus `room.send`)** ที่ใช้อยู่: `equip`, `unequip`, `inv_use`, `inv_lock {slot, locked}`, `inv_destroy {slot, qty}`, `inv_sort`, `market {op: search|history|list|buy|mine|collect_all}` — ดูรายการทั้งหมดได้จาก `scratch/index_bundle.js` (โค้ดเกมที่ dump ไว้)
 8. **HUD ในเกม (`createUI` ใน bot.js)**:

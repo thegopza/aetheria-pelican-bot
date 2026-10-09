@@ -1084,6 +1084,7 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                     <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">💰 ${typeof clientData?.state?.zeny === 'number' ? clientData.state.zeny.toLocaleString() + ' z' : '-- z'}</span>
                     <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${clientData?.currentAmmo ?? 0}</span>
                     <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
+                    <button type="button" class="p-copy-cfg-btn" onclick="openConfigCopyDialog('${profileId}')" title="คัดลอกการตั้งค่าบอททั้งหมดของจอนี้ไปจออื่น (ยกเว้น ID / รหัสผ่าน / ชื่อตัวละคร)">📋 คัดลอกไปจออื่น</button>
                 </div>
             </div>
 

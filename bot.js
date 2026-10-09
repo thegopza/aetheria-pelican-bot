@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.4.1
+// @version      4.4.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.4.1';
+    const PELICAN_BOT_VERSION = '4.4.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -9163,9 +9163,8 @@
             buffPotionConfig: Object.assign({}, window.__buffPotionConfig || {}),
             authConfig: {
                 enabled: !!window.__authConfig?.enabled,
-                autoResumeBot: window.__authConfig?.autoResumeBot !== false,
-                charName: window.__authConfig?.charName || ''
-                // NOTE: username and password are strictly excluded!
+                autoResumeBot: window.__authConfig?.autoResumeBot !== false
+                // NOTE: username, password and character name are account-specific and strictly excluded!
             }
         };
 
@@ -9282,13 +9281,13 @@
             // 4. Auto Market Sell Config
             if (data.autoMarketSellConfig && typeof data.autoMarketSellConfig === 'object') {
                 window.__autoMarketSellConfig = Object.assign({}, window.__autoMarketSellConfig || {}, data.autoMarketSellConfig);
-                localStorage.setItem('pelican_automarket_cfg', JSON.stringify(window.__autoMarketSellConfig));
+                localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig));
             }
 
             // 5. Market Filter Config
             if (data.marketFilterConfig && typeof data.marketFilterConfig === 'object') {
                 window.__marketFilterConfig = Object.assign({}, window.__marketFilterConfig || {}, data.marketFilterConfig);
-                localStorage.setItem('pelican_market_filter', JSON.stringify(window.__marketFilterConfig));
+                localStorage.setItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig));
             }
 
             // 6. Target Map & Auto Loop
@@ -9310,8 +9309,7 @@
                 if (!window.__authConfig) window.__authConfig = {};
                 if (typeof data.authConfig.enabled === 'boolean') window.__authConfig.enabled = data.authConfig.enabled;
                 if (typeof data.authConfig.autoResumeBot === 'boolean') window.__authConfig.autoResumeBot = data.authConfig.autoResumeBot;
-                if (data.authConfig.charName !== undefined) window.__authConfig.charName = data.authConfig.charName;
-                // username & password ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
+                // username, password และชื่อตัวละคร ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
                 localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
             }
 

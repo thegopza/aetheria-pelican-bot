@@ -69,6 +69,7 @@ const installer = require("./installer");
 const { handleInventoryMarketRoute } = require("./inventory_market_api");
 const { createBotAutoUpdater } = require("./bot_auto_update");
 const { createManagerSelfUpdater } = require("./manager_self_update");
+const { handleConfigCopyRoute } = require("./config_copy_api");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -754,6 +755,9 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+
+  // Copy bot settings to other clients (no ID/password/character) — see config_copy_api.js
+  if (await handleConfigCopyRoute(req, res, pathname, { loadProfiles, saveProfiles, evalProfilePort, sendJSON })) return;
 
   // Manager self-update (manager/ folder) — see manager_self_update.js
   if (await managerUpdater.handleRoute(req, res, pathname, sendJSON)) return;
@@ -1650,7 +1654,7 @@ const server = http.createServer(async (req, res) => {
             return { success: true };
           })()`;
         } else if (payload.type === 'update-autosell') {
-          codeToRun = `Object.assign(window.__autoMarketSellConfig, ${JSON.stringify(payload.config)}); try { localStorage.setItem('pelican_automarket_cfg', JSON.stringify(window.__autoMarketSellConfig)); } catch(e){} if (typeof updateMasterBotUI === 'function') updateMasterBotUI();`;
+          codeToRun = `Object.assign(window.__autoMarketSellConfig, ${JSON.stringify(payload.config)}); try { localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig)); } catch(e){} if (typeof updateMasterBotUI === 'function') updateMasterBotUI();`;
         } else if (payload.type === 'add-autosell-rule') {
           codeToRun = `if (typeof window.addAutoMarketSellRule === 'function') window.addAutoMarketSellRule(${JSON.stringify(payload.itemName || '')});`;
         } else if (payload.type === 'remove-autosell-rule') {
@@ -2289,6 +2293,12 @@ const server = http.createServer(async (req, res) => {
 
         const profiles = loadProfiles();
         const appliedProfiles = [];
+        const presetConfig = JSON.parse(JSON.stringify(preset.config || {}));
+        if (presetConfig.authConfig) {
+          delete presetConfig.authConfig.username;
+          delete presetConfig.authConfig.password;
+          delete presetConfig.authConfig.charName;
+        }
 
         for (const pId of targetIds) {
           const profile = profiles.find(p => p.id === pId);
@@ -2304,7 +2314,7 @@ const server = http.createServer(async (req, res) => {
           if (profile.debugPort) {
             const codeToRun = `(() => {
               if (typeof window.importAllBotSettings === 'function') {
-                return window.importAllBotSettings(${JSON.stringify(preset.config)});
+                return window.importAllBotSettings(${JSON.stringify(presetConfig)});
               } else {
                 return { success: false, error: 'importAllBotSettings not ready' };
               }
