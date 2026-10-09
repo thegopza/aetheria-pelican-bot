@@ -889,7 +889,13 @@ function initZenyConsolidationEvents() {
         btnClaimMarket.disabled = true;
         btnClaimMarket.innerHTML = `<span>⏳</span> กำลังรับของ...`;
         const res = await fetch(`${API_BASE}/api/market/claim-all`, { method: "POST" });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(pe) {
+          throw new Error(`เซิร์ฟเวอร์ยังไม่ได้รีสตาร์ทหรือตอบกลับไม่ถูกต้อง (${res.status}): กรุณารีเฟรชหน้าเว็บ (Ctrl + F5)`);
+        }
         if (data.success) {
           showToast("🛒 ส่งคำสั่งรับของและเงินจากตลาดกลางทุกจอเรียบร้อย!", "success");
           setTimeout(fetchProfiles, 1500);
@@ -938,7 +944,13 @@ function initZenyConsolidationEvents() {
             keepZeny: 0
           })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch(pe) {
+          throw new Error(`เซิร์ฟเวอร์ยังไม่ได้รีสตาร์ทหรือตอบกลับไม่ถูกต้อง (${res.status}): กรุณารีเฟรชหน้าเว็บ (Ctrl + F5)`);
+        }
         if (data.success) {
           isConsolidationRunning = true;
           if (progressSection) progressSection.style.display = "block";
