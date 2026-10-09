@@ -5007,7 +5007,7 @@
                 // กฎเหล็ก: ป้องกันการขายมั่วในขณะที่หน้าร้านค้าเปิดค้างที่แท็บ 'การ์ด' หรือ 'ทั้งหมด'
                 const activeTab = shopModal.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"], .tab.active, button.active');
                 const activeText = (activeTab ? (activeTab.innerText || activeTab.textContent || '') : '').trim();
-                if (activeText.includes('การ์ด') || activeText.startsWith('ทั้งหมด')) {
+                if (activeText.includes('การ์ด') || activeText.includes('แร่') || activeText.includes('ใช้ได้') || activeText.startsWith('ทั้งหมด')) {
                     console.warn(`[Pelican Shop] 🛑 หน้าร้านค้ากำลังแสดงแท็บ "${activeText}" (ไม่ใช่หมวด ${catName}) -> ข้ามทันทีเพื่อความปลอดภัยเด็ดขาด!`);
                     onDone();
                     return;
