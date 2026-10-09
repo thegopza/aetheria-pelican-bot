@@ -8,6 +8,7 @@ const BASE_DIR = path.resolve(__dirname, "..");
 const PROFILES_FILE = path.join(__dirname, "profiles.json");
 const PLANS_FILE = path.join(__dirname, "plans.json");
 const PRESETS_FILE = path.join(__dirname, "presets.json");
+const installer = require("./installer");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -1099,7 +1100,70 @@ const server = http.createServer(async (req, res) => {
   // PLAN PROFILES & WORKFLOW BUILDER API
   // ==========================================
 
-  // GET /api/plan-profiles (List all plan profiles & assignments)
+    // ==========================================
+  // GAME INSTALLER & PATCHER API
+  // ==========================================
+
+  // GET /api/game-install/status
+  if (req.method === "GET" && pathname === "/api/game-install/status") {
+    const qPath = parsedUrl.searchParams.get("path");
+    const status = installer.checkStatus(qPath);
+    return sendJSON({ success: true, ...status });
+  }
+
+  // POST /api/game-install/install
+  if (req.method === "POST" && pathname === "/api/game-install/install") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = body ? JSON.parse(body) : {};
+        const result = installer.installScript(payload.gamePath);
+        return sendJSON(result, result.success ? 200 : 500);
+      } catch (e) {
+        return sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/game-install/restore
+  if (req.method === "POST" && pathname === "/api/game-install/restore") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = body ? JSON.parse(body) : {};
+        const result = installer.restoreOriginal(payload.gamePath);
+        return sendJSON(result, result.success ? 200 : 500);
+      } catch (e) {
+        return sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // POST /api/game-install/browse
+  if (req.method === "POST" && pathname === "/api/game-install/browse") {
+    installer.browseFolder().then((result) => {
+      return sendJSON(result);
+    }).catch((err) => {
+      return sendJSON({ success: false, error: err.message }, 500);
+    });
+    return;
+  }
+
+  // GET /api/game-install/manager-update
+  if (req.method === "GET" && pathname === "/api/game-install/manager-update") {
+    installer.checkManagerOnlineUpdate().then((result) => {
+      return sendJSON(result);
+    }).catch((err) => {
+      return sendJSON({ success: false, error: err.message }, 500);
+    });
+    return;
+  }
+
+    // GET /api/plan-profiles (List all plan profiles & assignments)
   if (req.method === "GET" && pathname === "/api/plan-profiles") {
     const plansData = loadPlans();
     return sendJSON({

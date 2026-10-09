@@ -33,6 +33,10 @@
         <button id="btn-stop-all" class="btn btn-danger">
           <span class="icon">🛑</span> ปิดทุกจอ (Stop All)
         </button>
+        <button id="btn-game-patcher" class="btn btn-warning" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-weight: bold; border: none; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3); display: inline-flex; align-items: center; gap: 6px;">
+          <span class="icon">⚡</span> <span>ติดตั้ง/อัปเดตสคริปต์</span>
+          <span id="game-patcher-status-badge" class="badge" style="background: #10b981; font-size: 10px; padding: 2px 6px; border-radius: 10px; color: #fff;">ตรวจสอบ...</span>
+        </button>
         <div class="dropdown">
           <button id="btn-tile-menu" class="btn btn-secondary">
             <span class="icon">📐</span> จัดหน้าต่าง ▾
@@ -761,8 +765,94 @@
   </div>
 
   <script src="app.js?v=1791535335343"></script>
+  <script src="patcher_module.js?v=1791551058115"></script>
   <script src="builder_module.js?v=1791535335343"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->
   <div id="web-huds-container"></div>
+
+  <!-- GAME PATCHER & SCRIPT INSTALLER MODAL -->
+  <div id="modal-game-patcher" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px);">
+    <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; width: 680px; max-width: 95vw; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8); color: #f8fafc; padding: 20px; font-family: inherit;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">⚡</span>
+          <div>
+            <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: #f8fafc;">Game Patcher & Script Installer</h3>
+            <span style="font-size: 12px; color: #94a3b8;">ระบบติดตั้งและอัปเดตสคริปต์ Pelican ลงในเกม Aetheria Online อัตโนมัติ</span>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-patcher-close" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Game Path Selection Bar -->
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 12px; font-weight: 700; color: #cbd5e1;">📁 โฟลเดอร์ติดตั้งเกม Aetheria Online:</label>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" id="btn-patcher-autodetect" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">🔍 Auto-Detect</button>
+            <button type="button" id="btn-patcher-browse" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">📂 Browse...</button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="game-patcher-path-input" class="form-input" style="flex: 1; font-size: 12px; padding: 6px 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #fff;" placeholder="C:\Users\...\AppData\Local\Programs\Aetheria Online">
+          <button type="button" id="btn-patcher-check" class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;">🔄 ตรวจสอบ</button>
+        </div>
+      </div>
+
+      <!-- Status Cards Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <!-- Card 1: Game Folder -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🎮 ตัวเกม Aetheria Online</div>
+          <div id="patcher-card-game-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-game-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">ตรวจหา Aetheria Online.exe</div>
+        </div>
+
+        <!-- Card 2: Pelican Loader -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🔌 ตัวโหลดสคริปต์ (Pelican Loader)</div>
+          <div id="patcher-card-loader-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-loader-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">resources/app/main.js</div>
+        </div>
+
+        <!-- Card 3: Bot Script -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🤖 ไฟล์สคริปต์บอท (bot.js)</div>
+          <div id="patcher-card-bot-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-bot-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">resources/bot.js</div>
+        </div>
+
+        <!-- Card 4: Backup Status -->
+        <div class="patcher-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
+          <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">🛡️ ไฟล์เกมต้นฉบับสำรอง (Backup)</div>
+          <div id="patcher-card-backup-status" style="font-size: 13px; font-weight: bold; color: #34d399;">กำลังตรวจสอบ...</div>
+          <div id="patcher-card-backup-desc" style="font-size: 10.5px; color: #64748b; margin-top: 2px;">app.asar.original</div>
+        </div>
+      </div>
+
+      <!-- Live Message / Progress Box -->
+      <div id="patcher-msg-box" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #34d399;"></div>
+
+      <!-- Online GitHub Update Info -->
+      <div id="patcher-github-info" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+        <span style="color: #94a3b8;">🌐 อัปเดตออนไลน์ (GitHub): <b id="patcher-github-commit" style="color: #38bdf8;">กำลังตรวจสอบ...</b></span>
+        <span id="patcher-github-date" style="color: #64748b;">-</span>
+      </div>
+
+      <!-- Modal Footer Actions -->
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
+        <button type="button" id="btn-patcher-restore" class="btn btn-secondary btn-sm" style="font-size: 11.5px; padding: 6px 12px; color: #f87171; border-color: rgba(248, 113, 113, 0.3);">
+          🔄 กู้คืนไฟล์เกมเดิม (Restore)
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-patcher-cancel" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">ปิด</button>
+          <button type="button" id="btn-patcher-install" class="btn btn-success" style="font-size: 12px; padding: 6px 18px; font-weight: bold; background: linear-gradient(135deg, #10b981, #059669); border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);">
+            🚀 ติดตั้ง / อัปเดตสคริปต์ลงตัวเกมทันที
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

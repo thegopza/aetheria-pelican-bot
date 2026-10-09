@@ -74,3 +74,14 @@
 | **Sequential Skill Allocator Engine** | `[x]` | วางแผนอัปแต้มสกิลตามลำดับคลิก (เช่น Class 1 = 9 แต้ม, Class 2 = 49 แต้ม) และบอทจะอัปสกิลตามคิวที่กำหนดทันทีเมื่อได้แต้มสกิล | Verified |
 | **Stat Target & Priority Allocator** | `[x]` | กำหนดเป้าหมาย Status (STR, AGI, VIT, INT, DEX, LUK) พร้อมลำดับความสำคัญ (Priority Order) และอัปค่าอัตโนมัติ | Verified |
 | **Game Classes & Skill Tree Database** | `[x]` | ฐานข้อมูลสกิลครบทั้ง 6 สายอาชีพหลักและอาชีพคลาส 2 (Archer, Hunter, Bard, Dancer, Swordsman, Knight, Crusader, Mage, Wizard, Sage, Thief, Assassin, Rogue, Acolyte, Priest, Monk, Merchant, Blacksmith, Alchemist) | Verified |
+
+## 6. Game Patcher & Script Installer (ระบบติดตั้งและอัปเดตสคริปต์ลงตัวเกม)
+
+| ฟีเจอร์ | สถานะ | รายละเอียดการทำงานจริง | การทดสอบ |
+|---|:---:|---|:---:|
+| **Auto-Detect Game Path** | `[x]` | ตรวจจับโฟลเดอร์ติดตั้งของเกม Aetheria Online อัตโนมัติ (`%LOCALAPPDATA%\Programs\Aetheria Online`) | Verified |
+| **Windows Folder Browser Dialog** | `[x]` | เปิดหน้าต่างเลือกโฟลเดอร์ใน Windows (FolderBrowserDialog) เมื่อต้องการเลือกโฟลเดอร์ติดตั้งเอง | Verified |
+| **1-Click Pelican Auto-Injector** | `[x]` | ติดตั้งตัวโหลด `resources/app/main.js` และสำเนา `bot.js` เข้าตัวเกมทันที โดยไม่ต้องแตกไฟล์เอง | Verified |
+| **Original Backup & Restore** | `[x]` | สำรองไฟล์ดั้งเดิม `app.asar.original` และมีปุ่มกู้คืนกลับเป็นตัวเกมเดิมได้ทุกเมื่อ (1-Click Restore) | Verified |
+| **Live Status & Integrity Hash** | `[x]` | ตรวจสอบความถูกต้องของสคริปต์ด้วย SHA256 Hash แจ้งสถานะว่าล่าสุดหรือมีอัปเดตใหม่ พร้อม Badge บน Header | Verified |
+| **GitHub Online Update Checker** | `[x]` | เชื่อมต่อ GitHub API เช็ค Commit ล่าสุดเพื่อแจ้งเตือนเวอร์ชันของตัวบอท | Verified |
