@@ -1161,17 +1161,6 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                         <button class="p-btn p-btn-loop" id="p-btn-walk-map">🚀 เดินกลับแมพ</button>
                         <button class="p-btn p-btn-map" id="p-btn-open-map">🗺️ เปิดแผนที่โลก</button>
                     </div>
-
-                    <div class="p-card">
-                        <label class="p-check-box" style="color: #c084fc;">
-                            <input type="checkbox" id="p-auto-jump" ${clientData?.autoJumpEnabled ? "checked" : ""}>
-                            <span>⚡ Auto-Backflip (พุ่ง 60-260px)</span>
-                        </label>
-                        <div class="p-row" style="margin-top: 2px;">
-                            <span>Target: <b id="p-mon-pos" style="color:#f59e0b; font-size: 10px;">(คลิกมอน)</b></span>
-                            <button class="p-btn p-btn-jump" id="p-btn-test-jump" style="width: auto; padding: 2px 8px; font-size: 10px;">⚡ ดีดตัว</button>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- TAB 2: HUNTER / AMMO -->
@@ -1926,18 +1915,6 @@ async function openWebBotHUD(profileId) {
     openMapBtn.onclick = () => sendWebHudAction(profileId, { type: 'open-world-map' });
   }
 
-  const autoJumpCb = hudEl.querySelector('#p-auto-jump');
-  if (autoJumpCb) {
-    autoJumpCb.onchange = (e) => {
-      sendWebHudAction(profileId, { type: 'toggle-auto-jump', enabled: e.target.checked });
-    };
-  }
-
-  const testJumpBtn = hudEl.querySelector('#p-btn-test-jump');
-  if (testJumpBtn) {
-    testJumpBtn.onclick = () => sendWebHudAction(profileId, { type: 'test-jump' });
-  }
-
   // Archer event listeners
   const saveArcher = () => {
     const cfg = {
@@ -2355,10 +2332,6 @@ function populateWebHudData(profileId, data) {
   // Farm Map Select
   const mapSelect = hud.querySelector('#p-target-map-select');
   if (mapSelect && data.targetFarmMap && document.activeElement !== mapSelect) mapSelect.value = data.targetFarmMap;
-
-  // Auto Jump Checkbox
-  const autoJumpCb = hud.querySelector('#p-auto-jump');
-  if (autoJumpCb && document.activeElement !== autoJumpCb) autoJumpCb.checked = !!data.autoJumpEnabled;
 
   // Archer
   const archer = data.archerConfig || {};

@@ -46,3 +46,4 @@
 .bu-switch span { position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
 .bu-switch.on { background: #10b981; }
 .bu-switch.on span { transform: translateX(17px); }
+.bu-ver { font-style: normal; font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #7dd3fc; margin-left: 4px; }

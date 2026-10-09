@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Aetheria Pelican Control Hub v4.2.1 (Auto-Sort Bag & Weight Auto-Sync 24/7)
+// @name         Aetheria Pelican Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.2.1
-// @description  Full Packet Hex Dump, Minimap Direct Map Opener, WASD Backflip, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
+// @version      4.4.0
+// @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
 // @grant        none
@@ -12,14 +12,17 @@
 (function () {
     'use strict';
 
-    console.log('%c[Pelican] Control Hub v4.2.1 (Auto-Sort Bag & Weight Auto-Sync 24/7) Ready', 'color: #00ffcc; font-weight: bold; font-size: 14px;');
+    // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
+    const PELICAN_BOT_VERSION = '4.4.0';
+    window.__pelicanBotVersion = PELICAN_BOT_VERSION;
+
+    console.log(`%c[Pelican] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
 
     window.__gameSocket = null;
     window.__lastMoveToken = null;
     window.__currentPos = { x: 0, y: 0 };
     window.__monsterPos = null;
     window.__lastTargetTime = 0;
-    window.__lastBackflipTime = 0;
     window.__packetLogs = [];
     window.__outgoingLogs = [];
     try {
@@ -578,7 +581,6 @@
     }
     window.__targetFarmMap = initialMap;
     window.__autoLoopEnabled = localStorage.getItem('pelican_auto_loop') === 'true';
-    window.__autoJumpEnabled = localStorage.getItem('pelican_auto_jump') === 'true';
     window.__isBotRunning = localStorage.getItem('pelican_bot_running') === 'true';
     window.__isNavigating = false;
     window.__isRecovering = false;
@@ -1597,7 +1599,6 @@
             isRecovering: window.__isRecovering,
             isShopping: window.__isShopping,
             autoLoop: window.__autoLoopEnabled,
-            autoJump: window.__autoJumpEnabled,
             archerConfig: window.__archerConfig,
             sellConfig: window.__sellConfig,
             shopConfig: window.__shopConfig,
@@ -3174,12 +3175,6 @@
                     window.__currentPos = { x: worldX, y: worldY, tileX: parts[0], tileY: parts[1] };
                     updateUIPos(worldX, worldY, parts[0], parts[1]);
 
-                    if (window.__isBotRunning && window.__autoJumpEnabled && window.__monsterPos) {
-                        const dist = Math.hypot(window.__monsterPos.x - worldX, window.__monsterPos.y - worldY);
-                        if (dist >= 60 && dist <= 260) {
-                            window.executeReverseBackflip(window.__monsterPos.x, window.__monsterPos.y);
-                        }
-                    }
                 }
             }
         }
@@ -3996,7 +3991,7 @@
                                 try { localStorage.setItem('pelican_current_zeny', String(charDec.zeny)); } catch(e) {}
                                 const quickZeny = document.getElementById('p-quick-zeny');
                                 if (quickZeny) {
-                                    quickZeny.innerText = `🪙 ${charDec.zeny.toLocaleString()} z`;
+                                    quickZeny.innerText = `💰 ${charDec.zeny.toLocaleString()} z`;
                                 }
                             }
                             // Auto-configure combat & settings when character loads (Only when Plan Script is active)
@@ -4312,58 +4307,6 @@
 
     window.scanForActiveSocket();
     setInterval(window.scanForActiveSocket, 1000);
-
-    // ==========================================
-    // 3. WASD Reverse Backflip Engine
-    // ==========================================
-    window.executeReverseBackflip = function(mX, mY, force = false) {
-        if (!window.__isBotRunning && !force) return;
-        const now = Date.now();
-        if (now - window.__lastBackflipTime < 1100) return;
-
-        const curX = window.__currentPos.x;
-        const curY = window.__currentPos.y;
-        if (!curX && !curY) return;
-
-        const dx = mX - curX;
-        const dy = mY - curY;
-        const dist = Math.hypot(dx, dy);
-        if (dist === 0) return;
-
-        window.__lastBackflipTime = now;
-
-        let turnKey = 's', turnCode = 'KeyS', turnKeyCode = 83;
-
-        if (Math.abs(dx) > Math.abs(dy)) {
-            if (dx > 0) {
-                turnKey = 'a'; turnCode = 'KeyA'; turnKeyCode = 65; // มอนอยู่ขวา -> หันซ้าย
-            } else {
-                turnKey = 'd'; turnCode = 'KeyD'; turnKeyCode = 68; // มอนอยู่ซ้าย -> หันขวา
-            }
-        } else {
-            if (dy > 0) {
-                turnKey = 'w'; turnCode = 'KeyW'; turnKeyCode = 87; // มอนอยู่ล่าง -> หันบน
-            } else {
-                turnKey = 's'; turnCode = 'KeyS'; turnKeyCode = 83; // มอนอยู่บน -> หันล่าง
-            }
-        }
-
-        console.log(`%c[Pelican] ⚡ สั่งหันหน้า (${turnKey.toUpperCase()}) หนีมอน (${mX}, ${mY}) ระยะ: ${Math.round(dist)}px...`, 'color: #38bdf8;');
-
-        const pressOpts = { key: turnKey, code: turnCode, keyCode: turnKeyCode, which: turnKeyCode, bubbles: true, cancelable: true, view: window };
-        document.dispatchEvent(new KeyboardEvent('keydown', pressOpts));
-        document.body.dispatchEvent(new KeyboardEvent('keydown', pressOpts));
-
-        setTimeout(() => {
-            document.dispatchEvent(new KeyboardEvent('keyup', pressOpts));
-            document.body.dispatchEvent(new KeyboardEvent('keyup', pressOpts));
-
-            setTimeout(() => {
-                window.pressKey('2');
-                console.log(`%c[Pelican] ⚡ ดีดตัวพุ่งชนมอนสเตอร์สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
-            }, 30);
-        }, 45);
-    };
 
     window.sendRespawn = function() {
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
@@ -6933,29 +6876,6 @@
         }, 120000);
     }
 
-    // ==========================================
-    // 5. Monster Raycast
-    // ==========================================
-    window.addEventListener('pointerdown', (e) => {
-        const canvas = document.querySelector('canvas');
-        if (!canvas || e.target !== canvas) return;
-
-        const curX = window.__currentPos.x;
-        const curY = window.__currentPos.y;
-        if (!curX && !curY) return;
-
-        const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-
-        const worldX = Math.round(curX + (clickX - centerX));
-        const worldY = Math.round(curY + (clickY - centerY));
-
-        window.__monsterPos = { x: worldX, y: worldY };
-        updateUIMonster(worldX, worldY);
-    }, true);
 
     // ==========================================
     // 6. Watchdog Loop
@@ -7458,16 +7378,6 @@
         }
     }
 
-    function updateUIMonster(x, y) {
-        const el = document.getElementById('p-mon-pos');
-        if (el) {
-            const curX = window.__currentPos.x;
-            const curY = window.__currentPos.y;
-            const dist = curX && curY ? Math.round(Math.hypot(x - curX, y - curY)) : '?';
-            el.innerText = `(${x}, ${y}) [${dist}px]`;
-            el.style.color = '#00ffcc';
-        }
-    }
 
     // ==========================================
     // 8. MARKET FINDER & STAT SNIPER SUITE
@@ -8944,8 +8854,10 @@
         if (t2) t2.checked = !!enabled;
 
         console.log(`%c[Pelican AutoSell] ${enabled ? '🟢 เปิดการทำงาน Auto Market Sell 24/7' : '🔴 ปิดการทำงาน Auto Market Sell'}`, 'color: #a855f7; font-weight: bold;');
-        if (enabled) {
-            window.runAutoMarketSellCycle(true);
+        if (enabled && window.__isBotRunning) {
+            window.runAutoMarketSellCycle(false);
+        } else if (enabled) {
+            console.log('%c[Pelican AutoSell] ⏸️ จะเริ่มลงขายเมื่อกด START BOT', 'color: #a855f7;');
         }
     };
 
@@ -9012,6 +8924,8 @@
     window.runAutoMarketSellCycle = async function(manual = false) {
         const cfg = window.__autoMarketSellConfig;
         if (!cfg || (!cfg.enabled && !manual)) return;
+        // Automatic listing runs only while START BOT is on; the manual "ตรวจสอบทันที" button still works
+        if (!manual && !window.__isBotRunning) return;
         if (window.__isAutoSellingNow) return;
 
         window.__isAutoSellingNow = true;
@@ -9237,7 +9151,7 @@
 
         // กรองการตั้งค่าทั้งหมด โดยยกเว้น ID (username) และ Password ออกเด็ดขาด 100% เพื่อความปลอดภัย
         const exportData = {
-            version: '4.3.0',
+            version: PELICAN_BOT_VERSION,
             exportedAt: new Date().toISOString(),
             targetMap: targetMap,
             autoLoop: autoLoop,
@@ -9580,209 +9494,264 @@
         hud.innerHTML = `
             <style>
                 #pelican-hud {
+                    --p-line: rgba(148, 163, 184, 0.16);
+                    --p-line2: rgba(148, 163, 184, 0.3);
+                    --p-muted: #8d9ab5;
+                    --p-accent: #22d3ee;
                     position: fixed;
                     top: 180px;
                     right: 20px;
-                    width: 285px;
-                    background: rgba(15, 23, 42, 0.96);
-                    border: 1px solid rgba(0, 255, 204, 0.35);
-                    border-radius: 10px;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
-                    backdrop-filter: blur(12px);
-                    color: #fff;
-                    font-family: 'Segoe UI', Tahoma, sans-serif;
+                    width: 320px;
+                    background: linear-gradient(180deg, rgba(14, 22, 40, 0.97), rgba(8, 13, 26, 0.97));
+                    border: 1px solid rgba(34, 211, 238, 0.28);
+                    border-radius: 14px;
+                    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+                    color: #e8eefc;
+                    font-family: 'Segoe UI', 'Leelawadee UI', Tahoma, sans-serif;
                     z-index: 999999;
                     user-select: none;
                     font-size: 11.5px;
                     overflow: hidden;
                 }
+                #pelican-hud * { box-sizing: border-box; }
+                #pelican-hud button, #pelican-hud select, #pelican-hud input { font-family: inherit; }
+
+                /* Header: brand + collapse, then quick chips */
                 .p-header {
-                    background: rgba(0, 255, 204, 0.1);
-                    padding: 7px 10px;
-                    border-bottom: 1px solid rgba(0, 255, 204, 0.25);
+                    padding: 9px 11px 8px;
+                    border-bottom: 1px solid var(--p-line);
                     cursor: move;
                     display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    font-weight: bold;
-                    color: #00ffcc;
-                    font-size: 12px;
+                    flex-direction: column;
+                    gap: 7px;
+                    background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(139, 92, 246, 0.08));
                 }
-                .p-status-strip {
-                    display: flex;
-                    justify-content: space-between;
-                    padding: 4px 10px;
-                    background: rgba(0, 0, 0, 0.3);
-                    font-size: 10px;
-                    color: #94a3b8;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+                .p-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+                .p-brand { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 800; font-size: 13px; color: #f8fafc; }
+                .p-logo {
+                    width: 22px; height: 22px; flex-shrink: 0;
+                    border-radius: 7px;
+                    display: grid; place-items: center;
+                    font-size: 12px; font-weight: 900; color: #0b1222;
+                    background: linear-gradient(135deg, #22d3ee, #a78bfa);
                 }
+                #p-hud-title-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .p-hdr-btn {
+                    width: 24px; height: 22px; flex-shrink: 0;
+                    display: grid; place-items: center;
+                    border-radius: 6px;
+                    border: 1px solid var(--p-line);
+                    color: var(--p-muted);
+                    font-size: 15px; font-weight: 700;
+                    cursor: pointer;
+                }
+                .p-hdr-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+                .p-header-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+                .p-chip {
+                    font-size: 10.5px; font-weight: 700;
+                    padding: 2px 8px;
+                    border-radius: 999px;
+                    border: 1px solid transparent;
+                    white-space: nowrap;
+                    font-variant-numeric: tabular-nums;
+                }
+                .p-chip.gold { color: #fde047; background: rgba(250, 204, 21, 0.12); border-color: rgba(250, 204, 21, 0.35); }
+                .p-chip.green { color: #4ade80; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.35); }
+                .p-chip.blue { color: #7dd3fc; background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.35); cursor: pointer; }
+
+                /* Status: 2 x 2 grid */
+                .p-status-grid {
+                    display: grid;
+                    grid-template-columns: 1.4fr 1fr;
+                    gap: 1px;
+                    background: var(--p-line);
+                    border-bottom: 1px solid var(--p-line);
+                }
+                .p-status-grid > div { display: flex; flex-direction: column; min-width: 0; padding: 4px 10px; background: rgba(5, 9, 20, 0.8); }
+                .p-status-grid small { font-size: 9px; color: var(--p-muted); }
+                .p-status-grid b { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                #p-cur-pos { font-family: Consolas, monospace; font-size: 10.5px; }
+
+                /* Tabs: icon over label */
                 .p-tabs {
-                    display: flex;
-                    background: rgba(15, 23, 42, 0.85);
-                    padding: 3px;
+                    display: grid;
+                    grid-template-columns: repeat(6, 1fr);
                     gap: 3px;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                    padding: 6px;
+                    background: rgba(5, 9, 20, 0.5);
+                    border-bottom: 1px solid var(--p-line);
                 }
                 .p-tab-btn {
-                    flex: 1;
-                    padding: 5px 1px;
+                    display: flex; flex-direction: column; align-items: center; gap: 1px;
+                    padding: 5px 0 4px;
                     background: transparent;
                     border: 1px solid transparent;
-                    border-radius: 5px;
-                    color: #94a3b8;
-                    font-size: 10px;
-                    font-weight: bold;
+                    border-radius: 8px;
+                    color: var(--p-muted);
+                    font-size: 10px; font-weight: 700;
                     cursor: pointer;
-                    text-align: center;
-                    transition: all 0.15s ease;
+                    transition: background 0.15s, color 0.15s, border-color 0.15s;
                     white-space: nowrap;
                 }
-                .p-tab-btn:hover {
-                    color: #fff;
-                    background: rgba(255, 255, 255, 0.05);
-                }
+                .p-tab-btn i { font-style: normal; font-size: 14px; line-height: 1.15; filter: grayscale(0.5); }
+                .p-tab-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
                 .p-tab-btn.active {
-                    color: #00ffcc;
-                    background: rgba(0, 255, 204, 0.15);
-                    border-color: rgba(0, 255, 204, 0.4);
-                    box-shadow: 0 0 8px rgba(0, 255, 204, 0.15);
+                    color: #fff;
+                    background: linear-gradient(180deg, rgba(34, 211, 238, 0.22), rgba(34, 211, 238, 0.06));
+                    border-color: rgba(34, 211, 238, 0.45);
                 }
-                .p-body {
-                    padding: 0;
-                    display: flex;
-                    flex-direction: column;
-                }
+                .p-tab-btn.active i { filter: none; }
+
+                .p-body { padding: 0; display: flex; flex-direction: column; }
                 .p-tab-pane {
                     display: none;
                     flex-direction: column;
-                    gap: 6px;
+                    gap: 8px;
                     padding: 10px;
-                    max-height: 310px;
+                    max-height: min(460px, calc(100vh - 300px));
                     overflow-y: auto;
-                    box-sizing: border-box;
                 }
-                .p-tab-pane.active {
+                .p-tab-pane.active { display: flex; }
+                .p-tab-pane::-webkit-scrollbar { width: 5px; }
+                .p-tab-pane::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 3px; }
+
+                /* Cards: one neutral surface; inline border colours stay as section accents */
+                .p-card {
+                    background: rgba(17, 26, 46, 0.78) !important;
+                    border: 1px solid var(--p-line);
+                    border-radius: 10px;
+                    padding: 8px 9px;
                     display: flex;
+                    flex-direction: column;
+                    gap: 6px;
                 }
-                .p-tab-pane::-webkit-scrollbar {
-                    width: 4px;
-                }
-                .p-tab-pane::-webkit-scrollbar-thumb {
-                    background: rgba(0, 255, 204, 0.3);
-                    border-radius: 2px;
-                }
-                .p-row {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    font-size: 11px;
-                    color: #94a3b8;
-                }
-                .p-select {
+                .p-card-title { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: var(--p-muted); letter-spacing: 0.2px; }
+                .p-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11px; color: var(--p-muted); }
+
+                /* Form controls */
+                .p-select, #pelican-hud select {
                     width: 100%;
-                    box-sizing: border-box;
-                    background: rgba(30, 41, 59, 0.9);
-                    border: 1px solid rgba(0, 255, 204, 0.3);
-                    border-radius: 5px;
-                    padding: 4px 6px;
-                    color: #00ffcc;
-                    font-size: 11px;
-                    font-weight: bold;
+                    background: rgba(2, 6, 18, 0.75);
+                    border: 1px solid var(--p-line2);
+                    border-radius: 7px;
+                    padding: 5px 8px;
+                    color: #e0f2fe;
+                    font-size: 11px; font-weight: 600;
                     outline: none;
                     cursor: pointer;
                 }
+                .p-select:focus, #pelican-hud select:focus { border-color: var(--p-accent); }
                 .p-select optgroup { color: #94a3b8; background: #0f172a; }
                 .p-select option { color: #fff; background: #1e293b; padding: 3px; }
+                #pelican-hud input[type="number"], #pelican-hud input[type="text"], #pelican-hud input[type="password"] {
+                    background: rgba(2, 6, 18, 0.75) !important;
+                    border: 1px solid var(--p-line2) !important;
+                    border-radius: 6px !important;
+                    color: #f1f5f9 !important;
+                    padding: 3px 7px !important;
+                    font-size: 11px !important;
+                    outline: none;
+                }
+                #pelican-hud input[type="number"]:focus, #pelican-hud input[type="text"]:focus, #pelican-hud input[type="password"]:focus {
+                    border-color: var(--p-accent) !important;
+                    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.15);
+                }
+                /* Checkboxes render as toggle switches */
+                #pelican-hud input[type="checkbox"] {
+                    -webkit-appearance: none; appearance: none;
+                    position: relative;
+                    width: 28px; height: 16px; margin: 0; flex-shrink: 0;
+                    border-radius: 999px;
+                    background: #334155;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    cursor: pointer;
+                    transition: background 0.18s;
+                }
+                #pelican-hud input[type="checkbox"]::before {
+                    content: '';
+                    position: absolute; top: 2px; left: 2px;
+                    width: 10px; height: 10px;
+                    border-radius: 50%;
+                    background: #cbd5e1;
+                    transition: transform 0.18s;
+                }
+                #pelican-hud input[type="checkbox"]:checked { background: #10b981; border-color: #34d399; }
+                #pelican-hud input[type="checkbox"]:checked::before { transform: translateX(12px); background: #fff; }
+                .p-check-box { display: flex; align-items: center; gap: 8px; font-size: 11px; line-height: 1.35; cursor: pointer; }
+                .p-check-text { display: flex; flex-direction: column; min-width: 0; }
+                .p-check-text small { font-size: 9.5px; font-weight: 500; color: var(--p-muted); }
+
+                /* Buttons: shared shape; inline colours keep each action's identity */
                 .p-btn {
                     width: 100%;
-                    padding: 5px 8px;
-                    border-radius: 5px;
+                    padding: 6px 9px;
                     border: none;
+                    border-radius: 7px;
                     cursor: pointer;
-                    font-size: 11px;
-                    font-weight: bold;
-                    transition: all 0.15s ease;
+                    font-size: 11px; font-weight: 700;
+                    transition: filter 0.15s, transform 0.1s;
                 }
-                .p-btn-loop { background: #16a34a; color: #fff; }
-                .p-btn-loop:hover { background: #15803d; }
+                #pelican-hud .p-tab-pane button { border-radius: 7px !important; transition: filter 0.15s, transform 0.1s; }
+                #pelican-hud .p-tab-pane button:hover:not(:disabled) { filter: brightness(1.12); }
+                #pelican-hud .p-tab-pane button:active:not(:disabled) { transform: scale(0.98); }
+                #p-btn-toggle-bot { font-size: 13px !important; padding: 10px !important; border-radius: 10px !important; letter-spacing: 0.2px; }
+                .p-btn-loop { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
                 .p-btn-bot { background: #0284c7; color: #fff; }
-                .p-btn-bot:hover { background: #0369a1; }
-                .p-btn-jump { background: #9333ea; color: #fff; }
-                .p-btn-jump:hover { background: #7e22ce; }
-                .p-btn-map { background: #334155; color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); }
-                .p-btn-map:hover { background: #1e293b; }
+                .p-btn-map { background: rgba(56, 189, 248, 0.1); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.35); }
                 .p-btn-copy-out { background: #e11d48; color: #fff; }
-                .p-btn-copy-out:hover { background: #be123c; }
-                .p-check-box {
-                    display: flex;
-                    align-items: center;
-                    gap: 5px;
-                    font-size: 11px;
-                    cursor: pointer;
-                }
-                .p-card {
-                    background: rgba(15, 23, 42, 0.6);
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 6px;
-                    padding: 6px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                }
+                .p-hint { font-size: 9.5px; color: var(--p-muted); line-height: 1.4; }
             </style>
             <div class="p-header" id="pelican-drag-handle">
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <span style="font-size: 13px;">🔄</span>
-                    <span id="p-hud-title-text">Aetheria Bot v4.3.0</span>
+                <div class="p-header-top">
+                    <div class="p-brand">
+                        <span class="p-logo">P</span>
+                        <span id="p-hud-title-text">Aetheria Bot v${PELICAN_BOT_VERSION}</span>
+                    </div>
+                    <span id="pelican-toggle" class="p-hdr-btn" title="ย่อ/ขยาย">−</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span id="p-quick-zeny" style="font-size: 10px; background: rgba(250, 204, 21, 0.2); border: 1px solid rgba(250, 204, 21, 0.4); color: #facc15; padding: 1px 7px; border-radius: 10px; font-weight: bold;" title="เงินในตัว (Zeny)">🪙 ${typeof window.__currentZeny === 'number' ? window.__currentZeny.toLocaleString() + ' z' : '-- z'}</span>
-                    <span id="p-quick-ammo" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; padding: 1px 7px; border-radius: 10px; font-weight: bold;">🏹 ${window.__currentAmmo}</span>
-                    <span id="p-quick-weight" style="font-size: 10px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 1px 7px; border-radius: 10px; font-weight: bold; cursor: pointer;" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
-                    <span id="pelican-toggle" style="cursor: pointer; font-size: 15px; padding: 0 4px; color: #94a3b8; font-weight: bold;">−</span>
+                <div class="p-header-chips">
+                    <span id="p-quick-zeny" class="p-chip gold" title="เงินในตัว (Zeny)">💰 ${typeof window.__currentZeny === 'number' ? window.__currentZeny.toLocaleString() + ' z' : '-- z'}</span>
+                    <span id="p-quick-ammo" class="p-chip green" title="ลูกธนูคงเหลือ">🏹 ${window.__currentAmmo}</span>
+                    <span id="p-quick-weight" class="p-chip blue" title="คลิกเพื่อจัดเรียงกระเป๋าและอัปเดตน้ำหนัก">⚖️ --%</span>
                 </div>
             </div>
 
             <div class="p-body" id="pelican-content">
-                <div id="p-weight-alert-banner" style="display: none; background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 10px; text-align: center; margin: 4px 10px 0 10px;">⚠️ น้ำหนักเกินเกณฑ์!</div>
-                <div class="p-status-strip">
-                    <span>แมพ: <b id="p-cur-map-display" style="color:#38bdf8;">รอระบุแมพ...</b></span>
-                    <span>สถานะ: <b id="p-char-state" style="color:#22c55e;">ปกติ</b></span>
-                </div>
-                <div class="p-status-strip" style="border-top:none; padding-top:0;">
-                    <span>Status: <b id="pelican-status-text" style="color:#22c55e;">Online</b></span>
-                    <span>Pos: <b id="p-cur-pos" style="color:#00ffcc;">รอ Minimap...</b></span>
+                <div id="p-weight-alert-banner" style="display: none; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 5px 8px; border-radius: 8px; font-weight: bold; font-size: 10.5px; text-align: center; margin: 6px 10px 0 10px;">⚠️ น้ำหนักเกินเกณฑ์!</div>
+                <div class="p-status-grid">
+                    <div><small>แมพ</small><b id="p-cur-map-display" style="color:#7dd3fc;">รอระบุแมพ...</b></div>
+                    <div><small>สถานะ</small><b id="p-char-state" style="color:#22c55e;">ปกติ</b></div>
+                    <div><small>พิกัด</small><b id="p-cur-pos" style="color:#67e8f9;">รอ Minimap...</b></div>
+                    <div><small>การเชื่อมต่อ</small><b id="pelican-status-text" style="color:#22c55e;">Online</b></div>
                 </div>
 
                 <div class="p-tabs">
-                    <button class="p-tab-btn active" data-tab="farm">🚀 ฟาร์ม</button>
-                    <button class="p-tab-btn" data-tab="ammo">🏹 ธนู</button>
-                    <button class="p-tab-btn" data-tab="potion">🧪 ยาบัพ</button>
-                    <button class="p-tab-btn" data-tab="sell">💰 ขาย</button>
-                    <button class="p-tab-btn" data-tab="market">🛒 ตลาด</button>
-                    <button class="p-tab-btn" data-tab="system">⚙️ ตั้งค่า</button>
+                    <button class="p-tab-btn active" data-tab="farm"><i>🚀</i>ฟาร์ม</button>
+                    <button class="p-tab-btn" data-tab="ammo"><i>🏹</i>ธนู</button>
+                    <button class="p-tab-btn" data-tab="potion"><i>🧪</i>ยาบัพ</button>
+                    <button class="p-tab-btn" data-tab="sell"><i>💰</i>ขาย</button>
+                    <button class="p-tab-btn" data-tab="market"><i>🛒</i>ตลาด</button>
+                    <button class="p-tab-btn" data-tab="system"><i>⚙️</i>ตั้งค่า</button>
                 </div>
 
                 <!-- TAB 1: FARM -->
                 <div class="p-tab-pane active" id="p-tab-farm">
-                    <button class="p-btn" id="p-btn-toggle-bot" style="font-size: 12.5px; padding: 8px 10px; font-weight: bold; border-radius: 6px; transition: all 0.2s ease;">▶️ START BOT (เริ่มทำงาน)</button>
+                    <button class="p-btn" id="p-btn-toggle-bot">▶️ START BOT (เริ่มทำงาน)</button>
 
-                    <label class="p-check-box" style="color: #4ade80;">
-                        <input type="checkbox" id="p-auto-loop" ${window.__autoLoopEnabled ? 'checked' : ''}>
-                        <b>เปิดลูป 24 ชม. (ตาย -> ชุบ -> กลับแมพ)</b>
-                    </label>
-
-                    <label class="p-check-box" style="color: #c084fc; margin-top: 2px;">
-                        <input type="checkbox" id="p-plan-script-enabled" ${window.__planScriptEnabled ? 'checked' : ''}>
-                        <b>📜 เปิดใช้งาน Plan Script (ค่าเริ่มต้น: ปิด)</b>
-                    </label>
-                    <div style="font-size: 9.5px; color: #94a3b8; margin-left: 20px; margin-bottom: 4px;">
-                        แผน: <span id="p-plan-name-display" style="color: #38bdf8; font-weight: bold;">${window.__currentScriptPlan ? window.__currentScriptPlan.name : '(ยังไม่เลือกแผน)'}</span>
+                    <div class="p-card">
+                        <div class="p-card-title">⚙️ โหมดการทำงาน</div>
+                        <label class="p-check-box">
+                            <input type="checkbox" id="p-auto-loop" ${window.__autoLoopEnabled ? 'checked' : ''}>
+                            <span class="p-check-text"><b style="color: #4ade80;">ลูป 24 ชม.</b><small>ตาย → ชุบ → กลับแมพฟาร์มอัตโนมัติ</small></span>
+                        </label>
+                        <label class="p-check-box">
+                            <input type="checkbox" id="p-plan-script-enabled" ${window.__planScriptEnabled ? 'checked' : ''}>
+                            <span class="p-check-text"><b style="color: #c084fc;">📜 Plan Script</b><small>แผน: <span id="p-plan-name-display" style="color: #38bdf8; font-weight: bold;">${window.__currentScriptPlan ? window.__currentScriptPlan.name : '(ยังไม่เลือกแผน)'}</span></small></span>
+                        </label>
                     </div>
 
-                    <div>
-                        <span style="font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px;">แมพฟาร์มเป้าหมาย:</span>
+                    <div class="p-card">
+                        <div class="p-card-title">🗺️ แมพฟาร์มเป้าหมาย</div>
                         <select id="p-target-map-select" class="p-select">
                             <optgroup label="🏰 เขตเมือง & พื้นที่ปลอดภัย">
                                 <option value="เมืองหลวงโซลเฮเวน">เมืองหลวงโซลเฮเวน (ปลอดภัย)</option>
@@ -9820,21 +9789,9 @@
                                 <option value="แกนลาวา">แกนลาวา (Lv. 135-150)</option>
                             </optgroup>
                         </select>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="p-btn p-btn-loop" id="p-btn-walk-map">🚀 เดินกลับแมพ</button>
-                        <button class="p-btn p-btn-map" id="p-btn-open-map">🗺️ เปิดแผนที่โลก</button>
-                    </div>
-
-                    <div class="p-card">
-                        <label class="p-check-box" style="color: #c084fc;">
-                            <input type="checkbox" id="p-auto-jump" ${window.__autoJumpEnabled ? 'checked' : ''}>
-                            <span>⚡ Auto-Backflip (พุ่ง 60-260px)</span>
-                        </label>
-                        <div class="p-row" style="margin-top: 2px;">
-                            <span>Target: <b id="p-mon-pos" style="color:#f59e0b; font-size: 10px;">(คลิกมอน)</b></span>
-                            <button class="p-btn p-btn-jump" id="p-btn-test-jump" style="width: auto; padding: 2px 8px; font-size: 10px;">⚡ ดีดตัว</button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                            <button class="p-btn p-btn-loop" id="p-btn-walk-map">🚀 เดินกลับแมพ</button>
+                            <button class="p-btn p-btn-map" id="p-btn-open-map">🗺️ แผนที่โลก</button>
                         </div>
                     </div>
                 </div>
@@ -10232,6 +10189,7 @@
                             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #d8b4fe; margin-bottom: 4px;">
                                 <span>⚖️ กลยุทธ์: <b>ราคากลางสมดุล (Market Median)</b></span>
                             </div>
+                            <div class="p-hint" style="margin-bottom: 4px;">▶️ ลงขายอัตโนมัติเฉพาะตอนกด START BOT อยู่ (ปุ่ม "ตรวจสอบทันที" กดได้ตลอด)</div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                                 <button onclick="window.addAutoMarketSellRule();" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #34d399; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;">
                                     <span>➕</span> <span>เพิ่มรายการลงขาย</span>
@@ -10513,10 +10471,6 @@
             localStorage.setItem('pelican_auto_loop', window.__autoLoopEnabled);
         };
 
-        document.getElementById('p-auto-jump').onchange = (e) => {
-            window.__autoJumpEnabled = e.target.checked;
-            localStorage.setItem('pelican_auto_jump', window.__autoJumpEnabled);
-        };
 
         
         const btnExportCfg = document.getElementById('p-btn-export-cfg');
@@ -10563,15 +10517,6 @@
                 }
             };
         }
-
-        document.getElementById('p-btn-test-jump').onclick = () => {
-            if (window.__monsterPos) {
-                window.executeReverseBackflip(window.__monsterPos.x, window.__monsterPos.y);
-            } else {
-                console.warn('[Pelican] ยังไม่มีเป้าหมายมอนสเตอร์ ลองคลิกมอนบนจอก่อนครับ');
-                window.pressKey('2');
-            }
-        };
 
         document.getElementById('p-btn-open-map').onclick = () => {
             openWorldMap();

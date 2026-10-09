@@ -1310,7 +1310,6 @@ const server = http.createServer(async (req, res) => {
         targetFarmMap: window.__targetFarmMap || (document.getElementById('p-target-map-select')?.value) || (state ? state.targetMap : null),
         autoLoopEnabled: !!window.__autoLoopEnabled,
         isBotRunning: !!window.__isBotRunning,
-        autoJumpEnabled: !!window.__autoJumpEnabled,
         archerConfig: archer,
         buffPotionConfig: buffPotions,
         sellConfig: sell,
@@ -1480,21 +1479,10 @@ const server = http.createServer(async (req, res) => {
             if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
             return { success: true, running: en };
           })()`;
-        } else if (payload.type === 'toggle-auto-jump') {
-          codeToRun = `(() => {
-            const en = ${Boolean(payload.enabled)};
-            window.__autoJumpEnabled = en;
-            try { localStorage.setItem('pelican_auto_jump', String(en)); } catch(e){}
-            const jumpCb = document.getElementById('p-auto-jump');
-            if (jumpCb) jumpCb.checked = en;
-            return { success: true };
-          })()`;
         } else if (payload.type === 'walk-to-map') {
           codeToRun = `if (typeof window.startWalkToTargetMap === 'function') window.startWalkToTargetMap();`;
         } else if (payload.type === 'open-world-map') {
           codeToRun = `if (typeof window.toggleWorldMapModal === 'function') window.toggleWorldMapModal();`;
-        } else if (payload.type === 'test-jump') {
-          codeToRun = `if (typeof window.executeBackflipJump === 'function') window.executeBackflipJump();`;
         } else if (payload.type === 'update-archer') {
           codeToRun = `(() => {
             if (!window.__archerConfig) window.__archerConfig = {};

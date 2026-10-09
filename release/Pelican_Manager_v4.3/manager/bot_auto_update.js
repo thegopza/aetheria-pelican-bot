@@ -38,6 +38,7 @@ const CLIENT_PROBE_JS = `(() => {
   try { map = (typeof window.__getClientLiveState === 'function' && window.__getClientLiveState().map) || ''; } catch (e) {}
   return {
     loadedAt: Math.round(performance.timeOrigin),
+    version: window.__pelicanBotVersion || null,
     inGame: Boolean(nameEl && map && !map.startsWith('ไม่ทราบ')),
     running: Boolean(window.__autoLoopEnabled || window.__isBotRunning),
     busy
@@ -101,7 +102,10 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
       fs.writeFileSync(stateFile, JSON.stringify({ enabled: status.enabled }, null, 2));
     } catch (e) {}
   };
-  const setClient = (p, state, note) => { status.clients[p.id] = { name: p.name, state, note: note || '', at: Date.now() }; };
+  const setClient = (p, state, note, version) => {
+    const prev = status.clients[p.id];
+    status.clients[p.id] = { name: p.name, state, note: note || '', at: Date.now(), version: version || (prev && prev.version) || null };
+  };
 
   async function probe(p) {
     const r = await evalProfilePort(p.debugPort, CLIENT_PROBE_JS, 4000);
@@ -179,13 +183,13 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
       const now = await probe(p);
       if (now && now.inGame && now.loadedAt > info.loadedAt) {
         if (!wasRunning || now.running) {
-          setClient(p, 'done', wasRunning ? 'อัปเดตแล้ว บอททำงานต่อ' : 'อัปเดตแล้ว');
+          setClient(p, 'done', wasRunning ? 'อัปเดตแล้ว บอททำงานต่อ' : 'อัปเดตแล้ว', now.version);
           return;
         }
         resumedAt = resumedAt || Date.now();
         if (Date.now() - resumedAt > RESUME_GRACE_MS) {
           await evalProfilePort(p.debugPort, START_BOT_JS, 4000);
-          setClient(p, 'done', 'อัปเดตแล้ว (Manager สั่งเริ่มบอทให้)');
+          setClient(p, 'done', 'อัปเดตแล้ว (Manager สั่งเริ่มบอทให้)', now.version);
           return;
         }
         setClient(p, 'resuming', 'รอบอทกลับมาทำงานต่อ...');
@@ -207,13 +211,14 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
         const info = await probe(p);
         if (!info) { delete status.clients[p.id]; continue; }
         if (info.loadedAt >= threshold) {
-          if (!status.clients[p.id] || status.clients[p.id].state !== 'done') setClient(p, 'up-to-date', 'ใช้เวอร์ชันล่าสุดอยู่แล้ว');
+          if (!status.clients[p.id] || status.clients[p.id].state !== 'done') setClient(p, 'up-to-date', 'ใช้เวอร์ชันล่าสุดอยู่แล้ว', info.version);
+          else status.clients[p.id].version = info.version;
           continue;
         }
         pending++;
-        if (!status.enabled) { setClient(p, 'outdated', 'มีเวอร์ชันใหม่ (ปิดอัปเดตอัตโนมัติอยู่)'); continue; }
-        if (!info.inGame) { setClient(p, 'waiting', 'รอให้ตัวละครอยู่ในเกมก่อน'); continue; }
-        if (info.busy.length) { setClient(p, 'waiting', `รอจังหวะปลอดภัย: ${info.busy.join(', ')}`); continue; }
+        if (!status.enabled) { setClient(p, 'outdated', 'มีเวอร์ชันใหม่ (ปิดอัปเดตอัตโนมัติอยู่)', info.version); continue; }
+        if (!info.inGame) { setClient(p, 'waiting', 'รอให้ตัวละครอยู่ในเกมก่อน', info.version); continue; }
+        if (info.busy.length) { setClient(p, 'waiting', `รอจังหวะปลอดภัย: ${info.busy.join(', ')}`, info.version); continue; }
         status.phase = 'updating';
         await reloadClient(p, info);   // one client at a time
         pending--;

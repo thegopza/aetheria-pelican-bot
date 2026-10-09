@@ -99,7 +99,7 @@
       <div class="bu-clients">
         ${clients.length ? clients.map(c => {
           const [icon, label] = STATE_LABEL[c.state] || ['•', c.state];
-          return `<div class="bu-client ${c.state}"><span>${icon} ${esc(c.name)}</span><small>${esc(c.note || label)}</small></div>`;
+          return `<div class="bu-client ${c.state}"><span>${icon} ${esc(c.name)}${c.version ? ` <em class="bu-ver">v${esc(c.version)}</em>` : ''}</span><small>${esc(c.note || label)}</small></div>`;
         }).join('') : '<div class="bu-muted">ยังไม่มีข้อมูลจอ</div>'}
       </div>
       <div class="bu-foot">
