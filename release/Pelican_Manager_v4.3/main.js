@@ -1,4 +1,4 @@
-// Aetheria Online for Windows + Pelican Auto-Injector & GitHub Auto-Update
+// Aetheria Online for Windows + PmheeAether Auto-Injector & GitHub Auto-Update
 const { app, BrowserWindow, Menu, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
@@ -38,7 +38,7 @@ if (userDataDir) {
     if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
     app.setPath("userData", userDataDir);
   } catch (e) {
-    console.error("[Pelican Loader] Failed to set custom userData dir:", e);
+    console.error("[PmheeAether Loader] Failed to set custom userData dir:", e);
   }
 }
 
@@ -67,12 +67,12 @@ function open() {
     win.show();
   });
 
-  // Inject Pelican Bot automatically upon game page load
+  // Inject PmheeAether Bot automatically upon game page load
   win.webContents.on("did-finish-load", async () => {
     const currentUrl = win.webContents.getURL();
     if (!currentUrl.includes("aetheria-online.in.th/play")) return;
 
-    console.log("[Pelican Loader] 🎮 Detected game window! Preparing Pelican Bot injection...");
+    console.log("[PmheeAether Loader] 🎮 Detected game window! Preparing PmheeAether Bot injection...");
 
     // 1. Ensure msgpack-lite is available in the page window
     await win.webContents.executeJavaScript(`
@@ -81,7 +81,7 @@ function open() {
           const s = document.createElement('script');
           s.src = 'https://cdnjs.cloudflare.com/ajax/libs/msgpack-lite/0.1.26/msgpack.min.js';
           document.head.appendChild(s);
-          console.log("[Pelican Loader] Injected msgpack-lite CDN");
+          console.log("[PmheeAether Loader] Injected msgpack-lite CDN");
         }
       })();
     `).catch(() => {});
@@ -91,8 +91,8 @@ function open() {
 
     function injectScript(code) {
       win.webContents.executeJavaScript(code + '\n; void 0;')
-        .then(() => console.log("[Pelican Loader] 🚀 Pelican Bot injected and active!"))
-        .catch(err => console.error("[Pelican Loader] ❌ Injection error:", err));
+        .then(() => console.log("[PmheeAether Loader] 🚀 PmheeAether Bot injected and active!"))
+        .catch(err => console.error("[PmheeAether Loader] ❌ Injection error:", err));
     }
 
     let fetched = false;
@@ -106,7 +106,7 @@ function open() {
             res.on("end", () => {
               if (data.length > 1000) {
                 fetched = true;
-                console.log("[Pelican Loader] 🌐 Successfully updated latest bot from GitHub (" + data.length + " bytes)!");
+                console.log("[PmheeAether Loader] 🌐 Successfully updated latest bot from GitHub (" + data.length + " bytes)!");
                 try { fs.writeFileSync(localBotPath, data, "utf8"); } catch(e) {}
                 injectScript(data);
               }
@@ -122,11 +122,11 @@ function open() {
     setTimeout(() => {
       if (!fetched) {
         if (fs.existsSync(localBotPath)) {
-          console.log("[Pelican Loader] 📂 Loading local bot.js from " + localBotPath);
+          console.log("[PmheeAether Loader] 📂 Loading local bot.js from " + localBotPath);
           const code = fs.readFileSync(localBotPath, "utf8");
           injectScript(code);
         } else {
-          console.warn("[Pelican Loader] ⚠️ Local bot.js not found at " + localBotPath);
+          console.warn("[PmheeAether Loader] ⚠️ Local bot.js not found at " + localBotPath);
         }
       }
     }, 1500);
@@ -175,7 +175,7 @@ app.on("second-instance", () => {
 Menu.setApplicationMenu(null);
 
 // ==========================================
-// Pelican Local Debug & State API Server
+// PmheeAether Local Debug & State API Server
 // ==========================================
 const http = require("http");
 let DEBUG_PORT = debugPort || 49876;
@@ -379,13 +379,13 @@ function startDebugServer(port = DEBUG_PORT) {
     res.writeHead(200);
     res.end(JSON.stringify({
       status: "ok",
-      service: "Pelican In-Game Debug API",
+      service: "PmheeAether In-Game Debug API",
       endpoints: ["/api/state", "/api/inventory", "/api/packets", "/api/eval?code=..."]
     }, null, 2));
   });
 
   debugServer.listen(DEBUG_PORT, "127.0.0.1", () => {
-    console.log(`[Pelican Debug API] Listening on http://127.0.0.1:${DEBUG_PORT}`);
+    console.log(`[PmheeAether Debug API] Listening on http://127.0.0.1:${DEBUG_PORT}`);
   });
 }
 

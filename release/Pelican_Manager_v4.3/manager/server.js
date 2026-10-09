@@ -1108,7 +1108,7 @@ const server = http.createServer(async (req, res) => {
         startTime: Date.now()
       };
 
-      console.log(`[Pelican Manager] 🚀 Launched client "${profile.name}" (PID: ${child.pid}, Port: ${profile.debugPort})`);
+      console.log(`[PmheeAether Manager] 🚀 Launched client "${profile.name}" (PID: ${child.pid}, Port: ${profile.debugPort})`);
       return sendJSON({ success: true, pid: child.pid, port: profile.debugPort });
     } catch (err) {
       return sendJSON({ success: false, error: err.message }, 500);
@@ -2106,7 +2106,7 @@ const server = http.createServer(async (req, res) => {
             window.__applyScriptPlan(${JSON.stringify(plan)});
           } else {
             window.__currentScriptPlan = ${JSON.stringify(plan)};
-            console.log('[Pelican Plan] Plan loaded:', ${JSON.stringify(plan.name)});
+            console.log('[PmheeAether Plan] Plan loaded:', ${JSON.stringify(plan.name)});
           }
         `;
         

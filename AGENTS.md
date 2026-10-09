@@ -1,9 +1,16 @@
 # AI Agent Guidelines & Repository Workflow Rules
 
-เอกสารข้อกำหนดและแนวทางการทำงานสำหรับ AI Coding Assistant และผู้พัฒนาในโปรเจกต์ **Aetheria Pelican Bot**
+เอกสารข้อกำหนดและแนวทางการทำงานสำหรับ AI Coding Assistant และผู้พัฒนาในโปรเจกต์ **Aetheria PmheeAether Bot**
 (`AGENTS.md` และ `agent.md` ต้องมีเนื้อหาเหมือนกันเสมอ — แก้ไฟล์หนึ่งต้องคัดลอกไปอีกไฟล์ด้วย)
 
 ตอบผู้ใช้เป็น **ภาษาไทย** เสมอ (ชื่อไฟล์ โค้ด และชื่อสเตตัสในเกม เช่น DEX/MATK ใช้ภาษาอังกฤษได้)
+
+**ชื่อแบรนด์คือ `PmheeAether`** (เดิมชื่อ Pelican) — ข้อความที่ผู้ใช้เห็น (log `[PmheeAether ...]`, หัวข้อ, คู่มือ) ใช้ชื่อนี้
+แต่ **ห้ามเปลี่ยนชื่อภายในที่ยังใช้คำว่า pelican** เพราะจะทำให้ของเดิมพัง:
+- คีย์ localStorage `pelican_*` (เก็บการตั้งค่าทุกจอ เช่น `pelican_auth_cfg`, `pelican_sell_cfg`) และ id/class `pelican-hud`, `pelican-data-modal` ฯลฯ
+- ชื่อ repo GitHub `thegopza/aetheria-pelican-bot` (ลิงก์ที่ตัวโหลดเกมและระบบอัปเดตใช้)
+- `PelicanManager.exe` (ข้อความใน tray ถูก compile ไว้ในไฟล์ .exe ไม่มี source ใน repo), โฟลเดอร์ `release/Pelican_Manager_v4.3/`, `Start_Pelican.bat`
+- ชื่อตัวแปร/ฟังก์ชันภายใน เช่น `PELICAN_BOT_VERSION`, `window.applyPelicanSettings`, `PELICAN_SERVER_CHILD`
 
 ---
 
@@ -82,7 +89,7 @@
 
 ---
 
-## 🎮 6. สถาปัตยกรรมและกฎของระบบ Pelican Bot
+## 🎮 6. สถาปัตยกรรมและกฎของระบบ PmheeAether Bot
 
 1. **Plan Script Engine**:
    - **Master Switch**: `window.__planScriptEnabled` มีค่าเริ่มต้นเป็น `false` เสมอ

@@ -1,9 +1,9 @@
 @echo off
-title Aetheria Pelican Bot - GitHub Publisher
+title Aetheria PmheeAether Bot - GitHub Publisher
 color 0b
 
 echo ========================================================
-echo   PUBLISH AETHERIA PELICAN BOT TO GITHUB
+echo   PUBLISH AETHERIA PMHEEAETHER BOT TO GITHUB
 echo ========================================================
 echo.
 
@@ -23,7 +23,7 @@ if not exist ".git" (
     git config user.name "Aetheria Player"
     git config user.email "player@aetheria.local"
     git add .
-    git commit -m "feat: Initial release of Aetheria Pelican Bot & Auto-Injector"
+    git commit -m "feat: Initial release of Aetheria PmheeAether Bot & Auto-Injector"
 ) else (
     git add .
     git commit -m "update: Update bot payload and launcher"

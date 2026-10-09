@@ -56,7 +56,7 @@ const START_BOT_JS = `(() => {
 
 function getJSON(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Pelican-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 10000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 10000 }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
@@ -69,7 +69,7 @@ function getJSON(url) {
 
 function getBuffer(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Pelican-Manager', 'Cache-Control': 'no-cache' }, timeout: 20000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Cache-Control': 'no-cache' }, timeout: 20000 }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => res.statusCode === 200 ? resolve(Buffer.concat(chunks)) : reject(new Error(`HTTP ${res.statusCode}`)));

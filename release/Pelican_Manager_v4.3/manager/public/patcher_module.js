@@ -207,7 +207,7 @@
           btnInstall.innerText = '🚀 ติดตั้ง / อัปเดตสคริปต์ลงตัวเกมทันที';
 
           if (data && data.success) {
-            showMsg('🎉 ติดตั้งและอัปเดตสคริปต์ Pelican ลงในตัวเกมเรียบร้อยแล้ว! พร้อมเข้าเกมได้ทันที');
+            showMsg('🎉 ติดตั้งและอัปเดตสคริปต์ PmheeAether ลงในตัวเกมเรียบร้อยแล้ว! พร้อมเข้าเกมได้ทันที');
             fetchStatus(targetPath);
           } else {
             showMsg('❌ ติดตั้งไม่สำเร็จ: ' + (data.error || 'Unknown error'), true);
@@ -222,7 +222,7 @@
 
     if (btnRestore) {
       btnRestore.addEventListener('click', async () => {
-        const confirmRestore = confirm('คุณแน่ใจหรือไม่ว่าต้องการกู้คืนไฟล์เกมดั้งเดิม (ลบตัวโหลด Pelican และกู้คืน app.asar)?');
+        const confirmRestore = confirm('คุณแน่ใจหรือไม่ว่าต้องการกู้คืนไฟล์เกมดั้งเดิม (ลบตัวโหลด PmheeAether และกู้คืน app.asar)?');
         if (!confirmRestore) return;
 
         const targetPath = (pathInput ? pathInput.value : '').trim();

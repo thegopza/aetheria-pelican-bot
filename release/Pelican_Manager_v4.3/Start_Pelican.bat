@@ -1,10 +1,10 @@
 ﻿@echo off
 chcp 65001 > nul
-title Pelican Control Hub — Aetheria Online (Console Mode)
+title PmheeAether Control Hub — Aetheria Online (Console Mode)
 color 0b
 
 echo ==============================================================================
-echo              PELICAN CONTROL HUB - MULTI-CLIENT MANAGER v4.3
+echo              PMHEEAETHER CONTROL HUB - MULTI-CLIENT MANAGER v4.3
 echo                      Aetheria Online Automation Suite
 echo ==============================================================================
 echo.
@@ -34,7 +34,7 @@ pause
 exit /b 1
 
 :START_SERVER
-echo [OK] กำลังเริ่มเซิร์ฟเวอร์ Pelican Control Hub บน Port 3888...
+echo [OK] กำลังเริ่มเซิร์ฟเวอร์ PmheeAether Control Hub บน Port 3888...
 echo [INFO] สามารถกดเปิดบราวเซอร์ที่: http://localhost:3888
 echo [INFO] กด Ctrl + C ในหน้านี้เพื่อปิดเซิร์ฟเวอร์
 echo ------------------------------------------------------------------------------

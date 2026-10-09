@@ -1,4 +1,4 @@
-# Aetheria Pelican Bot (Auto-Injector & Packet Automation)
+# Aetheria PmheeAether Bot (Auto-Injector & Packet Automation)
 
 High-performance Packet-based automation bot and Auto-Injector for **Aetheria Online (Windows Desktop App)**.
 

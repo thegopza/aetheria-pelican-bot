@@ -1,9 +1,9 @@
 @echo off
-title Aetheria Online - Pelican Bot Installer
+title Aetheria Online - PmheeAether Bot Installer
 color 0b
 
 echo ========================================================
-echo   PELICAN BOT AUTO-INJECTOR INSTALLER (AETHERIA EXE)
+echo   PMHEEAETHER BOT AUTO-INJECTOR INSTALLER (AETHERIA EXE)
 echo ========================================================
 echo.
 
@@ -37,7 +37,7 @@ if exist "%RES_DIR%\app.asar" (
     ren "%RES_DIR%\app.asar" "app.asar.disabled" >nul 2>&1
 )
 
-echo [3/4] Installing Pelican Launcher and Bot Payload...
+echo [3/4] Installing PmheeAether Launcher and Bot Payload...
 if not exist "%APP_DIR%" mkdir "%APP_DIR%"
 
 copy /y "%~dp0main.js" "%APP_DIR%\main.js" >nul
@@ -46,7 +46,7 @@ copy /y "%~dp0bot.js" "%RES_DIR%\bot.js" >nul
 
 echo [4/4] Installation Complete!
 echo ========================================================
-echo   [SUCCESS] Pelican Bot installed successfully!
+echo   [SUCCESS] PmheeAether Bot installed successfully!
 echo.
 echo   * Launch Aetheria Online.exe normally.
 echo   * Press F5 in-game anytime to reload the bot code.

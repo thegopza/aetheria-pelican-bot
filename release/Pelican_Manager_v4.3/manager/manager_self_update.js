@@ -27,7 +27,7 @@ const EXCLUDE = /^(profiles|plans|presets|settings)\.json$|^data\/|^sessions\//;
 
 function getJSON(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Pelican-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 15000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 15000 }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
@@ -40,7 +40,7 @@ function getJSON(url) {
 
 function getBuffer(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Pelican-Manager' }, timeout: 30000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager' }, timeout: 30000 }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => res.statusCode === 200 ? resolve(Buffer.concat(chunks)) : reject(new Error(`HTTP ${res.statusCode}`)));

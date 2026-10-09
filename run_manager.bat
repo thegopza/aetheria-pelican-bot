@@ -1,9 +1,9 @@
 ﻿@echo off
-title Pelican Multi-Client Hub — Aetheria Online
+title PmheeAether Multi-Client Hub — Aetheria Online
 color 0b
 
 echo ========================================================
-echo   PELICAN MULTI-CLIENT MANAGER FOR AETHERIA ONLINE
+echo   PMHEEAETHER MULTI-CLIENT MANAGER FOR AETHERIA ONLINE
 echo ========================================================
 echo.
 
@@ -21,7 +21,7 @@ cd /d "%~dp0"
 echo [1/2] Launching browser on http://localhost:3888 ...
 start "" http://localhost:3888
 
-echo [2/2] Starting Pelican Manager Server (Port 3888)...
+echo [2/2] Starting PmheeAether Manager Server (Port 3888)...
 echo Keep this window open while using the Multi-Client Manager.
 echo ========================================================
 echo.

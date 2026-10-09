@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Aetheria Pelican Control Hub
+// @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.4.0
+// @version      4.4.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,10 +13,10 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.4.0';
+    const PELICAN_BOT_VERSION = '4.4.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
-    console.log(`%c[Pelican] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
+    console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
 
     window.__gameSocket = null;
     window.__lastMoveToken = null;
@@ -140,7 +140,7 @@
             } catch(e) {}
         }, 40);
 
-        console.log('%c[Pelican] Tooltip Guardian (Anti-Dismissal & Re-render Rescue) Active', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether] Tooltip Guardian (Anti-Dismissal & Re-render Rescue) Active', 'color: #38bdf8; font-weight: bold;');
     };
     window.initTooltipGuardian();
 
@@ -183,14 +183,14 @@
 
         // 2. ถ้าเปลี่ยนอาชีพเป็นอาชีพนี้แล้ว ให้ผ่านทันที
         if (curClass.includes(targetClean)) {
-            console.log(`%c[Pelican Plan] ✅ ตัวละครเป็นอาชีพ "${targetClass}" เรียบร้อยแล้ว`, 'color: #22c55e; font-weight: bold;');
+            console.log(`%c[PmheeAether Plan] ✅ ตัวละครเป็นอาชีพ "${targetClass}" เรียบร้อยแล้ว`, 'color: #22c55e; font-weight: bold;');
             return true;
         }
 
         // 3. ตรวจสอบเงื่อนไข Job Level
         const curJob = char.jobLevel || 1;
         if (curJob < 10 && curClass === 'novice') {
-            console.warn(`[Pelican Plan] ⚠️ Job Level ยังไม่ถึง 10 (ปัจจุบัน: Lv.${curJob}/10) ยังไม่สามารถเปลี่ยนอาชีพได้`);
+            console.warn(`[PmheeAether Plan] ⚠️ Job Level ยังไม่ถึง 10 (ปัจจุบัน: Lv.${curJob}/10) ยังไม่สามารถเปลี่ยนอาชีพได้`);
             return false;
         }
 
@@ -202,7 +202,7 @@
         // 5. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
         const curMap = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : (char.map || '');
         if (!curMap.includes('โซลเฮเวน') && !curMap.includes('เมืองหลวง')) {
-            console.log(`%c[Pelican Plan] 🏛️ ตัวละครไม่ได้อยู่ในเมืองหลวง -> กำลังเดินทางกลับเมืองหลวงโซลเฮเวน...`, 'color: #38bdf8;');
+            console.log(`%c[PmheeAether Plan] 🏛️ ตัวละครไม่ได้อยู่ในเมืองหลวง -> กำลังเดินทางกลับเมืองหลวงโซลเฮเวน...`, 'color: #38bdf8;');
             if (typeof window.walkToTargetMap === 'function') {
                 window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
             }
@@ -213,7 +213,7 @@
         const pos = window.__currentPos || { x: 0, y: 0 };
         const dist = Math.hypot(pos.x - 1680, pos.y - 1008);
         if (dist > 80) {
-            console.log(`%c[Pelican Plan] 🚶 กำลังเดินไปหา NPC Valkyrie หน้าปราสาท (ระยะห่าง ${Math.round(dist)}px)...`, 'color: #38bdf8;');
+            console.log(`%c[PmheeAether Plan] 🚶 กำลังเดินไปหา NPC Valkyrie หน้าปราสาท (ระยะห่าง ${Math.round(dist)}px)...`, 'color: #38bdf8;');
             const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
             if (room) {
                 room.send('move_to', { x: 1680, y: 1008 });
@@ -226,11 +226,11 @@
         // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (npcKey: "n5")
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (!room) {
-            console.warn('[Pelican Plan] ⚠️ ไม่พบ Colyseus Room connection');
+            console.warn('[PmheeAether Plan] ⚠️ ไม่พบ Colyseus Room connection');
             return false;
         }
 
-        console.log(`%c[Pelican Plan] 💬 พูดคุยกับ NPC Valkyrie (n5)...`, 'color: #a855f7; font-weight: bold;');
+        console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (n5)...`, 'color: #a855f7; font-weight: bold;');
         room.send('npc_talk', { npcKey: 'n5' });
         await new Promise(r => setTimeout(r, 600));
 
@@ -241,14 +241,14 @@
 
             // ตรวจสอบข้อความแจ้งเตือนจากเซิร์ฟเวอร์
             if (text.includes('ยังเร็วไป') || text.includes('กลับมาเมื่อถึง')) {
-                console.warn('[Pelican Plan] ⚠️ เงื่อนไขยังไม่ครบ: ' + text.replace(/\n+/g, ' '));
+                console.warn('[PmheeAether Plan] ⚠️ เงื่อนไขยังไม่ครบ: ' + text.replace(/\n+/g, ' '));
                 room.send('npc_close', {});
                 return false;
             }
 
             // หน้าแรก: ข้าพร้อมเปลี่ยนอาชีพแล้ว (Option 0)
             if (text.includes('ถ้าเจ้าพร้อมจะเลือกเส้นทาง') || text.includes('ข้าพร้อมเปลี่ยนอาชีพแล้ว')) {
-                console.log('%c[Pelican Plan] ➡️ ส่งคำสั่ง: ข้าพร้อมเปลี่ยนอาชีพแล้ว (npc_option 0)...', 'color: #38bdf8;');
+                console.log('%c[PmheeAether Plan] ➡️ ส่งคำสั่ง: ข้าพร้อมเปลี่ยนอาชีพแล้ว (npc_option 0)...', 'color: #38bdf8;');
                 room.send('npc_option', { index: 0 });
                 await new Promise(r => setTimeout(r, 600));
             }
@@ -272,7 +272,7 @@
                 });
 
                 if (targetIdx >= 0) {
-                    console.log(`%c[Pelican Plan] 🎯 เลือกเปลี่ยนเป็นอาชีพ "${targetClass}" (Option ${targetIdx}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Plan] 🎯 เลือกเปลี่ยนเป็นอาชีพ "${targetClass}" (Option ${targetIdx}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
                     room.send('npc_option', { index: targetIdx });
                     await new Promise(r => setTimeout(r, 500));
                     room.send('npc_close', {});
@@ -976,7 +976,7 @@
                 // ถ้าเปิดหน้าต่างกระเป๋าอยู่ แล้วสแกนไม่เจอลูกธนูชนิดนี้เลย -> ลูกธนู = 0 ทันที 100%!
                 if (!arrowInBagFound) {
                     if (window.__currentAmmo !== 0) {
-                        console.log(`%c[Pelican Ammo] 🎒 สแกนกระเป๋าแล้ว: ไม่พบลูกธนู "${arrowInfo.name}" ในตัวเลย -> ปรับ Ammo = 0 ดอก`, 'color: #ef4444; font-weight: bold;');
+                        console.log(`%c[PmheeAether Ammo] 🎒 สแกนกระเป๋าแล้ว: ไม่พบลูกธนู "${arrowInfo.name}" ในตัวเลย -> ปรับ Ammo = 0 ดอก`, 'color: #ef4444; font-weight: bold;');
                         window.__currentAmmo = 0;
                         localStorage.setItem('pelican_current_ammo', 0);
                         updateAmmoHUD();
@@ -1031,7 +1031,7 @@
 
                 mcpWs.onopen = () => {
                     failCount = 0;
-                    console.log('%c[Pelican MCP] 🔗 Connected natively to BrowserTools MCP on port 3025!', 'color: #00ffcc; font-weight: bold;');
+                    console.log('%c[PmheeAether MCP] 🔗 Connected natively to BrowserTools MCP on port 3025!', 'color: #00ffcc; font-weight: bold;');
                     mcpWs.send(JSON.stringify({ type: 'hello', extensionVersion: '2.0.0', tabId: tabId }));
                     mcpWs.send(JSON.stringify({ type: 'page', url: window.location.href, tabId: tabId }));
                 };
@@ -1182,7 +1182,7 @@
 
             if (window.__debugSnifferEnabled) {
                 const color = direction === 'OUT' ? '#38bdf8' : '#f59e0b';
-                console.log(`%c[Pelican ${direction}] (${entry.len}B) Op:${entry.opcode}\nHex: ${entry.hex}\nAscii: ${entry.ascii}`, `color: ${color};`);
+                console.log(`%c[PmheeAether ${direction}] (${entry.len}B) Op:${entry.opcode}\nHex: ${entry.hex}\nAscii: ${entry.ascii}`, `color: ${color};`);
             }
         } catch(e) {}
     }
@@ -1191,7 +1191,7 @@
     // BULLETPROOF CLIPBOARD & DATA EXTRACTOR
     // ==========================================
     window.safeCopyToClipboard = function(text, successMsg, onComplete) {
-        console.log('%c[Pelican Clipboard Data]:', 'color: #38bdf8; font-weight: bold; font-size: 11px;');
+        console.log('%c[PmheeAether Clipboard Data]:', 'color: #38bdf8; font-weight: bold; font-size: 11px;');
         console.log(text);
 
         function showResult(success) {
@@ -1219,7 +1219,7 @@
                     return true;
                 }
             } catch(e) {
-                console.warn('[Pelican] execCommand copy failed:', e);
+                console.warn('[PmheeAether] execCommand copy failed:', e);
             }
             return false;
         }
@@ -1228,7 +1228,7 @@
             navigator.clipboard.writeText(text).then(() => {
                 showResult(true);
             }).catch((err) => {
-                console.warn('[Pelican] navigator.clipboard.writeText rejected (focus issue), falling back to execCommand:', err);
+                console.warn('[PmheeAether] navigator.clipboard.writeText rejected (focus issue), falling back to execCommand:', err);
                 const ok = execCommandCopy();
                 if (!ok) {
                     showResult(false);
@@ -1244,7 +1244,7 @@
         const recent = (window.__outgoingLogs || []).slice(-count);
         const jsonStr = JSON.stringify(recent, null, 2);
 
-        console.log(`%c[Pelican Dump] 📤 Dump Outgoing Packets (${recent.length} รายการ):`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Dump] 📤 Dump Outgoing Packets (${recent.length} รายการ):`, 'color: #38bdf8; font-weight: bold;');
         console.table(recent.map(p => ({ time: p.time, opcode: p.opcode, len: p.len, hex: (p.hex || '').slice(0, 30), ascii: (p.ascii || '').slice(0, 30) })));
 
         window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet ขาออก (OUT) จำนวน ${recent.length} รายการ (Hex เต็ม 100%) สำเร็จแล้ว!`);
@@ -1331,7 +1331,7 @@
             }
         }
         npcs.sort((a, b) => (a.key || '').localeCompare(b.key || '', undefined, { numeric: true }));
-        console.log(`%c[Pelican Dump] 👥 รายชื่อ NPC ในแมพปัจจุบัน (${npcs.length} ตัว):`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Dump] 👥 รายชื่อ NPC ในแมพปัจจุบัน (${npcs.length} ตัว):`, 'color: #38bdf8; font-weight: bold;');
         console.table(npcs);
         if (copyToClip) {
             window.safeCopyToClipboard(JSON.stringify(npcs, null, 2), `📋 คัดลอกข้อมูล NPC (${npcs.length} ตัว) ลง Clipboard เรียบร้อย!`);
@@ -1369,7 +1369,7 @@
                 }
             });
 
-            console.log(`%c[Pelican Dump] 🗺️ พบข้อมูลแมพทั้งหมด ${mapList.length} โซน:`, 'color: #00ffcc; font-weight: bold;');
+            console.log(`%c[PmheeAether Dump] 🗺️ พบข้อมูลแมพทั้งหมด ${mapList.length} โซน:`, 'color: #00ffcc; font-weight: bold;');
             console.table(mapList);
             const jsonStr = JSON.stringify(mapList, null, 2);
             window.safeCopyToClipboard(jsonStr, `📋 คัดลอกข้อมูลแผนที่โลก (${mapList.length} โซน) ลง Clipboard เรียบร้อยแล้ว!`);
@@ -1379,7 +1379,7 @@
         if (isWorldMapOpen()) {
             return extractPins();
         } else {
-            console.log('[Pelican Dump] กำลังเปิดแผนที่โลกเพื่อดึงข้อมูลหมุด...');
+            console.log('[PmheeAether Dump] กำลังเปิดแผนที่โลกเพื่อดึงข้อมูลหมุด...');
             openWorldMap(() => {
                 setTimeout(extractPins, 500);
             });
@@ -1388,11 +1388,11 @@
 
     window.dumpWeightDebug = function() {
         const timestamp = new Date().toLocaleTimeString();
-        console.log(`%c[Pelican Dump ${timestamp}] ================= WEIGHT & BAG DOM DUMP =================`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
+        console.log(`%c[PmheeAether Dump ${timestamp}] ================= WEIGHT & BAG DOM DUMP =================`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
         
         // 0. Character HP status
         const charHp = (typeof getCharacterHP === 'function') ? getCharacterHP() : null;
-        console.log(`[Pelican Dump] ❤️ Character HP:`, charHp);
+        console.log(`[PmheeAether Dump] ❤️ Character HP:`, charHp);
 
         // 1. Check all elements with text "น้ำหนัก"
         const weightEls = Array.from(document.querySelectorAll('*')).filter(el => {
@@ -1400,7 +1400,7 @@
             const t = el.textContent || '';
             return t.includes('น้ำหนัก') && el.children.length <= 4;
         });
-        console.log(`[Pelican Dump] 🔎 Elements containing "น้ำหนัก" (count: ${weightEls.length}):`);
+        console.log(`[PmheeAether Dump] 🔎 Elements containing "น้ำหนัก" (count: ${weightEls.length}):`);
         const weightSummary = weightEls.map((el, i) => {
             const rect = el.getBoundingClientRect();
             const parent = el.parentElement;
@@ -1427,7 +1427,7 @@
             const t = (el.innerText || el.textContent || '').trim();
             return (t === 'จัดเรียง' || t.includes('จัดเรียง')) && el.offsetWidth > 0;
         });
-        console.log(`[Pelican Dump] 🔄 Elements containing "จัดเรียง" (count: ${sortEls.length}):`);
+        console.log(`[PmheeAether Dump] 🔄 Elements containing "จัดเรียง" (count: ${sortEls.length}):`);
         const sortSummary = sortEls.map((el, i) => {
             const rect = el.getBoundingClientRect();
             const item = {
@@ -1448,7 +1448,7 @@
             const t = (el.innerText || el.textContent || '').trim();
             return (t === 'กระเป๋า' || t.startsWith('กระเป๋า')) && el.children.length <= 2;
         });
-        console.log(`[Pelican Dump] 🎒 Elements containing "กระเป๋า" (count: ${bagEls.length}):`);
+        console.log(`[PmheeAether Dump] 🎒 Elements containing "กระเป๋า" (count: ${bagEls.length}):`);
         bagEls.forEach((el, i) => {
             const rect = el.getBoundingClientRect();
             console.log(`  [#${i}] <${el.tagName.toLowerCase()} class="${el.className}"> rect=[${Math.round(rect.x)},${Math.round(rect.y)} (${Math.round(rect.width)}x${Math.round(rect.height)})] text="${(el.innerText || '').trim()}" HTML=${el.outerHTML.slice(0, 150)}`);
@@ -1464,16 +1464,16 @@
             sortBtnTag: bagInfo.sortBtn?.tagName,
             sortBtnText: bagInfo.sortBtn?.innerText
         } : null;
-        console.log(`[Pelican Dump] 🎒 getOpenBagInfo():`, bagSummary || 'null (BAG NOT DETECTED AS OPEN)');
+        console.log(`[PmheeAether Dump] 🎒 getOpenBagInfo():`, bagSummary || 'null (BAG NOT DETECTED AS OPEN)');
 
         // 4. Weight calculation trace
         const currentW = getCharacterWeight();
-        console.log(`[Pelican Dump] ⚖️ Current Weight:`, currentW);
-        console.log(`[Pelican Dump] 💾 window.__lastKnownWeight:`, window.__lastKnownWeight);
-        console.log(`[Pelican Dump] 💾 localStorage('pelican_last_weight'):`, localStorage.getItem('pelican_last_weight'));
-        console.log(`[Pelican Dump] 🌐 window.__serverWeight:`, window.__serverWeight);
-        console.log(`[Pelican Dump] 🚨 isCharacterOverweight():`, typeof isCharacterOverweight === 'function' ? isCharacterOverweight() : 'N/A');
-        console.log(`%c[Pelican Dump] =====================================================================`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`[PmheeAether Dump] ⚖️ Current Weight:`, currentW);
+        console.log(`[PmheeAether Dump] 💾 window.__lastKnownWeight:`, window.__lastKnownWeight);
+        console.log(`[PmheeAether Dump] 💾 localStorage('pelican_last_weight'):`, localStorage.getItem('pelican_last_weight'));
+        console.log(`[PmheeAether Dump] 🌐 window.__serverWeight:`, window.__serverWeight);
+        console.log(`[PmheeAether Dump] 🚨 isCharacterOverweight():`, typeof isCharacterOverweight === 'function' ? isCharacterOverweight() : 'N/A');
+        console.log(`%c[PmheeAether Dump] =====================================================================`, 'color: #f59e0b; font-weight: bold;');
 
         return { timestamp, charHp, weightEls: weightSummary, sortEls: sortSummary, bagInfo: bagSummary, currentWeight: currentW, lastKnownWeight: window.__lastKnownWeight };
     };
@@ -1490,7 +1490,7 @@
             resBox.style.display = 'block';
             resBox.innerHTML = '<span style="color: #f59e0b; font-weight: bold; animation: pulse 1.5s infinite;">⏳ รอตรวจจับ... ดับเบิลคลิกสวมใส่ "ลูกธนู" หรือ "อาวุธ" ในหน้าต่างกระเป๋าเกมเดี๋ยวนี้!</span>';
         }
-        console.log('%c[Pelican Sniffer] 🎯 กำลังดักฟัง Packet สวมใส่... กรุณาคลิก/ดับเบิลคลิกไอเทมในหน้ากระเป๋าเกมเดี๋ยวนี้!', 'color: #f59e0b; font-weight: bold; font-size: 13px;');
+        console.log('%c[PmheeAether Sniffer] 🎯 กำลังดักฟัง Packet สวมใส่... กรุณาคลิก/ดับเบิลคลิกไอเทมในหน้ากระเป๋าเกมเดี๋ยวนี้!', 'color: #f59e0b; font-weight: bold; font-size: 13px;');
     };
 
     window.dumpDeepInventory = function() {
@@ -1504,7 +1504,7 @@
         if (serverInv) {
             console.dir(serverInv);
         } else {
-            console.warn('[Pelican] ยังไม่พบ Packet Inventory จากเซิร์ฟเวอร์ (ลองเปิด-ปิดกระเป๋าในเกม 1 ครั้ง)');
+            console.warn('[PmheeAether] ยังไม่พบ Packet Inventory จากเซิร์ฟเวอร์ (ลองเปิด-ปิดกระเป๋าในเกม 1 ครั้ง)');
         }
 
         // 2. ข้อมูลอุปกรณ์บนหน้าจอ (Equipment Slots)
@@ -1569,7 +1569,7 @@
         })));
 
         const jsonStr = JSON.stringify(dump, null, 2);
-        window.safeCopyToClipboard(jsonStr, '📦 [Pelican Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
+        window.safeCopyToClipboard(jsonStr, '📦 [PmheeAether Dump] สแกนกระเป๋าและอุปกรณ์สำเร็จ!\n\n📋 คัดลอก Full Dump (JSON) ลง Clipboard ให้เรียบร้อยแล้ว');
         return dump;
     };
 
@@ -1578,7 +1578,7 @@
     window.dumpAllPackets = function(count = 100) {
         const packets = (window.__packetLogs || []).slice(-count);
         const jsonStr = JSON.stringify(packets, null, 2);
-        console.log(`%c[Pelican Dump] 📜 Dump Packet Logs (${packets.length} รายการ):`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c[PmheeAether Dump] 📜 Dump Packet Logs (${packets.length} รายการ):`, 'color: #f59e0b; font-weight: bold;');
         console.table(packets.map(p => ({ time: p.time, dir: p.dir, opcode: p.opcode, len: p.len, ascii: p.ascii.slice(0, 30) })));
         window.safeCopyToClipboard(jsonStr, `📋 คัดลอก Packet Logs ทั้งหมด (${packets.length} รายการ) ลง Clipboard เรียบร้อยแล้ว!`);
         if (window.showDataViewerModal) {
@@ -1609,7 +1609,7 @@
                 autoResumeBot: window.__authConfig?.autoResumeBot
             }
         };
-        console.log('%c[Pelican Dump] 🕹️ ข้อมูล Game State ปัจจุบัน:', 'color: #22c55e; font-weight: bold;');
+        console.log('%c[PmheeAether Dump] 🕹️ ข้อมูล Game State ปัจจุบัน:', 'color: #22c55e; font-weight: bold;');
         console.dir(state);
         const jsonStr = JSON.stringify(state, null, 2);
         window.safeCopyToClipboard(jsonStr, '📋 คัดลอก Game State ลง Clipboard เรียบร้อยแล้ว!');
@@ -3271,7 +3271,7 @@
                 if (m) return { current: parseInt(m[1], 10), max: parseInt(m[2], 10) };
             }
         } catch (e) {
-            console.error('[Pelican] getCharacterHP error:', e);
+            console.error('[PmheeAether] getCharacterHP error:', e);
         }
         return null;
     }
@@ -3537,7 +3537,7 @@
                 }
             } catch(e) {}
         } catch(e) {
-            console.error('[Pelican Weight] getCharacterWeight error:', e);
+            console.error('[PmheeAether Weight] getCharacterWeight error:', e);
         }
         return window.__lastKnownWeight || null;
     }
@@ -3648,7 +3648,7 @@
         // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้า 98 ช่องขึ้นไปถือว่ากระเป๋าเต็ม)
         const slots = getBagSlots();
         if (slots && (slots.percent >= 98 || slots.current >= slots.max - 1)) {
-            console.warn(`%c[Pelican Overload] 🎒 ช่องกระเป๋าเต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
+            console.warn(`%c[PmheeAether Overload] 🎒 ช่องกระเป๋าเต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
             return true;
         }
 
@@ -3804,14 +3804,14 @@
             const bagInfo = getOpenBagInfo();
             if (bagInfo && bagInfo.sortBtn) {
                 triggerClick(bagInfo.sortBtn);
-                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return true;
             }
 
             const directSort = document.querySelector('button.inv-sort');
             if (directSort && directSort.offsetWidth > 0) {
                 triggerClick(directSort);
-                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return true;
             }
 
@@ -3825,7 +3825,7 @@
             if (candidates.length > 0) {
                 const btn = candidates.find(el => el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') || candidates[0];
                 triggerClick(btn);
-                console.log('%c[Pelican Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Inventory] 🔄 คลิกปุ่ม "จัดเรียง" (Sort) สำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return true;
             }
         } catch(e) {}
@@ -3900,7 +3900,7 @@
         }
 
         // 2. ถ้าหน้าต่างกระเป๋าปิดอยู่: ดำเนินการเปิดกระเป๋า
-        console.log('%c[Pelican Inventory] 🎒 กำลังเปิดกระเป๋าเพื่ออ่านน้ำหนักและกดจัดเรียง...', 'color: #38bdf8;');
+        console.log('%c[PmheeAether Inventory] 🎒 กำลังเปิดกระเป๋าเพื่ออ่านน้ำหนักและกดจัดเรียง...', 'color: #38bdf8;');
 
         // วิธี A: คลิกปุ่มกระเป๋าจาก selector แท้ของเกม (button.menu-btn[title*="กระเป๋า"])
         const directBagBtn = document.querySelector('button.menu-btn[title*="กระเป๋า"], button[title="กระเป๋า (I)"]');
@@ -4007,7 +4007,7 @@
                             }
                         }
                     } catch(err) {
-                        console.warn('[Pelican Character] Error parsing character packet:', err);
+                        console.warn('[PmheeAether Character] Error parsing character packet:', err);
                     }
                 }
 
@@ -4026,7 +4026,7 @@
                             }
                         }
                     } catch(err) {
-                        console.warn('[Pelican Skills] Error parsing skill_catalog packet:', err);
+                        console.warn('[PmheeAether Skills] Error parsing skill_catalog packet:', err);
                     }
                 }
 
@@ -4038,7 +4038,7 @@
                             window.handleIncomingMarketResults(marketDec);
                         }
                     } catch(err) {
-                        console.warn('[Pelican Market] Error parsing market_results packet:', err);
+                        console.warn('[PmheeAether Market] Error parsing market_results packet:', err);
                     }
                 }
 
@@ -4107,7 +4107,7 @@
                                             window.__isKnownOverweight = true;
                                         }
                                         updateWeightHUD(window.__serverWeight);
-                                        console.log(`%c[Pelican Weight Sync] ⚖️ Server Weight Realtime: ${curW.toLocaleString()} / ${maxW.toLocaleString()} (${window.__serverWeight.percent}%)`, 'color: #00ffcc; font-weight: bold;');
+                                        console.log(`%c[PmheeAether Weight Sync] ⚖️ Server Weight Realtime: ${curW.toLocaleString()} / ${maxW.toLocaleString()} (${window.__serverWeight.percent}%)`, 'color: #00ffcc; font-weight: bold;');
                                     }
                                 } catch(e) {}
 
@@ -4115,7 +4115,7 @@
                                 if (hasInventoryList) {
                                     const realQty = foundAny ? totalAmmo : 0;
                                     if (window.__currentAmmo !== realQty) {
-                                        console.log(`%c[Pelican Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+                                        console.log(`%c[PmheeAether Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
                                     }
                                     window.__currentAmmo = realQty;
                                     localStorage.setItem('pelican_current_ammo', realQty);
@@ -4210,7 +4210,7 @@
             if (ws.readyState === 1) updateUIStatus(true);
         }
 
-        console.log('%c[Pelican] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
+        console.log('%c[PmheeAether] 🎯 Hooked Game WebSocket Instance Successfully!', 'color: #22c55e; font-weight: bold;', ws.url || '(active)');
 
         ws.addEventListener('open', () => {
             if (isGameSocket(ws)) {
@@ -4316,7 +4316,7 @@
         buffer.set(token, 9);
         buffer.set([0x91, 0xA2, 0x74, 0x6F, 0xA4, 0x73, 0x61, 0x76, 0x65], 9 + token.length);
         window.__gameSocket.send(buffer.buffer);
-        console.log('%c[Pelican] ⚡ Sent Respawn to Save Point!', 'color: #ef4444; font-weight: bold;');
+        console.log('%c[PmheeAether] ⚡ Sent Respawn to Save Point!', 'color: #ef4444; font-weight: bold;');
     };
 
     // ------------------------------------------
@@ -4380,7 +4380,7 @@
     function clickInGameAutoButton() {
         const btn = getInGameAutoButton();
         if (!btn) {
-            console.warn('[Pelican Auto] ⚠️ ไม่พบปุ่ม AUTO บนหน้าจอเกม');
+            console.warn('[PmheeAether Auto] ⚠️ ไม่พบปุ่ม AUTO บนหน้าจอเกม');
             return false;
         }
 
@@ -4412,21 +4412,21 @@
     window.activateInGameAuto = function(force = false) {
         const status = getInGameAutoStatus();
         if (status === 'on' && !force) {
-            console.log('%c[Pelican Auto] ⚡ In-Game AUTO เปิดอยู่แล้ว (Status: ON)', 'color: #22c55e;');
+            console.log('%c[PmheeAether Auto] ⚡ In-Game AUTO เปิดอยู่แล้ว (Status: ON)', 'color: #22c55e;');
             sendAutoSetPacket(true);
             return;
         }
 
         // GUARD: ตรวจสอบน้ำหนักเกิน 90% หรือกระเป๋าเต็ม
         if (!force && typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-            console.warn('%c[Pelican Auto] 🛑 ไม่สามารถเปิด AUTO ได้ เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90%! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+            console.warn('%c[PmheeAether Auto] 🛑 ไม่สามารถเปิด AUTO ได้ เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90%! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
             if (typeof window.executeAutoShopRoutine === 'function') {
                 window.executeAutoShopRoutine();
             }
             return;
         }
 
-        console.log('%c[Pelican Auto] 🤖 กำลังคลิกเปิด In-Game AUTO...', 'color: #22c55e; font-weight: bold;');
+        console.log('%c[PmheeAether Auto] 🤖 กำลังคลิกเปิด In-Game AUTO...', 'color: #22c55e; font-weight: bold;');
 
         if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
             if (typeof window.equipArrowAndBow === 'function') {
@@ -4441,12 +4441,12 @@
     window.deactivateInGameAuto = function(force = false) {
         const status = getInGameAutoStatus();
         if (status === 'off' && !force) {
-            console.log('%c[Pelican Auto] ⏹️ In-Game AUTO ปิดอยู่แล้ว (Status: OFF)', 'color: #94a3b8;');
+            console.log('%c[PmheeAether Auto] ⏹️ In-Game AUTO ปิดอยู่แล้ว (Status: OFF)', 'color: #94a3b8;');
             sendAutoSetPacket(false);
             return;
         }
 
-        console.log('%c[Pelican Auto] ⏹️ กำลังคลิกปิด In-Game AUTO...', 'color: #ef4444; font-weight: bold;');
+        console.log('%c[PmheeAether Auto] ⏹️ กำลังคลิกปิด In-Game AUTO...', 'color: #ef4444; font-weight: bold;');
         clickInGameAutoButton();
         sendAutoSetPacket(false);
     };
@@ -4492,11 +4492,11 @@
         if (loopCheckbox) loopCheckbox.checked = true;
 
         if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
-        console.log('%c[Pelican Master] 🚀 START BOT: กำลังเริ่มกระบวนการตรวจสอบสถานะและเดินงานอัตโนมัติ...', 'color: #10b981; font-weight: bold; font-size: 13px;');
+        console.log('%c[PmheeAether Master] 🚀 START BOT: กำลังเริ่มกระบวนการตรวจสอบสถานะและเดินงานอัตโนมัติ...', 'color: #10b981; font-weight: bold; font-size: 13px;');
 
         // 1. ตรวจสอบสถานะการมีชีวิต (Dead Check)
         if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-            console.log('%c[Pelican Master] 💀 ตรวจพบตัวละครเสียชีวิตอยู่! สั่งชุบชีวิตทันที...', 'color: #ef4444; font-weight: bold;');
+            console.log('%c[PmheeAether Master] 💀 ตรวจพบตัวละครเสียชีวิตอยู่! สั่งชุบชีวิตทันที...', 'color: #ef4444; font-weight: bold;');
             window.__isRecovering = true;
             window.sendRespawn();
             setTimeout(() => {
@@ -4518,7 +4518,7 @@
             const currentAmmo = typeof window.__currentAmmo === 'number' ? window.__currentAmmo : 999;
 
             if (requireArrow && currentAmmo <= threshold) {
-                console.log(`%c[Pelican Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
+                console.log(`%c[PmheeAether Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
                 window.executeAutoShopRoutine();
                 return;
             }
@@ -4528,7 +4528,7 @@
                 const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
                 const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
                 const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
-                console.warn(`%c[Pelican Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
                 if (typeof playWarningChime === 'function') playWarningChime();
                 window.executeAutoShopRoutine();
                 return;
@@ -4537,30 +4537,30 @@
             // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
-            console.log(`%c[Pelican Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
 
             // Case A: ตัวละครอยู่ที่แมพเป้าหมายแล้ว!
             if (currentMap && currentMap.includes(targetMap)) {
                 if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-                    console.warn('%c[Pelican Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                    console.warn('%c[PmheeAether Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
                     if (typeof playWarningChime === 'function') playWarningChime();
                     window.executeAutoShopRoutine();
                     return;
                 }
-                console.log(`%c[Pelican Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
+                console.log(`%c[PmheeAether Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
                 window.activateInGameAuto();
                 return;
             }
 
             // Case B: ตัวละครอยู่ในเมืองหลวง (Soulhaven) -> วาร์ปผ่าน Alice Service (n6)
             if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-                console.log(`%c[Pelican Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> ใช้วาร์ปเกตด่วน NPC Alice เพื่อไปยัง "${targetMap}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
+                console.log(`%c[PmheeAether Master] 🏛️ ตัวละครอยู่ในเมืองหลวง -> ใช้วาร์ปเกตด่วน NPC Alice เพื่อไปยัง "${targetMap}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
                 window.walkToTargetMap(targetMap, true);
                 return;
             }
 
             // Case C: ตัวละครอยู่แมพมอนสเตอร์อื่น -> เดินทางไปยังแมพเป้าหมาย
-            console.log(`%c[Pelican Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Master] 🚶 กำลังเริ่มเดินทางไปยังแมพเป้าหมาย: "${targetMap}"...`, 'color: #38bdf8; font-weight: bold;');
             window.walkToTargetMap(targetMap, true);
         }
 
@@ -4612,7 +4612,7 @@
         dispatchKeyAll('Escape', 'Escape', 27);
 
         if (typeof updateMasterBotUI === 'function') updateMasterBotUI();
-        console.log('%c[Pelican Master] 🛑 STOP BOT: ปิดระบบการทำงานทั้งหมด เคลียร์ Timer และหยุดส่ง Packet โดยเด็ดขาด!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
+        console.log('%c[PmheeAether Master] 🛑 STOP BOT: ปิดระบบการทำงานทั้งหมด เคลียร์ Timer และหยุดส่ง Packet โดยเด็ดขาด!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
     };
 
     window.stopPelicanBot = function() {
@@ -4647,16 +4647,16 @@
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
 
-        let tag = '[Pelican Shop]';
+        let tag = '[PmheeAether Shop]';
         let color = '#f59e0b';
         if (key === 'n7') {
-            tag = '[Pelican Warp/Alice]';
+            tag = '[PmheeAether Warp/Alice]';
             color = '#38bdf8';
         } else if (key === 'n6') {
-            tag = '[Pelican Job/Valkyrie]';
+            tag = '[PmheeAether Job/Valkyrie]';
             color = '#c084fc';
         } else if (key === 'n1') {
-            tag = '[Pelican Storage]';
+            tag = '[PmheeAether Storage]';
             color = '#a855f7';
         }
         console.log(`%c${tag} 📡 ส่ง Packet 'npc_talk' (NPC: ${key})...`, `color: ${color}; font-weight: bold;`);
@@ -4673,7 +4673,7 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican Shop] 🛒 ส่ง Packet 'npc_option' (Index: ${index})...`, 'color: #38bdf8;');
+        console.log(`%c[PmheeAether Shop] 🛒 ส่ง Packet 'npc_option' (Index: ${index})...`, 'color: #38bdf8;');
     };
 
     window.sendRemoteNpcHeal = function() {
@@ -4687,7 +4687,7 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log('%c[Pelican Heal] 💖 ส่ง Packet ฟื้นฟูเลือด/มานา (npc_option index: 3) สำเร็จ!', 'color: #ec4899; font-weight: bold;');
+        console.log('%c[PmheeAether Heal] 💖 ส่ง Packet ฟื้นฟูเลือด/มานา (npc_option index: 3) สำเร็จ!', 'color: #ec4899; font-weight: bold;');
     };
 
     window.closeShopUI = function() {
@@ -4738,10 +4738,10 @@
             dispatchKeyAll('Escape', 'Escape', 27);
 
             if (closedCount > 0) {
-                console.log(`%c[Pelican Shop] 🚪 ปิดหน้าต่างร้านค้าสำเร็จ (${closedCount} หน้าต่าง)`, 'color: #94a3b8; font-weight: bold;');
+                console.log(`%c[PmheeAether Shop] 🚪 ปิดหน้าต่างร้านค้าสำเร็จ (${closedCount} หน้าต่าง)`, 'color: #94a3b8; font-weight: bold;');
             }
         } catch(e) {
-            console.error('[Pelican Shop] เกิดข้อผิดพลาดในการปิดหน้าต่างร้านค้า:', e);
+            console.error('[PmheeAether Shop] เกิดข้อผิดพลาดในการปิดหน้าต่างร้านค้า:', e);
         }
     };
 
@@ -4756,7 +4756,7 @@
             buf.set(token, prefix.length);
             buf.set(suffix, prefix.length + token.length);
             window.__gameSocket.send(buf.buffer);
-            console.log('%c[Pelican Shop] 🚪 ส่ง npc_close ปิดหน้าร้านค้า (Packet)', 'color: #94a3b8;');
+            console.log('%c[PmheeAether Shop] 🚪 ส่ง npc_close ปิดหน้าร้านค้า (Packet)', 'color: #94a3b8;');
         }
         // ปิด DOM UI ของหน้าร้านค้าเสมอ
         if (typeof window.closeShopUI === 'function') {
@@ -4834,7 +4834,7 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican Warp] ⚡ ยิง Packet 'npc_warp' (MapId: "${mapId}") สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Warp] ⚡ ยิง Packet 'npc_warp' (MapId: "${mapId}") สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
     };
 
     window.openAliceWarpService = function(callback) {
@@ -4891,12 +4891,12 @@
         }
 
         if (isAliceMapWindowOpen()) {
-            console.log('%c[Pelican Warp] 🗺️ หน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
+            console.log('%c[PmheeAether Warp] 🗺️ หน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
             if (callback) callback();
             return;
         }
 
-        console.log('%c[Pelican Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (Warp Service) เพื่อเปิดวาร์ปเกต...', 'color: #eab308; font-weight: bold;');
+        console.log('%c[PmheeAether Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (Warp Service) เพื่อเปิดวาร์ปเกต...', 'color: #eab308; font-weight: bold;');
 
         // ฟังก์ชันช่วยค้นหาและคลิกป้ายชื่อ NPC Alice บนจอเกม (เฉพาะตอนที่ dialog ยังไม่เปิด)
         function findAliceElement() {
@@ -4927,7 +4927,7 @@
 
             const aliceLabel = findAliceElement();
             if (aliceLabel) {
-                console.log('%c[Pelican Warp] 🎯 พบคลิกป้ายชื่อ "Alice Service" บนจอเพื่อให้ตัวละครเดินไปหา...', 'color: #38bdf8; font-weight: bold;');
+                console.log('%c[PmheeAether Warp] 🎯 พบคลิกป้ายชื่อ "Alice Service" บนจอเพื่อให้ตัวละครเดินไปหา...', 'color: #38bdf8; font-weight: bold;');
                 triggerClick(aliceLabel);
 
                 const rect = aliceLabel.getBoundingClientRect();
@@ -4954,7 +4954,7 @@
         const curPos = window.__currentPos || { x: 0, y: 0 };
         const distToAlice = (curPos.x && aliceNpc.x) ? Math.hypot(curPos.x - aliceNpc.x, curPos.y - aliceNpc.y) : 0;
         if (distToAlice > 90) {
-            console.log(`%c[Pelican Warp] 🚶 ตัวละครอยู่ห่างจาก Alice Service (${Math.round(distToAlice)}px) -> กำลังเดินไปหาที่ (${aliceNpc.x}, ${aliceNpc.y})...`, 'color: #38bdf8;');
+            console.log(`%c[PmheeAether Warp] 🚶 ตัวละครอยู่ห่างจาก Alice Service (${Math.round(distToAlice)}px) -> กำลังเดินไปหาที่ (${aliceNpc.x}, ${aliceNpc.y})...`, 'color: #38bdf8;');
             const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
             if (room && aliceNpc.x && aliceNpc.y) {
                 room.send('move_to', { x: aliceNpc.x, y: aliceNpc.y });
@@ -4999,7 +4999,7 @@
             if (isAliceMapWindowOpen()) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
-                console.log('%c[Pelican Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
+                console.log('%c[PmheeAether Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
                 setTimeout(() => { if (callback) callback(); }, 300);
                 return;
             }
@@ -5018,7 +5018,7 @@
                 // สเต็ป 1: กดฮีลฟื้นฟูเลือด/มานาก่อน (index: 3)
                 if (!hasHealed) {
                     if (healOption) {
-                        console.log('%c[Pelican Warp] 💖 พบคลิกตัวเลือกฮีลบนจอ: "' + (healOption.innerText || '').trim() + '"', 'color: #ec4899; font-weight: bold;');
+                        console.log('%c[PmheeAether Warp] 💖 พบคลิกตัวเลือกฮีลบนจอ: "' + (healOption.innerText || '').trim() + '"', 'color: #ec4899; font-weight: bold;');
                         triggerClick(healOption);
                     }
                     if (typeof window.sendRemoteNpcHeal === 'function') {
@@ -5036,10 +5036,10 @@
 
                         const curWarpOpt = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
                         if (curWarpOpt) {
-                            console.log('%c[Pelican Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (curWarpOpt.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
+                            console.log('%c[PmheeAether Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (curWarpOpt.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
                             triggerClick(curWarpOpt);
                         }
-                        console.log('%c[Pelican Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
+                        console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
                         window.sendRemoteNpcOption(1);
                         hasRequestedMap = true;
                         lastActionTime = Date.now();
@@ -5050,10 +5050,10 @@
                 // สเต็ป 2: ถ้าฮีลแล้ว แต่ยังไม่ได้เลือกวาร์ป หรือรอเกิน 1.2 วินาทีแล้วแผนที่ยังไม่เปิด
                 if (!hasRequestedMap || (now - lastActionTime > 1200)) {
                     if (warpOption) {
-                        console.log('%c[Pelican Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (warpOption.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
+                        console.log('%c[PmheeAether Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (warpOption.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
                         triggerClick(warpOption);
                     }
-                    console.log('%c[Pelican Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
+                    console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
                     window.sendRemoteNpcOption(1);
                     hasRequestedMap = true;
                     lastActionTime = now;
@@ -5083,7 +5083,7 @@
             // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice แล้ว) ส่ง packet คุยทันที
             if (isStationary && stillCount === 2) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
-                console.log(`%c[Pelican Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (${currentAliceKey})...`, 'color: #38bdf8;');
+                console.log(`%c[PmheeAether Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (${currentAliceKey})...`, 'color: #38bdf8;');
                 window.sendRemoteNpcTalk(currentAliceKey);
             }
 
@@ -5092,7 +5092,7 @@
             if (attempts >= maxAttempts && !isStillMoving) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
-                console.warn('%c[Pelican Warp] ⚠️ หมดเวลารอ Alice Warp Service (เดินหาเกิน 21 วิ) -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าสำรอง...', 'color: #f59e0b; font-weight: bold;');
+                console.warn('%c[PmheeAether Warp] ⚠️ หมดเวลารอ Alice Warp Service (เดินหาเกิน 21 วิ) -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าสำรอง...', 'color: #f59e0b; font-weight: bold;');
                 openWorldMap(() => {
                     if (callback) callback();
                 });
@@ -5102,7 +5102,7 @@
 
     window.warpToMap = function(targetMapNameOrId) {
         const mapId = MAP_NAME_TO_ID[targetMapNameOrId] || targetMapNameOrId;
-        console.log(`%c[Pelican Warp] 🚀 กำลังวาร์ปด่วนไปแมพ: "${targetMapNameOrId}" (${mapId})...`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Warp] 🚀 กำลังวาร์ปด่วนไปแมพ: "${targetMapNameOrId}" (${mapId})...`, 'color: #22c55e; font-weight: bold;');
         window.openAliceWarpService(() => {
             setTimeout(() => {
                 window.sendNpcWarp(mapId);
@@ -5146,7 +5146,7 @@
         buf.set(qtyBytes, offset);
 
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${itemId.toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${itemId.toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
     };
 
     // ==========================================
@@ -5166,7 +5166,7 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican] 📌 ตั้งค่า ItemBar ช่อง ${slot} เป็น Item: 0x${itemId.toString(16)} (${itemId}) เรียบร้อย!`, 'color: #38bdf8;');
+        console.log(`%c[PmheeAether] 📌 ตั้งค่า ItemBar ช่อง ${slot} เป็น Item: 0x${itemId.toString(16)} (${itemId}) เรียบร้อย!`, 'color: #38bdf8;');
     };
 
     window.sendEquip = function(slot = 0) {
@@ -5179,7 +5179,7 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican Inv] 🎒 ส่ง Packet สวมใส่จากกระเป๋า (sendEquip Inventory Slot: ${slot})!`, 'color: #22c55e;');
+        console.log(`%c[PmheeAether Inv] 🎒 ส่ง Packet สวมใส่จากกระเป๋า (sendEquip Inventory Slot: ${slot})!`, 'color: #22c55e;');
     };
 
     function findItemInServerInv(filterFn) {
@@ -5212,12 +5212,12 @@
     }
 
     window.equipArrowAndBow = function() {
-        console.log('%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
 
         // 1. ตรวจสอบการสวมใส่ "ลูกธนู" ชนิดที่เลือกจากกระเป๋าเซิร์ฟเวอร์
         const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
         const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
-        console.log(`%c[Pelican Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู "${arrowInfo.name}" (${targetArrowId})...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู "${arrowInfo.name}" (${targetArrowId})...`, 'color: #38bdf8; font-weight: bold;');
 
         const arrowInBag = findItemInServerInv(it => {
             const slot = it.slot ?? it.idx;
@@ -5226,7 +5226,7 @@
 
         if (arrowInBag) {
             const slot = arrowInBag.slot ?? arrowInBag.idx;
-            console.log(`%c[Pelican Ammo] 🎯 พบลูกธนู "${arrowInBag.name || arrowInfo.name}" ในกระเป๋า Slot ${slot} (จำนวน: ${arrowInBag.qty || 1} ดอก) -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
+            console.log(`%c[PmheeAether Ammo] 🎯 พบลูกธนู "${arrowInBag.name || arrowInfo.name}" ในกระเป๋า Slot ${slot} (จำนวน: ${arrowInBag.qty || 1} ดอก) -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
             window.sendEquip(slot);
             return;
         }
@@ -5242,7 +5242,7 @@
                 const isArrow = isTargetArrowDom(src, title, targetArrowId);
                 if (isArrow) {
                     el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
-                    console.log(`%c[Pelican Ammo] 🎯 Double-click สวมใส่ลูกธนู "${arrowInfo.name}" จากหน้าต่างกระเป๋าสำเร็จ!`, 'color: #22c55e;');
+                    console.log(`%c[PmheeAether Ammo] 🎯 Double-click สวมใส่ลูกธนู "${arrowInfo.name}" จากหน้าต่างกระเป๋าสำเร็จ!`, 'color: #22c55e;');
                     return;
                 }
             }
@@ -5265,11 +5265,11 @@
         buf.set(token, prefix.length);
         buf.set(suffix, prefix.length + token.length);
         window.__gameSocket.send(buf.buffer);
-        console.log(`%c[Pelican] 🦋 ใช้วาร์ป Butterfly Wing (sendInvUse Slot: ${slot})!`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether] 🦋 ใช้วาร์ป Butterfly Wing (sendInvUse Slot: ${slot})!`, 'color: #38bdf8; font-weight: bold;');
     };
 
     window.useButterflyWing = function() {
-        console.log('%c[Pelican] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
         // 1. ค้นหาช่อง Butterfly Wing ในข้อมูล Packet เซิร์ฟเวอร์
         let bwingSlot = -1;
@@ -5280,7 +5280,7 @@
         });
         if (bwingInBag) {
             bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
-            console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ใน Server Inventory Slot: ${bwingSlot}`, 'color: #22c55e;');
+            console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ใน Server Inventory Slot: ${bwingSlot}`, 'color: #22c55e;');
             window.sendInvUse(bwingSlot);
         }
 
@@ -5299,7 +5299,7 @@
                 const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
                 if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || title.includes('butterfly') || title.includes('วิง')) {
                     domFound = true;
-                    console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ในช่องกระเป๋า DOM ช่องที่ ${idx} -> ดับเบิลคลิกใช้งาน!`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ในช่องกระเป๋า DOM ช่องที่ ${idx} -> ดับเบิลคลิกใช้งาน!`, 'color: #22c55e; font-weight: bold;');
                     triggerClick(s);
                     s.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
                     window.sendInvUse(idx);
@@ -5319,7 +5319,7 @@
                 const txt = (hotbarSlot.getAttribute('title') || hotbarSlot.innerText || '').toLowerCase();
                 if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || txt.includes('butterfly') || txt.includes('วิง')) {
                     hotbarKey = (i === 9 ? '0' : (i + 1).toString());
-                    console.log(`%c[Pelican] 🦋 พบ Butterfly Wing ใน Hotbar ช่องลัดเลข ${hotbarKey} -> กดใช้งาน!`, 'color: #22c55e;');
+                    console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ใน Hotbar ช่องลัดเลข ${hotbarKey} -> กดใช้งาน!`, 'color: #22c55e;');
                     triggerClick(hotbarSlot);
                     break;
                 }
@@ -5338,7 +5338,7 @@
             if (bwingEl) {
                 triggerClick(bwingEl);
                 bwingEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
-                console.log('%c[Pelican] 🦋 คลิกปุ่ม Butterfly Wing บนหน้าจอสำเร็จ!', 'color: #22c55e;');
+                console.log('%c[PmheeAether] 🦋 คลิกปุ่ม Butterfly Wing บนหน้าจอสำเร็จ!', 'color: #22c55e;');
             }
         } catch(e) {}
 
@@ -5370,7 +5370,7 @@
             return;
         }
 
-        console.log('%c[Pelican Shop] 💰 เริ่มต้นระบบคัดกรองขายไอเทม (Auto-Sell & Whitelist)...', 'color: #f59e0b; font-weight: bold;');
+        console.log('%c[PmheeAether Shop] 💰 เริ่มต้นระบบคัดกรองขายไอเทม (Auto-Sell & Whitelist)...', 'color: #f59e0b; font-weight: bold;');
 
         const rawWhitelist = (sellCfg.whitelist || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
@@ -5693,17 +5693,17 @@
             const maxRank = rankMap[targetMaxRarity || 'normal'] || 1;
             const rankNames = { 1: 'ธรรมดา (ขาว 0 Option)', 2: 'ดี (เขียว 1 Option)', 3: 'หายาก (ฟ้า 2 Option)', 4: 'มหากาพย์ (ม่วง 3 Option)', 5: 'ตำนาน (ทอง/ส้ม 4+ Option)' };
 
-            console.log(`[Pelican Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}" (เกณฑ์ขายไม่เกิน: ${rankNames[maxRank] || maxRank})...`);
+            console.log(`[PmheeAether Shop] 🔍 ตรวจสอบหมวดหมู่: "${catName}" (เกณฑ์ขายไม่เกิน: ${rankNames[maxRank] || maxRank})...`);
             
             const catBtn = findCategoryTab(catName);
             if (!catBtn) {
-                console.warn(`[Pelican Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า -> ข้ามหมวดนี้ทันทีเพื่อความปลอดภัยเด็ดขาด!`);
+                console.warn(`[PmheeAether Shop] ⚠️ ไม่พบปุ่มแท็บหมวดหมู่ "${catName}" ในร้านค้า -> ข้ามหมวดนี้ทันทีเพื่อความปลอดภัยเด็ดขาด!`);
                 onDone();
                 return;
             }
 
             const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
-            console.log(`%c[Pelican Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
             triggerClick(catBtn);
             catBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
             catBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
@@ -5718,7 +5718,7 @@
                 const activeTab = shopModal.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"], .tab.active, button.active');
                 const activeText = (activeTab ? (activeTab.innerText || activeTab.textContent || '') : '').trim();
                 if (activeText.includes('การ์ด') || activeText.includes('แร่') || activeText.includes('ใช้ได้') || activeText.startsWith('ทั้งหมด')) {
-                    console.warn(`[Pelican Shop] 🛑 หน้าร้านค้ากำลังแสดงแท็บ "${activeText}" (ไม่ใช่หมวด ${catName}) -> ข้ามทันทีเพื่อความปลอดภัยเด็ดขาด!`);
+                    console.warn(`[PmheeAether Shop] 🛑 หน้าร้านค้ากำลังแสดงแท็บ "${activeText}" (ไม่ใช่หมวด ${catName}) -> ข้ามทันทีเพื่อความปลอดภัยเด็ดขาด!`);
                     onDone();
                     return;
                 }
@@ -5732,11 +5732,11 @@
                         });
                     
                     if (putAllBtn && !putAllBtn.disabled && !putAllBtn.className.includes('disabled') && !putAllBtn.innerText.includes('0 รายการ') && !putAllBtn.innerText.includes('ไม่มีวัตถุดิบ')) {
-                        console.log('%c[Pelican Shop] 🧺 คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า"...', 'color: #eab308; font-weight: bold;');
+                        console.log('%c[PmheeAether Shop] 🧺 คลิก "ใส่วัตถุดิบทั่งหมดลงตะกร้า"...', 'color: #eab308; font-weight: bold;');
                         triggerClick(putAllBtn);
                         if (typeof putAllBtn.click === 'function') putAllBtn.click();
                     } else {
-                        console.log('[Pelican Shop] ℹ️ ไม่มีวัตถุดิบขยะให้ขายในกระเป๋า');
+                        console.log('[PmheeAether Shop] ℹ️ ไม่มีวัตถุดิบขยะให้ขายในกระเป๋า');
                     }
                     setTimeout(onDone, 400);
                 } else {
@@ -5758,7 +5758,7 @@
                         return true;
                     });
 
-                    console.log(`[Pelican Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
+                    console.log(`[PmheeAether Shop] 🔎 พบปุ่มขาย (+) ในหมวด "${catName}" ทั้งหมด ${plusBtns.length} ปุ่ม`);
 
                     const itemsToSell = [];
                     const usedBagSlots = new Set();
@@ -5785,14 +5785,14 @@
                     plusBtns.forEach((btn, btnIdx) => {
                         const row = findItemRow(btn);
                         if (!row) {
-                            console.warn(`[Pelican Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่พบ Item Row`);
+                            console.warn(`[PmheeAether Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่พบ Item Row`);
                             return;
                         }
 
                         const rowText = row.innerText || '';
                         const itemName = extractItemName(row);
                         if (!itemName) {
-                            console.warn(`[Pelican Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่สามารถอ่านชื่อไอเทมจากแถวได้ (${rowText.replace(/\n+/g, ' | ')})`);
+                            console.warn(`[PmheeAether Shop] ⚠️ ข้ามปุ่ม (+) ลำดับที่ ${btnIdx + 1}: ไม่สามารถอ่านชื่อไอเทมจากแถวได้ (${rowText.replace(/\n+/g, ' | ')})`);
                             return;
                         }
 
@@ -5815,11 +5815,11 @@
                         );
 
                         if (isCard) {
-                            console.log(`%c[Pelican Shop] 🛑 [การ์ดมีค่า!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #ef4444; font-weight: bold;');
+                            console.log(`%c[PmheeAether Shop] 🛑 [การ์ดมีค่า!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #ef4444; font-weight: bold;');
                             return;
                         }
                         if (isOre) {
-                            console.log(`%c[Pelican Shop] 🛑 [แร่ตีบวก!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #f59e0b; font-weight: bold;');
+                            console.log(`%c[PmheeAether Shop] 🛑 [แร่ตีบวก!] ป้องกันการขายเด็ดขาด: "${itemName}"`, 'color: #f59e0b; font-weight: bold;');
                             return;
                         }
 
@@ -5831,13 +5831,13 @@
                         const isActualArrow = (lower.includes('arrow') || lower.includes('ลูกธนู')) && !isGem && !lower.includes('bow');
 
                         if (isTeleportWing || isPotion || isActualArrow) {
-                            console.log(`[Pelican Shop] 🛑 [ของใช้/เสบียง] ข้าม: "${itemName}"`);
+                            console.log(`[PmheeAether Shop] 🛑 [ของใช้/เสบียง] ข้าม: "${itemName}"`);
                             return;
                         }
 
                         // กฎความปลอดภัย 1.5: ล็อกป้องกันเจมสกิลทุกชนิดเด็ดขาด (Gem Safe Guard)
                         if (isGem && (sellCfg.statsFilter?.protectGems !== false)) {
-                            console.log(`%c[Pelican Shop] 💎 [Gem Protected] ป้องกันเจมสกิลเด็ดขาด (ห้ามขาย): "${itemName}"`, 'color: #a855f7; font-weight: bold;');
+                            console.log(`%c[PmheeAether Shop] 💎 [Gem Protected] ป้องกันเจมสกิลเด็ดขาด (ห้ามขาย): "${itemName}"`, 'color: #a855f7; font-weight: bold;');
                             return;
                         }
 
@@ -5849,18 +5849,18 @@
                                 if (bagItem) {
                                     const statRes = window.checkItemStatsFilter(bagItem);
                                     if (statRes.pass) {
-                                        console.log(`%c[Pelican Shop] 🔒 [Whitelist Pass] เก็บไอเทม: "${itemName}" (${statRes.reason} | ${statRes.matchedCount || 0} ออฟชั่นตรงเกณฑ์)`, 'color: #38bdf8; font-weight: bold;');
+                                        console.log(`%c[PmheeAether Shop] 🔒 [Whitelist Pass] เก็บไอเทม: "${itemName}" (${statRes.reason} | ${statRes.matchedCount || 0} ออฟชั่นตรงเกณฑ์)`, 'color: #38bdf8; font-weight: bold;');
                                         return; // ผ่านเกณฑ์ -> ห้ามขายเด็ดขาด!
                                     } else {
-                                        console.log(`%c[Pelican Shop] 🗑️ [Whitelist Filtered] ปลด Whitelist ไอเทม: "${itemName}" (ออฟชั่นไม่ตรงเกณฑ์: ${statRes.reason}) -> อนุญาตให้ขาย`, 'color: #f59e0b; font-weight: bold;');
+                                        console.log(`%c[PmheeAether Shop] 🗑️ [Whitelist Filtered] ปลด Whitelist ไอเทม: "${itemName}" (ออฟชั่นไม่ตรงเกณฑ์: ${statRes.reason}) -> อนุญาตให้ขาย`, 'color: #f59e0b; font-weight: bold;');
                                         // ไม่ return -> หลุดลงไปขายตามเกณฑ์ปกติ!
                                     }
                                 } else {
-                                    console.log(`[Pelican Shop] 🔒 [Whitelist Safe] ข้าม: "${itemName}" (ไม่พบข้อมูลในกระเป๋า ปลอดภัยไว้ก่อน)`);
+                                    console.log(`[PmheeAether Shop] 🔒 [Whitelist Safe] ข้าม: "${itemName}" (ไม่พบข้อมูลในกระเป๋า ปลอดภัยไว้ก่อน)`);
                                     return;
                                 }
                             } else {
-                                console.log(`[Pelican Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
+                                console.log(`[PmheeAether Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
                                 return;
                             }
                         }
@@ -5869,7 +5869,7 @@
                         const rarityRank = getItemRarity(itemName, rowText, titleEl, row);
 
                         if (rarityRank > maxRank) {
-                            console.log(`[Pelican Shop] 🔒 [ระดับสูง] ข้าม: "${itemName}" (ระดับ: ${rankNames[rarityRank] || rarityRank} > เกณฑ์ที่เลือก: ${rankNames[maxRank]})`);
+                            console.log(`[PmheeAether Shop] 🔒 [ระดับสูง] ข้าม: "${itemName}" (ระดับ: ${rankNames[rarityRank] || rarityRank} > เกณฑ์ที่เลือก: ${rankNames[maxRank]})`);
                             return;
                         }
 
@@ -5877,33 +5877,33 @@
 
                         // กฎความปลอดภัย 4: ห้ามขายของตีบวก (+1 ขึ้นไป)
                         if (sellCfg.keepRefined && isRefined(itemName, rowText, titleEl)) {
-                            console.log(`[Pelican Shop] 🔒 [ของตีบวก] ข้ามไอเทมตีบวก: "${itemName}"`);
+                            console.log(`[PmheeAether Shop] 🔒 [ของตีบวก] ข้ามไอเทมตีบวก: "${itemName}"`);
                             return;
                         }
 
                         // กฎความปลอดภัย 5: ห้ามขายของมีรูการ์ด [1-4]
                         if (sellCfg.keepSockets && hasSockets(itemName, rowText, titleEl)) {
-                            console.log(`[Pelican Shop] 🔒 [มีรูการ์ด] ข้ามไอเทมมีรู: "${itemName}"`);
+                            console.log(`[PmheeAether Shop] 🔒 [มีรูการ์ด] ข้ามไอเทมมีรู: "${itemName}"`);
                             return;
                         }
 
                         // กฎความปลอดภัย 6: ห้ามขายของมี Option สุ่ม (เฉพาะเมื่อผู้เล่นติ๊ก "ล็อคของมี Option")
                         if (sellCfg.keepSpecial && hasOptions(rowText, row)) {
-                            console.log(`[Pelican Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}" (เนื่องจากติ๊ก 'ล็อคของมี Option')`);
+                            console.log(`[PmheeAether Shop] 🔒 [มี Option] ข้ามไอเทม: "${itemName}" (เนื่องจากติ๊ก 'ล็อคของมี Option')`);
                             return;
                         }
 
-                        console.log(`%c[Pelican Shop] 🛒 เลือกขาย: "${itemName}" (ระดับ: ${rankNames[rarityRank] || rarityRank})`, 'color: #22c55e;');
+                        console.log(`%c[PmheeAether Shop] 🛒 เลือกขาย: "${itemName}" (ระดับ: ${rankNames[rarityRank] || rarityRank})`, 'color: #22c55e;');
                         itemsToSell.push({ name: itemName, btn: btn, row: row });
                     });
 
                     if (itemsToSell.length === 0) {
-                        console.log(`[Pelican Shop] ℹ️ ไม่มีไอเทมในหมวด "${catName}" ที่ตรงตามเงื่อนไขการขาย`);
+                        console.log(`[PmheeAether Shop] ℹ️ ไม่มีไอเทมในหมวด "${catName}" ที่ตรงตามเงื่อนไขการขาย`);
                         setTimeout(onDone, 300);
                         return;
                     }
 
-                    console.log(`%c[Pelican Shop] 📋 เตรียมใส่ไอเทมลงตะกร้า ${itemsToSell.length} ชิ้น...`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Shop] 📋 เตรียมใส่ไอเทมลงตะกร้า ${itemsToSell.length} ชิ้น...`, 'color: #22c55e; font-weight: bold;');
 
                     // คลิกปุ่ม '+' ทีละชิ้นอย่างต่อเนื่อง (เว้นจังหวะ 130ms เพื่อให้ UI อัปเดตเสถียร)
                     let clickIdx = 0;
@@ -5913,7 +5913,7 @@
                             return;
                         }
                         const item = itemsToSell[clickIdx++];
-                        console.log(`%c[Pelican Shop] ➕ ใส่ไอเทมลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
+                        console.log(`%c[PmheeAether Shop] ➕ ใส่ไอเทมลงตะกร้า (${clickIdx}/${itemsToSell.length}): "${item.name}"`, 'color: #22c55e;');
                         triggerClick(item.btn);
                         if (typeof item.btn.click === 'function') item.btn.click();
                         setTimeout(stepClick, 130);
@@ -5954,7 +5954,7 @@
                             });
 
                         if (confirmBtn && !confirmBtn.disabled && !confirmBtn.className.includes('disabled')) {
-                            console.log('%c[Pelican Shop] 💵 คลิก "ตรวจสอบและขาย" (cart-go)...', 'color: #22c55e; font-weight: bold;');
+                            console.log('%c[PmheeAether Shop] 💵 คลิก "ตรวจสอบและขาย" (cart-go)...', 'color: #22c55e; font-weight: bold;');
                             triggerClick(confirmBtn);
                             if (typeof confirmBtn.click === 'function') confirmBtn.click();
 
@@ -6000,7 +6000,7 @@
                                 if (finalBtn) {
                                     clearInterval(window.__shopConfirmInterval);
                                     window.__shopConfirmInterval = null;
-                                    console.log('%c[Pelican Shop] 💰 พบปุ่ม "ยืนยันขาย" สีทองตัวจริง กำลังกดยืนยัน...', 'color: #22c55e; font-weight: bold;', finalBtn);
+                                    console.log('%c[PmheeAether Shop] 💰 พบปุ่ม "ยืนยันขาย" สีทองตัวจริง กำลังกดยืนยัน...', 'color: #22c55e; font-weight: bold;', finalBtn);
                                     triggerClick(finalBtn);
                                     if (typeof finalBtn.click === 'function') finalBtn.click();
                                     const inner = finalBtn.querySelector('button, span, div') || finalBtn;
@@ -6026,7 +6026,7 @@
                                 if (confirmAttempts >= 12) {
                                     clearInterval(window.__shopConfirmInterval);
                                     window.__shopConfirmInterval = null;
-                                    console.warn('[Pelican Shop] ⚠️ หมดเวลารอปุ่มยืนยันขาย (Timeout)');
+                                    console.warn('[PmheeAether Shop] ⚠️ หมดเวลารอปุ่มยืนยันขาย (Timeout)');
                                     const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
                                         if (el.closest('#pelican-hud')) return false;
                                         return (el.innerText || '').trim() === 'ซื้อ';
@@ -6036,7 +6036,7 @@
                                 }
                             }, 200);
                         } else {
-                            console.log('[Pelican Shop] ตะกร้าขายว่างเปล่า (ไม่มีไอเทมจะขาย) -> สลับไปขั้นตอนซื้อ');
+                            console.log('[PmheeAether Shop] ตะกร้าขายว่างเปล่า (ไม่มีไอเทมจะขาย) -> สลับไปขั้นตอนซื้อ');
                             const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
                                 if (el.closest('#pelican-hud')) return false;
                                 return (el.innerText || '').trim() === 'ซื้อ';
@@ -6138,12 +6138,12 @@
         if (room && typeof room.send === 'function') {
             try {
                 room.send('auto_set', { config: newConfig });
-                console.log(`%c[Pelican Buff] 🧪 ซิงก์การตั้งค่ายาบัพเข้าสู่ระบบต่อสู้อัตโนมัติสำเร็จ! buffItems: [${enabledIds.join(', ')}]`, 'color: #22c55e; font-weight: bold;');
+                console.log(`%c[PmheeAether Buff] 🧪 ซิงก์การตั้งค่ายาบัพเข้าสู่ระบบต่อสู้อัตโนมัติสำเร็จ! buffItems: [${enabledIds.join(', ')}]`, 'color: #22c55e; font-weight: bold;');
             } catch(e) {
-                console.warn('[Pelican Buff] ⚠️ ส่ง packet auto_set ไม่สำเร็จ:', e);
+                console.warn('[PmheeAether Buff] ⚠️ ส่ง packet auto_set ไม่สำเร็จ:', e);
             }
         } else {
-            console.warn('[Pelican Buff] ⚠️ ยังไม่พบ Colyseus Room (ระบบจะซิงก์เมื่อเชื่อมต่อเสร็จสมบูรณ์)');
+            console.warn('[PmheeAether Buff] ⚠️ ยังไม่พบ Colyseus Room (ระบบจะซิงก์เมื่อเชื่อมต่อเสร็จสมบูรณ์)');
         }
 
         if (charData && charData.auto) {
@@ -6183,7 +6183,7 @@
                 if (qtyToBuy > 0) {
                     setTimeout(() => {
                         if (!window.__isBotRunning && !window.__isManualSelling) return;
-                        console.log(`%c[Pelican Shop] 🧪 ซื้อเติมยาบัพ [${p.name}]: มีในกระเป๋า ${curQty} / ตั้งเป้า ${targetQty} -> ซื้อเพิ่ม ${qtyToBuy} ขวด`, 'color: #00ffcc; font-weight: bold;');
+                        console.log(`%c[PmheeAether Shop] 🧪 ซื้อเติมยาบัพ [${p.name}]: มีในกระเป๋า ${curQty} / ตั้งเป้า ${targetQty} -> ซื้อเพิ่ม ${qtyToBuy} ขวด`, 'color: #00ffcc; font-weight: bold;');
                         window.sendShopBuy(p.id, qtyToBuy);
                         setTimeout(() => {
                             if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
@@ -6191,7 +6191,7 @@
                     }, delay);
                     delay += 350;
                 } else {
-                    console.log(`%c[Pelican Shop] 🧪 ยาบัพ [${p.name}] มีเพียงพอแล้ว (${curQty} >= ${targetQty} ขวด) ไม่ต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                    console.log(`%c[PmheeAether Shop] 🧪 ยาบัพ [${p.name}] มีเพียงพอแล้ว (${curQty} >= ${targetQty} ขวด) ไม่ต้องซื้อเพิ่ม`, 'color: #94a3b8;');
                 }
             }
         });
@@ -6200,11 +6200,11 @@
 
     window.manualRestockBuffPotions = function() {
         window.__isManualSelling = true;
-        console.log('%c[Pelican Shop] 🧪 เริ่มต้นทดสอบซื้อเติมยาบัพ...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether Shop] 🧪 เริ่มต้นทดสอบซื้อเติมยาบัพ...', 'color: #38bdf8; font-weight: bold;');
         const delay = window.executeBuffPotionRestock();
         setTimeout(() => {
             window.__isManualSelling = false;
-            console.log('%c[Pelican Shop] ✅ ซื้อเติมยาบัพเสร็จสิ้น!', 'color: #22c55e; font-weight: bold;');
+            console.log('%c[PmheeAether Shop] ✅ ซื้อเติมยาบัพเสร็จสิ้น!', 'color: #22c55e; font-weight: bold;');
         }, delay + 500);
     };
 
@@ -6237,13 +6237,13 @@
         window.__isManualSelling = true;
         triggerAutoSellTrash(() => {
             window.__isManualSelling = false;
-            console.log('%c[Pelican Shop] ✅ ทดสอบขายไอเทมเสร็จสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
+            console.log('%c[PmheeAether Shop] ✅ ทดสอบขายไอเทมเสร็จสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
         });
     };
 
     function executeSellAndBuyActions(onComplete) {
         if (!window.__isBotRunning && !window.__isManualSelling) return;
-        console.log('%c[Pelican Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
+        console.log('%c[PmheeAether Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
 
         // 1. ดำเนินการขายขยะมอนสเตอร์ก่อน (ถ้าเปิดใช้งาน)
         triggerAutoSellTrash(() => {
@@ -6258,10 +6258,10 @@
             const qtyToBuy = Math.max(0, targetQty - curAmmo);
 
             if (cfg.requireArrow && qtyToBuy > 0) {
-                console.log(`%c[Pelican Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
+                console.log(`%c[PmheeAether Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
                 window.sendShopBuy(arrowId, qtyToBuy);
             } else if (cfg.requireArrow) {
-                console.log(`%c[Pelican Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                console.log(`%c[PmheeAether Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
             }
 
             // 2.5 ซื้อเติมยาบัพ (Smart Restock สำหรับ Concentration, Awakening, Berserk Potion)
@@ -6280,10 +6280,10 @@
                     const needBwing = Math.max(0, targetBwing - curBwing);
 
                     if (needBwing > 0) {
-                        console.log(`%c[Pelican Shop] 🦋 คำนวณการเติม Butterfly Wing: ในกระเป๋ามี ${curBwing} ใบ / ตั้งเป้าพก ${targetBwing} ใบ -> ซื้อเพิ่ม ${needBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
+                        console.log(`%c[PmheeAether Shop] 🦋 คำนวณการเติม Butterfly Wing: ในกระเป๋ามี ${curBwing} ใบ / ตั้งเป้าพก ${targetBwing} ใบ -> ซื้อเพิ่ม ${needBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
                         window.sendShopBuy(bwingId, needBwing);
                     } else {
-                        console.log(`%c[Pelican Shop] 🦋 Butterfly Wing มีเพียงพอแล้ว (${curBwing} >= ${targetBwing} ใบ) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                        console.log(`%c[PmheeAether Shop] 🦋 Butterfly Wing มีเพียงพอแล้ว (${curBwing} >= ${targetBwing} ใบ) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
                     }
                 }
             }, potionDelay);
@@ -6316,7 +6316,7 @@
                     } else if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
                         window.pressKey((cfg.arrowHotbarSlot + 1).toString());
                     }
-                    console.log(`%c[Pelican Shop] 🏹 สวมใส่คันธนูและลูกธนูเรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Shop] 🏹 สวมใส่คันธนูและลูกธนูเรียบร้อยแล้ว!`, 'color: #22c55e; font-weight: bold;');
                 }
             }, potionDelay + 1100);
 
@@ -6331,32 +6331,32 @@
 
     window.executeAutoShopRoutine = function() {
         if (window.__isShopping) {
-            console.warn('[Pelican Shop] ⚠️ กำลังดำเนินการซื้อขายอยู่แล้ว');
+            console.warn('[PmheeAether Shop] ⚠️ กำลังดำเนินการซื้อขายอยู่แล้ว');
             return;
         }
 
         // Cooldown Guard: ป้องกันไม่ให้วนกลับมาเปิดร้านซ้ำทันทีหลังเพิ่งเสร็จสิ้น (Cooldown 20 วินาที)
         const now = Date.now();
         if (now - lastAutoShopCompletionTime < 20000) {
-            console.log('[Pelican Shop] ⏳ เพิ่งดำเนินการซื้อขายเสร็จสิ้นไป อยู่ในช่วงพักคูลดาวน์ (Cooldown 20s)');
+            console.log('[PmheeAether Shop] ⏳ เพิ่งดำเนินการซื้อขายเสร็จสิ้นไป อยู่ในช่วงพักคูลดาวน์ (Cooldown 20s)');
             return;
         }
 
         // GUARD 1: ป้องกันตัวละครตายแล้วยังพยายามซื้อของ
         if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-            console.warn('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิตอยู่! ยกเลิก Routine ร้านค้า และรอระบบชุบชีวิตทำงานก่อน', 'color: #ef4444; font-weight: bold;');
+            console.warn('%c[PmheeAether Shop Guard] 🛑 ตัวละครเสียชีวิตอยู่! ยกเลิก Routine ร้านค้า และรอระบบชุบชีวิตทำงานก่อน', 'color: #ef4444; font-weight: bold;');
             return;
         }
 
         // GUARD 2: ถ้ากำลังเดินข้ามแมพอยู่ ให้รอเดินทางเสร็จก่อน
         if (window.__isNavigating) {
-            console.warn('[Pelican Shop Guard] ⚠️ กำลังเดินทางข้ามแมพอยู่ ไม่สามารถเปิดร้านค้าได้');
+            console.warn('[PmheeAether Shop Guard] ⚠️ กำลังเดินทางข้ามแมพอยู่ ไม่สามารถเปิดร้านค้าได้');
             return;
         }
 
         window.__isShopping = true;
         const startMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : 'ไม่ทราบแมพ';
-        console.log(`%c[Pelican Shop] 🛒 เริ่มต้น Routine ซื้อ/ขายอัตโนมัติ (แมพปัจจุบัน: "${startMap}")`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c[PmheeAether Shop] 🛒 เริ่มต้น Routine ซื้อ/ขายอัตโนมัติ (แมพปัจจุบัน: "${startMap}")`, 'color: #f59e0b; font-weight: bold;');
 
         const currentFarmMap = window.__targetFarmMap;
         const targetNpc = (window.__shopConfig && window.__shopConfig.npcKey) ? window.__shopConfig.npcKey : 'n2';
@@ -6364,19 +6364,19 @@
         function startCityWalk() {
             // GUARD 3: ต้องมั่นใจ 100% ว่าตัวละครอยู่ในเมืองหลวงจริง ๆ จึงจะอนุญาตให้เดินหา NPC และเปิดร้าน!
             if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
-                console.error(`%c[Pelican Shop Guard] 🛑 ปฏิเสธการเปิดร้าน! ตัวละครไม่ได้อยู่ในเมืองหลวง (แมพปัจจุบัน: "${getCurrentMapName()}") เพื่อป้องกันซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
+                console.error(`%c[PmheeAether Shop Guard] 🛑 ปฏิเสธการเปิดร้าน! ตัวละครไม่ได้อยู่ในเมืองหลวง (แมพปัจจุบัน: "${getCurrentMapName()}") เพื่อป้องกันซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
                 window.__isShopping = false;
                 return;
             }
 
             // GUARD 4: ตรวจสอบการตายก่อนคุยกับ NPC
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-                console.error('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิต! ยกเลิกการเปิดร้านทันที', 'color: #ef4444; font-weight: bold;');
+                console.error('%c[PmheeAether Shop Guard] 🛑 ตัวละครเสียชีวิต! ยกเลิกการเปิดร้านทันที', 'color: #ef4444; font-weight: bold;');
                 window.__isShopping = false;
                 return;
             }
 
-            console.log(`%c[Pelican Shop] 🚶 เดินหา NPC ร้านค้า (${targetNpc}) ในเมือง: "${getCurrentMapName()}"`, 'color: #38bdf8;');
+            console.log(`%c[PmheeAether Shop] 🚶 เดินหา NPC ร้านค้า (${targetNpc}) ในเมือง: "${getCurrentMapName()}"`, 'color: #38bdf8;');
             window.sendRemoteNpcTalk(targetNpc);
 
             let moveAttempts = 0;
@@ -6399,7 +6399,7 @@
                 if (typeof isCharacterDead === 'function' && isCharacterDead()) {
                     clearInterval(window.__shopArrivalInterval);
                     window.__shopArrivalInterval = null;
-                    console.error('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิตระหว่างเดินในเมือง! ยกเลิกทันที', 'color: #ef4444; font-weight: bold;');
+                    console.error('%c[PmheeAether Shop Guard] 🛑 ตัวละครเสียชีวิตระหว่างเดินในเมือง! ยกเลิกทันที', 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                     return;
                 }
@@ -6415,12 +6415,12 @@
 
                     // GUARD 6: ตรวจสอบเมืองอีกครั้งก่อนส่ง packet เปิดร้านค้า
                     if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
-                        console.error('[Pelican Shop Guard] 🛑 หลุดออกจากเมืองหลวง ยกเลิกการเปิดร้าน');
+                        console.error('[PmheeAether Shop Guard] 🛑 หลุดออกจากเมืองหลวง ยกเลิกการเปิดร้าน');
                         window.__isShopping = false;
                         return;
                     }
 
-                    console.log('%c[Pelican Shop] 🎯 ตัวละครหยุดเดิน (ถึงระยะ NPC) -> กำลังเปิดร้านค้า...', 'color: #22c55e; font-weight: bold;');
+                    console.log('%c[PmheeAether Shop] 🎯 ตัวละครหยุดเดิน (ถึงระยะ NPC) -> กำลังเปิดร้านค้า...', 'color: #22c55e; font-weight: bold;');
                     window.sendRemoteNpcTalk(targetNpc);
 
                     setTimeout(() => {
@@ -6435,7 +6435,7 @@
                                 if (typeof window.closeShopUI === 'function') {
                                     window.closeShopUI();
                                 }
-                                console.log('%c[Pelican Shop] 🔄 ซิงก์จัดเรียงกระเป๋าและอ่านน้ำหนักจริงหลังขาย...', 'color: #38bdf8; font-weight: bold;');
+                                console.log('%c[PmheeAether Shop] 🔄 ซิงก์จัดเรียงกระเป๋าและอ่านน้ำหนักจริงหลังขาย...', 'color: #38bdf8; font-weight: bold;');
 
                                 // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าทันทีที่หน้า NPC ร้านค้า (~300ms)
                                 // เพื่อให้เกมคำนวณน้ำหนักจริงใหม่ ลบ Debuff 70% บนจอ และอัปเดตแคชตัวเลขจริงก่อนเริ่มเดินทางกลับ
@@ -6446,7 +6446,7 @@
                                         if (newWeight) {
                                             window.__lastKnownWeight = newWeight;
                                         }
-                                        console.log(`%c[Pelican Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
+                                        console.log(`%c[PmheeAether Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
                                         setTimeout(() => {
                                             if (!window.__isBotRunning) return;
                                             if (typeof window.closeShopUI === 'function') window.closeShopUI();
@@ -6473,7 +6473,7 @@
                 if (moveAttempts >= 45) {
                     clearInterval(window.__shopArrivalInterval);
                     window.__shopArrivalInterval = null;
-                    console.error('[Pelican Shop] ❌ หมดเวลาเดินหา NPC (Timeout)');
+                    console.error('[PmheeAether Shop] ❌ หมดเวลาเดินหา NPC (Timeout)');
                     window.__isShopping = false;
                 }
             }, 1000);
@@ -6484,12 +6484,12 @@
         if (!inCity) {
             const allowWarp = (window.__archerConfig && window.__archerConfig.useBwing) || (typeof isCharacterOverweight === 'function' && isCharacterOverweight());
             if (!allowWarp) {
-                console.warn(`%c[Pelican Shop Guard] 🛑 ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) และไม่ได้เปิดใช้งาน Butterfly Wing -> ยกเลิก Routine ร้านค้า!`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Shop Guard] 🛑 ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) และไม่ได้เปิดใช้งาน Butterfly Wing -> ยกเลิก Routine ร้านค้า!`, 'color: #ef4444; font-weight: bold;');
                 window.__isShopping = false;
                 return;
             }
 
-            console.log(`%c[Pelican Shop] ⚡ ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) -> กำลังใช้วาร์ป Butterfly Wing...`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Shop] ⚡ ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) -> กำลังใช้วาร์ป Butterfly Wing...`, 'color: #38bdf8; font-weight: bold;');
             window.useButterflyWing();
 
             if (window.__shopWarpInterval) {
@@ -6512,7 +6512,7 @@
                 if (typeof isCharacterDead === 'function' && isCharacterDead()) {
                     clearInterval(window.__shopWarpInterval);
                     window.__shopWarpInterval = null;
-                    console.warn('%c[Pelican Shop Guard] 🛑 ตัวละครเสียชีวิตขณะพยายามวาร์ป! ยกเลิก Routine ร้านค้า', 'color: #ef4444; font-weight: bold;');
+                    console.warn('%c[PmheeAether Shop Guard] 🛑 ตัวละครเสียชีวิตขณะพยายามวาร์ป! ยกเลิก Routine ร้านค้า', 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                     return;
                 }
@@ -6521,7 +6521,7 @@
                 if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
                     clearInterval(window.__shopWarpInterval);
                     window.__shopWarpInterval = null;
-                    console.log(`%c[Pelican Shop] 🏛️ วาร์ปถึงเมืองหลวง (${getCurrentMapName()}) สำเร็จ 100%! เตรียมเดินหา NPC...`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Shop] 🏛️ วาร์ปถึงเมืองหลวง (${getCurrentMapName()}) สำเร็จ 100%! เตรียมเดินหา NPC...`, 'color: #22c55e; font-weight: bold;');
                     setTimeout(() => {
                         if (window.__isBotRunning) startCityWalk();
                     }, 1200);
@@ -6530,17 +6530,17 @@
 
                 // ถ้ายังไม่ถึงเมือง ลองใช้วาร์ปซ้ำ (สูงสุด 3 ครั้ง)
                 if (warpAttempts <= 3) {
-                    console.log(`%c[Pelican Shop] 🔄 ยังไม่ถึงเมืองหลวง (อยู่ที่ "${getCurrentMapName()}") กำลังใช้วาร์ปซ้ำ (${warpAttempts}/3)...`, 'color: #f59e0b;');
+                    console.log(`%c[PmheeAether Shop] 🔄 ยังไม่ถึงเมืองหลวง (อยู่ที่ "${getCurrentMapName()}") กำลังใช้วาร์ปซ้ำ (${warpAttempts}/3)...`, 'color: #f59e0b;');
                     window.useButterflyWing();
                 } else {
                     clearInterval(window.__shopWarpInterval);
                     window.__shopWarpInterval = null;
-                    console.error(`%c[Pelican Shop Guard] ❌ วาร์ปกลับเมืองไม่สำเร็จหลังจากลอง 3 ครั้ง (แมพยังคงเป็น "${getCurrentMapName()}")! ยกเลิก Routine ร้านค้าทั้งหมด เพื่อป้องกันการซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
+                    console.error(`%c[PmheeAether Shop Guard] ❌ วาร์ปกลับเมืองไม่สำเร็จหลังจากลอง 3 ครั้ง (แมพยังคงเป็น "${getCurrentMapName()}")! ยกเลิก Routine ร้านค้าทั้งหมด เพื่อป้องกันการซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
                     window.__isShopping = false;
                 }
             }, 2000);
         } else {
-            console.log(`%c[Pelican Shop] 🏛️ ตัวละครอยู่ที่เมืองหลวงอยู่แล้ว (${getCurrentMapName()}) -> เริ่มต้นเดินหา NPC ได้ทันที`, 'color: #22c55e;');
+            console.log(`%c[PmheeAether Shop] 🏛️ ตัวละครอยู่ที่เมืองหลวงอยู่แล้ว (${getCurrentMapName()}) -> เริ่มต้นเดินหา NPC ได้ทันที`, 'color: #22c55e;');
             startCityWalk();
         }
     };
@@ -6579,7 +6579,7 @@
             return;
         }
 
-        console.log('[Pelican] 🗺️ กำลังเปิดหน้าต่างแผนที่โลก...');
+        console.log('[PmheeAether] 🗺️ กำลังเปิดหน้าต่างแผนที่โลก...');
 
         closeAnyOpenMenus();
 
@@ -6611,7 +6611,7 @@
             if (isWorldMapOpen()) {
                 clearInterval(window.__worldMapPollInterval);
                 window.__worldMapPollInterval = null;
-                console.log('%c[Pelican] ✅ หน้าต่างแผนที่โลกเปิดสำเร็จ!', 'color: #22c55e;');
+                console.log('%c[PmheeAether] ✅ หน้าต่างแผนที่โลกเปิดสำเร็จ!', 'color: #22c55e;');
                 setTimeout(() => { if (callback) callback(); }, 350);
                 return;
             }
@@ -6625,7 +6625,7 @@
             if (attempts >= 16) {
                 clearInterval(window.__worldMapPollInterval);
                 window.__worldMapPollInterval = null;
-                console.error('[Pelican] ❌ เปิดแผนที่โลกไม่สำเร็จ');
+                console.error('[PmheeAether] ❌ เปิดแผนที่โลกไม่สำเร็จ');
                 window.__isNavigating = false;
                 window.__isRecovering = false;
             }
@@ -6652,7 +6652,7 @@
 
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
         if (window.__isConsolidating) {
-            console.log('%c[Pelican] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
+            console.log('%c[PmheeAether] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
             return;
         }
         if (!mapName) mapName = window.__targetFarmMap;
@@ -6660,11 +6660,11 @@
         // ถ้ากำลังนำทางอยู่ แต่เป็นการกดสั่งใหม่ (force) หรือเปลี่ยนแมพเป้าหมาย ให้ยกเลิกการเดินเดิมทันที
         if (window.__isNavigating) {
             if (force || mapName !== window.__targetFarmMap) {
-                console.log(`%c[Pelican] 🔄 ยกเลิกการเดินเดิม สลับไปเดินหาแมพใหม่ทันที: "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
+                console.log(`%c[PmheeAether] 🔄 ยกเลิกการเดินเดิม สลับไปเดินหาแมพใหม่ทันที: "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
                 stopArrivalWatcher();
                 window.__isNavigating = false;
             } else {
-                console.log(`[Pelican] กำลังเดินทางไปยัง "${window.__targetFarmMap}" อยู่แล้ว`);
+                console.log(`[PmheeAether] กำลังเดินทางไปยัง "${window.__targetFarmMap}" อยู่แล้ว`);
                 return;
             }
         }
@@ -6675,12 +6675,12 @@
 
         // GUARD: ตรวจสอบการตาย
         if (typeof isCharacterDead === 'function' && isCharacterDead()) {
-            console.warn('[Pelican Guard] 🛑 ตัวละครเสียชีวิตอยู่ ไม่สามารถเริ่มเดินไปแมพได้');
+            console.warn('[PmheeAether Guard] 🛑 ตัวละครเสียชีวิตอยู่ ไม่สามารถเริ่มเดินไปแมพได้');
             window.__isNavigating = false;
             return;
         }
 
-        console.log(`%c[Pelican] 🗺️ กำลังเริ่มกระบวนการเดินไปแมพ: ${mapName}`, 'color: #00ffcc; font-weight: bold;');
+        console.log(`%c[PmheeAether] 🗺️ กำลังเริ่มกระบวนการเดินไปแมพ: ${mapName}`, 'color: #00ffcc; font-weight: bold;');
 
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
@@ -6688,7 +6688,7 @@
 
         // ถ้าตัวละครอยู่ในเมืองหลวง หรือกำลังฟื้นคืนชีพ (recovering) แต่เป้าหมายคือแมพมอนสเตอร์ -> ห้ามสรุปว่าถึงแล้วเด็ดขาด!
         if ((!inCity || isTargetCity) && curMap && curMap.includes(mapName) && !window.__isRecovering) {
-            console.log(`[Pelican] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
+            console.log(`[PmheeAether] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
             window.startBot();
             window.__isNavigating = false;
             window.__isRecovering = false;
@@ -6704,7 +6704,7 @@
 
             if (warpBtn) {
                 triggerClick(warpBtn);
-                console.log('%c[Pelican Warp] ⚡ พบคลิก "วาร์ปไปที่นี่ (NPC Alice)" สำเร็จ! กำลังวาร์ปตรง...', 'color: #eab308; font-weight: bold;');
+                console.log('%c[PmheeAether Warp] ⚡ พบคลิก "วาร์ปไปที่นี่ (NPC Alice)" สำเร็จ! กำลังวาร์ปตรง...', 'color: #eab308; font-weight: bold;');
 
                 setTimeout(() => {
                     if (isWorldMapOpen()) {
@@ -6721,7 +6721,7 @@
                             Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('เดินไปที่นี่'));
             if (walkBtn) {
                 triggerClick(walkBtn);
-                console.log('%c[Pelican] 🚀 คลิก "เดินไปที่นี่" สำเร็จ! กำลังเฝ้าดูการเดินทาง...', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether] 🚀 คลิก "เดินไปที่นี่" สำเร็จ! กำลังเฝ้าดูการเดินทาง...', 'color: #22c55e; font-weight: bold;');
 
                 setTimeout(() => {
                     if (isWorldMapOpen()) {
@@ -6747,7 +6747,7 @@
             // ค้นหาเฉพาะในคอนเทนเนอร์แผนที่เท่านั้น ห้ามค้นหาใน document.body เพื่อป้องกันการไปคลิกโดนผู้เล่นอื่น
             const stage = document.querySelector('.worldmap-stage, .worldmap-body, .worldmap-window, [class*="worldmap"]');
             if (!stage) {
-                console.warn(`[Pelican] ⏳ หน้าต่างแผนที่ยังไม่เปิด กำลังรอ... (retries: ${retries})`);
+                console.warn(`[PmheeAether] ⏳ หน้าต่างแผนที่ยังไม่เปิด กำลังรอ... (retries: ${retries})`);
                 if (retries > 0) {
                     setTimeout(() => clickMapPin(retries - 1), 600);
                 }
@@ -6765,7 +6765,7 @@
             const pin = matches.find(el => !Array.from(el.children).some(c => c.textContent && c.textContent.includes(cleanMapName))) || matches[0];
 
             if (pin) {
-                console.log(`%c[Pelican Map] 📍 คลิกหมุดแมพ: "${cleanMapName}"`, 'color: #00ffcc; font-weight: bold;');
+                console.log(`%c[PmheeAether Map] 📍 คลิกหมุดแมพ: "${cleanMapName}"`, 'color: #00ffcc; font-weight: bold;');
                 triggerClick(pin);
                 pin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
 
@@ -6801,10 +6801,10 @@
             } else if (retries > 0) {
                 setTimeout(() => clickMapPin(retries - 1), 400);
             } else {
-                console.warn(`[Pelican] ไม่พบหมุดแมพ "${cleanMapName}" บนหน้าต่างแผนที่`);
+                console.warn(`[PmheeAether] ไม่พบหมุดแมพ "${cleanMapName}" บนหน้าต่างแผนที่`);
                 const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
                 if (mapId && typeof window.sendNpcWarp === 'function') {
-                    console.log(`[Pelican Warp] ⚡ ส่ง Packet วาร์ปตรงไปยัง "${cleanMapName}" (${mapId})...`);
+                    console.log(`[PmheeAether Warp] ⚡ ส่ง Packet วาร์ปตรงไปยัง "${cleanMapName}" (${mapId})...`);
                     window.sendNpcWarp(mapId);
                     startArrivalWatcher(cleanMapName);
                     return;
@@ -6818,19 +6818,19 @@
 
         // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อเปิด Alice Warp Service ก่อน
         if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-            console.log(`%c[Pelican Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
+            console.log(`%c[PmheeAether Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.openAliceWarpService(() => {
                 setTimeout(() => clickMapPin(3), 500);
             });
         } else {
-            console.log(`%c[Pelican] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
             openWorldMap(() => clickMapPin(2));
         }
     };
 
     function startArrivalWatcher(targetMap) {
         stopArrivalWatcher();
-        console.log(`%c[Pelican] 📡 เริ่มต้นระบบตรวจจับการถึงแมพ: "${targetMap}"`, 'color: #38bdf8;');
+        console.log(`%c[PmheeAether] 📡 เริ่มต้นระบบตรวจจับการถึงแมพ: "${targetMap}"`, 'color: #38bdf8;');
         window.__arrivalWatcherInterval = setInterval(() => {
             if (!window.__isBotRunning && !window.__isNavigating) {
                 stopArrivalWatcher();
@@ -6850,11 +6850,11 @@
 
             if ((!inCity || isTargetCity) && currentMap && currentMap.includes(targetMap)) {
                 stopArrivalWatcher();
-                console.log(`%c[Pelican] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
+                console.log(`%c[PmheeAether] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
                 setTimeout(() => {
                     if (window.__isBotRunning) {
                         if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-                            console.warn('%c[Pelican] ⚖️ ถึงแมพฟาร์มแล้วแต่น้ำหนักเต็มหรือเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                            console.warn('%c[PmheeAether] ⚖️ ถึงแมพฟาร์มแล้วแต่น้ำหนักเต็มหรือเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
                             window.executeAutoShopRoutine();
                         } else {
                             window.startBot();
@@ -6869,7 +6869,7 @@
         window.__arrivalTimeout = setTimeout(() => {
             if (window.__isNavigating) {
                 stopArrivalWatcher();
-                console.warn(`[Pelican] ⚠️ หมดเวลาเฝ้าดูการเดินทางไปยัง "${targetMap}" (Timeout)`);
+                console.warn(`[PmheeAether] ⚠️ หมดเวลาเฝ้าดูการเดินทางไปยัง "${targetMap}" (Timeout)`);
                 window.__isNavigating = false;
                 window.__isRecovering = false;
             }
@@ -6893,7 +6893,7 @@
 
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
         if (isDead) {
-            console.log('%c[Pelican] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
+            console.log('%c[PmheeAether] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
             window.__isRecovering = true;
             autoActivateFailCount = 0;
 
@@ -6923,7 +6923,7 @@
                 if (!stillDead && (nowInCity || respawnCheckCount >= 15)) {
                     clearInterval(respawnInterval);
                     window.__isRecovering = false;
-                    console.log(`%c[Pelican] 🏛️ ตัวละครฟื้นคืนชีพเรียบร้อย (แมพ: "${getCurrentMapName()}")! สั่งเดินกลับไปฟาร์ม...`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether] 🏛️ ตัวละครฟื้นคืนชีพเรียบร้อย (แมพ: "${getCurrentMapName()}")! สั่งเดินกลับไปฟาร์ม...`, 'color: #22c55e; font-weight: bold;');
                     setTimeout(() => {
                         if (window.__isBotRunning) {
                             window.walkToTargetMap(window.__targetFarmMap || 'ถนนต้นหลิว', true);
@@ -6949,9 +6949,9 @@
             const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
             const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
             if (inCity) {
-                console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบตัวละครอยู่ในเมืองหลวง แต่น้ำหนักสัมภาระเกินเกณฑ์ (${pctStr} >= ${limitStr})! เดินไปร้านค้า (NPC n2) เพื่อขายของทันที...`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบตัวละครอยู่ในเมืองหลวง แต่น้ำหนักสัมภาระเกินเกณฑ์ (${pctStr} >= ${limitStr})! เดินไปร้านค้า (NPC n2) เพื่อขายของทันที...`, 'color: #ef4444; font-weight: bold;');
             } else {
-                console.warn(`%c[Pelican Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ในสนามฟาร์ม (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ในสนามฟาร์ม (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
             }
             if (typeof playWarningChime === 'function') playWarningChime();
             autoActivateFailCount = 0;
@@ -6982,7 +6982,7 @@
                                   screenText.includes('Out of arrows');
 
             if (noAmmoWarning) {
-                console.warn('%c[Pelican Archer] ⚠️ ตรวจพบข้อความลูกธนูหมดบนหน้าจอ! ปรับ Ammo = 0 และสั่งวาร์ปทันที!', 'color: #ef4444; font-weight: bold;');
+                console.warn('%c[PmheeAether Archer] ⚠️ ตรวจพบข้อความลูกธนูหมดบนหน้าจอ! ปรับ Ammo = 0 และสั่งวาร์ปทันที!', 'color: #ef4444; font-weight: bold;');
                 window.__currentAmmo = 0;
                 localStorage.setItem('pelican_current_ammo', 0);
                 updateAmmoHUD();
@@ -6992,7 +6992,7 @@
             }
 
             if (typeof window.__currentAmmo === 'number' && window.__currentAmmo <= threshold) {
-                console.log(`%c[Pelican Archer] 🏹 ลูกธนูหมดหรือเหลือน้อย (${window.__currentAmmo} <= ${threshold} ดอก) -> สั่งวาร์ปกลับไปซื้อทันที!`, 'color: #ef4444; font-weight: bold;');
+                console.log(`%c[PmheeAether Archer] 🏹 ลูกธนูหมดหรือเหลือน้อย (${window.__currentAmmo} <= ${threshold} ดอก) -> สั่งวาร์ปกลับไปซื้อทันที!`, 'color: #ef4444; font-weight: bold;');
                 autoActivateFailCount = 0;
                 window.executeAutoShopRoutine();
                 return;
@@ -7014,7 +7014,7 @@
                     // FAIL-SAFE: ถ้ากดเปิด AUTO ไปแล้ว 3 ครั้ง แต่สถานะยังคงเป็น "off" ตลอด
                     // แสดงว่าตัวเกมบล็อคไม่ให้เปิด AUTO เพราะน้ำหนักในกระเป๋าเต็มหรือเกิน 90%!
                     if (autoActivateFailCount >= 3) {
-                        console.error('%c[Pelican Watchdog] 🛑 กดเปิด AUTO ไม่สำเร็จ 3 ครั้งติดต่อกัน! ตัวเกมล็อค AUTO เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90% -> สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
+                        console.error('%c[PmheeAether Watchdog] 🛑 กดเปิด AUTO ไม่สำเร็จ 3 ครั้งติดต่อกัน! ตัวเกมล็อค AUTO เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90% -> สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
                         autoActivateFailCount = 0;
                         window.__isKnownOverweight = true;
                         window.executeAutoShopRoutine();
@@ -7022,7 +7022,7 @@
                     }
 
                     autoActivateFailCount++;
-                    console.log(`%c[Pelican Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") [ครั้งที่ ${autoActivateFailCount}/3] -> สั่งกดเปิด AUTO ทันที!`, 'color: #f59e0b; font-weight: bold;');
+                    console.log(`%c[PmheeAether Watchdog] ⚡ บอท START อยู่ในสนามรบ แต่ปุ่ม AUTO ในเกมปิดอยู่ ("AUTO ปิด") [ครั้งที่ ${autoActivateFailCount}/3] -> สั่งกดเปิด AUTO ทันที!`, 'color: #f59e0b; font-weight: bold;');
                     window.activateInGameAuto();
                 }
             }
@@ -7037,7 +7037,7 @@
                 const now = Date.now();
                 if (now - lastCityToFarmAttempt > 4000) {
                     lastCityToFarmAttempt = now;
-                    console.log(`%c[Pelican Watchdog] 🏛️ ตัวละครตกค้างอยู่ในเมืองหลวง ("${getCurrentMapName()}") ขณะบอท START -> สั่งเดินทางไปยังแมพเป้าหมาย: "${targetMap}" ผ่าน NPC Alice ทันที!`, 'color: #38bdf8; font-weight: bold;');
+                    console.log(`%c[PmheeAether Watchdog] 🏛️ ตัวละครตกค้างอยู่ในเมืองหลวง ("${getCurrentMapName()}") ขณะบอท START -> สั่งเดินทางไปยังแมพเป้าหมาย: "${targetMap}" ผ่าน NPC Alice ทันที!`, 'color: #38bdf8; font-weight: bold;');
                     window.walkToTargetMap(targetMap, true);
                     return;
                 }
@@ -7202,7 +7202,7 @@
                 const enterBtn = findEnterButton();
                 if (enterBtn && !isLoginScreenVisible()) {
                     const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
-                    console.log(`%c[Pelican Auth] 🎮 เลือกตัวละคร & คลิกเข้าเกม ("${btnTxt}")...`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Auth] 🎮 เลือกตัวละคร & คลิกเข้าเกม ("${btnTxt}")...`, 'color: #22c55e; font-weight: bold;');
                     triggerClick(enterBtn);
                 }
             }, 350);
@@ -7210,7 +7210,7 @@
             const enterBtn = findEnterButton();
             if (enterBtn && !isLoginScreenVisible()) {
                 const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
-                console.log(`%c[Pelican Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${btnTxt}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
+                console.log(`%c[PmheeAether Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${btnTxt}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
                 triggerClick(enterBtn);
             }
         }
@@ -7222,7 +7222,7 @@
 
         if (!cfg.username || !cfg.password) {
             if (force) {
-                console.warn('%c[Pelican Auth] ⚠️ ยังไม่ได้ตั้งค่าชื่อผู้ใช้ (ID) หรือ รหัสผ่าน (PS) ในแท็บ "ตั้งค่า"!', 'color: #f59e0b; font-weight: bold;');
+                console.warn('%c[PmheeAether Auth] ⚠️ ยังไม่ได้ตั้งค่าชื่อผู้ใช้ (ID) หรือ รหัสผ่าน (PS) ในแท็บ "ตั้งค่า"!', 'color: #f59e0b; font-weight: bold;');
                 alert('กรุณากรอกชื่อผู้ใช้ (ID) และ รหัสผ่าน (PS) ในแท็บ "⚙️ ตั้งค่า" ก่อนเปิดใช้งาน Auto-Login');
             }
             return;
@@ -7233,7 +7233,7 @@
         const { userInput, passInput, loginBtn } = findLoginElements();
         if (!passInput || !loginBtn) {
             if (force) {
-                console.warn('%c[Pelican Auth] ⚠️ ไม่พบหน้าต่าง Login บนหน้าจอ (ตัวละครอาจอยู่ในเกมอยู่แล้ว)', 'color: #f59e0b;');
+                console.warn('%c[PmheeAether Auth] ⚠️ ไม่พบหน้าต่าง Login บนหน้าจอ (ตัวละครอาจอยู่ในเกมอยู่แล้ว)', 'color: #f59e0b;');
             }
             return;
         }
@@ -7252,7 +7252,7 @@
         lastLoginAttemptTime = now;
         loginFailCount++;
 
-        console.log(`%c[Pelican Auth] 🔐 กำลังดำเนินการ Auto-Login (ครั้งที่ ${loginFailCount}) ด้วย ID: "${cfg.username}"...`, 'color: #a855f7; font-weight: bold;');
+        console.log(`%c[PmheeAether Auth] 🔐 กำลังดำเนินการ Auto-Login (ครั้งที่ ${loginFailCount}) ด้วย ID: "${cfg.username}"...`, 'color: #a855f7; font-weight: bold;');
 
         // 1. กรอก Username
         if (userInput) {
@@ -7266,7 +7266,7 @@
 
         // 3. คลิกปุ่มเข้าเกม
         setTimeout(() => {
-            console.log('%c[Pelican Auth] 🚀 คลิกปุ่ม "เข้าเกม"...', 'color: #22c55e; font-weight: bold;');
+            console.log('%c[PmheeAether Auth] 🚀 คลิกปุ่ม "เข้าเกม"...', 'color: #22c55e; font-weight: bold;');
             triggerClick(loginBtn);
 
             // ตรวจสอบหน้าต่างเลือกตัวละครหลายระลอก (1.5s, 3s, 5s) เพื่อความเสถียร
@@ -7297,18 +7297,18 @@
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
         if (curMap && curMap !== 'ไม่ทราบ' && curMap.length > 0 && !isLoginScreenVisible()) {
             if (loginFailCount > 0) {
-                console.log('%c[Pelican Auth] ✅ เข้าสู่โลกสำเร็จเรียบร้อย! (แมพปัจจุบัน: ' + curMap + ')', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Auth] ✅ เข้าสู่โลกสำเร็จเรียบร้อย! (แมพปัจจุบัน: ' + curMap + ')', 'color: #22c55e; font-weight: bold;');
                 loginFailCount = 0;
             }
 
             const shouldResume = cfg.autoResumeBot && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled);
             if (shouldResume && !window.__isBotRunning && !window.__isNavigating && !window.__isShopping && !window.__isRecovering) {
                 if (!window.__resumeTimer) {
-                    console.log('%c[Pelican Auth] ⏳ กำลังเตรียมความพร้อมแผนที่... อีก 3 วินาทีจะเริ่มระบบฟาร์มอัตโนมัติต่อเนื่อง', 'color: #38bdf8; font-weight: bold;');
+                    console.log('%c[PmheeAether Auth] ⏳ กำลังเตรียมความพร้อมแผนที่... อีก 3 วินาทีจะเริ่มระบบฟาร์มอัตโนมัติต่อเนื่อง', 'color: #38bdf8; font-weight: bold;');
                     window.__resumeTimer = setTimeout(() => {
                         window.__resumeTimer = null;
                         if (!window.__isBotRunning && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled)) {
-                            console.log('%c[Pelican Auth] 🚀 Auto-Resume: ทำการ START BOT ฟาร์มต่อทันที 24 ชม.!', 'color: #10b981; font-weight: bold;');
+                            console.log('%c[PmheeAether Auth] 🚀 Auto-Resume: ทำการ START BOT ฟาร์มต่อทันที 24 ชม.!', 'color: #10b981; font-weight: bold;');
                             window.startMasterBot();
                         }
                     }, 3500);
@@ -7760,7 +7760,7 @@
             const scanBtn = document.createElement('button');
             scanBtn.type = 'button';
             scanBtn.className = 'pelican-mk-deep-scan-btn';
-            scanBtn.title = 'สแกนทุกหน้าในตลาดเพื่อดึง Option เข้าสู่ Pelican Inspector';
+            scanBtn.title = 'สแกนทุกหน้าในตลาดเพื่อดึง Option เข้าสู่ PmheeAether Inspector';
             scanBtn.style.cssText = 'margin-left: 6px; background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fff; border: 1px solid #c084fc; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; height: 26px; vertical-align: middle; box-shadow: 0 2px 6px rgba(147, 51, 234, 0.4);';
             scanBtn.innerText = window.__isMarketScanning ? '⚡ กำลังสแกน...' : '⚡ สแกนทุกหน้า';
             scanBtn.onclick = (e) => {
@@ -7910,13 +7910,13 @@
                         window.__alertedMarketIds.add(id);
                         const it = item.item || {};
                         const refStr = it.refine ? `+${it.refine} ` : '';
-                        console.log(`%c[Pelican Sniper] 🎯 พบไอเทมเป้าหมาย! ${refStr}${it.name} | ราคา ${Number(item.price).toLocaleString()} z จาก ${item.sellerName}`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
+                        console.log(`%c[PmheeAether Sniper] 🎯 พบไอเทมเป้าหมาย! ${refStr}${it.name} | ราคา ${Number(item.price).toLocaleString()} z จาก ${item.sellerName}`, 'color: #f59e0b; font-weight: bold; font-size: 13px;');
                         if (typeof playWarningChime === 'function') playWarningChime();
 
                         if (cfg.autoBuy) {
                             const maxBuy = Number(cfg.maxAutoBuyPrice) || Number(cfg.maxPrice) || 0;
                             if (maxBuy <= 0 || (Number(item.price) || 0) <= maxBuy) {
-                                console.log(`%c[Pelican Sniper] ⚡ สั่งซื้ออัตโนมัติทันที: ${refStr}${it.name} (${Number(item.price).toLocaleString()} z)...`, 'color: #10b981; font-weight: bold;');
+                                console.log(`%c[PmheeAether Sniper] ⚡ สั่งซื้ออัตโนมัติทันที: ${refStr}${it.name} (${Number(item.price).toLocaleString()} z)...`, 'color: #10b981; font-weight: bold;');
                                 setTimeout(() => {
                                     window.buyMarketListing(item.listingId, item.price, it.name, item.sellerName);
                                 }, 150);
@@ -7984,7 +7984,7 @@
                 }
             }, 100);
         } else {
-            console.warn('[Pelican Market] ⚠️ ไม่พบปุ่มตลาดกลางในหน้าจอ');
+            console.warn('[PmheeAether Market] ⚠️ ไม่พบปุ่มตลาดกลางในหน้าจอ');
             if (typeof callback === 'function') callback(null);
         }
     };
@@ -7996,7 +7996,7 @@
                 clearTimeout(window.__marketScanTimer);
                 window.__marketScanTimer = null;
             }
-            console.log('%c[Pelican Market] ⏹️ หยุดการสแกนตลาดเรียบร้อย', 'color: #f59e0b; font-weight: bold;');
+            console.log('%c[PmheeAether Market] ⏹️ หยุดการสแกนตลาดเรียบร้อย', 'color: #f59e0b; font-weight: bold;');
             if (typeof window.updateMarketScanUIState === 'function') {
                 window.updateMarketScanUIState(false);
             }
@@ -8045,7 +8045,7 @@
         }
 
         window.__isMarketScanning = true;
-        console.log(`%c[Pelican Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติเป้าหมาย ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
+        console.log(`%c[PmheeAether Market] ⚡ เริ่มต้นสแกนตลาดอัตโนมัติเป้าหมาย ${maxPages} หน้าต่อเนื่อง...`, 'color: #a855f7; font-weight: bold;');
 
         let curPage = 0;
         if (typeof window.updateMarketScanUIState === 'function') {
@@ -8063,7 +8063,7 @@
             if (curPage >= maxPages) {
                 window.__isMarketScanning = false;
                 const found = (window.__marketFilteredResults || []).length;
-                console.log(`%c[Pelican Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! พบตรงสเปค: ${found} รายการ (ในแคช ${(window.__marketAllListings || []).length})`, 'color: #10b981; font-weight: bold;');
+                console.log(`%c[PmheeAether Market] ✅ สแกนครบ ${maxPages} หน้าเรียบร้อย! พบตรงสเปค: ${found} รายการ (ในแคช ${(window.__marketAllListings || []).length})`, 'color: #10b981; font-weight: bold;');
                 if (typeof window.updateMarketScanUIState === 'function') {
                     window.updateMarketScanUIState(false);
                 }
@@ -8139,9 +8139,9 @@
                         page: Number(filters.page) || 0
                     }
                 });
-                console.log(`%c[Pelican Market] 🚀 ส่งคำสั่งค้นหาตลาดตรงสู่เซิร์ฟเวอร์: "${queryText || 'ทั้งหมด'}"`, 'color: #38bdf8; font-weight: bold;');
+                console.log(`%c[PmheeAether Market] 🚀 ส่งคำสั่งค้นหาตลาดตรงสู่เซิร์ฟเวอร์: "${queryText || 'ทั้งหมด'}"`, 'color: #38bdf8; font-weight: bold;');
             } catch(e) {
-                console.warn('[Pelican Market] room.send search failed:', e);
+                console.warn('[PmheeAether Market] room.send search failed:', e);
             }
         }
 
@@ -8201,9 +8201,9 @@
         if (room && room.connection?.isOpen) {
             try {
                 room.send('market', { op: 'collect_all' });
-                console.log('%c[Pelican Market] 🎁 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all) สู่เซิร์ฟเวอร์!', 'color: #10b981; font-weight: bold;');
+                console.log('%c[PmheeAether Market] 🎁 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all) สู่เซิร์ฟเวอร์!', 'color: #10b981; font-weight: bold;');
             } catch(e) {
-                console.warn('[Pelican Market] room.send collect_all error:', e);
+                console.warn('[PmheeAether Market] room.send collect_all error:', e);
             }
         }
 
@@ -8238,7 +8238,7 @@
     };
 
     window.buyMarketListing = function(listingId, price, itemName, sellerName, btnEl) {
-        console.log(`%c[Pelican Market] 🛒 ดำเนินการสั่งซื้อ: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName}...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Market] 🛒 ดำเนินการสั่งซื้อ: ${itemName} (${Number(price).toLocaleString()} z) จาก ${sellerName}...`, 'color: #38bdf8; font-weight: bold;');
 
         // อัปเดตสถานะปุ่มใน UI ทันที
         if (btnEl) {
@@ -8257,12 +8257,12 @@
                     listingId: Number(listingId),
                     price: Number(price)
                 });
-                console.log(`%c[Pelican Market] ⚡ ส่งแพ็กเก็ตซื้อตรงสำเร็จ: { op: 'buy', listingId: ${listingId}, price: ${price} } `, 'color: #10b981; font-weight: bold;');
+                console.log(`%c[PmheeAether Market] ⚡ ส่งแพ็กเก็ตซื้อตรงสำเร็จ: { op: 'buy', listingId: ${listingId}, price: ${price} } `, 'color: #10b981; font-weight: bold;');
             } catch(e) {
-                console.warn('[Pelican Market] direct buy send failed:', e);
+                console.warn('[PmheeAether Market] direct buy send failed:', e);
             }
         } else {
-            console.error('[Pelican Market] ❌ ไม่พบการเชื่อมต่อเกม หรือ listingId ไม่ถูกต้อง');
+            console.error('[PmheeAether Market] ❌ ไม่พบการเชื่อมต่อเกม หรือ listingId ไม่ถูกต้อง');
             if (btnEl) {
                 btnEl.disabled = false;
                 btnEl.style.opacity = '1';
@@ -8285,10 +8285,10 @@
                     });
                     if (confirmBtn) {
                         confirmBtn.click();
-                        console.log('%c[Pelican Market] ✅ ยืนยันการสั่งซื้อในหน้าต่าง Dialog สำเร็จ!', 'color: #10b981;');
+                        console.log('%c[PmheeAether Market] ✅ ยืนยันการสั่งซื้อในหน้าต่าง Dialog สำเร็จ!', 'color: #10b981;');
                     }
                 } else if (titleText.length > 0 && !titleText.includes(itemName)) {
-                    console.warn(`[Pelican Market Guard] ⚠️ พบ Dialog ซื้อไอเทมไม่ตรง ("${titleText.slice(0, 40)}") -> สั่งยกเลิก/ปิดทันที`);
+                    console.warn(`[PmheeAether Market Guard] ⚠️ พบ Dialog ซื้อไอเทมไม่ตรง ("${titleText.slice(0, 40)}") -> สั่งยกเลิก/ปิดทันที`);
                     const cancelBtn = Array.from(confirmDialog.querySelectorAll('button')).find(b => {
                         const t = (b.innerText || '').trim();
                         return t === 'ยกเลิก' || t === 'ปิด' || t === 'Cancel';
@@ -8306,17 +8306,17 @@
 
         // 3. กดรับของเข้ากระเป๋าอัตโนมัติ (Auto-Claim Deliveries)
         setTimeout(() => {
-            console.log(`%c[Pelican Market] 🎁 ดำเนินการกดรับของ (${itemName}) เข้ากระเป๋าอัตโนมัติ...`, 'color: #f59e0b; font-weight: bold;');
+            console.log(`%c[PmheeAether Market] 🎁 ดำเนินการกดรับของ (${itemName}) เข้ากระเป๋าอัตโนมัติ...`, 'color: #f59e0b; font-weight: bold;');
             if (room && room.connection?.isOpen) {
                 try {
                     room.send('market', { op: 'collect_all' });
-                    console.log('%c[Pelican Market] 🎁 ยิงแพ็กเก็ต collect_all สำเร็จ!', 'color: #10b981;');
+                    console.log('%c[PmheeAether Market] 🎁 ยิงแพ็กเก็ต collect_all สำเร็จ!', 'color: #10b981;');
                 } catch(e) {}
             }
 
             if (typeof window.claimMarketDeliveries === 'function') {
                 window.claimMarketDeliveries(() => {
-                    console.log(`%c[Pelican Market] 🎉 ซื้อและรับของ ${itemName} เรียบร้อยแล้ว!`, 'color: #10b981; font-weight: bold; font-size: 13px;');
+                    console.log(`%c[PmheeAether Market] 🎉 ซื้อและรับของ ${itemName} เรียบร้อยแล้ว!`, 'color: #10b981; font-weight: bold; font-size: 13px;');
                 });
             }
 
@@ -8771,7 +8771,7 @@
         if (countBadge) {
             countBadge.innerText = (window.__autoMarketSellConfig?.rules || []).length;
         }
-        console.log(`%c[Pelican AutoSell] ➕ เพิ่มรายการลงขายใหม่: "${initialName || 'ยังไม่ระบุชื่อ'}" (เมื่อครบ ≥ ${initialMin} ชิ้น)`, 'color: #10b981; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] ➕ เพิ่มรายการลงขายใหม่: "${initialName || 'ยังไม่ระบุชื่อ'}" (เมื่อครบ ≥ ${initialMin} ชิ้น)`, 'color: #10b981; font-weight: bold;');
     };
 
     window.removeAutoMarketSellRule = function(ruleId) {
@@ -8797,7 +8797,7 @@
         if (countBadge) {
             countBadge.innerText = (window.__autoMarketSellConfig?.rules || []).length;
         }
-        console.log(`%c[Pelican AutoSell] ➖ ลบรายการลงขาย: "${rule?.itemName || ruleId}" เรียบร้อยแล้ว`, 'color: #ef4444; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] ➖ ลบรายการลงขาย: "${rule?.itemName || ruleId}" เรียบร้อยแล้ว`, 'color: #ef4444; font-weight: bold;');
     };
 
     window.updateAutoSellRule = function(ruleId, field, value) {
@@ -8853,11 +8853,11 @@
         const t2 = document.getElementById('p-autosell-toggle-hud');
         if (t2) t2.checked = !!enabled;
 
-        console.log(`%c[Pelican AutoSell] ${enabled ? '🟢 เปิดการทำงาน Auto Market Sell 24/7' : '🔴 ปิดการทำงาน Auto Market Sell'}`, 'color: #a855f7; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] ${enabled ? '🟢 เปิดการทำงาน Auto Market Sell 24/7' : '🔴 ปิดการทำงาน Auto Market Sell'}`, 'color: #a855f7; font-weight: bold;');
         if (enabled && window.__isBotRunning) {
             window.runAutoMarketSellCycle(false);
         } else if (enabled) {
-            console.log('%c[Pelican AutoSell] ⏸️ จะเริ่มลงขายเมื่อกด START BOT', 'color: #a855f7;');
+            console.log('%c[PmheeAether AutoSell] ⏸️ จะเริ่มลงขายเมื่อกด START BOT', 'color: #a855f7;');
         }
     };
 
@@ -8865,7 +8865,7 @@
         if (!window.__autoMarketSellConfig?.rules) return;
         const rule = window.__autoMarketSellConfig.rules.find(r => r.id === ruleId);
         if (!rule || !rule.itemName) {
-            console.warn('[Pelican AutoSell] ⚠️ กรุณาระบุชื่อไอเทมก่อนลงขาย');
+            console.warn('[PmheeAether AutoSell] ⚠️ กรุณาระบุชื่อไอเทมก่อนลงขาย');
             return;
         }
 
@@ -8874,7 +8874,7 @@
         const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm);
 
         if (matchingItems.length === 0) {
-            console.warn(`[Pelican AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ในกระเป๋าตัวละคร`);
+            console.warn(`[PmheeAether AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ในกระเป๋าตัวละคร`);
             return;
         }
 
@@ -8883,18 +8883,18 @@
         const targetSlotItem = matchingItems[0];
         const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
 
-        console.log(`%c[Pelican AutoSell] 🔍 กำลังคำนวณราคากลางสมดุล (Market Median) ของ ${rule.itemName} (ID: ${targetSlotItem.id})...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] 🔍 กำลังคำนวณราคากลางสมดุล (Market Median) ของ ${rule.itemName} (ID: ${targetSlotItem.id})...`, 'color: #38bdf8; font-weight: bold;');
 
         const priceInfo = await window.fetchItemMarketMedianPrice(targetSlotItem.id, targetSlotItem.refine || 0);
         if (!priceInfo || !priceInfo.medianPrice || priceInfo.medianPrice <= 0) {
-            console.warn(`[Pelican AutoSell] ❌ ไม่สามารถคำนวณราคาของ ${rule.itemName} ได้จากเซิร์ฟเวอร์`);
+            console.warn(`[PmheeAether AutoSell] ❌ ไม่สามารถคำนวณราคาของ ${rule.itemName} ได้จากเซิร์ฟเวอร์`);
             return;
         }
 
         const medianUnitPrice = priceInfo.medianPrice;
         const totalPrice = medianUnitPrice * qtyToSell;
 
-        console.log(`%c[Pelican AutoSell] 📊 ผลการวิเคราะห์ราคา: มัธยฐาน = ${medianUnitPrice.toLocaleString()} z/ชิ้น (จาก ${priceInfo.cleanTradesCount} ธุรกรรมล่าสุด) | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] 📊 ผลการวิเคราะห์ราคา: มัธยฐาน = ${medianUnitPrice.toLocaleString()} z/ชิ้น (จาก ${priceInfo.cleanTradesCount} ธุรกรรมล่าสุด) | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
 
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (room && room.connection?.isOpen) {
@@ -8905,7 +8905,7 @@
                 price: Number(totalPrice),
                 hours: 24
             });
-            console.log(`%c[Pelican AutoSell] 🚀 ยิงคำสั่งลงขายสำเร็จ! { op: 'list', slot: ${targetSlotItem.slot}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
+            console.log(`%c[PmheeAether AutoSell] 🚀 ยิงคำสั่งลงขายสำเร็จ! { op: 'list', slot: ${targetSlotItem.slot}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
             if (typeof playWarningChime === 'function') playWarningChime();
 
             setTimeout(() => {
@@ -8937,7 +8937,7 @@
             const activeCount = await window.fetchMyMarketActiveCount();
             const maxQuota = cfg.maxActiveListings || 10;
             if (activeCount >= maxQuota) {
-                console.log(`%c[Pelican AutoSell] ⏸️ โควตาลงขายเต็มแล้ว (${activeCount}/${maxQuota} รายการ) รอขายออกก่อน`, 'color: #f59e0b;');
+                console.log(`%c[PmheeAether AutoSell] ⏸️ โควตาลงขายเต็มแล้ว (${activeCount}/${maxQuota} รายการ) รอขายออกก่อน`, 'color: #f59e0b;');
                 return;
             }
 
@@ -8972,7 +8972,7 @@
                                 price: Number(totalPrice),
                                 hours: 24
                             });
-                            console.log(`%c[Pelican AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z)`, 'color: #10b981; font-weight: bold;');
+                            console.log(`%c[PmheeAether AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z)`, 'color: #10b981; font-weight: bold;');
                             if (typeof playWarningChime === 'function') playWarningChime();
                             remainingSlots--;
                             soldCount++;
@@ -9324,10 +9324,10 @@
             // 8. Refresh HUD inputs to reflect imported values
             window.syncAllHudInputsFromConfig();
 
-            console.log('%c[Pelican Config] ✅ นำเข้าการตั้งค่าสำเร็จครบทุกระบบ (คง ID/Password เดิมของบัญชีนี้ไว้)', 'color: #10b981; font-weight: bold;');
+            console.log('%c[PmheeAether Config] ✅ นำเข้าการตั้งค่าสำเร็จครบทุกระบบ (คง ID/Password เดิมของบัญชีนี้ไว้)', 'color: #10b981; font-weight: bold;');
             return { success: true, message: 'นำเข้าการตั้งค่าสำเร็จครบทุกระบบ (คง ID/Password เดิมของบัญชีนี้ไว้)' };
         } catch(err) {
-            console.error('[Pelican Config] ❌ นำเข้าผิดพลาด:', err);
+            console.error('[PmheeAether Config] ❌ นำเข้าผิดพลาด:', err);
             return { success: false, error: err.message };
         }
     };
@@ -10537,7 +10537,7 @@
             planScriptCb.onchange = (e) => {
                 window.__planScriptEnabled = e.target.checked;
                 try { localStorage.setItem('pelican_plan_script_enabled', String(e.target.checked)); } catch(err) {}
-                console.log('%c[Pelican Plan] สลับสถานะ Plan Script:', 'color: #c084fc; font-weight: bold;', e.target.checked ? 'เปิดใช้งาน' : 'ปิดการทำงาน');
+                console.log('%c[PmheeAether Plan] สลับสถานะ Plan Script:', 'color: #c084fc; font-weight: bold;', e.target.checked ? 'เปิดใช้งาน' : 'ปิดการทำงาน');
                 if (e.target.checked) {
                     if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
                     if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat();
@@ -10652,7 +10652,7 @@
         const btnTestLogin = document.getElementById('p-btn-test-login');
         if (btnTestLogin) {
             btnTestLogin.onclick = () => {
-                console.log('%c[Pelican Auth] 🔑 ทดสอบกระบวนการ Login ด้วยตนเอง...', 'color: #c084fc; font-weight: bold;');
+                console.log('%c[PmheeAether Auth] 🔑 ทดสอบกระบวนการ Login ด้วยตนเอง...', 'color: #c084fc; font-weight: bold;');
                 window.executeAutoLogin(true);
             };
         }
@@ -11130,7 +11130,7 @@
             syncAmmoFromDOM();
             updateAmmoHUD();
             const arrowName = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[window.__archerConfig.arrowType]) ? ARROW_DATA[window.__archerConfig.arrowType].name : e.target.value;
-            console.log(`%c[Pelican Archer] 🏹 เปลี่ยนชนิดลูกธนูเป้าหมายเป็น: "${arrowName}" (ตรวจพบในตัว: ${window.__currentAmmo} ดอก)`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Archer] 🏹 เปลี่ยนชนิดลูกธนูเป้าหมายเป็น: "${arrowName}" (ตรวจพบในตัว: ${window.__currentAmmo} ดอก)`, 'color: #38bdf8; font-weight: bold;');
         };
 
         document.getElementById('p-archer-qty').onchange = (e) => {
@@ -11171,7 +11171,7 @@
                 window.__currentAmmo = 0;
                 localStorage.setItem('pelican_current_ammo', 0);
                 updateAmmoHUD();
-                console.log('%c[Pelican Ammo] 🎯 ปรับจำนวนลูกธนูเป็น 0 ดอกเรียบร้อยแล้ว!', 'color: #ef4444; font-weight: bold;');
+                console.log('%c[PmheeAether Ammo] 🎯 ปรับจำนวนลูกธนูเป็น 0 ดอกเรียบร้อยแล้ว!', 'color: #ef4444; font-weight: bold;');
             };
         }
 
@@ -11191,7 +11191,7 @@
                     if (!window.__buffPotionConfig[id]) window.__buffPotionConfig[id] = {};
                     window.__buffPotionConfig[id].enabled = e.target.checked;
                     window.saveBuffPotionConfig();
-                    console.log(`%c[Pelican Buff] 🧪 ปรับสถานะ ${window.__buffPotionConfig[id].name}: ${e.target.checked ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}`, 'color: #38bdf8; font-weight: bold;');
+                    console.log(`%c[PmheeAether Buff] 🧪 ปรับสถานะ ${window.__buffPotionConfig[id].name}: ${e.target.checked ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}`, 'color: #38bdf8; font-weight: bold;');
                     window.syncBuffPotionsToGame();
                 };
             }
@@ -11201,7 +11201,7 @@
                     if (!window.__buffPotionConfig[id]) window.__buffPotionConfig[id] = {};
                     window.__buffPotionConfig[id].targetQty = parseInt(e.target.value) || 0;
                     window.saveBuffPotionConfig();
-                    console.log(`%c[Pelican Buff] 🧪 ปรับจำนวนพก ${window.__buffPotionConfig[id].name}: ${window.__buffPotionConfig[id].targetQty} ขวด`, 'color: #38bdf8;');
+                    console.log(`%c[PmheeAether Buff] 🧪 ปรับจำนวนพก ${window.__buffPotionConfig[id].name}: ${window.__buffPotionConfig[id].targetQty} ขวด`, 'color: #38bdf8;');
                     if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
                 };
             }
@@ -11369,7 +11369,7 @@
                 const wlTextarea = document.getElementById('p-sell-whitelist');
                 if (wlTextarea) wlTextarea.value = window.__sellConfig.whitelist;
 
-                console.log('%c[Pelican Whitelist] ❌ ลบ "' + targetName + '" ออกจาก Whitelist เรียบร้อย', 'color: #ef4444; font-weight: bold;');
+                console.log('%c[PmheeAether Whitelist] ❌ ลบ "' + targetName + '" ออกจาก Whitelist เรียบร้อย', 'color: #ef4444; font-weight: bold;');
             } else {
                 freshList.push(targetName);
                 window.__sellConfig.whitelist = freshList.join(', ');
@@ -11378,7 +11378,7 @@
                 const wlTextarea = document.getElementById('p-sell-whitelist');
                 if (wlTextarea) wlTextarea.value = window.__sellConfig.whitelist;
 
-                console.log('%c[Pelican Whitelist] 🛡️ เพิ่ม "' + targetName + '" ลงใน Whitelist สำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Whitelist] 🛡️ เพิ่ม "' + targetName + '" ลงใน Whitelist สำเร็จ!', 'color: #22c55e; font-weight: bold;');
             }
 
             window.injectBagWhitelistButton();
@@ -11428,7 +11428,7 @@
     // ==========================================
     
     // ==========================================
-    // PELICAN SCRIPT PLAN EXECUTION ENGINE
+    // PMHEEAETHER SCRIPT PLAN EXECUTION ENGINE
     // ==========================================
     window.__currentScriptPlan = null;
     window.__planScriptEnabled = false; // ค่าเริ่มต้นเป็นปิด (Disabled) เสมอ
@@ -11454,16 +11454,16 @@
         try {
             localStorage.setItem('pelican_script_plan', JSON.stringify(plan));
         } catch(e) {}
-        console.log('%c[Pelican Plan] 📜 โหลดแผนการเล่น (สถานะ: ' + (window.__planScriptEnabled ? 'เปิดใช้งาน' : 'ปิดอยู่') + '):', 'color: #38bdf8; font-weight: bold;', plan ? plan.name : 'None');
+        console.log('%c[PmheeAether Plan] 📜 โหลดแผนการเล่น (สถานะ: ' + (window.__planScriptEnabled ? 'เปิดใช้งาน' : 'ปิดอยู่') + '):', 'color: #38bdf8; font-weight: bold;', plan ? plan.name : 'None');
         if (plan && Array.isArray(plan.triggers)) {
-            console.log(`[Pelican Plan] แผนมีทั้งหมด ${plan.triggers.length} เงื่อนไขเลเวล`);
+            console.log(`[PmheeAether Plan] แผนมีทั้งหมด ${plan.triggers.length} เงื่อนไขเลเวล`);
         }
     };
 
     window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
         if (!itemName) return;
         const targetClean = itemName.trim().toLowerCase();
-        console.log(`%c[Pelican Plan] 🛡️ เริ่มขั้นตอนตรวจสอบอุปกรณ์ "${itemName}"...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Plan] 🛡️ เริ่มขั้นตอนตรวจสอบอุปกรณ์ "${itemName}"...`, 'color: #38bdf8; font-weight: bold;');
 
         // 1. ตรวจสอบว่าสวมใส่อยู่บนตัวละครแล้วหรือไม่
         const isAlreadyEquipped = () => {
@@ -11476,7 +11476,7 @@
         };
 
         if (isAlreadyEquipped()) {
-            console.log(`%c[Pelican Plan] 🛡️ "${itemName}" สวมใส่อยู่บนตัวละครแล้ว (ข้ามการทำงาน)`, 'color: #22c55e;');
+            console.log(`%c[PmheeAether Plan] 🛡️ "${itemName}" สวมใส่อยู่บนตัวละครแล้ว (ข้ามการทำงาน)`, 'color: #22c55e;');
             return true;
         }
 
@@ -11488,7 +11488,7 @@
 
         if (invItem) {
             const slot = invItem.slot ?? invItem.idx;
-            console.log(`%c[Pelican Plan] 🎒 พบ "${itemName}" ในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
+            console.log(`%c[PmheeAether Plan] 🎒 พบ "${itemName}" ในกระเป๋า Slot ${slot} -> ส่งคำสั่งสวมใส่ทันที!`, 'color: #22c55e; font-weight: bold;');
             if (typeof window.sendEquip === 'function') {
                 window.sendEquip(slot);
             }
@@ -11497,7 +11497,7 @@
 
         // 3. ถ้าไม่มีในกระเป๋า และเปิดตัวเลือกซื้อจากตลาด
         if (buyFromMarketIfMissing) {
-            console.log(`%c[Pelican Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${Number(maxPrice).toLocaleString()} z)...`, 'color: #f59e0b; font-weight: bold;');
+            console.log(`%c[PmheeAether Plan] 🛒 ไม่พบ "${itemName}" ในกระเป๋า -> กำลังค้นหาและซื้อจากตลาด (งบสูงสุด: ${Number(maxPrice).toLocaleString()} z)...`, 'color: #f59e0b; font-weight: bold;');
             try {
                 if (typeof window.executeMarketSearch === 'function') {
                     if (window.__marketFilterConfig) {
@@ -11515,7 +11515,7 @@
 
                     if (candidates.length > 0) {
                         const best = candidates[0];
-                        console.log(`%c[Pelican Plan] ⚡ สั่งซื้อ "${best.item.name}" ในราคา ${Number(best.price).toLocaleString()} z ทันที!`, 'color: #10b981; font-weight: bold;');
+                        console.log(`%c[PmheeAether Plan] ⚡ สั่งซื้อ "${best.item.name}" ในราคา ${Number(best.price).toLocaleString()} z ทันที!`, 'color: #10b981; font-weight: bold;');
                         if (typeof window.buyMarketListing === 'function') {
                             window.buyMarketListing(best.listingId, best.price, best.item.name, best.sellerName);
                             // รอไอเทมเข้ากระเป๋า แล้วสั่งสวมใส่
@@ -11528,11 +11528,11 @@
                             return true;
                         }
                     } else {
-                        console.warn(`[Pelican Plan] ⚠️ ไม่พบ "${itemName}" ในตลาดที่ราคาต่ำกว่า ${Number(maxPrice).toLocaleString()} z`);
+                        console.warn(`[PmheeAether Plan] ⚠️ ไม่พบ "${itemName}" ในตลาดที่ราคาต่ำกว่า ${Number(maxPrice).toLocaleString()} z`);
                     }
                 }
             } catch(e) {
-                console.warn('[Pelican Plan] Market buy error:', e);
+                console.warn('[PmheeAether Plan] Market buy error:', e);
             }
         }
 
@@ -11563,17 +11563,17 @@
                     localStorage.setItem('pelican_executed_triggers', JSON.stringify(window.__executedPlanTriggers));
                 } catch(e) {}
 
-                console.log(`%c[Pelican Plan] 🎯 ทำตามแผน Trigger เลเวล ${targetLvl} (${isJob ? 'Job Lv' : 'Base Lv'})!`, 'color: #f59e0b; font-weight: bold;');
+                console.log(`%c[PmheeAether Plan] 🎯 ทำตามแผน Trigger เลเวล ${targetLvl} (${isJob ? 'Job Lv' : 'Base Lv'})!`, 'color: #f59e0b; font-weight: bold;');
 
                 for (const act of (trig.actions || [])) {
                     try {
                         if (act.type === 'change_map' && act.targetMap) {
-                            console.log(`%c[Pelican Plan] 🗺️ แผนสั่งเปลี่ยนแมพฟาร์มไปที่: "${act.targetMap}"`, 'color: #38bdf8;');
+                            console.log(`%c[PmheeAether Plan] 🗺️ แผนสั่งเปลี่ยนแมพฟาร์มไปที่: "${act.targetMap}"`, 'color: #38bdf8;');
                             if (typeof window.setTargetFarmMap === 'function') {
                                 window.setTargetFarmMap(act.targetMap);
                             }
                         } else if (act.type === 'change_class' && act.targetClass) {
-                            console.log(`%c[Pelican Plan] 🏹 แผนสั่งเปลี่ยนอาชีพเป็น: "${act.targetClass}"`, 'color: #a855f7; font-weight: bold;');
+                            console.log(`%c[PmheeAether Plan] 🏹 แผนสั่งเปลี่ยนอาชีพเป็น: "${act.targetClass}"`, 'color: #a855f7; font-weight: bold;');
                             if (typeof window.executeAutoJobChange === 'function') {
                                 await window.executeAutoJobChange(act.targetClass);
                             }
@@ -11581,7 +11581,7 @@
                             await window.findAndEquipItemByName(act.itemName, act.buyFromMarket, act.maxPrice, act.optionFilter);
                         }
                     } catch(err) {
-                        console.warn('[Pelican Plan] Action execution error:', err);
+                        console.warn('[PmheeAether Plan] Action execution error:', err);
                     }
                 }
             }
@@ -11645,11 +11645,11 @@
         }
 
         if (skillToUpgrade) {
-            console.log(`%c[Pelican Plan] ⚡ อัปสกิลอัตโนมัติตามลำดับแผน: "${skillToUpgrade}" (แต้มคงเหลือ: ${charData.skillPoints})`, 'color: #a855f7; font-weight: bold;');
+            console.log(`%c[PmheeAether Plan] ⚡ อัปสกิลอัตโนมัติตามลำดับแผน: "${skillToUpgrade}" (แต้มคงเหลือ: ${charData.skillPoints})`, 'color: #a855f7; font-weight: bold;');
             try {
                 room.send('skill_up', { skillId: skillToUpgrade });
             } catch(err) {
-                console.warn('[Pelican Plan] Error sending skill_up packet:', err);
+                console.warn('[PmheeAether Plan] Error sending skill_up packet:', err);
             }
         }
     };
@@ -11681,11 +11681,11 @@
         }
 
         if (statToUpgrade) {
-            console.log(`%c[Pelican Plan] 📊 อัปสเตตัสอัตโนมัติตามแผน: "${statToUpgrade}" (แต้มคงเหลือ: ${charData.statusPoints})`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Plan] 📊 อัปสเตตัสอัตโนมัติตามแผน: "${statToUpgrade}" (แต้มคงเหลือ: ${charData.statusPoints})`, 'color: #38bdf8; font-weight: bold;');
             try {
                 room.send('stat_up', { stat: statToUpgrade, amount: 1 });
             } catch(err) {
-                console.warn('[Pelican Plan] Error sending stat_up packet:', err);
+                console.warn('[PmheeAether Plan] Error sending stat_up packet:', err);
             }
         }
     };
@@ -11757,7 +11757,7 @@
         if (!jobState.class1Done && (curClass === 'novice' || curClass.includes('novice'))) {
             if (curJob >= 10 && !window.__isChangingJob) {
                 const targetC1 = plan.class1Target || 'archer';
-                console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 1! (Job Lv.${curJob} >= 10) -> ดำเนินการเปลี่ยนเป็น "${targetC1}"... `, 'color: #38bdf8; font-weight: bold;');
+                console.log(`%c[PmheeAether Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 1! (Job Lv.${curJob} >= 10) -> ดำเนินการเปลี่ยนเป็น "${targetC1}"... `, 'color: #38bdf8; font-weight: bold;');
                 window.__isChangingJob = true;
                 try {
                     if (typeof window.executeAutoJobChange === 'function') {
@@ -11778,7 +11778,7 @@
         if (jobState.class1Done && !jobState.class2Done && isFirstClass) {
             if (curJob >= 50 && !window.__isChangingJob) {
                 const targetC2 = plan.class2Target || 'hunter';
-                console.log(`%c[Pelican Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 2! (Job Lv.${curJob} >= 50) -> ดำเนินการเปลี่ยนเป็น "${targetC2}"... `, 'color: #a855f7; font-weight: bold;');
+                console.log(`%c[PmheeAether Plan] 👑 [${charName}] ถึงเกณฑ์เปลี่ยน Class 2! (Job Lv.${curJob} >= 50) -> ดำเนินการเปลี่ยนเป็น "${targetC2}"... `, 'color: #a855f7; font-weight: bold;');
                 window.__isChangingJob = true;
                 try {
                     if (typeof window.executeAutoJobChange === 'function') {
@@ -11918,7 +11918,7 @@
         }
         window.__lastAutoSetTime[charName] = now;
 
-        console.log(`%c[Pelican Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
+        console.log(`%c[PmheeAether Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
 
         const enabledBuffPotionIds = (window.__buffPotionConfig)
             ? Object.keys(window.__buffPotionConfig).filter(id => window.__buffPotionConfig[id]?.enabled).map(Number)
@@ -11944,7 +11944,7 @@
             }
             return true;
         } catch(err) {
-            console.warn('[Pelican Auto] Error sending auto_set packet:', err);
+            console.warn('[PmheeAether Auto] Error sending auto_set packet:', err);
             return false;
         }
     };
@@ -11962,7 +11962,7 @@
             if (cam.banners !== false) {
                 cam.banners = false;
                 localStorage.setItem('webgame.camera', JSON.stringify(cam));
-                console.log('%c[Pelican Settings] 🔕 บันทึกตั้งค่า: ปิดประกาศบนจอ (banners: false)', 'color: #38bdf8; font-weight: bold;');
+                console.log('%c[PmheeAether Settings] 🔕 บันทึกตั้งค่า: ปิดประกาศบนจอ (banners: false)', 'color: #38bdf8; font-weight: bold;');
             }
         } catch(e) {}
 
@@ -11973,7 +11973,7 @@
             if (mob.newsOnEnter !== false) {
                 mob.newsOnEnter = false;
                 localStorage.setItem('webgame.mobile', JSON.stringify(mob));
-                console.log('%c[Pelican Settings] 📰 บันทึกตั้งค่า: ปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false)', 'color: #38bdf8; font-weight: bold;');
+                console.log('%c[PmheeAether Settings] 📰 บันทึกตั้งค่า: ปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false)', 'color: #38bdf8; font-weight: bold;');
             }
         } catch(e) {}
 
@@ -12003,7 +12003,7 @@
                 const closeBtn = newsWindow.querySelector('.win-close');
                 if (closeBtn) {
                     closeBtn.click();
-                    console.log('%c[Pelican Settings] ❎ ปิดหน้าต่างข่าวสารอัตโนมัติ', 'color: #38bdf8;');
+                    console.log('%c[PmheeAether Settings] ❎ ปิดหน้าต่างข่าวสารอัตโนมัติ', 'color: #38bdf8;');
                 }
             }
         } catch(e) {}
@@ -12043,7 +12043,7 @@
     window.claimAllMarket = async function() {
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
         if (!room) return { success: false, error: 'No room connection' };
-        console.log('%c[Pelican Market] 🛒 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all)...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether Market] 🛒 ส่งคำสั่งรับของทั้งหมดจากตลาดกลาง (collect_all)...', 'color: #38bdf8; font-weight: bold;');
         try {
             room.send('market', { op: 'collect_all' });
             room.send('market', { op: 'mine' });
@@ -12103,7 +12103,7 @@
         const available = list.filter(c => c.players < hardCap);
         if (available.length === 0) return res.data.current || 1;
         available.sort((a, b) => a.players - b.players);
-        console.log(`%c[Pelican Channel] 📊 สแกน Channel: พบ CH ${available[0].channel} คนน้อยสุด (${available[0].players} คน)`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Channel] 📊 สแกน Channel: พบ CH ${available[0].channel} คนน้อยสุด (${available[0].players} คน)`, 'color: #22c55e; font-weight: bold;');
         return available[0].channel;
     };
 
@@ -12113,10 +12113,10 @@
         const target = parseInt(targetCh);
         if (isNaN(target)) return { success: false, error: 'Invalid channel number' };
         if (room.state && room.state.channel === target) {
-            console.log(`%c[Pelican Channel] ℹ️ ตัวละครอยู่ที่ CH ${target} อยู่แล้ว`, 'color: #94a3b8;');
+            console.log(`%c[PmheeAether Channel] ℹ️ ตัวละครอยู่ที่ CH ${target} อยู่แล้ว`, 'color: #94a3b8;');
             return { success: true, alreadyThere: true, channel: target };
         }
-        console.log(`%c[Pelican Channel] 🔄 กำลังย้ายไป Channel ${target}...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Channel] 🔄 กำลังย้ายไป Channel ${target}...`, 'color: #38bdf8; font-weight: bold;');
         room.send('channel_switch', { channel: target });
         
         const start = Date.now();
@@ -12124,7 +12124,7 @@
             await new Promise(r => setTimeout(r, 400));
             const curRoom = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
             if (curRoom && curRoom.state && curRoom.state.channel === target) {
-                console.log(`%c[Pelican Channel] ✅ ย้ายไป CH ${target} สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+                console.log(`%c[PmheeAether Channel] ✅ ย้ายไป CH ${target} สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
                 return { success: true, channel: target };
             }
         }
@@ -12142,11 +12142,11 @@
         
         const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
         if (curMap.includes('โซลเฮเวน') || curMap.includes('เมืองหลวง')) {
-            console.log('%c[Pelican Bwing] 🏛️ ตัวละครอยู่ที่เมืองหลวงโซลเฮเวนอยู่แล้ว', 'color: #94a3b8;');
+            console.log('%c[PmheeAether Bwing] 🏛️ ตัวละครอยู่ที่เมืองหลวงโซลเฮเวนอยู่แล้ว', 'color: #94a3b8;');
             return { success: true, alreadyHome: true, map: curMap };
         }
 
-        console.log('%c[Pelican Bwing] 🦋 ใช้วาร์ป Butterfly Wing เพื่อกลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether Bwing] 🦋 ใช้วาร์ป Butterfly Wing เพื่อกลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
         if (typeof window.useButterflyWing === 'function') {
             window.useButterflyWing();
         }
@@ -12156,7 +12156,7 @@
             await new Promise(r => setTimeout(r, 500));
             const mapNow = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
             if (mapNow.includes('โซลเฮเวน') || mapNow.includes('เมืองหลวง')) {
-                console.log('%c[Pelican Bwing] ✅ วาร์ปถึงเมืองหลวงโซลเฮเวนสำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Bwing] ✅ วาร์ปถึงเมืองหลวงโซลเฮเวนสำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 return { success: true, map: mapNow };
             }
         }
@@ -12170,7 +12170,7 @@
             
             window.__consolidationReceiverMode = true;
             window.__consolidationExpectedSender = allowedSenderName ? allowedSenderName.trim().toLowerCase() : null;
-            console.log(`%c[Pelican Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${allowedSenderName || 'ทุกคน'}'...`, 'color: #a855f7; font-weight: bold;');
+            console.log(`%c[PmheeAether Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${allowedSenderName || 'ทุกคน'}'...`, 'color: #a855f7; font-weight: bold;');
 
             let unsubInvite = null;
             let unsubTrade = null;
@@ -12199,7 +12199,7 @@
                 if (inv.kind === 'trade') {
                     const senderClean = (inv.from || '').trim().toLowerCase();
                     if (!window.__consolidationExpectedSender || senderClean === window.__consolidationExpectedSender) {
-                        console.log(`%c[Pelican Trade] 👑 Receiver: ได้รับคำขอเทรดจาก ${inv.from} -> ตอบรับ (accept)!`, 'color: #22c55e; font-weight: bold;');
+                        console.log(`%c[PmheeAether Trade] 👑 Receiver: ได้รับคำขอเทรดจาก ${inv.from} -> ตอบรับ (accept)!`, 'color: #22c55e; font-weight: bold;');
                         room.send('trade', { action: 'accept' });
                     }
                 }
@@ -12211,13 +12211,13 @@
                     receivedZeny = tr.theirs.zeny;
                 }
                 if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked) {
-                    console.log(`%c[Pelican Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${tr.theirs.zeny?.toLocaleString()} z) -> กดล็อค (lock)...`, 'color: #38bdf8;');
+                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${tr.theirs.zeny?.toLocaleString()} z) -> กดล็อค (lock)...`, 'color: #38bdf8;');
                     setTimeout(() => {
                         if (!done) room.send('trade', { action: 'lock' });
                     }, 300);
                 }
                 if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed) {
-                    console.log(`%c[Pelican Trade] 👑 Receiver: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...`, 'color: #22c55e; font-weight: bold;');
+                    console.log(`%c[PmheeAether Trade] 👑 Receiver: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...`, 'color: #22c55e; font-weight: bold;');
                     setTimeout(() => {
                         if (!done) room.send('trade', { action: 'confirm' });
                     }, 400);
@@ -12226,7 +12226,7 @@
 
             unsubInv = room.onMessage('inventory', (inv) => {
                 if (done) return;
-                console.log('%c[Pelican Trade] 👑 Receiver: Inventory อัปเดตหลังเทรดสำเร็จ!', 'color: #22c55e; font-weight: bold;');
+                console.log('%c[PmheeAether Trade] 👑 Receiver: Inventory อัปเดตหลังเทรดสำเร็จ!', 'color: #22c55e; font-weight: bold;');
                 done = true;
                 clearTimeout(timer);
                 setTimeout(() => {
@@ -12244,7 +12244,7 @@
             if (!receiverCharName) return resolve({ success: false, error: 'Missing receiver name' });
             
             const amount = Math.max(0, parseInt(zenyAmount) || 0);
-            console.log(`%c[Pelican Trade] 📤 Sender: เริ่มขั้นตอนเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มขั้นตอนเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
 
             let unsubTrade = null;
             let unsubInv = null;
@@ -12272,7 +12272,7 @@
                 
                 if (!offered) {
                     offered = true;
-                    console.log(`%c[Pelican Trade] 📤 Sender: ส่งข้อเสนอเงิน ${amount.toLocaleString()} z...`, 'color: #38bdf8;');
+                    console.log(`%c[PmheeAether Trade] 📤 Sender: ส่งข้อเสนอเงิน ${amount.toLocaleString()} z...`, 'color: #38bdf8;');
                     setTimeout(() => {
                         if (!done) room.send('trade', { action: 'offer', items: [], zeny: amount });
                     }, 350);
@@ -12281,7 +12281,7 @@
 
                 if (offered && !locked && tr.mine && tr.mine.zeny === amount && !tr.mine.locked) {
                     locked = true;
-                    console.log('%c[Pelican Trade] 📤 Sender: ล็อคข้อเสนอเงิน (lock)...', 'color: #38bdf8;');
+                    console.log('%c[PmheeAether Trade] 📤 Sender: ล็อคข้อเสนอเงิน (lock)...', 'color: #38bdf8;');
                     setTimeout(() => {
                         if (!done) room.send('trade', { action: 'lock' });
                     }, 400);
@@ -12290,7 +12290,7 @@
 
                 if (locked && !confirmed && tr.mine && tr.mine.locked && tr.theirs && tr.theirs.locked && !tr.mine.confirmed) {
                     confirmed = true;
-                    console.log('%c[Pelican Trade] 📤 Sender: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...', 'color: #22c55e; font-weight: bold;');
+                    console.log('%c[PmheeAether Trade] 📤 Sender: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...', 'color: #22c55e; font-weight: bold;');
                     setTimeout(() => {
                         if (!done) room.send('trade', { action: 'confirm' });
                     }, 400);
@@ -12300,7 +12300,7 @@
             unsubInv = room.onMessage('inventory', (inv) => {
                 if (done) return;
                 if (confirmed) {
-                    console.log('%c[Pelican Trade] 📤 Sender: เทรดเสร็จสิ้นสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
+                    console.log('%c[PmheeAether Trade] 📤 Sender: เทรดเสร็จสิ้นสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
                     done = true;
                     clearTimeout(timer);
                     setTimeout(() => {
@@ -12312,7 +12312,7 @@
 
             setTimeout(() => {
                 if (!done) {
-                    console.log(`%c[Pelican Trade] 📤 Sender: ส่งคำขอเทรดไปยัง '${receiverCharName}'...`, 'color: #38bdf8;');
+                    console.log(`%c[PmheeAether Trade] 📤 Sender: ส่งคำขอเทรดไปยัง '${receiverCharName}'...`, 'color: #38bdf8;');
                     room.send('trade', { action: 'request', name: receiverCharName });
                 }
             }, 600);
@@ -12529,7 +12529,7 @@
         if (!room) return { success: false, error: 'No room connection' };
         const payload = { slot: Number(bagSlot) };
         if (targetSlot) payload.to = targetSlot;
-        console.log(`%c[Pelican Equip] ⚔️ สวมใส่ไอเทมช่องกระเป๋า ${bagSlot} -> ${targetSlot || 'auto'}`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether Equip] ⚔️ สวมใส่ไอเทมช่องกระเป๋า ${bagSlot} -> ${targetSlot || 'auto'}`, 'color: #38bdf8; font-weight: bold;');
         room.send('equip', payload);
         return { success: true };
     };
@@ -12537,7 +12537,7 @@
     window.executeUnequipItem = function(slotKey) {
         const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
         if (!room) return { success: false, error: 'No room connection' };
-        console.log(`%c[Pelican Equip] 🛡️ ถอดไอเทมช่อง ${slotKey}`, 'color: #f59e0b; font-weight: bold;');
+        console.log(`%c[PmheeAether Equip] 🛡️ ถอดไอเทมช่อง ${slotKey}`, 'color: #f59e0b; font-weight: bold;');
         room.send('unequip', { slot: slotKey });
         return { success: true };
     };
@@ -12545,7 +12545,7 @@
     window.executeAddStat = function(statKey, count = 1) {
         const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
         if (!room) return { success: false, error: 'No room connection' };
-        console.log(`%c[Pelican Stat] 📈 อัปค่าสถานะ ${statKey} +${count}`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Stat] 📈 อัปค่าสถานะ ${statKey} +${count}`, 'color: #22c55e; font-weight: bold;');
         room.send('stat_up', { stat: String(statKey).toLowerCase(), n: Number(count) || 1 });
         return { success: true };
     };

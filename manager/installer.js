@@ -144,7 +144,7 @@ function installScript(overridePath) {
         name: 'aetheria-launcher',
         productName: 'Aetheria Online',
         version: '1.0.2',
-        description: 'Aetheria Online for Windows + Pelican Auto-Injector',
+        description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
         main: 'main.js',
         private: true
     };
@@ -173,7 +173,7 @@ function installScript(overridePath) {
 
     return {
         success: true,
-        message: 'ติดตั้งและอัปเดตสคริปต์ Pelican ลงในเกมเรียบร้อยแล้ว!',
+        message: 'ติดตั้งและอัปเดตสคริปต์ PmheeAether ลงในเกมเรียบร้อยแล้ว!',
         gamePath,
         installedFiles: [
             targetLoaderPath,
@@ -235,7 +235,7 @@ function checkManagerOnlineUpdate() {
             hostname: 'api.github.com',
             path: '/repos/thegopza/aetheria-pelican-bot/commits/main',
             headers: {
-                'User-Agent': 'Pelican-Manager-Updater'
+                'User-Agent': 'PmheeAether-Manager-Updater'
             },
             timeout: 5000
         };
