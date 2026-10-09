@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4310">
+  <link rel="stylesheet" href="style.css?v=4320">
 </head>
 <body>
   <div class="app-container">
@@ -83,10 +83,17 @@
     <main class="profiles-section">
       <div class="section-title-row">
         <div class="section-title-left">
-          <h2>รายชื่อจอเกมและบอท</h2>
+          <nav class="tab-bar" role="tablist">
+            <button type="button" class="tab-btn active" data-tab="profiles" role="tab">
+              <span class="icon">🎮</span> รายชื่อจอเกมและบอท <span class="tab-count" id="tab-count-profiles">0</span>
+            </button>
+            <button type="button" class="tab-btn" data-tab="zeny" role="tab">
+              <span class="icon">💰</span> ระบบรวมเงิน
+            </button>
+          </nav>
           <span class="live-pill" id="live-polling-badge"><i></i> Realtime Sync · 2s</span>
         </div>
-        <div class="toolbar">
+        <div class="toolbar" data-tab-only="profiles">
           <div class="toolbar-group">
             <div class="dropdown">
               <button id="btn-tile-menu" class="btn btn-ghost btn-sm">
@@ -119,9 +126,20 @@
         </div>
       </div>
 
-      <div class="profiles-grid" id="profiles-grid">
-        <!-- Rendered via JS -->
-      </div>
+      <!-- TAB: GAME CLIENTS & BOTS -->
+      <section class="tab-pane active" data-pane="profiles">
+        <div class="profiles-grid" id="profiles-grid">
+          <!-- Rendered via JS -->
+        </div>
+      </section>
+
+      <!-- TAB: ZENY CONSOLIDATION (placeholder, to be implemented) -->
+      <section class="tab-pane" data-pane="zeny" id="zeny-pane">
+        <div class="empty-state">
+          <div class="empty-icon">💰</div>
+          <p>ระบบรวมเงิน (Zeny Consolidation) — กำลังพัฒนา</p>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -775,7 +793,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=4310"></script>
+  <script src="app.js?v=4320"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
   <script src="builder_module.js?v=1791535335343"></script>
   <!-- FLOATING IN-GAME BOT HUDS CONTAINER -->

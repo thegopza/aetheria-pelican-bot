@@ -200,6 +200,8 @@ async function fetchProfiles() {
 function updateMetrics() {
   const total = currentProfiles.length;
   if (totalEl) totalEl.innerText = total;
+  const tabCount = document.getElementById("tab-count-profiles");
+  if (tabCount) tabCount.innerText = total;
   const onlineCount = currentProfiles.filter(p => p.isRunning).length;
   if (onlineEl) onlineEl.innerText = onlineCount;
   const farmingCount = currentProfiles.filter(p => p.liveState && (p.liveState.autoLoop || p.liveState.isBotRunning)).length;
@@ -659,6 +661,32 @@ document.getElementById("btn-refresh").onclick = () => {
 document.getElementById("btn-add-profile").onclick = () => {
   openAddModal();
 };
+
+// ==========================================
+// MAIN SECTION TABS (Game Clients / Zeny Consolidation)
+// ==========================================
+function switchMainTab(tab) {
+  document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  document.querySelectorAll(".tab-pane[data-pane]").forEach(pane => {
+    pane.classList.toggle("active", pane.dataset.pane === tab);
+  });
+  document.querySelectorAll("[data-tab-only]").forEach(el => {
+    el.style.display = el.dataset.tabOnly === tab ? "" : "none";
+  });
+  try { localStorage.setItem("manager.activeTab", tab); } catch (e) {}
+}
+
+document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
+  btn.onclick = () => switchMainTab(btn.dataset.tab);
+});
+
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem("manager.activeTab"); } catch (e) {}
+  if (saved && document.querySelector(`.tab-pane[data-pane="${saved}"]`)) switchMainTab(saved);
+})();
 
 // ==========================================
 // FLOATING IN-GAME BOT HUD (DIRECT GITHUB REPLICA)
