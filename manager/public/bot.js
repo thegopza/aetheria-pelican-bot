@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.6.0
+// @version      4.6.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.6.0';
+    const PELICAN_BOT_VERSION = '4.6.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -5367,7 +5367,7 @@
 
     function triggerAutoSellTrash(callback) {
         const sellCfg = window.__sellConfig || {};
-        const canSellAny = sellCfg.sellMaterials || 
+        const canSellAny = sellCfg.sellMaterials || sellCfg.sellRefineOres || 
             (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') ||
             (sellCfg.armorRarity && sellCfg.armorRarity !== 'none') ||
             (sellCfg.accRarity && sellCfg.accRarity !== 'none') ||
@@ -5947,10 +5947,84 @@
             }, 600);
         }
 
+        // Stacked items the game's "ใส่วัตถุดิบทั้งหมดลงตะกร้า" button leaves out: materials it labels "หายาก",
+        // "Life" materials (shown in the อื่นๆ tab) and, when enabled, refine ores. Every row is matched to its
+        // bag item by slot (React key of .shop-row) and only sold when the item's real type is in `types`,
+        // it isn't whitelisted, refined, carded or has options.
+        function shopRowSlotOf(rowEl) {
+            const fk = rowEl ? Object.keys(rowEl).find(k => k.startsWith('__reactFiber')) : null;
+            const key = fk && rowEl[fk] ? rowEl[fk].key : null;
+            return key != null && /^\d+$/.test(String(key)) ? Number(key) : null;
+        }
+
+        // One click only: triggerClick fires several click paths, which would add a stack to the cart more than once
+        function clickOnce(el) {
+            const pk = Object.keys(el).find(k => k.startsWith('__reactProps'));
+            if (pk && el[pk] && typeof el[pk].onClick === 'function') el[pk].onClick({ stopPropagation() {}, preventDefault() {} });
+            else el.click();
+        }
+
+        function processStackCategory(catName, types, onDone) {
+            const catBtn = findCategoryTab(catName);
+            if (!catBtn) {
+                console.log(`[PmheeAether Shop] ℹ️ ไม่พบแท็บ "${catName}" -> ข้าม`);
+                onDone();
+                return;
+            }
+            clickOnce(catBtn);
+
+            setTimeout(() => {
+                const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+                const bySlot = {};
+                bag.forEach(b => { bySlot[Number(b.slot)] = b; });
+                const shopModal = document.querySelector('.shop-window') || document.body;
+                const picks = [];
+                shopModal.querySelectorAll('.shop-row').forEach(row => {
+                    if (row.classList.contains('sold-out') || row.classList.contains('in-cart')) return;
+                    const slot = shopRowSlotOf(row);
+                    const b = slot !== null ? bySlot[slot] : null;
+                    const raw = b ? (b.raw || b) : null;
+                    if (!raw || !types.includes(raw.type)) return;
+                    if ((raw.refine || 0) > 0 || (Array.isArray(raw.affixes) && raw.affixes.length) || (raw.cards && raw.cards.some(Boolean))) return;
+                    if (isWhitelisted(raw.name)) {
+                        console.log(`[PmheeAether Shop] 🔒 [Whitelist] เก็บ: "${raw.name}"`);
+                        return;
+                    }
+                    const allBtn = row.querySelector('button.cart-all');
+                    const addBtn = row.querySelector('button.cart-add');
+                    const btn = (allBtn && !allBtn.disabled) ? allBtn : addBtn;
+                    if (!btn || btn.disabled) return;
+                    picks.push({ name: raw.name, qty: raw.qty || 1, btn });
+                });
+
+                if (!picks.length) {
+                    console.log(`[PmheeAether Shop] ℹ️ แท็บ "${catName}": ไม่มีของที่ต้องขายเพิ่ม`);
+                    setTimeout(onDone, 300);
+                    return;
+                }
+                let i = 0;
+                (function step() {
+                    if (i >= picks.length) { setTimeout(onDone, 500); return; }
+                    const p = picks[i++];
+                    console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้า (${catName}): "${p.name}" x${p.qty}`, 'color: #22c55e;');
+                    clickOnce(p.btn);
+                    setTimeout(step, 150);
+                })();
+            }, 600);
+        }
+
         setTimeout(() => {
             const steps = [];
             if (sellCfg.sellMaterials) {
                 steps.push((next) => processCategory('วัตถุดิบ', false, 'all', next));
+                // "ขายขยะทั้งหมด" also sells what the game's junk button skips (rare-labelled / Life materials)
+                if (sellCfg.materialMode !== 'common') {
+                    steps.push((next) => processStackCategory('วัตถุดิบ', ['Miscellaneous'], next));
+                    steps.push((next) => processStackCategory('อื่นๆ', ['Life', 'Miscellaneous'], next));
+                }
+            }
+            if (sellCfg.sellRefineOres) {
+                steps.push((next) => processStackCategory('แร่/ตีบวก', ['Enchantment'], next));
             }
             if (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') {
                 steps.push((next) => processCategory('อาวุธ', true, sellCfg.weaponRarity, next));
@@ -9231,7 +9305,9 @@
         const sellAcc = document.getElementById('p-sell-rarity-acc');
         if (sellAcc) sellAcc.value = sell.accRarity || 'none';
         const sellMat = document.getElementById('p-sell-rarity-mat');
-        if (sellMat) sellMat.value = sell.sellMaterials ? 'all' : 'none';
+        if (sellMat) sellMat.value = !sell.sellMaterials ? 'none' : (sell.materialMode === 'common' ? 'common' : 'all');
+        const sellOres = document.getElementById('p-sell-refine-ores');
+        if (sellOres) sellOres.value = sell.sellRefineOres ? 'unlisted' : 'keep';
         const sellRefined = document.getElementById('p-sell-keep-refined');
         if (sellRefined) sellRefined.checked = sell.keepRefined !== false;
         const sellSpecial = document.getElementById('p-sell-keep-special');
@@ -10085,8 +10161,18 @@
                         <div class="p-row">
                             <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🌿 วัตถุดิบ:</span>
                             <select id="p-sell-rarity-mat" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
-                                <option value="all" ${window.__sellConfig.sellMaterials ? 'selected' : ''}>🧺 ขายขยะทั้งหมด</option>
+                                <option value="all" ${window.__sellConfig.sellMaterials && window.__sellConfig.materialMode !== 'common' ? 'selected' : ''}>🧺 ขายขยะทั้งหมด (รวมหายาก)</option>
+                                <option value="common" ${window.__sellConfig.sellMaterials && window.__sellConfig.materialMode === 'common' ? 'selected' : ''}>🧺 เฉพาะขยะธรรมดา</option>
                                 <option value="none" ${!window.__sellConfig.sellMaterials ? 'selected' : ''}>❌ ไม่ขาย</option>
+                            </select>
+                        </div>
+
+                        <!-- 5. แร่ตีบวก -->
+                        <div class="p-row" title="Phracon / Elunium / Oridecon ฯลฯ — ถ้าเลือกขาย จะขายเฉพาะชนิดที่ไม่ได้อยู่ใน Whitelist">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">⛏️ แร่ตีบวก:</span>
+                            <select id="p-sell-refine-ores" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="keep" ${!window.__sellConfig.sellRefineOres ? 'selected' : ''}>🔒 เก็บทั้งหมด</option>
+                                <option value="unlisted" ${window.__sellConfig.sellRefineOres ? 'selected' : ''}>💰 ขายที่ไม่อยู่ใน Whitelist</option>
                             </select>
                         </div>
                     </div>
@@ -10768,7 +10854,15 @@
         const sellMatEl = document.getElementById('p-sell-rarity-mat');
         if (sellMatEl) {
             sellMatEl.onchange = (e) => {
-                window.__sellConfig.sellMaterials = (e.target.value === 'all');
+                window.__sellConfig.sellMaterials = (e.target.value !== 'none');
+                window.__sellConfig.materialMode = e.target.value === 'common' ? 'common' : 'all';
+                saveSellConfig();
+            };
+        }
+        const sellOresEl = document.getElementById('p-sell-refine-ores');
+        if (sellOresEl) {
+            sellOresEl.onchange = (e) => {
+                window.__sellConfig.sellRefineOres = (e.target.value === 'unlisted');
                 saveSellConfig();
             };
         }

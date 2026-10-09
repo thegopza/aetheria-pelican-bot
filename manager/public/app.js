@@ -1407,8 +1407,18 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                         <div class="p-row">
                             <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🌿 วัตถุดิบ:</span>
                             <select id="p-sell-rarity-mat" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
-                                <option value="all" ${sell.sellMaterials ? 'selected' : ''}>🧺 ขายขยะทั้งหมด</option>
+                                <option value="all" ${sell.sellMaterials && sell.materialMode !== 'common' ? 'selected' : ''}>🧺 ขายขยะทั้งหมด (รวมหายาก)</option>
+                                <option value="common" ${sell.sellMaterials && sell.materialMode === 'common' ? 'selected' : ''}>🧺 เฉพาะขยะธรรมดา</option>
                                 <option value="none" ${!sell.sellMaterials ? 'selected' : ''}>❌ ไม่ขาย</option>
+                            </select>
+                        </div>
+
+                        <!-- 5. แร่ตีบวก -->
+                        <div class="p-row" title="Phracon / Elunium / Oridecon ฯลฯ — ถ้าเลือกขาย จะขายเฉพาะชนิดที่ไม่ได้อยู่ใน Whitelist">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">⛏️ แร่ตีบวก:</span>
+                            <select id="p-sell-refine-ores" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="keep" ${!sell.sellRefineOres ? 'selected' : ''}>🔒 เก็บทั้งหมด</option>
+                                <option value="unlisted" ${sell.sellRefineOres ? 'selected' : ''}>💰 ขายที่ไม่อยู่ใน Whitelist</option>
                             </select>
                         </div>
                     </div>
@@ -2107,18 +2117,25 @@ async function openWebBotHUD(profileId) {
     const cfg = {
       enabled: hudEl.querySelector('#p-sell-trash')?.checked,
       weightThreshold: parseInt(hudEl.querySelector('#p-sell-weight')?.value || '80'),
-      weaponRarity: hudEl.querySelector('#p-sell-weap')?.value || 'rare',
-      armorRarity: hudEl.querySelector('#p-sell-armor')?.value || 'good',
       keepRefined: hudEl.querySelector('#p-sell-keep-refined')?.checked,
       keepSpecial: hudEl.querySelector('#p-sell-keep-special')?.checked,
       keepSockets: hudEl.querySelector('#p-sell-keep-sockets')?.checked,
       whitelist: hudEl.querySelector('#p-sell-whitelist')?.value || '',
       statsFilter: currentStatsFilter
     };
+    // Only send what is actually on the page (a missing select must never fall back to a "sell more" default)
+    const pick = id => hudEl.querySelector(id)?.value;
+    if (pick('#p-sell-rarity-weap')) cfg.weaponRarity = pick('#p-sell-rarity-weap');
+    if (pick('#p-sell-rarity-armor')) cfg.armorRarity = pick('#p-sell-rarity-armor');
+    if (pick('#p-sell-rarity-acc')) cfg.accRarity = pick('#p-sell-rarity-acc');
+    const mat = pick('#p-sell-rarity-mat');
+    if (mat) { cfg.sellMaterials = mat !== 'none'; cfg.materialMode = mat === 'common' ? 'common' : 'all'; }
+    const ores = pick('#p-sell-refine-ores');
+    if (ores) cfg.sellRefineOres = ores === 'unlisted';
     sendWebHudAction(profileId, { type: 'update-sell', config: cfg });
   };
 
-  ['#p-sell-trash', '#p-sell-weight', '#p-sell-weap', '#p-sell-armor', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
+  ['#p-sell-trash', '#p-sell-weight', '#p-sell-rarity-weap', '#p-sell-rarity-armor', '#p-sell-rarity-acc', '#p-sell-rarity-mat', '#p-sell-refine-ores', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveSell;
   });
@@ -2377,11 +2394,15 @@ function populateWebHudData(profileId, data) {
   const sellWeight = hud.querySelector('#p-sell-weight');
   if (sellWeight && document.activeElement !== sellWeight) sellWeight.value = sell.weightThreshold || 80;
 
-  const sellWeap = hud.querySelector('#p-sell-weap');
-  if (sellWeap && sell.weaponRarity && document.activeElement !== sellWeap) sellWeap.value = sell.weaponRarity;
-
-  const sellArmor = hud.querySelector('#p-sell-armor');
-  if (sellArmor && sell.armorRarity && document.activeElement !== sellArmor) sellArmor.value = sell.armorRarity;
+  const syncSel = (id, val) => {
+    const el = hud.querySelector(id);
+    if (el && val !== undefined && document.activeElement !== el) el.value = val;
+  };
+  syncSel('#p-sell-rarity-weap', sell.weaponRarity);
+  syncSel('#p-sell-rarity-armor', sell.armorRarity);
+  syncSel('#p-sell-rarity-acc', sell.accRarity);
+  syncSel('#p-sell-rarity-mat', !sell.sellMaterials ? 'none' : (sell.materialMode === 'common' ? 'common' : 'all'));
+  syncSel('#p-sell-refine-ores', sell.sellRefineOres ? 'unlisted' : 'keep');
 
   const keepRef = hud.querySelector('#p-sell-keep-refined');
   if (keepRef && document.activeElement !== keepRef) keepRef.checked = sell.keepRefined !== false;
