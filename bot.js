@@ -1013,8 +1013,90 @@
     };
 
     // ==========================================
-    // DATA DUMPER UTILITIES (Dump แมพ, ไอเทม, State)
+    // 2. DATA DUMPERS & INSPECTORS
     // ==========================================
+    window.getAliceNpc = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && room.state && room.state.npcs) {
+            let found = null;
+            if (typeof room.state.npcs.forEach === 'function') {
+                room.state.npcs.forEach((npc, key) => {
+                    if (npc && npc.name && (npc.name.includes('Alice') || npc.name.includes('อลิซ'))) {
+                        found = { key, name: npc.name, x: npc.x, y: npc.y };
+                    }
+                });
+            }
+            if (found) return found;
+        }
+        return { key: 'n7', name: 'Alice Service', x: 1632, y: 1696 };
+    };
+
+    window.getAliceNpcKey = function() {
+        const a = window.getAliceNpc();
+        return a ? a.key : 'n7';
+    };
+
+    window.getValkyrieNpcKey = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && room.state && room.state.npcs) {
+            let found = null;
+            if (typeof room.state.npcs.forEach === 'function') {
+                room.state.npcs.forEach((npc, key) => {
+                    if (npc && npc.name && (npc.name.includes('Valkyrie') || npc.name.includes('วัลคีรี'))) {
+                        found = key;
+                    }
+                });
+            }
+            if (found) return found;
+        }
+        return 'n6';
+    };
+
+    window.findNpcByName = function(query) {
+        if (!query) return null;
+        const q = query.toLowerCase().trim();
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && room.state && room.state.npcs) {
+            let found = null;
+            if (typeof room.state.npcs.forEach === 'function') {
+                room.state.npcs.forEach((npc, key) => {
+                    if (npc && npc.name && npc.name.toLowerCase().includes(q)) {
+                        found = { key, name: npc.name, x: npc.x, y: npc.y, art: npc.art || '' };
+                    }
+                });
+            }
+            if (found) return found;
+        }
+        return null;
+    };
+
+    window.dumpNpcData = function(copyToClip = true) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        const npcs = [];
+        if (room && room.state && room.state.npcs) {
+            if (typeof room.state.npcs.forEach === 'function') {
+                room.state.npcs.forEach((npc, key) => {
+                    npcs.push({
+                        key,
+                        name: npc.name || '',
+                        x: npc.x || 0,
+                        y: npc.y || 0,
+                        art: npc.art || '',
+                        body: npc.body || '',
+                        pet: npc.pet || ''
+                    });
+                });
+            }
+        }
+        npcs.sort((a, b) => (a.key || '').localeCompare(b.key || '', undefined, { numeric: true }));
+        console.log(`%c[Pelican Dump] 👥 รายชื่อ NPC ในแมพปัจจุบัน (${npcs.length} ตัว):`, 'color: #38bdf8; font-weight: bold;');
+        console.table(npcs);
+        if (copyToClip) {
+            window.safeCopyToClipboard(JSON.stringify(npcs, null, 2), `📋 คัดลอกข้อมูล NPC (${npcs.length} ตัว) ลง Clipboard เรียบร้อย!`);
+        }
+        return npcs;
+    };
+
     window.dumpMapData = function() {
         function extractPins() {
             const stage = document.querySelector('.worldmap-stage') || document.querySelector('.worldmap-body') || document.querySelector('.worldmap-window') || document.body;
@@ -1941,6 +2023,7 @@
                             <button class="p-mod-tab-btn" data-tab="items" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📦 กระเป๋า & อุปกรณ์</button>
                             <button class="p-mod-tab-btn" data-tab="market" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🛒 ตลาดกลาง (Market)</button>
                             <button class="p-mod-tab-btn" data-tab="maps" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🗺️ แผนที่โลก (25 โซน)</button>
+                            <button class="p-mod-tab-btn" data-tab="npcs" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">👥 NPC ในแมพ</button>
                             <button class="p-mod-tab-btn" data-tab="packets" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">📜 Packets ล่าสุด</button>
                             <button class="p-mod-tab-btn" data-tab="state" style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; font-size: 11.5px; font-weight: bold; cursor: pointer;">🕹️ สถานะตัวละคร</button>
                         </div>
@@ -2037,6 +2120,8 @@
                     dataToCopy = window.dumpMarketData ? window.dumpMarketData() : [];
                 } else if (window.__currentModalTab === 'maps') {
                     dataToCopy = window.dumpMapData();
+                } else if (window.__currentModalTab === 'npcs') {
+                    dataToCopy = (typeof window.dumpNpcData === 'function') ? window.dumpNpcData(false) : [];
                 } else if (window.__currentModalTab === 'packets') {
                     dataToCopy = window.__packetLogs || [];
                 } else {
@@ -2561,6 +2646,46 @@
                 };
             }
 
+        } else if (tabName === 'npcs') {
+            const npcs = (typeof window.dumpNpcData === 'function') ? window.dumpNpcData(false) : [];
+            const filtered = npcs.filter(n => {
+                if (!query) return true;
+                return (n.key && n.key.toLowerCase().includes(query)) ||
+                       (n.name && n.name.toLowerCase().includes(query));
+            });
+
+            container.innerHTML = `
+                <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold; color: #38bdf8;">👥 รายชื่อ NPC ทั้งหมดในแมพปัจจุบัน (${filtered.length} ตัว)</span>
+                    <button onclick="window.dumpNpcData(true);" style="background: #0284c7; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;">🔄 รีเฟรช & คัดลอก JSON</button>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11.5px;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 6px 10px; border: 1px solid #334155;">NPC Key</th>
+                            <th style="padding: 6px 10px; border: 1px solid #334155;">ชื่อ NPC</th>
+                            <th style="padding: 6px 10px; border: 1px solid #334155;">พิกัด (X, Y)</th>
+                            <th style="padding: 6px 10px; border: 1px solid #334155;">Art / รูปแบบ</th>
+                            <th style="padding: 6px 10px; border: 1px solid #334155; text-align: center;">การกระทำ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered.length === 0 ? '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #64748b;">ไม่พบ NPC หรือยังไม่ได้โหลดเข้าแมพ</td></tr>' : filtered.map(npc => `
+                            <tr style="border-bottom: 1px solid #1e293b;">
+                                <td style="padding: 6px 10px; font-weight: bold; color: #a855f7; font-family: monospace;">${npc.key}</td>
+                                <td style="padding: 6px 10px; font-weight: bold; color: #fff;">${npc.name || '(ไม่มีชื่อ)'}</td>
+                                <td style="padding: 6px 10px; color: #38bdf8; font-family: monospace;">${npc.x}, ${npc.y}</td>
+                                <td style="padding: 6px 10px; color: #94a3b8; font-size: 10px;">${npc.art || '-'}</td>
+                                <td style="padding: 6px 10px; text-align: center;">
+                                    <button onclick="window.sendRemoteNpcTalk('${npc.key}');" style="background: #0284c7; color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; margin-right: 4px;">💬 คุย</button>
+                                    <button onclick="if(window.getColyseusRoom()){ window.getColyseusRoom().send('move_to', { x: ${npc.x}, y: ${npc.y} }); }" style="background: #059669; color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;">🚶 เดินไปหา</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            return;
         } else if (tabName === 'state') {
             const state = window.dumpGameState ? window.dumpGameState() : {};
             let html = `
@@ -4329,9 +4454,12 @@
 
         let tag = '[Pelican Shop]';
         let color = '#f59e0b';
-        if (key === 'n6') {
+        if (key === 'n7') {
             tag = '[Pelican Warp/Alice]';
             color = '#38bdf8';
+        } else if (key === 'n6') {
+            tag = '[Pelican Job/Valkyrie]';
+            color = '#c084fc';
         } else if (key === 'n1') {
             tag = '[Pelican Storage]';
             color = '#a855f7';
@@ -4624,11 +4752,25 @@
             return false;
         }
 
-        // 1. ลองคลิกที่ตัว Alice บนจอเกม
+        const aliceNpc = (typeof window.getAliceNpc === 'function') ? window.getAliceNpc() : { key: 'n7', x: 1632, y: 1696 };
+        const aliceKey = aliceNpc.key || 'n7';
+
+        // 1. ตรวจสอบระยะห่าง ถ้าตัวละครอยู่ไกลจาก Alice ให้เดินเข้าหาก่อน
+        const curPos = window.__currentPos || { x: 0, y: 0 };
+        const distToAlice = (curPos.x && aliceNpc.x) ? Math.hypot(curPos.x - aliceNpc.x, curPos.y - aliceNpc.y) : 0;
+        if (distToAlice > 90) {
+            console.log(`%c[Pelican Warp] 🚶 ตัวละครอยู่ห่างจาก Alice Service (${Math.round(distToAlice)}px) -> กำลังเดินไปหาที่ (${aliceNpc.x}, ${aliceNpc.y})...`, 'color: #38bdf8;');
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            if (room && aliceNpc.x && aliceNpc.y) {
+                room.send('move_to', { x: aliceNpc.x, y: aliceNpc.y });
+            }
+        }
+
+        // 2. ลองคลิกที่ตัว Alice บนจอเกม
         clickAliceOnScreen();
 
-        // 2. ส่ง Packet npc_talk เพื่อเปิดคุย
-        window.sendRemoteNpcTalk('n6');
+        // 3. ส่ง Packet npc_talk (Alice = n7) เพื่อเปิดคุย
+        window.sendRemoteNpcTalk(aliceKey);
 
         let attempts = 0;
         let lastPos = { x: 0, y: 0 };
@@ -4734,18 +4876,20 @@
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
 
+            const currentAliceKey = (typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : 'n7';
+
             // ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก เฉพาะตอนที่ dialog ยังไม่เปิด
             if (attempts % 5 === 0) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 clickAliceOnScreen();
-                window.sendRemoteNpcTalk('n6');
+                window.sendRemoteNpcTalk(currentAliceKey);
             }
 
             // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice แล้ว) ส่ง packet คุยทันที
             if (isStationary && stillCount === 2) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
-                console.log('%c[Pelican Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (n6)...', 'color: #38bdf8;');
-                window.sendRemoteNpcTalk('n6');
+                console.log(`%c[Pelican Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (${currentAliceKey})...`, 'color: #38bdf8;');
+                window.sendRemoteNpcTalk(currentAliceKey);
             }
 
             // Timeout: ให้เวลาเดินอย่างน้อย 21 วินาที (35 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
@@ -9625,6 +9769,9 @@
                             <button class="p-btn" id="p-btn-dump-market" style="background: #ec4899; color: #fff; font-weight: bold; padding: 4px; font-size: 10px;">🛒 Dump ตลาดกลาง</button>
                             <button class="p-btn" id="p-btn-dump-weight" style="background: #f59e0b; color: #000; font-weight: bold; padding: 4px; font-size: 10px;">⚖️ Dump น้ำหนัก DOM & กระเป๋า</button>
                         </div>
+                        <div style="display: grid; grid-template-columns: 1fr; margin-top: 3px;">
+                            <button class="p-btn" id="p-btn-dump-npc" style="background: #06b6d4; color: #000; font-weight: bold; padding: 4px; font-size: 10px;">👥 Dump NPC (รายชื่อ, Key & พิกัดทั้งหมด)</button>
+                        </div>
                     </div>
 
                     <button class="p-btn p-btn-copy-out" id="p-btn-copy-out" style="margin-top: 2px;">📋 คัดลอก Packet ขาออก (Hex เต็ม)</button>
@@ -9703,6 +9850,12 @@
 
         const dumpStateBtn = document.getElementById('p-btn-dump-state');
         if (dumpStateBtn) dumpStateBtn.onclick = () => { window.dumpGameState(); window.showDataViewerModal("state"); };
+
+        const dumpNpcBtn = document.getElementById('p-btn-dump-npc');
+        if (dumpNpcBtn) dumpNpcBtn.onclick = () => {
+            if (typeof window.dumpNpcData === 'function') window.dumpNpcData(true);
+            if (typeof window.showDataViewerModal === 'function') window.showDataViewerModal('npcs');
+        };
 
         const dumpWeightBtn = document.getElementById('p-btn-dump-weight');
         if (dumpWeightBtn) {
