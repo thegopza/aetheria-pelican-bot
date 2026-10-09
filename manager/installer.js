@@ -41,7 +41,8 @@ function getEffectiveGamePath(overridePath) {
         return overridePath.trim();
     }
     const settings = loadSettings();
-    if (settings.gamePath && typeof settings.gamePath === 'string' && settings.gamePath.trim()) {
+    // A saved path from another PC (e.g. settings.json shipped in a zip) must not win over the real install
+    if (settings.gamePath && typeof settings.gamePath === 'string' && settings.gamePath.trim() && fs.existsSync(settings.gamePath.trim())) {
         return settings.gamePath.trim();
     }
     return getDefaultGamePath();

@@ -216,7 +216,8 @@ function savePlans(plans) {
 const SESSIONS_DIR = path.join(BASE_DIR, "sessions");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-const GAME_EXE = "C:\\Users\\golf\\AppData\\Local\\Programs\\Aetheria Online\\Aetheria Online.exe";
+// Game executable on *this* PC: the patcher's saved folder if it exists, else %LOCALAPPDATA%/Programs/Aetheria Online
+const getGameExe = () => path.join(installer.getEffectiveGamePath(), "Aetheria Online.exe");
 
 // Ensure sessions directory exists
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -816,7 +817,7 @@ const server = http.createServer(async (req, res) => {
       saveProfiles(fresh);
     }
 
-    return sendJSON({ success: true, profiles: enriched, gameExe: GAME_EXE, allWindowsHidden });
+    return sendJSON({ success: true, profiles: enriched, gameExe: getGameExe(), allWindowsHidden });
   }
 
   // GET /api/portrait?src=/art/classes/hunter-face.webp — cached character portrait
@@ -1083,8 +1084,8 @@ const server = http.createServer(async (req, res) => {
     const sessionDir = path.join(SESSIONS_DIR, profile.id);
     if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-    if (!fs.existsSync(GAME_EXE)) {
-      return sendJSON({ success: false, error: "Aetheria Online.exe not found at: " + GAME_EXE }, 500);
+    if (!fs.existsSync(getGameExe())) {
+      return sendJSON({ success: false, error: "Aetheria Online.exe not found at: " + getGameExe() }, 500);
     }
 
     const args = [
@@ -1095,8 +1096,8 @@ const server = http.createServer(async (req, res) => {
     ];
 
     try {
-      const child = spawn(GAME_EXE, args, {
-        cwd: path.dirname(GAME_EXE),
+      const child = spawn(getGameExe(), args, {
+        cwd: path.dirname(getGameExe()),
         detached: true,
         stdio: "ignore",
         windowsHide: false
@@ -1147,7 +1148,7 @@ const server = http.createServer(async (req, res) => {
           "--multi-instance"
         ];
         try {
-          const child = spawn(GAME_EXE, args, { cwd: path.dirname(GAME_EXE), detached: true, stdio: "ignore", windowsHide: false });
+          const child = spawn(getGameExe(), args, { cwd: path.dirname(getGameExe()), detached: true, stdio: "ignore", windowsHide: false });
           child.unref();
           runningProcesses[p.id] = { pid: child.pid, startTime: Date.now() };
           launched.push({ id: p.id, name: p.name, pid: child.pid });
@@ -2447,6 +2448,6 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);
-  console.log(`🎮 Game executable: ${GAME_EXE}`);
+  console.log(`🎮 Game executable: ${getGameExe()}`);
   console.log(`========================================================`);
 });
