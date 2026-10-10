@@ -1040,8 +1040,7 @@ const server = http.createServer(async (req, res) => {
             if (wlEl) wlEl.value = ${JSON.stringify(newWhitelist)};
             return { success: true };
           })()`;
-          const evalUrl = `http://127.0.0.1:${p.debugPort}/api/eval?code=` + encodeURIComponent(code);
-          http.get(evalUrl, () => {}).on("error", () => {});
+          evalProfilePort(p.debugPort, code, 5000);
         };
 
         // Sync live to current profile's game client
@@ -1677,15 +1676,11 @@ const server = http.createServer(async (req, res) => {
           codeToRun = payload.code;
         }
 
-        const evalUrl = `http://127.0.0.1:${profile.debugPort}/api/eval?code=` + encodeURIComponent(codeToRun);
-        http.get(evalUrl, (cRes) => {
-          let d = "";
-          cRes.on("data", chunk => d += chunk);
-          cRes.on("end", () => {
-            try { sendJSON({ success: true, result: JSON.parse(d) }); }
-            catch(e) { sendJSON({ success: true, raw: d }); }
-          });
-        }).on('error', err => sendJSON({ success: false, error: err.message }, 502));
+        // POST: configs (import-config, whitelists, rules) are far too long for a URL once Thai text is encoded
+        evalProfilePort(profile.debugPort, codeToRun, 15000).then(r => {
+          if (r && r.success === false && !('result' in r)) return sendJSON({ success: false, error: r.error || 'สั่งงานจอเกมไม่สำเร็จ' }, 502);
+          sendJSON({ success: true, result: r });
+        });
       } catch (err) {
         sendJSON({ success: false, error: err.message }, 400);
       }
@@ -2094,21 +2089,7 @@ const server = http.createServer(async (req, res) => {
         `;
         
         try {
-          await new Promise((resolve) => {
-            const clientReq = http.request({
-              hostname: "127.0.0.1",
-              port: profile.debugPort,
-              path: `/api/eval?code=${encodeURIComponent(code)}`,
-              method: "GET",
-              timeout: 1500
-            }, (res) => {
-              res.resume();
-              resolve(true);
-            });
-            clientReq.on("error", () => resolve(false));
-            clientReq.on("timeout", () => { clientReq.destroy(); resolve(false); });
-            clientReq.end();
-          });
+          await evalProfilePort(profile.debugPort, code, 5000);
         } catch (e) {}
 
         return sendJSON({ success: true, message: "Plan applied successfully", plan });
@@ -2271,6 +2252,7 @@ const server = http.createServer(async (req, res) => {
 
         const profiles = loadProfiles();
         const appliedProfiles = [];
+        const failedProfiles = [];
         const presetConfig = JSON.parse(JSON.stringify(preset.config || {}));
         if (presetConfig.authConfig) {
           delete presetConfig.authConfig.username;
@@ -2286,9 +2268,7 @@ const server = http.createServer(async (req, res) => {
           if (preset.config?.targetMap) {
             profile.targetMap = preset.config.targetMap;
           }
-          appliedProfiles.push(profile.name || profile.id);
-
-          // 2. If running, send importAllBotSettings via debugPort
+          // 2. Send importAllBotSettings to the running game (POST: the config is too long for a URL)
           if (profile.debugPort) {
             const codeToRun = `(() => {
               if (typeof window.importAllBotSettings === 'function') {
@@ -2298,32 +2278,23 @@ const server = http.createServer(async (req, res) => {
               }
             })()`;
 
-            try {
-              await new Promise((resolve) => {
-                const clientReq = http.request({
-                  hostname: "127.0.0.1",
-                  port: profile.debugPort,
-                  path: `/api/eval?code=${encodeURIComponent(codeToRun)}`,
-                  method: "GET",
-                  timeout: 2000
-                }, (res) => {
-                  res.resume();
-                  resolve(true);
-                });
-                clientReq.on("error", () => resolve(false));
-                clientReq.on("timeout", () => { clientReq.destroy(); resolve(false); });
-                clientReq.end();
-              });
-            } catch(e) {}
+            const r = await evalProfilePort(profile.debugPort, codeToRun, 8000);
+            if (r && r.success && r.result && r.result.success) appliedProfiles.push(profile.name || profile.id);
+            else failedProfiles.push(`${profile.name || profile.id} (${(r && r.result && r.result.error) || (r && r.error) || 'จอออฟไลน์'})`);
+          } else {
+            failedProfiles.push(`${profile.name || profile.id} (จอออฟไลน์)`);
           }
         }
 
         saveProfiles(profiles);
         return sendJSON({
-          success: true,
+          success: appliedProfiles.length > 0 || failedProfiles.length === 0,
           appliedCount: appliedProfiles.length,
           appliedProfiles: appliedProfiles,
-          message: `คัดลอกการตั้งค่า "${preset.name}" ไปยัง ${appliedProfiles.length} โปรไฟล์เรียบร้อยแล้ว`
+          failedProfiles,
+          message: `คัดลอกการตั้งค่า "${preset.name}" ไปยัง ${appliedProfiles.length} จอเรียบร้อยแล้ว`
+            + (failedProfiles.length ? `\n\n⚠️ ส่งไม่สำเร็จ ${failedProfiles.length} จอ (ต้องเปิดจอเกมไว้ก่อน):\n• ${failedProfiles.join('\n• ')}` : ''),
+          error: appliedProfiles.length ? undefined : `ส่งการตั้งค่าไม่สำเร็จ — ต้องเปิดจอเกมไว้ก่อน:\n• ${failedProfiles.join('\n• ')}`
         });
       } catch (err) {
         return sendJSON({ success: false, error: err.message }, 400);

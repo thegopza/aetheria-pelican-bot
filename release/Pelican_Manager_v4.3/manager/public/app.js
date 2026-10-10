@@ -115,14 +115,20 @@ function openWebConfigModal(profileId, mode, preloadedJson = '') {
       alert('กรุณาวางโค้ด JSON การตั้งค่าก่อนกดนำเข้า');
       return;
     }
-    const res = await sendWebHudAction(targetProfId, { type: 'import-config', configJson: txt });
-    if (res.success && res.result?.success !== false) {
+    try { JSON.parse(txt); } catch (e) {
+      alert('❌ ไฟล์/ข้อความนี้ไม่ใช่ JSON ที่ถูกต้อง: ' + e.message);
+      return;
+    }
+    const res = await sendWebHudAction(targetProfId, { type: 'import-config', configJson: txt }) || {};
+    const gameAnswer = res.result && res.result.result;
+    if (res.success && res.result?.success !== false && gameAnswer && gameAnswer.success !== false) {
       status.innerText = '✅ นำเข้าการตั้งค่าสำเร็จครบทุกระบบ!';
       alert('✅ นำเข้าการตั้งค่าสำเร็จ! (คง ID และ Password เดิมของจอนี้ไว้)');
       modal.style.display = 'none';
     } else {
-      status.innerText = '❌ ผิดพลาด: ' + (res.error || res.result?.error || 'นำเข้าไม่สำเร็จ');
-      alert('❌ ไม่สามารถนำเข้าการตั้งค่าได้: ' + (res.error || res.result?.error));
+      const why = res.error || res.result?.error || gameAnswer?.error || (gameAnswer ? 'นำเข้าไม่สำเร็จ' : 'จอเกมไม่ตอบกลับ (ต้องเปิดจอเกมนี้ไว้)');
+      status.innerText = '❌ ผิดพลาด: ' + why;
+      alert('❌ ไม่สามารถนำเข้าการตั้งค่าได้: ' + why);
     }
   };
 
@@ -2208,7 +2214,11 @@ async function openWebBotHUD(profileId) {
   if (exportBtn) {
     exportBtn.onclick = async () => {
       const res = await sendWebHudAction(profileId, { type: 'export-config' });
-      const jsonStr = res?.result?.result?.json || res?.result?.json || JSON.stringify(res?.result, null, 2);
+      const jsonStr = res?.result?.result?.json || res?.result?.json;
+      if (!jsonStr) {
+        alert('❌ ส่งออกไม่สำเร็จ: ' + (res?.error || res?.result?.error || 'จอเกมไม่ตอบกลับ (ต้องเปิดจอเกมนี้ไว้)'));
+        return;
+      }
       openWebConfigModal(profileId, 'export', jsonStr);
     };
   }
@@ -2454,11 +2464,13 @@ function populateWebHudData(profileId, data) {
 
 async function sendWebHudAction(profileId, payload) {
   try {
-    await fetch(API_BASE + '/api/profiles/' + profileId + '/client-action', {
+    const resp = await fetch(API_BASE + '/api/profiles/' + profileId + '/client-action', {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
+    let out;
+    try { out = await resp.json(); } catch (e) { out = { success: false, error: 'HTTP ' + resp.status }; }
     // Immediately pull refreshed data
     setTimeout(async () => {
       const res = await fetch(API_BASE + '/api/profiles/' + profileId + '/client-data');
@@ -2468,8 +2480,10 @@ async function sendWebHudAction(profileId, payload) {
         populateWebHudData(profileId, json.data);
       }
     }, 250);
+    return out;
   } catch(e) {
     console.error("sendWebHudAction error:", e);
+    return { success: false, error: e.message };
   }
 }
 

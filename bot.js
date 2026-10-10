@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.6.1
+// @version      4.6.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.6.1';
+    const PELICAN_BOT_VERSION = '4.6.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -9298,7 +9298,7 @@
         if (sellWeightCb) sellWeightCb.checked = !!sell.weightCheckEnabled;
         const sellThresh = document.getElementById('p-weight-threshold');
         if (sellThresh) sellThresh.value = sell.weightThreshold || 80;
-        const sellWep = document.getElementById('p-sell-rarity-weapon');
+        const sellWep = document.getElementById('p-sell-rarity-weap');
         if (sellWep) sellWep.value = sell.weaponRarity || 'normal';
         const sellArm = document.getElementById('p-sell-rarity-armor');
         if (sellArm) sellArm.value = sell.armorRarity || 'normal';
@@ -9342,6 +9342,22 @@
             if (qtyEl && potCfg[id]?.targetQty !== undefined) qtyEl.value = potCfg[id].targetQty;
         });
         if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+
+        // 5.6 Stat filter (whitelist options) and the auto market-sell switch
+        if (typeof window.renderSellStatsFilterUI === 'function') {
+            const sf = sell.statsFilter || {};
+            const setCb = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
+            setCb('p-statfilter-toggle', !!sf.enabled);
+            setCb('p-statfilter-weap', sf.filterWeapons !== false);
+            setCb('p-statfilter-armor', sf.filterArmors !== false);
+            setCb('p-statfilter-acc', sf.filterAccessories !== false);
+            setCb('p-statfilter-protect-gems', sf.protectGems !== false);
+            const minEl = document.getElementById('p-statfilter-min-opts');
+            if (minEl) minEl.value = sf.minOptions || 2;
+            window.renderSellStatsFilterUI();
+        }
+        const amsToggle = document.getElementById('p-autosell-toggle');
+        if (amsToggle) amsToggle.checked = !!(window.__autoMarketSellConfig && window.__autoMarketSellConfig.enabled);
 
         // 6. Market Rules HTML
         if (typeof window.renderAutoSellHudRulesHtml === 'function') {
