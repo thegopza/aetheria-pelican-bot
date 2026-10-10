@@ -88,13 +88,13 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     try { await wsReady; } finally { wsReady = null; }
     await send('Target.setDiscoverTargets', { discover: true }).catch(() => {});
   }
-  function send(method, params = {}, sessionId) {
+  function send(method, params = {}, sessionId, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
       if (!ws || ws.readyState !== 1) return reject(new Error('CDP not connected'));
       const id = nextId++;
       pending.set(id, { resolve, reject });
       ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, 30000);
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, timeoutMs);
     });
   }
 
@@ -202,7 +202,8 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
 
   // ---------- per-profile HTTP API (same as the Electron loader's) ----------
   async function evaluate(c, code) {
-    const r = await send('Runtime.evaluate', { expression: code, awaitPromise: true, returnByValue: true }, c.sessionId);
+    // long scripts (channel switch waiting for a free slot, trades) may take minutes, like the Electron loader allows
+    const r = await send('Runtime.evaluate', { expression: code, awaitPromise: true, returnByValue: true }, c.sessionId, 300000);
     if (r.exceptionDetails) throw new Error((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text || 'Script failed');
     return r.result ? r.result.value : undefined;
   }

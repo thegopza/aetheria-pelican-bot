@@ -601,11 +601,16 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
 
     addConsolidationLog(`👑 ตัวรับเงิน (${receiverProfile.name}) กำลังเปลี่ยนไป Channel ${targetChannel}...`, 'info');
     await evalProfilePort(receiverProfile.debugPort, `
-      window.switchChannel ? window.switchChannel(${targetChannel}) : null
-    `);
-
-    addConsolidationLog('⏳ รอตัวรับเงินโหลดเข้าสู่ Channel ใหม่ให้เสร็จสมบูรณ์ (4 วินาที)...', 'info');
-    await new Promise(r => setTimeout(r, 4000));
+      window.moveToChannel ? window.moveToChannel(${targetChannel}, 45000) : (window.switchChannel ? window.switchChannel(${targetChannel}) : null)
+    `, 50000);
+    await new Promise(r => setTimeout(r, 2000));
+    // Senders go where the receiver REALLY is (a refused switch left it elsewhere: CH 47 vs 74)
+    const recvCh = await evalProfilePort(receiverProfile.debugPort, `window.getCurrentChannel ? window.getCurrentChannel() : null`, 5000);
+    if (recvCh && typeof recvCh.result === 'number' && recvCh.result > 0) {
+      if (recvCh.result !== targetChannel) addConsolidationLog(`ℹ️ ตัวรับเงินย้ายไป CH ${targetChannel} ไม่ได้ ยังอยู่ CH ${recvCh.result} -> ให้จอรองมาที่ CH ${recvCh.result}`, 'warning');
+      targetChannel = recvCh.result;
+    }
+    addConsolidationLog(`📍 ตัวรับเงินอยู่ที่ CH ${targetChannel}`, 'info');
 
     // -------------------------------------------------------------
     // STEP 4: จอรองทยอยย้าย Channel ตามมาทีละจอ และเรียงคิวเทรดเงินให้ตัวหลัก
@@ -618,30 +623,83 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const receiverLive = await queryClientState(receiverProfile.debugPort);
     const receiverCharName = receiverLive?.charName || receiverProfile.name;
 
-    for (let i = 0; i < senderProfiles.length; i++) {
+    // Channels fill up: only 2 senders are in the receiver's channel at a time. While one trades, the next
+    // one is already moving in + walking up. A sender that is done moves out to another channel and starts
+    // its bot (back to farming) — then the next sender in the queue comes in.
+    const SENDER_SLOTS = 2;
+    const restarted = new Set();
+    const queue = [];
+    for (const s of senderProfiles) {
+      const live = await queryClientState(s.debugPort);
+      const charName = live?.charName || s.name;
+      const zeny = (live && typeof live.zeny === 'number') ? live.zeny : 0;
+      if (Math.max(0, zeny - keepZeny) <= 0) {
+        addConsolidationLog(`⏭️ จอ ${s.name} (${charName}) มีเงิน ${zeny.toLocaleString()} z (ไม่พอโอนหรือติดเก็บสำรอง) -> ข้าม`, 'warning');
+        consolidationState.completedSenders.push(s.id);
+        continue;
+      }
+      queue.push(s);
+    }
+    const startBotJs = `(() => {
+      window.__isConsolidating = false; window.__isWalkingToMap = false; window.__isNavigating = false;
+      window.__autoLoopEnabled = true; window.__isBotRunning = true;
+      try { localStorage.setItem('pelican_auto_loop', 'true'); localStorage.setItem('pelican_bot_running', 'true'); } catch(e){}
+      const cb = document.getElementById('p-auto-loop'); if (cb) cb.checked = true;
+      if (typeof window.startMasterBot === 'function') window.startMasterBot(); else if (typeof window.startBot === 'function') window.startBot();
+      return { success: true };
+    })()`;
+    // into the receiver's channel (waits for cooldown / a free slot) and up to the receiver
+    const prepareSender = async (s) => {
+      const fromCh = await evalProfilePort(s.debugPort, `window.getCurrentChannel ? window.getCurrentChannel() : null`, 5000);
+      const homeChannel = (fromCh && typeof fromCh.result === 'number') ? fromCh.result : null;
+      addConsolidationLog(`🔄 จอ ${s.name} กำลังย้ายไป CH ${targetChannel} (รอคูลดาวน์/ที่ว่างให้เอง)...`, 'info');
+      const mv = await evalProfilePort(s.debugPort, `window.moveToChannel ? window.moveToChannel(${targetChannel}, 120000) : (window.switchChannel ? window.switchChannel(${targetChannel}) : null)`, 125000);
+      const there = mv && mv.result && mv.result.success;
+      if (!there) return { ok: false, homeChannel, error: `ย้ายไป CH ${targetChannel} ไม่ได้: ${(mv && mv.result && mv.result.error) || (mv && mv.error) || 'ไม่ทราบสาเหตุ'}` };
+      await new Promise(r => setTimeout(r, 2500));
+      addConsolidationLog(`🚶 จอ ${s.name} เดินไปหาตัวรับเงิน (${receiverCharName})...`, 'info');
+      const walk = await evalProfilePort(s.debugPort, `window.walkToPlayer ? window.walkToPlayer(${JSON.stringify(receiverCharName)}, 45000) : { success: true, skipped: true }`, 50000);
+      if (!(walk && walk.result && walk.result.success)) addConsolidationLog(`⚠️ จอ ${s.name}: ${(walk && walk.result && walk.result.error) || 'เดินไปหาตัวรับเงินไม่สำเร็จ'} — ลองขอเทรดเลย`, 'warning');
+      return { ok: true, homeChannel };
+    };
+    // out of the receiver's channel (back where it came from, or the emptiest other one), then START BOT
+    const releaseSender = async (s, homeChannel) => {
+      let away = homeChannel && homeChannel !== targetChannel ? homeChannel : null;
+      if (!away) {
+        const best = await evalProfilePort(s.debugPort, `(async () => { const r = await window.getChannelsList(3500); if (!r.success) return null; const cap = r.data.hardCap || 40; const c = r.data.channels.filter(x => x.channel !== ${targetChannel} && x.players < cap).sort((a, b) => a.players - b.players)[0]; return c ? c.channel : null; })()`, 8000);
+        away = best && typeof best.result === 'number' ? best.result : null;
+      }
+      if (away) {
+        addConsolidationLog(`↪️ จอ ${s.name} ออกจาก CH ${targetChannel} ไป CH ${away} เพื่อเปิดที่ให้จอถัดไป`, 'info');
+        await evalProfilePort(s.debugPort, `window.moveToChannel ? window.moveToChannel(${away}, 60000) : null`, 65000);
+      }
+      await evalProfilePort(s.debugPort, startBotJs);
+      restarted.add(s.id);
+      addConsolidationLog(`▶️ จอ ${s.name} เริ่มบอทกลับไปฟาร์มแล้ว`, 'success');
+    };
+
+    const prep = new Map();
+    const startPrep = (s) => { if (s && !prep.has(s.id)) prep.set(s.id, prepareSender(s).catch(e => ({ ok: false, error: e.message }))); };
+    queue.slice(0, SENDER_SLOTS).forEach(startPrep);
+
+    for (let i = 0; i < queue.length; i++) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
-      const sender = senderProfiles[i];
+      const sender = queue[i];
       consolidationState.currentSender = sender.name;
       addConsolidationLog(`----------------------------------------`, 'info');
-      addConsolidationLog(`▶️ ลำดับที่ ${i + 1}/${senderProfiles.length}: ตรวจสอบจอ ${sender.name}...`, 'info');
+      addConsolidationLog(`▶️ ลำดับที่ ${i + 1}/${queue.length}: จอ ${sender.name}...`, 'info');
+      const ready = await prep.get(sender.id);
 
       const senderLive = await queryClientState(sender.debugPort);
       const senderCharName = senderLive?.charName || sender.name;
       const curZeny = (senderLive && typeof senderLive.zeny === 'number') ? senderLive.zeny : 0;
       const zenyToTransfer = Math.max(0, curZeny - keepZeny);
-
-      if (zenyToTransfer <= 0) {
-        addConsolidationLog(`⏭️ จอ ${sender.name} (${senderCharName}) มีเงิน ${curZeny.toLocaleString()} z (ไม่พอโอนหรือติดเก็บสำรอง) -> ข้าม`, 'warning');
-        consolidationState.completedSenders.push(sender.id);
+      if (!ready || !ready.ok || zenyToTransfer <= 0) {
+        addConsolidationLog(`⚠️ จอ ${sender.name}: ${(ready && ready.error) || (zenyToTransfer <= 0 ? 'ไม่มีเงินให้โอน' : 'เตรียมตัวไม่สำเร็จ')} — ข้าม`, 'error');
+        await releaseSender(sender, ready && ready.homeChannel);
+        startPrep(queue[i + SENDER_SLOTS]);
         continue;
       }
-
-      // A. ย้าย Channel ของ Sender ให้ตรงกับ Receiver
-      addConsolidationLog(`🔄 จอ ${sender.name} (${senderCharName}) กำลังย้ายไป Channel ${targetChannel}...`, 'info');
-      await evalProfilePort(sender.debugPort, `
-        window.switchChannel ? window.switchChannel(${targetChannel}) : null
-      `);
-      await new Promise(r => setTimeout(r, 3500));
 
       // B + C: the receiver waits for exactly this sender (replaces the previous watcher), then the sender
       // requests ONE trade, offers, locks and confirms. Done = the sender's zeny really went down. One more
@@ -687,7 +745,10 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
         addConsolidationLog(`⚠️ จอ ${sender.name} (${senderCharName}) เทรดไม่สำเร็จ: ${lastErr || 'เงินไม่ลด'} — ข้ามไปจอถัดไป`, 'error');
       }
       evalProfilePort(receiverProfile.debugPort, `window.stopReceiverTradeWatcher ? window.stopReceiverTradeWatcher() : null`, 3000);
-      await new Promise(r => setTimeout(r, 2000));
+      // leave the channel free for the next one, back to farming; the sender after next starts moving in
+      await releaseSender(sender, ready.homeChannel);
+      startPrep(queue[i + SENDER_SLOTS]);
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     // -------------------------------------------------------------
@@ -698,7 +759,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     addConsolidationLog(`🎉 รวมเงินเสร็จสิ้นสมบูรณ์! ยอดเงินรวมที่โอนให้ ${receiverCharName}: ${consolidationState.totalTransferredZeny.toLocaleString()} z`, 'success');
     addConsolidationLog('🚀 ขั้นตอนที่ 5/5: เริ่มสั่งเปิดบอท (START BOT) ทุกจอเพื่อเดินทางกลับไปฟาร์ม...', 'info');
 
-    for (const p of involvedProfiles) {
+    for (const p of involvedProfiles.filter(x => !restarted.has(x.id))) {
       try {
         const startRes = await evalProfilePort(p.debugPort, `(() => {
           window.__isConsolidating = false;

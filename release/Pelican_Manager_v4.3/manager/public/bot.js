@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.18.1
+// @version      4.19.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.18.1';
+    const PELICAN_BOT_VERSION = '4.19.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13427,6 +13427,69 @@
             }
         }
         return { success: false, error: 'Timeout waiting for channel switch', channel: room.state?.channel };
+    };
+
+    // Move to a channel and really get there: waits out the game's channel-switch cooldown and, when the
+    // channel is full, waits for a free slot (the game's own picker disables both). Returns the channel the
+    // character ended up on — callers must use that, not the one they asked for.
+    window.moveToChannel = async function(targetCh, maxWaitMs = 90000) {
+        const target = parseInt(targetCh);
+        if (isNaN(target)) return { success: false, error: 'Invalid channel number' };
+        const roomNow = () => (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
+        const current = () => { const r = roomNow(); return r && r.state && typeof r.state.channel === 'number' ? r.state.channel : null; };
+        const start = Date.now();
+        let lastReason = '';
+        while (Date.now() - start < maxWaitMs) {
+            if (current() === target) return { success: true, channel: target };
+            const list = await window.getChannelsList(3500);
+            const d = list && list.success ? list.data : null;
+            if (d && d.cooldownUntil && d.cooldownUntil > Date.now()) {
+                lastReason = 'ติดคูลดาวน์เปลี่ยน channel';
+                const wait = Math.min(d.cooldownUntil - Date.now() + 600, maxWaitMs - (Date.now() - start));
+                console.log(`[PmheeAether Channel] ⏳ รอคูลดาวน์เปลี่ยน channel ${Math.ceil(wait / 1000)} วิ`);
+                if (wait > 0) await new Promise(r => setTimeout(r, wait));
+                continue;
+            }
+            const row = d && Array.isArray(d.channels) ? d.channels.find(c => c.channel === target) : null;
+            if (row && d.hardCap && row.players >= d.hardCap) {
+                lastReason = `CH ${target} เต็ม`;
+                console.log(`[PmheeAether Channel] ⏳ CH ${target} เต็ม (${row.players}/${d.hardCap}) -> รอที่ว่าง`);
+                await new Promise(r => setTimeout(r, 5000));
+                continue;
+            }
+            const r = await window.switchChannel(target, 9000);
+            if (r && r.success) return { success: true, channel: target };
+            lastReason = (r && r.error) || 'switch failed';
+            await new Promise(r2 => setTimeout(r2, 3000));
+        }
+        return { success: false, error: lastReason || 'timeout', channel: current() };
+    };
+
+    // Walk up to another player on the same map + channel (server pathfinding via move_to), until within
+    // `nearPx` (3 tiles). Used so a sender stands next to the receiver before asking to trade.
+    window.walkToPlayer = async function(name, maxMs = 45000, nearPx = 96) {
+        const want = String(name || '').trim().toLowerCase();
+        if (!want) return { success: false, error: 'Missing name' };
+        const start = Date.now();
+        let lastSend = 0, seen = false;
+        while (Date.now() - start < maxMs) {
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
+            const players = room && room.state && room.state.players;
+            const me = players && players.get ? players.get(room.sessionId) : null;
+            let target = null;
+            if (players && players.forEach) players.forEach(p => { if (!target && p && String(p.name || '').trim().toLowerCase() === want) target = p; });
+            if (me && target) {
+                seen = true;
+                const dist = Math.hypot((me.x || 0) - (target.x || 0), (me.y || 0) - (target.y || 0));
+                if (dist <= nearPx) return { success: true, distance: Math.round(dist) };
+                if (Date.now() - lastSend > 3000) {
+                    lastSend = Date.now();
+                    room.send('move_to', { x: target.x, y: target.y });
+                }
+            }
+            await new Promise(r => setTimeout(r, 500));
+        }
+        return { success: false, error: seen ? 'เดินไปไม่ถึงตัวรับเงิน' : 'ไม่เห็นตัวรับเงินในแมพ/channel นี้' };
     };
 
     window.executeBwingHome = async function(timeoutMs = 12000) {
