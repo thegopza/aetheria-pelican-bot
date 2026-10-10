@@ -95,6 +95,7 @@
 ## 🎮 6. สถาปัตยกรรมและกฎของระบบ PmheeAether Bot
 
 1. **Plan Script Engine**:
+   - ⚠️ **โค้ด Plan Script อยู่นอก IIFE หลักของ bot.js** (IIFE หลักจบราว ๆ บรรทัด 11700) — ฟังก์ชันของ IIFE หลักที่ต้องใช้ในส่วนแผนต้อง export เป็น `window.xxx` ก่อน (เช่น `window.getCurrentMapName`, `window.restoreFarmMapAfterJobChange`) ชื่อเปล่าๆ จะเป็น undefined (เคยทำให้วนเดินเข้าเมืองไม่จบ) — test harness ห้ามส่งฟังก์ชันพวกนี้เป็นตัวแปรเปล่าให้
    - **Master Switch**: `window.__planScriptEnabled` มีค่าเริ่มต้นเป็น `false` เสมอ
    - ระบบตั้งค่าพิเศษ (เช่น ระยะล่าทั้งแมพ `huntRadiusTiles: 'all'`, ติ๊ก Auto สกิล, ปิดประกาศบนจอ, ปิดหน้าต่างข่าวสาร) ต้องทำงานภายใต้เงื่อนไข `window.__planScriptEnabled && window.__currentScriptPlan` เท่านั้น
    - ห้ามรบกวนหรือทับการตั้งค่าของตัวละครฟาร์มปกติที่ไม่ได้เปิด Plan Script

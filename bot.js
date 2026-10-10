@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.13.0
+// @version      4.13.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.13.0';
+    const PELICAN_BOT_VERSION = '4.13.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -177,6 +177,9 @@
         const sel = document.getElementById('p-target-map-select');
         if (sel) sel.value = map;
     }
+
+    window.restoreFarmMapAfterJobChange = restoreFarmMapAfterJobChange;
+    window.getCurrentMapName = getCurrentMapName;
 
     window.executeAutoJobChange = async function(targetClass) {
         if (!window.__planScriptEnabled) return false;
@@ -11793,7 +11796,7 @@
         const sel = document.getElementById('p-target-map-select');
         if (sel) sel.value = mapName;
         if (walkNow && window.__isBotRunning && !planBusyReason() && typeof window.walkToTargetMap === 'function') {
-            const cur = (typeof getCurrentMapName === 'function') ? (getCurrentMapName() || '') : '';
+            const cur = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
             if (!cur.includes(mapName)) window.walkToTargetMap(mapName, true);
         }
     };
@@ -12302,7 +12305,7 @@
         const finish = why => {
             try { localStorage.setItem(doneKey, why || String(Date.now())); } catch (e) {}
             window.__planJobChangeHoldUntil = 0;
-            restoreFarmMapAfterJobChange();
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
         };
 
         // 1. Egg already in the bag: hatch it
@@ -12317,7 +12320,7 @@
         }
 
         // 2. Go to the capital (farm map is remembered and put back afterwards)
-        const map = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : '';
+        const map = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
         if (!/เมืองหลวง|โซลเฮเวน/.test(map)) {
             if (window.__isWalkingToMap || window.__isNavigating) return false;
             const farm = window.__targetFarmMap || '';
