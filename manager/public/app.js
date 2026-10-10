@@ -4117,7 +4117,7 @@ function openCopyToModal(presetId) {
       checklistContainer.innerHTML = currentProfiles.map(p => `
         <label class="copy-to-check-item">
           <div style="display: flex; align-items: center; gap: 10px;">
-            <input type="checkbox" class="copy-to-profile-checkbox" value="${p.id}" checked style="width: 16px; height: 16px; cursor: pointer;">
+            <input type="checkbox" class="copy-to-profile-checkbox" value="${p.id}" data-online="${p.isRunning ? '1' : ''}" ${p.isRunning ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
             <span style="font-weight: 600; color: #f8fafc; font-size: 12px;">${escapeHTML(p.name)}</span>
             <span style="font-size: 11px; color: #94a3b8;">(${escapeHTML(p.charClass || 'Archer')})</span>
             <span style="font-size: 10px; color: #64748b;">Port: ${p.debugPort || '--'}</span>
@@ -4127,11 +4127,23 @@ function openCopyToModal(presetId) {
           </span>
         </label>
       `).join('');
+      // Quick pickers: copying works only to clients that are open right now
+      checklistContainer.insertAdjacentHTML('afterbegin', `
+        <div class="copy-to-pickers">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="setCopyToChecks('online')">🟢 เลือกเฉพาะจอออนไลน์</button>
+          <small>จอที่ออฟไลน์จะรับค่าไม่ได้ — เปิดจอก่อนแล้วค่อยคัดลอก</small>
+        </div>`);
     }
   }
 
   const modal = document.getElementById('copy-to-modal');
   if (modal) modal.classList.add('active');
+}
+
+function setCopyToChecks(mode) {
+  document.querySelectorAll('.copy-to-profile-checkbox').forEach(cb => {
+    cb.checked = mode === 'all' || (mode === 'online' && cb.dataset.online === '1');
+  });
 }
 
 function closeCopyToModal() {

@@ -2340,41 +2340,14 @@ const server = http.createServer(async (req, res) => {
         const profile = profiles.find(p => p.id === id);
         if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
 
-        let liveConfig = null;
-        if (profile.debugPort) {
-          try {
-            liveConfig = await new Promise((resolve) => {
-              const clientReq = http.request({
-                hostname: "127.0.0.1",
-                port: profile.debugPort,
-                path: `/api/eval?code=${encodeURIComponent("typeof window.exportAllBotSettings === 'function' ? window.exportAllBotSettings() : null")}`,
-                method: "GET",
-                timeout: 2500
-              }, (res) => {
-                let d = "";
-                res.on("data", c => d += c);
-                res.on("end", () => {
-                  try {
-                    const parsed = JSON.parse(d);
-                    resolve(parsed?.result?.data || parsed?.result || null);
-                  } catch(e) { resolve(null); }
-                });
-              });
-              clientReq.on("error", () => resolve(null));
-              clientReq.on("timeout", () => { clientReq.destroy(); resolve(null); });
-              clientReq.end();
-            });
-          } catch(e) {}
+        // Read the client's real settings (POST eval, generous timeout). Never save made-up defaults:
+        // a preset with only a map and basic sell settings looked fine but copied nothing useful.
+        if (!profile.debugPort) return sendJSON({ success: false, error: `จอ "${profile.name}" ออฟไลน์ — เปิดจอเกมนี้ก่อนแล้วค่อยบันทึก` }, 400);
+        const r = await evalProfilePort(profile.debugPort, "typeof window.exportAllBotSettings === 'function' ? window.exportAllBotSettings() : null", 10000);
+        const finalConfig = r && r.success && r.result && r.result.data;
+        if (!finalConfig || typeof finalConfig !== 'object' || !finalConfig.sellConfig) {
+          return sendJSON({ success: false, error: `อ่านการตั้งค่าจากจอ "${profile.name}" ไม่สำเร็จ (${(r && r.error) || 'บอทยังโหลดไม่เสร็จ'}) — รอให้จอโหลดเสร็จแล้วลองใหม่` }, 502);
         }
-
-        // Fallback default config if client offline
-        const finalConfig = liveConfig || {
-          targetMap: profile.targetMap || "ซากโบราณสถาน Lv.45–55",
-          autoLoop: true,
-          sellConfig: { enabled: true, weightCheckEnabled: true, weightThreshold: 80, sellMaterials: true },
-          archerConfig: { requireArrow: false, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 },
-          authConfig: { enabled: true, autoResumeBot: true, charName: "" }
-        };
 
         const presets = loadPresets();
         const newPreset = {
