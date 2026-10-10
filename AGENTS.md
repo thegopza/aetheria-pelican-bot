@@ -100,6 +100,7 @@
    - ห้ามรบกวนหรือทับการตั้งค่าของตัวละครฟาร์มปกติที่ไม่ได้เปิด Plan Script
    - **ทำงานเฉพาะตอน START BOT** (`window.__isBotRunning`): Trigger, อัปสกิล/สเตตัส และเปลี่ยนอาชีพของแผน ห้ามทำงานตอนบอทหยุด และห้ามทำระหว่างระบบอื่นยุ่งอยู่ (`planBusyReason`: เดินไปแมพ/ซื้อของ/ฟื้นตัว/รวมเงิน/เปลี่ยนอาชีพ/ขายของ)
    - **Trigger แบบ "ข้ามผ่านเลเวล"**: ทำเมื่อ `lastLevel < target <= currentLevel` (ไม่ใช่เลเวลตรงเป๊ะ) และเก็บสถานะแยกต่อ ตัวละคร+แผน ใน `pelican_plan_state_<char>_<planId>` (`done`/`pending`) — Action ที่ยังไม่สำเร็จจะลองใหม่ทุก 60 วิ (ใส่ของยอมแพ้หลัง 30 นาที)
+   - **เจม**: ชื่อบอกระดับเป็น % (`Mana Gem (Skill) 3%` < `5%`) ใส่ในช่อง `gem-1..4` — ใส่ลงช่องที่ต้องการด้วย `equip {slot, to: 'gem-N'}` (ทดสอบกับเกมจริงแล้ว ของเดิมกลับเข้ากระเป๋า); `autoUpgradeGems` (ค่าเริ่มต้นเปิด) และ action สวมใส่เจมจะไม่เปลี่ยนกลับไปเป็น % ที่ต่ำกว่า
    - **คุยกับ NPC ในแมพเดียวกันไม่ต้องเดินเอง**: ส่ง `npc_talk` จากตรงไหนก็ได้ เซิร์ฟเวอร์จะเดินตัวละครไปหา NPC แล้วเปิดบทสนทนาให้ (เกมเองก็ทำแบบนี้ใน route) — `move_to` ระยะไกลอาจค้างเมื่อทางอ้อมแม่น้ำ/สะพาน
    - **NPC key เลื่อนได้เมื่อเกมเพิ่ม NPC** (Valkyrie เคยเป็น n5 ตอนนี้ n6) → หา NPC จากชื่อใน `room.state.npcs` เสมอ (`getValkyrieNpc`, `getAliceNpc`) ห้าม hardcode key/พิกัด
    - Action `set_arrow` {requireArrow, arrowType, arrowBuyQty, ammoThreshold} เขียนทับ `__archerConfig` (ค่าเริ่มต้นของ requireArrow คือ false); ปุ่ม "ใช้งาน" เปิดหน้าต่างเลือกจอ → `POST /api/plan-profiles/:id/assign {clientProfileIds, unassignProfileIds}`

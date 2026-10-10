@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.8.3
+// @version      4.9.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.8.3';
+    const PELICAN_BOT_VERSION = '4.9.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -11794,6 +11794,21 @@
     }
 
     // Plan action "equip_item". Returns 'done' | 'pending' (try again later) | 'failed'.
+    // Gems come in tiers by the % in their name: "Mana Gem (Skill) 3%" < "Mana Gem (Skill) 5%"
+    const GEM_SLOTS = ['gem-1', 'gem-2', 'gem-3', 'gem-4'];
+    function gemTier(item) {
+        if (!item || item.equipType !== 'Gem') return null;
+        const m = String(item.name || '').trim().match(/^(.*\S)\s+(\d+(?:\.\d+)?)\s*%$/);
+        return m ? { family: m[1].toLowerCase(), pct: parseFloat(m[2]) } : null;
+    }
+    // Which gem slot a gem should go to: the slot holding a lower tier of the same gem, else an empty one
+    function gemTargetSlot(equipment, gem) {
+        const t = gemTier(gem);
+        if (!t) return null;
+        const same = GEM_SLOTS.find(k => { const w = gemTier(equipment[k]); return w && w.family === t.family && w.pct < t.pct; });
+        return same || GEM_SLOTS.find(k => !equipment[k]) || null;
+    }
+
     window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
         if (!itemName) return 'failed';
         const want = itemName.trim().toLowerCase();
@@ -11811,14 +11826,21 @@
             console.log(`%c[PmheeAether Plan] 🛡️ สวม "${itemName}" อยู่แล้ว`, 'color: #22c55e;');
             return 'done';
         }
+        // A better tier of the same gem is already in: never swap down to the one named in the plan
+        const wantGem = gemTier({ name: itemName, equipType: 'Gem' });
+        if (wantGem && worn.some(w => { const t = gemTier(w); return t && t.family === wantGem.family && t.pct >= wantGem.pct; })) {
+            console.log(`%c[PmheeAether Plan] 💎 สวม "${itemName}" รุ่นเดียวกันที่ % เท่ากันหรือดีกว่าอยู่แล้ว`, 'color: #22c55e;');
+            return 'done';
+        }
 
         // 2. In the bag: exact name + options + level requirement -> equip (best refine first)
         const inBag = bagItems().filter(matches);
         const wearable = inBag.filter(it => !it.levelReq || it.levelReq <= baseLv).sort((a, b) => (b.refine || 0) - (a.refine || 0));
         if (wearable.length) {
             if (!room) return 'pending';
-            room.send('equip', { slot: wearable[0].slot });
-            console.log(`%c[PmheeAether Plan] 🎒 สวมใส่ "${itemName}" จากกระเป๋า (ช่อง ${wearable[0].slot})`, 'color: #22c55e; font-weight: bold;');
+            const to = gemTargetSlot(ch.equipment || {}, wearable[0]);
+            room.send('equip', to ? { slot: wearable[0].slot, to } : { slot: wearable[0].slot });
+            console.log(`%c[PmheeAether Plan] 🎒 สวมใส่ "${itemName}" จากกระเป๋า (ช่อง ${wearable[0].slot}${to ? ' → ' + to : ''})`, 'color: #22c55e; font-weight: bold;');
             return 'done';
         }
         if (inBag.length) {
@@ -12093,6 +12115,45 @@
         console.log(`%c[PmheeAether Plan] ⚡ อัปสกิลตามแผน: "${pick}" Lv.${(skills[pick] || 0) + 1} (แต้มคงเหลือ ${ch.skillPoints})`, 'color: #a855f7; font-weight: bold;');
         try { room.send('skill_up', { skillId: pick }); } catch (err) { console.warn('[PmheeAether Plan] skill_up error:', err); }
         return true;   // a point was spent -> the job change waits for the next cycle
+    };
+
+    // 1.5 Gem auto-upgrade (plan setting "อัปเกรดเจมอัตโนมัติ", on unless turned off): when the bag holds a
+    // higher % of a worn gem (same name), put it into that gem slot. One swap per cycle; a swap the game
+    // didn't take pauses that slot for 10 min.
+    let gemUpgradeAttempt = null;
+    const gemUpgradeBlockedUntil = {};
+    window.autoUpgradeGems = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan || plan.autoUpgradeGems === false) return false;
+        const ch = window.getLiveCharacterData();
+        const room = getPlanRoom();
+        if (!ch || !ch.equipment || !room) return false;
+        const eq = ch.equipment;
+        if (gemUpgradeAttempt) {
+            const a = gemUpgradeAttempt;
+            const now = gemTier(eq[a.to]);
+            if (!(now && now.pct >= a.pct)) {
+                gemUpgradeBlockedUntil[a.to] = Date.now() + 10 * 60 * 1000;
+                console.warn(`[PmheeAether Plan] ⚠️ อัปเกรดเจมช่อง ${a.to} เป็น "${a.name}" ไม่สำเร็จ — พักช่องนี้ 10 นาที`);
+            }
+            gemUpgradeAttempt = null;
+        }
+        const baseLv = Number(ch.baseLevel) || 0;
+        const bag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items : [];
+        for (const slotKey of GEM_SLOTS) {
+            const cur = gemTier(eq[slotKey]);
+            if (!cur || (gemUpgradeBlockedUntil[slotKey] || 0) > Date.now()) continue;
+            const better = bag
+                .filter(it => { const t = gemTier(it); return t && t.family === cur.family && t.pct > cur.pct && !(it.levelReq > baseLv); })
+                .sort((a, b) => gemTier(b).pct - gemTier(a).pct)[0];
+            if (!better) continue;
+            const pct = gemTier(better).pct;
+            console.log(`%c[PmheeAether Plan] 💎 อัปเกรดเจม ${slotKey}: "${eq[slotKey].name}" → "${better.name}"`, 'color: #a855f7; font-weight: bold;');
+            gemUpgradeAttempt = { to: slotKey, pct, name: better.name };
+            try { room.send('equip', { slot: better.slot, to: slotKey }); } catch (e) { console.warn('[PmheeAether Plan] equip error:', e); }
+            return true;
+        }
+        return false;
     };
 
     // 2. Automated Stat Allocation: fill stats to their targets in priority order.
@@ -12440,6 +12501,7 @@
             if (await window.autoAllocateSkills()) return;
             if (await window.checkAndExecuteAutoJobChange()) return;
             await window.autoAllocateStats();
+            if (planBusyReason() === null && await window.autoUpgradeGems()) return;
             await window.checkAndExecutePlanTriggers();
         } catch (e) {
             console.warn('[PmheeAether Plan] loop error:', e);

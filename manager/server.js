@@ -1865,6 +1865,7 @@ const server = http.createServer(async (req, res) => {
           class2Target: payload.class2Target || "hunter",
           // New plans: the player places "เปลี่ยนอาชีพ" actions (automatic change only when asked for)
           autoJobChange: payload.autoJobChange === true,
+          autoUpgradeGems: payload.autoUpgradeGems !== false,
           class1JobLevel: planJobLevel(payload.class1JobLevel, 10),
           class2JobLevel: planJobLevel(payload.class2JobLevel, 50),
           skillBuild: payload.skillBuild || null,
@@ -1902,6 +1903,7 @@ const server = http.createServer(async (req, res) => {
           class1Target: payload.class1Target !== undefined ? payload.class1Target : (plansData.profiles[idx].class1Target || "archer"),
           class2Target: payload.class2Target !== undefined ? payload.class2Target : (plansData.profiles[idx].class2Target || "hunter"),
           autoJobChange: typeof payload.autoJobChange === 'boolean' ? payload.autoJobChange : plansData.profiles[idx].autoJobChange,
+          autoUpgradeGems: typeof payload.autoUpgradeGems === 'boolean' ? payload.autoUpgradeGems : plansData.profiles[idx].autoUpgradeGems,
           class1JobLevel: planJobLevel(payload.class1JobLevel !== undefined ? payload.class1JobLevel : plansData.profiles[idx].class1JobLevel, 10),
           class2JobLevel: planJobLevel(payload.class2JobLevel !== undefined ? payload.class2JobLevel : plansData.profiles[idx].class2JobLevel, 50),
           skillBuild: payload.skillBuild !== undefined ? payload.skillBuild : plansData.profiles[idx].skillBuild,
@@ -2028,6 +2030,7 @@ const server = http.createServer(async (req, res) => {
               class1Target: p.class1Target || "archer",
               class2Target: p.class2Target || "hunter",
               autoJobChange: typeof p.autoJobChange === 'boolean' ? p.autoJobChange : undefined,
+              autoUpgradeGems: p.autoUpgradeGems !== false,
               class1JobLevel: planJobLevel(p.class1JobLevel, 10),
               class2JobLevel: planJobLevel(p.class2JobLevel, 50),
               skillBuild: p.skillBuild || null,

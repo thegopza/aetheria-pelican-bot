@@ -3566,6 +3566,8 @@ async function saveActivePlan(applyLive = false) {
   activeEditingPlan.class1JobLevel = jobLv("plan-editor-class1-job", 10);
   const autoCb = document.getElementById("plan-editor-autojob");
   if (autoCb) activeEditingPlan.autoJobChange = autoCb.checked;
+  const gemCb = document.getElementById("plan-editor-autogem");
+  if (gemCb) activeEditingPlan.autoUpgradeGems = gemCb.checked;
   activeEditingPlan.class2JobLevel = jobLv("plan-editor-class2-job", 50);
 
   const problems = validatePlanForSave(activeEditingPlan);

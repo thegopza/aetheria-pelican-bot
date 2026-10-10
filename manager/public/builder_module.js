@@ -397,6 +397,14 @@ function updateClassDropdownsInEditor() {
     };
   }
   refreshAutoJobUi();
+  const gemCb = document.getElementById("plan-editor-autogem");
+  if (gemCb) {
+    gemCb.checked = activeEditingPlan.autoUpgradeGems !== false;
+    gemCb.onchange = () => {
+      activeEditingPlan.autoUpgradeGems = gemCb.checked;
+      if (typeof markPlanDirty === 'function') markPlanDirty();
+    };
+  }
 
   const tree = CLASS_TREE_MAP[currentC1] || CLASS_TREE_MAP['archer'];
   c2Sel.innerHTML = tree.secondClasses.map(sc => `
