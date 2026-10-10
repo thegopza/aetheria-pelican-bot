@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.17.0
+// @version      4.17.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.17.0';
+    const PELICAN_BOT_VERSION = '4.17.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13131,6 +13131,7 @@
             if (cam.banners !== false) {
                 cam.banners = false;
                 localStorage.setItem('webgame.camera', JSON.stringify(cam));
+                window.__pmDisplaySettingsSynced = false;
                 console.log('%c[PmheeAether Settings] 🔕 บันทึกตั้งค่า: ปิดประกาศบนจอ (banners: false)', 'color: #38bdf8; font-weight: bold;');
             }
         } catch(e) {}
@@ -13142,26 +13143,56 @@
             if (mob.newsOnEnter !== false) {
                 mob.newsOnEnter = false;
                 localStorage.setItem('webgame.mobile', JSON.stringify(mob));
+                window.__pmDisplaySettingsSynced = false;
                 console.log('%c[PmheeAether Settings] 📰 บันทึกตั้งค่า: ปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false)', 'color: #38bdf8; font-weight: bold;');
             }
         } catch(e) {}
 
-        // 3. ซิงค์กับหน้าต่างตั้งค่า (Settings Dialog) หากเปิดอยู่บนหน้าจอ
+        // 3. The game reads these settings into memory once at page load, so the localStorage above only counts
+        //    after a reload. Untick them in the game's settings window — opened (menu button "ตั้งค่า") and
+        //    closed again by the bot once per page load when it isn't open already.
         try {
-            const settingsBody = document.querySelector('.settings-body');
-            if (settingsBody) {
-                const checks = settingsBody.querySelectorAll('label.settings-check');
-                checks.forEach(lbl => {
+            const untick = () => {
+                let seen = 0;
+                document.querySelectorAll('.settings-body label.settings-check').forEach(lbl => {
                     const text = lbl.innerText || '';
                     const cb = lbl.querySelector('input[type="checkbox"]');
                     if (!cb) return;
-                    if (text.includes('แสดงประกาศบนจอ') && cb.checked) {
-                        cb.click();
-                    }
-                    if (text.includes('เปิดหน้าข่าวสารเองเมื่อเข้าเกม') && cb.checked) {
-                        cb.click();
-                    }
+                    const isBanner = text.includes('แสดงประกาศบนจอ') || text.includes('Show announcements on screen');
+                    const isNews = text.includes('เปิดหน้าข่าวสารเองเมื่อเข้าเกม') || text.includes('Open the news on entering');
+                    if (!isBanner && !isNews) return;
+                    seen++;
+                    if (cb.checked) cb.click();
                 });
+                return seen;
+            };
+            if (document.querySelector('.settings-window')) {
+                if (untick() >= 2) window.__pmDisplaySettingsSynced = true;
+            } else if (!window.__pmDisplaySettingsSynced && !window.__pmDisplaySettingsOpening
+                && (window.__pmDisplaySettingsTries || 0) < 3 && planBusyReason() === null) {
+                const btn = Array.from(document.querySelectorAll('button.menu-btn')).find(b => {
+                    const t = ((b.querySelector('small') || {}).textContent || '').trim();
+                    return t === 'ตั้งค่า' || t === 'Settings';
+                });
+                if (btn) {
+                    window.__pmDisplaySettingsOpening = true;
+                    window.__pmDisplaySettingsTries = (window.__pmDisplaySettingsTries || 0) + 1;
+                    btn.click();
+                    setTimeout(() => {
+                        try {
+                            const win = document.querySelector('.settings-window');
+                            if (win) {
+                                if (untick() >= 2) {
+                                    window.__pmDisplaySettingsSynced = true;
+                                    console.log('%c[PmheeAether Settings] 🔕 ปิดประกาศบนจอ/ข่าวสารในหน้าตั้งค่าของเกมแล้ว', 'color: #38bdf8;');
+                                }
+                                const close = win.querySelector('.win-close');
+                                if (close) close.click();
+                            }
+                        } catch (e) {}
+                        window.__pmDisplaySettingsOpening = false;
+                    }, 500);
+                }
             }
         } catch(e) {}
 
