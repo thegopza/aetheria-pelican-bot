@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.10.0
+// @version      4.10.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.10.0';
+    const PELICAN_BOT_VERSION = '4.10.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -6434,7 +6434,12 @@
 
             // 2. ซื้อลูกธนูชนิดที่เลือก (Smart Restock: เติมส่วนต่างให้ครบ targetQty ป้องกันซื้อเกินจนน้ำหนักล้น)
             const targetQty = parseInt(cfg.arrowBuyQty) || 1000;
-            const curAmmo = (typeof window.__currentAmmo === 'number') ? window.__currentAmmo : 0;
+            // Count only the arrow type to buy: arrows of another type (e.g. 1306 normal Arrows while the plan
+            // switched to Fire Arrow) must not make it look like there are enough
+            const worn = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+            const wornSame = worn.ammo && Number(worn.ammo.itemId) === arrowId ? Number(worn.ammo.qty) || 0 : 0;
+            const bagSame = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(arrowId) : 0;
+            const curAmmo = Math.max(wornSame, bagSame);
             const qtyToBuy = Math.max(0, targetQty - curAmmo);
 
             if (cfg.requireArrow && qtyToBuy > 0) {
@@ -11912,6 +11917,33 @@
         return { base: parseInt(b[1], 10), job: parseInt(j[1], 10), cls: String((ch && ch.classId) || '').toLowerCase() };
     }
 
+    // Arrow action: the chosen arrow must actually be on the character — equip it from the bag, or have
+    // the shop routine buy it (at most every 10 min) and equip it on the next retry
+    let planArrowShopAt = 0;
+    function ensurePlanArrows(cfg) {
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const want = Number(cfg.arrowType) || 90030;
+        const worn = ch.ammo;
+        if (worn && Number(worn.itemId) === want) {
+            console.log(`%c[PmheeAether Plan] 🏹 ใส่ "${worn.name}" อยู่แล้ว (${worn.qty} ดอก)`, 'color: #22c55e;');
+            return 'done';
+        }
+        const bag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items : [];
+        const stack = bag.filter(it => it && Number(it.itemId) === want).sort((a, b) => (b.qty || 0) - (a.qty || 0))[0];
+        const room = getPlanRoom();
+        if (stack && room) {
+            console.log(`%c[PmheeAether Plan] 🏹 สวมลูกธนู "${stack.name}" จากกระเป๋า (${stack.qty} ดอก)${worn ? ` แทน "${worn.name}"` : ''}`, 'color: #22c55e; font-weight: bold;');
+            room.send('equip', { slot: stack.slot });
+            return 'pending';   // confirmed on the next retry
+        }
+        if (!window.__isShopping && Date.now() - planArrowShopAt > 10 * 60 * 1000 && typeof window.executeAutoShopRoutine === 'function') {
+            planArrowShopAt = Date.now();
+            console.log(`%c[PmheeAether Plan] 🏹 ไม่มีลูกธนูชนิดที่ตั้ง (#${want}) ในตัว/กระเป๋า -> ไปซื้อ ${cfg.arrowBuyQty} ดอก`, 'color: #f59e0b; font-weight: bold;');
+            window.executeAutoShopRoutine();
+        }
+        return 'pending';
+    }
+
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
@@ -11931,7 +11963,7 @@
             try { localStorage.setItem('pelican_archer_cfg', JSON.stringify(cfg)); } catch (e) {}
             if (typeof window.syncAllHudInputsFromConfig === 'function') window.syncAllHudInputsFromConfig();
             console.log(`%c[PmheeAether Plan] 🏹 ตั้งค่าลูกธนู: ${cfg.requireArrow ? `เปิด (ซื้อให้ครบ ${cfg.arrowBuyQty} ดอก, ซื้อเมื่อเหลือ <= ${cfg.ammoThreshold})` : 'ปิด'}`, 'color: #38bdf8; font-weight: bold;');
-            return 'done';
+            return cfg.requireArrow ? ensurePlanArrows(cfg) : 'done';
         }
         if (act.type === 'change_class' && act.targetClass) {
             const target = String(act.targetClass).trim().toLowerCase();
