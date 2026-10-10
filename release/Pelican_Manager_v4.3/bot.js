@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.14.0
+// @version      4.14.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.14.0';
+    const PELICAN_BOT_VERSION = '4.14.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -6860,6 +6860,13 @@
             return;
         }
         if (!mapName) mapName = window.__targetFarmMap;
+        if (window.__planScriptEnabled && window.__currentScriptPlan && mapName === window.__targetFarmMap && typeof window.planMapForNow === 'function') {
+            const planMap = window.planMapForNow();
+            if (planMap && planMap !== mapName) {
+                console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${mapName}")`, 'color: #38bdf8; font-weight: bold;');
+                mapName = planMap;
+            }
+        }
 
         // ถ้ากำลังนำทางอยู่ แต่เป็นการกดสั่งใหม่ (force) หรือเปลี่ยนแมพเป้าหมาย ให้ยกเลิกการเดินเดิมทันที
         if (window.__isNavigating) {
@@ -6876,6 +6883,9 @@
         window.__isNavigating = true;
         window.__targetFarmMap = mapName;
         localStorage.setItem('pelican_farm_map', mapName);
+        const navSeq = window.__navSeq = (window.__navSeq || 0) + 1;
+        const navLive = () => window.__navSeq === navSeq;
+        let navClicked = false;   // a world-map walk/warp button was pressed for this trip
 
         // GUARD: ตรวจสอบการตาย
         if (typeof isCharacterDead === 'function' && isCharacterDead()) {
@@ -6905,6 +6915,7 @@
             if (saveWarp) {
                 const freeWalk = document.querySelector('.worldmap-walk button');
                 if (freeWalk && !freeWalk.disabled) {
+                    navClicked = true;
                     triggerClick(freeWalk);
                     console.log('%c[PmheeAether Warp] 💸 เงินต่ำกว่าที่ตั้งไว้ -> เดินไปเอง (ไม่เสียค่าวาร์ป)', 'color: #f59e0b; font-weight: bold;');
                     setTimeout(() => { if (isWorldMapOpen()) dispatchKeyAll('m', 'KeyM', 77); }, 1500);
@@ -6920,6 +6931,7 @@
             });
 
             if (warpBtn) {
+                navClicked = true;
                 triggerClick(warpBtn);
                 console.log('%c[PmheeAether Warp] ⚡ พบคลิก "วาร์ปไปที่นี่ (NPC Alice)" สำเร็จ! กำลังวาร์ปตรง...', 'color: #eab308; font-weight: bold;');
 
@@ -6937,6 +6949,7 @@
             const walkBtn = document.querySelector('.worldmap-walk button') ||
                             Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('เดินไปที่นี่'));
             if (walkBtn) {
+                navClicked = true;
                 triggerClick(walkBtn);
                 console.log('%c[PmheeAether] 🚀 คลิก "เดินไปที่นี่" สำเร็จ! กำลังเฝ้าดูการเดินทาง...', 'color: #22c55e; font-weight: bold;');
 
@@ -6953,6 +6966,7 @@
         }
 
         function clickMapPin(retries = 3) {
+            if (!navLive()) return;   // a newer trip took over
             // ตัดข้อความวงเล็บเลเวลออก เช่น "ทะเลสาบอาซูร์ (Lv. 12-20)" -> "ทะเลสาบอาซูร์"
             const cleanMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim();
 
@@ -6967,6 +6981,11 @@
                 console.warn(`[PmheeAether] ⏳ หน้าต่างแผนที่ยังไม่เปิด กำลังรอ... (retries: ${retries})`);
                 if (retries > 0) {
                     setTimeout(() => clickMapPin(retries - 1), 600);
+                } else {
+                    // Give up this attempt but free the travel state, so the watchdog starts a fresh one
+                    console.warn(`[PmheeAether] ⚠️ เปิดแผนที่ไม่สำเร็จ — ยกเลิกรอบนี้ ระบบจะลองเดินทางใหม่`);
+                    window.__isNavigating = false;
+                    window.__isRecovering = false;
                 }
                 return;
             }
@@ -6995,7 +7014,7 @@
 
                 let walkTries = 0;
                 window.__walkClickInterval = setInterval(() => {
-                    if (!window.__isBotRunning && !window.__isNavigating) {
+                    if (!navLive() || (!window.__isBotRunning && !window.__isNavigating)) {
                         clearInterval(window.__walkClickInterval);
                         window.__walkClickInterval = null;
                         return;
@@ -7009,11 +7028,12 @@
                 }, 300);
 
                 if (mapId && typeof window.sendNpcWarp === 'function' && !saveWarp) {
+                    // Fallback only: when no map button could be pressed for this same trip
                     setTimeout(() => {
-                        if (window.__isBotRunning || window.__isNavigating) {
+                        if (navLive() && !navClicked && (window.__isBotRunning || window.__isNavigating)) {
                             window.sendNpcWarp(mapId);
                         }
-                    }, 500);
+                    }, 1500);
                 }
             } else if (retries > 0) {
                 setTimeout(() => clickMapPin(retries - 1), 400);
@@ -7041,7 +7061,7 @@
         } else if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
             console.log(`%c[PmheeAether Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.openAliceWarpService(() => {
-                setTimeout(() => clickMapPin(3), 500);
+                setTimeout(() => { if (navLive()) clickMapPin(3); }, 500);
             });
         } else {
             console.log(`%c[PmheeAether] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
@@ -12145,8 +12165,43 @@
         }
     }
 
+    // The farm map the plan says to be on now: the change_map of the highest Base trigger at or below the
+    // current Base Lv. (and Job triggers of the current class at or below the current Job Lv.)
+    const planLastMapKey = () => {
+        const plan = window.__currentScriptPlan || {};
+        const name = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        return `pelican_plan_lastmap_${name}_${plan.id || plan.name || 'plan'}`;
+    };
+    window.planMapForNow = function() {
+        const plan = window.__currentScriptPlan;
+        const lv = readPlanLevels();
+        if (!plan || !Array.isArray(plan.triggers) || !lv) return null;
+        // The map the plan last moved this character to (still part of the plan) wins: it follows what really
+        // happened, e.g. a Novice Job 10 move stays valid after the class change
+        let last = null;
+        try { last = localStorage.getItem(planLastMapKey()); } catch (e) {}
+        if (last && plan.triggers.some(t => (t.actions || []).some(a => a.type === 'change_map' && a.targetMap === last))) return last;
+        let best = null;
+        plan.triggers.forEach(t => {
+            const map = ((t.actions || []).filter(a => a.type === 'change_map' && a.targetMap).pop() || {}).targetMap;
+            if (!map) return;
+            const lvl = parseInt(t.targetLevel, 10) || 0;
+            let ok = false, rank = 0;
+            if (t.type === 'job_level') {
+                ok = (!t.classId || String(t.classId).toLowerCase() === lv.cls) && lvl <= lv.job;
+                rank = 1000 + lvl;   // within the current class, later than base levels already reached
+            } else if (t.type !== 'zeny') {
+                ok = lvl <= lv.base;
+                rank = lvl;
+            }
+            if (ok && (!best || rank >= best.rank)) best = { rank, map };
+        });
+        return best ? best.map : null;
+    };
+
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
+            try { localStorage.setItem(planLastMapKey(), act.targetMap); } catch (e) {}
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
             window.setTargetFarmMap(act.targetMap, true);
             return 'done';
