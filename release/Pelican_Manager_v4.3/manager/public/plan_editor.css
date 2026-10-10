@@ -224,3 +224,7 @@
 .pe-action.set_arrow .pe-act-icon { background: rgba(14, 165, 233, 0.15); }
 .pe-fields-3 { grid-template-columns: 1.6fr 1fr 1fr; }
 @media (max-width: 760px) { .pe-fields-3 { grid-template-columns: 1fr; } }
+
+/* Job trigger: which class's Job Lv. */
+.pe-jobclass { height: 26px; max-width: 150px; padding: 0 6px; border-radius: 7px; border: 1px solid rgba(192, 132, 252, 0.45); background: rgba(30, 11, 51, 0.6); color: #e9d5ff; font-size: 11.5px; font-weight: 700; outline: none; flex-shrink: 0; }
+.pe-jobclass:focus { border-color: #c084fc; }

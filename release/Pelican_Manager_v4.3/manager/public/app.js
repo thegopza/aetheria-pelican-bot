@@ -3139,10 +3139,57 @@ function planActionSummary(act) {
   return act.type;
 }
 
+// "เปลี่ยนอาชีพอัตโนมัติ": plans without the setting are automatic unless they already have a
+// "เปลี่ยนอาชีพ" action (same rule as the bot)
+function planHasClassAction(plan) {
+  return (plan.triggers || []).some(t => (t.actions || []).some(a => a.type === 'change_class'));
+}
+function planAutoJobChangeOf(plan) {
+  if (!plan) return false;
+  return typeof plan.autoJobChange === 'boolean' ? plan.autoJobChange : !planHasClassAction(plan);
+}
+function refreshAutoJobUi() {
+  const on = planAutoJobChangeOf(activeEditingPlan);
+  document.querySelectorAll('.pe-joblv').forEach(el => { el.style.display = on ? '' : 'none'; });
+  const hint = document.getElementById('plan-autojob-hint');
+  if (hint) hint.innerHTML = on
+    ? 'ℹ️ <b>เปลี่ยนอาชีพอัตโนมัติ:</b> เมื่อถึง Job Lv. ที่ตั้งไว้และเกมเปิดให้เปลี่ยน บอทจะใช้แต้มสกิลตามคิวให้หมดก่อน แล้วไปคุยกับ Valkyrie เปลี่ยนอาชีพให้เอง'
+    : 'ℹ️ <b>เปลี่ยนอาชีพเอง:</b> บอทจะเปลี่ยนอาชีพเฉพาะตอนที่ถึงเงื่อนไขที่มี Action <b>🏹 เปลี่ยนอาชีพ</b> เช่น <b>Job Lv.10 (โนวิซ)</b> → เปลี่ยนอาชีพ → สวมใส่ Bow (Action ในเงื่อนไขทำตามลำดับจากบนลงล่าง) · Class 1/2 ด้านบนใช้กับหน้าจัดการสกิล';
+}
+
+// Job Lv. starts at 1 again with every class -> job triggers say which class they belong to
+function planClassTier(cls) {
+  const c = String(cls || '').toLowerCase();
+  if (!c) return 9;
+  if (c === 'novice') return 0;
+  if (typeof CLASS_TREE_MAP !== 'undefined' && CLASS_TREE_MAP[c]) return 1;
+  return 2;
+}
+function planTriggerOrder(a, b) {
+  return (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1)
+    || (a.type === 'job_level' ? planClassTier(a.classId) - planClassTier(b.classId) : 0)
+    || (parseInt(a.targetLevel, 10) || 0) - (parseInt(b.targetLevel, 10) || 0);
+}
+function planTriggerLabel(t) {
+  if (t.type !== 'job_level') return `Base Lv.${t.targetLevel}`;
+  return `Job Lv.${t.targetLevel} (${t.classId ? planClassLabel(t.classId) : 'ทุกอาชีพ'})`;
+}
+function jobClassChoices(trig) {
+  const p = activeEditingPlan || {};
+  const ids = ['novice', p.class1Target, p.class2Target, trig.classId].filter(Boolean).map(x => String(x).toLowerCase());
+  return [...new Set(ids)];
+}
+function updateTriggerClass(trigIdx, cls) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  activeEditingPlan.triggers[trigIdx].classId = cls;
+  sortPlanTriggers();
+  markPlanDirty();
+  renderPlanWorkflowCanvas();
+}
 function sortPlanTriggers() {
   const t = activeEditingPlan && activeEditingPlan.triggers;
   if (!Array.isArray(t)) return;
-  t.sort((a, b) => (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1) || (parseInt(a.targetLevel, 10) || 0) - (parseInt(b.targetLevel, 10) || 0));
+  t.sort(planTriggerOrder);
 }
 
 // Render Triggers and Action nodes
@@ -3176,6 +3223,11 @@ function renderPlanWorkflowCanvas() {
               <button type="button" class="${!isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'base_level')">Base</button>
               <button type="button" class="${isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'job_level')">Job</button>
             </div>
+            ${isJob ? `
+            <select class="pe-jobclass" title="Job Lv. ของอาชีพไหน (Job Lv. เริ่มนับ 1 ใหม่ทุกครั้งที่เปลี่ยนอาชีพ)" onchange="updateTriggerClass(${trigIdx}, this.value)">
+              ${jobClassChoices(trig).map(c => `<option value="${escapeHTML(c)}" ${String(trig.classId || '').toLowerCase() === c ? 'selected' : ''}>${escapeHTML(planClassLabel(c))}</option>`).join('')}
+              <option value="" ${!trig.classId ? 'selected' : ''}>ทุกอาชีพ</option>
+            </select>` : ''}
             <div class="pe-stepper" title="ถึงเลเวลนี้แล้วทำ 1 ครั้ง">
               <button type="button" onclick="stepTriggerLevel(${trigIdx}, -1)">−</button>
               <span>Lv.</span>
@@ -3336,7 +3388,10 @@ function togglePlanTriggerCollapse(trigIdx) {
 
 function updateTriggerType(trigIdx, type) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
-  activeEditingPlan.triggers[trigIdx].type = type;
+  const trig = activeEditingPlan.triggers[trigIdx];
+  trig.type = type;
+  if (type === 'job_level' && trig.classId === undefined) trig.classId = 'novice';
+  if (type !== 'job_level') delete trig.classId;
   sortPlanTriggers();
   markPlanDirty();
   renderPlanWorkflowCanvas();
@@ -3366,7 +3421,15 @@ function addActionToTrigger(trigIdx, actionType) {
   } else if (actionType === 'change_map') {
     newAction.targetMap = "ซากโบราณสถาน";
   } else if (actionType === 'change_class') {
-    newAction.targetClass = activeEditingPlan.class1Target || "archer";
+    newAction.targetClass = trig.type === 'job_level' && String(trig.classId || '').toLowerCase() === 'novice'
+      ? (activeEditingPlan.class1Target || "archer")
+      : (trig.type === 'job_level' && trig.classId ? (activeEditingPlan.class2Target || "hunter") : (activeEditingPlan.class1Target || "archer"));
+    if (activeEditingPlan.autoJobChange !== false) {
+      activeEditingPlan.autoJobChange = false;
+      const cb = document.getElementById('plan-editor-autojob');
+      if (cb) cb.checked = false;
+      refreshAutoJobUi();
+    }
   } else if (actionType === 'set_arrow') {
     Object.assign(newAction, { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 });
   }
@@ -3417,7 +3480,7 @@ async function refreshPlanLiveStatus() {
   const assigned = currentPlanProfiles.find(p => p.id === assignedId);
   const total = assigned && Array.isArray(assigned.triggers) ? assigned.triggers.length : 0;
   const syncing = assigned && st.planId !== assigned.id;
-  const pending = (st.pending || []).map(p => `${p.type === 'job_level' ? 'Job' : 'Base'} Lv.${p.level}`).join(', ');
+  const pending = (st.pending || []).map(p => `${p.type === 'job_level' ? `Job${p.cls ? ' ' + planClassLabel(p.cls).split(' ')[0] : ''}` : 'Base'} Lv.${p.level}`).join(', ');
   box.innerHTML = `
     <label class="pl-switch" title="เปิด/ปิด Plan Script ของจอนี้">
       <input type="checkbox" ${st.enabled ? 'checked' : ''} onchange="togglePlanScriptEnabled(this.checked)">
@@ -3461,11 +3524,11 @@ function validatePlanForSave(plan) {
   const problems = [];
   const triggers = Array.isArray(plan.triggers) ? plan.triggers : [];
   triggers.forEach(t => { t.targetLevel = Math.max(1, parseInt(t.targetLevel, 10) || 1); if (!t.id) t.id = "trig_" + Date.now() + "_" + Math.floor(Math.random() * 1000); });
-  triggers.sort((a, b) => (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1) || a.targetLevel - b.targetLevel);
+  triggers.sort(planTriggerOrder);
   const seen = {};
   triggers.forEach(t => {
-    const label = `${t.type === 'job_level' ? 'Job' : 'Base'} Lv.${t.targetLevel}`;
-    const key = `${t.type}_${t.targetLevel}`;
+    const label = planTriggerLabel(t);
+    const key = `${t.type}_${t.type === 'job_level' ? (t.classId || '') : ''}_${t.targetLevel}`;
     if (seen[key]) problems.push(`มีเงื่อนไข ${label} ซ้ำกัน (รวมไว้ในอันเดียวจะอ่านง่ายกว่า)`);
     seen[key] = true;
     if (!(t.actions || []).length) problems.push(`${label} ยังไม่มี Action`);
@@ -3474,6 +3537,8 @@ function validatePlanForSave(plan) {
       if (a.type === 'equip_item' && a.buyFromMarket !== false && !(Number(a.maxPrice) > 0)) problems.push(`${label}: ซื้อจากตลาดแต่งบสูงสุดเป็น 0`);
     });
   });
+  if (plan.autoJobChange === false && !planHasClassAction(plan)) problems.push('ปิด "เปลี่ยนอาชีพอัตโนมัติ" แต่ยังไม่มี Action เปลี่ยนอาชีพ — ตัวละครจะไม่เปลี่ยนอาชีพเลย (เพิ่มเงื่อนไข Job Lv.10 (โนวิซ) → 🏹 เปลี่ยนอาชีพ)');
+  if (plan.autoJobChange === true && planHasClassAction(plan)) problems.push('เปิด "เปลี่ยนอาชีพอัตโนมัติ" อยู่ และมี Action เปลี่ยนอาชีพด้วย — บอทอาจเปลี่ยนอาชีพก่อนถึงเงื่อนไขที่ตั้งไว้');
   const tree = (typeof CLASS_TREE_MAP !== 'undefined') ? CLASS_TREE_MAP[plan.class1Target] : null;
   if (tree && plan.class2Target && !tree.secondClasses.some(c => c.id === plan.class2Target)) {
     problems.push(`Class 2 "${plan.class2Target}" ไม่ได้ต่อจาก Class 1 "${plan.class1Target}"`);
@@ -3499,6 +3564,8 @@ async function saveActivePlan(applyLive = false) {
     return Number.isFinite(n) && n >= 1 && n <= 99 ? n : def;
   };
   activeEditingPlan.class1JobLevel = jobLv("plan-editor-class1-job", 10);
+  const autoCb = document.getElementById("plan-editor-autojob");
+  if (autoCb) activeEditingPlan.autoJobChange = autoCb.checked;
   activeEditingPlan.class2JobLevel = jobLv("plan-editor-class2-job", 50);
 
   const problems = validatePlanForSave(activeEditingPlan);

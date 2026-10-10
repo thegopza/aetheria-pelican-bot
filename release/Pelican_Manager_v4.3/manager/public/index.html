@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4400">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=4700">
+  <link rel="stylesheet" href="plan_editor.css?v=4800">
 </head>
 <body>
   <div class="app-container">
@@ -486,6 +486,9 @@
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <!-- Left: Class 1 & Class 2 Selectors -->
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <label class="pl-switch pe-autojob" title="เปิด = บอทเปลี่ยนอาชีพเองตาม Class 1/2 และ Job Lv. ที่ตั้ง · ปิด = เปลี่ยนเฉพาะตอนที่มี Action 'เปลี่ยนอาชีพ' ในเงื่อนไขเลเวล">
+                <input type="checkbox" id="plan-editor-autojob"><span></span><b>เปลี่ยนอาชีพอัตโนมัติ</b>
+              </label>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="font-size: 11px; font-weight: 700; color: #38bdf8;">🏹 Class 1:</span>
                 <select id="plan-editor-class1" class="form-select" style="font-size: 11.5px; padding: 4px 8px; width: auto; font-weight: 600;">
@@ -523,7 +526,7 @@
             </div>
           </div>
           <div style="font-size: 10.5px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
-            <span>ℹ️ <b>เปลี่ยนอาชีพอัตโนมัติ:</b> ไม่ต้องเพิ่มเงื่อนไขเอง — เมื่อถึง Job Lv. ที่ตั้งไว้และเกมเปิดให้เปลี่ยน บอทจะใช้แต้มสกิลที่เหลือตามคิวให้หมดก่อน แล้วกลับเมืองไปคุยกับ Valkyrie เปลี่ยนอาชีพให้เอง (ทำงานตอนเปิด Plan Script + START BOT)</span>
+            <span id="plan-autojob-hint"></span>
           </div>
         </div>
 
@@ -1048,9 +1051,9 @@
     </div>
   </div>
 
-  <script src="app.js?v=4700"></script>
+  <script src="app.js?v=4800"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
-  <script src="builder_module.js?v=4600"></script>
+  <script src="builder_module.js?v=4800"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=4390"></script>
   <script src="config_copy.js?v=4400"></script>

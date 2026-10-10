@@ -387,6 +387,16 @@ function updateClassDropdownsInEditor() {
   const j2 = document.getElementById("plan-editor-class2-job");
   if (j1) j1.value = activeEditingPlan.class1JobLevel || 10;
   if (j2) j2.value = activeEditingPlan.class2JobLevel || 50;
+  const autoCb = document.getElementById("plan-editor-autojob");
+  if (autoCb) {
+    autoCb.checked = planAutoJobChangeOf(activeEditingPlan);
+    autoCb.onchange = () => {
+      activeEditingPlan.autoJobChange = autoCb.checked;
+      if (typeof markPlanDirty === 'function') markPlanDirty();
+      refreshAutoJobUi();
+    };
+  }
+  refreshAutoJobUi();
 
   const tree = CLASS_TREE_MAP[currentC1] || CLASS_TREE_MAP['archer'];
   c2Sel.innerHTML = tree.secondClasses.map(sc => `

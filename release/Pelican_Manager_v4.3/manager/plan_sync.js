@@ -79,7 +79,7 @@ function createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort })
       planId: plan ? plan.id || null : null,
       planName: plan ? plan.name || null : null,
       done: st ? Object.keys(st.done || {}) : [],
-      pending: st ? Object.keys(st.pending || {}).map(id => ({ id, level: st.pending[id].level, type: st.pending[id].type })) : []
+      pending: st ? Object.keys(st.pending || {}).map(id => ({ id, level: st.pending[id].level, type: st.pending[id].type, cls: st.pending[id].cls || '' })) : []
     };
   })()`;
   const enableJs = en => `(() => {

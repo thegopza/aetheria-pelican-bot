@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.7.0
+// @version      4.8.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.7.0';
+    const PELICAN_BOT_VERSION = '4.8.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -197,6 +197,8 @@
         if (window.__isWalkingToMap) {
             return false;
         }
+        // Job change under way: the farm watchdog must not walk the character out of the capital meanwhile
+        window.__planJobChangeHoldUntil = Date.now() + 30000;
 
         // 5. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
         const curMap = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : (char.map || '');
@@ -309,6 +311,7 @@
                     console.log(`%c[PmheeAether Plan] 🎉 เปลี่ยนอาชีพเป็น "${targetClass}" สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
                     if (readDialog()) closeDialog();
                     window.__jobChangeFails = 0;
+                    window.__planJobChangeHoldUntil = 0;
                     return true;
                 }
             }
@@ -321,6 +324,7 @@
         window.__jobChangeFails = (window.__jobChangeFails || 0) + 1;
         const waitSec = Math.min(300, 20 * window.__jobChangeFails);
         window.__jobChangeBackoffUntil = Date.now() + waitSec * 1000;
+        window.__planJobChangeHoldUntil = 0;
         console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพเป็น "${targetClass}" ยังไม่สำเร็จ (ครั้งที่ ${window.__jobChangeFails}) — จะลองใหม่ใน ${waitSec} วิ (ดูตัวเลือกของ Valkyrie ใน log ด้านบน)`);
         return false;
     };
@@ -7175,7 +7179,7 @@
 
         // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
         // เมื่อบอท START อยู่ แต่ตัวละครยืนค้างอยู่ในเมืองหลวง และไม่ได้อยู่ในลูปซื้อของ/เดินทาง/ฟื้นฟู
-        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating) {
+        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating && !((window.__planJobChangeHoldUntil || 0) > Date.now())) {
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
             if (!isTargetCity) {
@@ -11846,7 +11850,8 @@
         const b = text.match(/Base\s*(?:Lv\.?|Level)?\s*(\d+)/i);
         const j = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
         if (!b || !j) return null;   // HUD not ready: never guess a level
-        return { base: parseInt(b[1], 10), job: parseInt(j[1], 10) };
+        const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : null;
+        return { base: parseInt(b[1], 10), job: parseInt(j[1], 10), cls: String((ch && ch.classId) || '').toLowerCase() };
     }
 
     async function runPlanAction(act) {
@@ -11892,29 +11897,35 @@
         try { st = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
         // First run of this plan for this character: triggers at the current level still fire once,
         // levels already passed don't (no retroactive buying or map hopping)
-        if (!st) st = { lastBase: lv.base - 1, lastJob: lv.job - 1, done: {}, pending: {} };
+        if (!st) st = { lastBase: lv.base - 1, lastJob: lv.job - 1, lastJobClass: lv.cls, done: {}, pending: {} };
         const save = () => { try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
 
-        // 1. Queue triggers whose level was crossed since the last check
+        // 1. Queue triggers whose level was crossed since the last check.
+        // Job Lv. starts again at 1 with every class, so a job trigger can be tied to a class (t.classId):
+        // "Job 10 novice" and "Job 10 archer" are different moments.
+        const classChanged = lv.cls && st.lastJobClass && st.lastJobClass !== lv.cls;
+        const lastJob = classChanged ? 0 : st.lastJob;
         const crossed = [];
         plan.triggers.forEach((t, i) => {
             const id = planTriggerId(t, i);
             const lvl = parseInt(t.targetLevel, 10);
             if (!lvl || st.done[id] || st.pending[id]) return;
             const isJob = t.type === 'job_level';
-            const last = isJob ? st.lastJob : st.lastBase;
+            if (isJob && t.classId && lv.cls && String(t.classId).toLowerCase() !== lv.cls) return;
+            const last = isJob ? lastJob : st.lastBase;
             const cur = isJob ? lv.job : lv.base;
             if (last < lvl && lvl <= cur) crossed.push({ id, t, lvl });
         });
         st.lastBase = lv.base;
         st.lastJob = lv.job;
+        if (lv.cls) st.lastJobClass = lv.cls;
         crossed.sort((a, b) => a.lvl - b.lvl);
         // When several triggers are crossed at once only the last map change matters
         const lastMapTrigger = [...crossed].reverse().find(c => (c.t.actions || []).some(a => a.type === 'change_map'));
         crossed.forEach(c => {
             const actions = (c.t.actions || []).map((a, i) => i).filter(i => c.t.actions[i].type !== 'change_map' || c === lastMapTrigger);
-            st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level' };
-            console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${c.t.type === 'job_level' ? 'Job' : 'Base'} Lv.${c.lvl} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
+            st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level', cls: c.t.type === 'job_level' ? (c.t.classId || '') : '' };
+            console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${c.t.type === 'job_level' ? `Job${c.t.classId ? ' (' + c.t.classId + ')' : ''}` : 'Base'} Lv.${c.lvl} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
         });
         save();
 
@@ -11930,25 +11941,36 @@
         planTriggersRunning = true;
         try {
             const p = st.pending[nextId];
+            const equipTimedOut = Date.now() - p.firstAt > PLAN_EQUIP_GIVEUP_MS;
+            // Run in the order the player placed them (e.g. change class first, then equip the bow):
+            // the first action that isn't finished yet holds back the ones after it
             const remaining = [];
+            let waitingOn = null;
             for (const ai of p.actions) {
                 const act = (trig.actions || [])[ai];
                 if (!act) continue;
+                if (waitingOn) { remaining.push(ai); continue; }
                 let r = 'failed';
                 try { r = await runPlanAction(act); } catch (e) { console.warn('[PmheeAether Plan] Action error:', e); r = 'pending'; }
-                if (r === 'pending') remaining.push(ai);
-                else if (r === 'failed') console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
+                if (r === 'pending') {
+                    if (act.type === 'equip_item' && equipTimedOut) {
+                        console.warn(`[PmheeAether Plan] ⌛ เลิกพยายามสวมใส่ "${act.itemName}" ของเงื่อนไข Lv.${p.level} (เกิน 30 นาที) — ทำ action ถัดไปต่อ`);
+                        continue;
+                    }
+                    remaining.push(ai);
+                    waitingOn = act;
+                } else if (r === 'failed') {
+                    console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
+                }
             }
-            const equipTimedOut = Date.now() - p.firstAt > PLAN_EQUIP_GIVEUP_MS;
-            const stillWaiting = remaining.filter(ai => !(equipTimedOut && trig.actions[ai].type === 'equip_item'));
-            if (stillWaiting.length === 0) {
-                if (remaining.length) console.warn(`[PmheeAether Plan] ⌛ เลิกพยายามสวมใส่ไอเทมของเงื่อนไข Lv.${p.level} (เกิน 30 นาที)`);
-                else console.log(`%c[PmheeAether Plan] ✅ ทำเงื่อนไข Lv.${p.level} ครบแล้ว`, 'color: #22c55e; font-weight: bold;');
+            if (!remaining.length) {
+                console.log(`%c[PmheeAether Plan] ✅ ทำเงื่อนไข Lv.${p.level} ครบแล้ว`, 'color: #22c55e; font-weight: bold;');
                 delete st.pending[nextId];
                 st.done[nextId] = Date.now();
             } else {
-                p.actions = stillWaiting;
-                p.nextAt = Date.now() + PLAN_RETRY_MS;
+                p.actions = remaining;
+                // A job change walks to Valkyrie: keep at it (other systems would pull the character back to the farm)
+                p.nextAt = Date.now() + (waitingOn && waitingOn.type === 'change_class' ? 4000 : PLAN_RETRY_MS);
             }
             save();
         } finally {
@@ -12101,10 +12123,18 @@
     // The game itself says when a job change is possible (character.jobChangeOptions), so no guessing
     // from Base/Job level. Novice -> plan.class1Target, first class -> plan.class2Target.
     let planJobWarned = '';
+    // Plan setting "เปลี่ยนอาชีพอัตโนมัติ". Older plans without the setting: automatic unless the player
+    // already placed a "เปลี่ยนอาชีพ" action (then the triggers decide when to change)
+    function planAutoJobChange(plan) {
+        if (!plan) return false;
+        if (typeof plan.autoJobChange === 'boolean') return plan.autoJobChange;
+        return !(plan.triggers || []).some(t => (t.actions || []).some(a => a.type === 'change_class'));
+    }
+
     window.checkAndExecuteAutoJobChange = async function() {
         if (!window.__planScriptEnabled) return false;
         const plan = window.__currentScriptPlan;
-        if (!plan) return false;
+        if (!plan || !planAutoJobChange(plan)) return false;
         const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : null;
         if (!ch) return false;
         const options = planJobOptions(ch);
