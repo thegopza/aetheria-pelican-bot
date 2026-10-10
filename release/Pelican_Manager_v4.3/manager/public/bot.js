@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.10.1
+// @version      4.11.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.10.1';
+    const PELICAN_BOT_VERSION = '4.11.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -6835,6 +6835,22 @@
         }
     }
 
+    // "ประหยัดค่าวาร์ป": below this much zeny, travel on foot through the world map instead of paying
+    // for Alice's warp (0 = off). Stored like the other bot settings.
+    try {
+        window.__travelConfig = Object.assign({ minZenyForWarp: 0 }, JSON.parse(localStorage.getItem('pelican_travel_cfg') || '{}'));
+    } catch (e) { window.__travelConfig = { minZenyForWarp: 0 }; }
+    window.saveTravelConfig = function() {
+        try { localStorage.setItem('pelican_travel_cfg', JSON.stringify(window.__travelConfig)); } catch (e) {}
+    };
+    window.isWarpTooExpensive = function() {
+        const min = Number(window.__travelConfig && window.__travelConfig.minZenyForWarp) || 0;
+        if (min <= 0) return false;
+        const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : null;
+        const zeny = ch && typeof ch.zeny === 'number' ? ch.zeny : null;
+        return zeny !== null && zeny < min;
+    };
+
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
         if (window.__isConsolidating) {
             console.log('%c[PmheeAether] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
@@ -6880,7 +6896,20 @@
             return;
         }
 
+        const saveWarp = window.isWarpTooExpensive();
         function clickWalkButton() {
+            // เงินต่ำกว่าที่ตั้งไว้: เดินผ่านแผนที่โลก (ฟรี) ก่อน — วาร์ปเฉพาะเมื่อเดินจากตรงนี้ไม่ได้
+            if (saveWarp) {
+                const freeWalk = document.querySelector('.worldmap-walk button');
+                if (freeWalk && !freeWalk.disabled) {
+                    triggerClick(freeWalk);
+                    console.log('%c[PmheeAether Warp] 💸 เงินต่ำกว่าที่ตั้งไว้ -> เดินไปเอง (ไม่เสียค่าวาร์ป)', 'color: #f59e0b; font-weight: bold;');
+                    setTimeout(() => { if (isWorldMapOpen()) dispatchKeyAll('m', 'KeyM', 77); }, 1500);
+                    startArrivalWatcher(mapName);
+                    return true;
+                }
+                if (freeWalk) console.warn('[PmheeAether Warp] ⚠️ เดินไปจากตรงนี้ไม่ได้ -> จำเป็นต้องวาร์ป');
+            }
             // 1. ถ้ามีปุ่ม "วาร์ปไปที่นี่" (Alice Warp Service จาก NPC n6) ให้กดวาร์ปทันที!
             const warpBtn = Array.from(document.querySelectorAll('button')).find(b => {
                 const txt = (b.innerText || '').trim();
@@ -6976,7 +7005,7 @@
                     }
                 }, 300);
 
-                if (mapId && typeof window.sendNpcWarp === 'function') {
+                if (mapId && typeof window.sendNpcWarp === 'function' && !saveWarp) {
                     setTimeout(() => {
                         if (window.__isBotRunning || window.__isNavigating) {
                             window.sendNpcWarp(mapId);
@@ -6988,7 +7017,7 @@
             } else {
                 console.warn(`[PmheeAether] ไม่พบหมุดแมพ "${cleanMapName}" บนหน้าต่างแผนที่`);
                 const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
-                if (mapId && typeof window.sendNpcWarp === 'function') {
+                if (mapId && typeof window.sendNpcWarp === 'function' && !saveWarp) {
                     console.log(`[PmheeAether Warp] ⚡ ส่ง Packet วาร์ปตรงไปยัง "${cleanMapName}" (${mapId})...`);
                     window.sendNpcWarp(mapId);
                     startArrivalWatcher(cleanMapName);
@@ -7002,7 +7031,11 @@
         }
 
         // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อเปิด Alice Warp Service ก่อน
-        if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
+        // (ยกเว้นเงินต่ำกว่าที่ตั้งไว้ -> เปิดแผนที่โลกแล้วเดินไปเอง)
+        if (saveWarp) {
+            console.log(`%c[PmheeAether Warp] 💸 เงินต่ำกว่า ${Number(window.__travelConfig.minZenyForWarp).toLocaleString()} z -> ไม่ใช้วาร์ป Alice เปิดแผนที่โลกแล้วเดินไป "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
+            openWorldMap(() => clickMapPin(2));
+        } else if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
             console.log(`%c[PmheeAether Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.openAliceWarpService(() => {
                 setTimeout(() => clickMapPin(3), 500);
@@ -9346,6 +9379,7 @@
             autoMarketSellConfig: Object.assign({}, window.__autoMarketSellConfig || {}),
             marketFilterConfig: Object.assign({}, window.__marketFilterConfig || {}),
             buffPotionConfig: Object.assign({}, window.__buffPotionConfig || {}),
+            travelConfig: Object.assign({}, window.__travelConfig || {}),
             authConfig: {
                 enabled: !!window.__authConfig?.enabled,
                 autoResumeBot: window.__authConfig?.autoResumeBot !== false
@@ -9363,6 +9397,8 @@
         if (selMap && window.__targetFarmMap) selMap.value = window.__targetFarmMap;
         const cbLoop = document.getElementById('p-auto-loop');
         if (cbLoop) cbLoop.checked = !!window.__autoLoopEnabled;
+        const warpMin = document.getElementById('p-warp-min-zeny');
+        if (warpMin) warpMin.value = (window.__travelConfig && window.__travelConfig.minZenyForWarp) || 0;
 
         // 2. Archer
         const archer = window.__archerConfig || {};
@@ -9515,6 +9551,12 @@
                 if (typeof data.authConfig.autoResumeBot === 'boolean') window.__authConfig.autoResumeBot = data.authConfig.autoResumeBot;
                 // username, password และชื่อตัวละคร ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
                 localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
+            }
+
+            // 7.4 Travel (warp saver)
+            if (data.travelConfig && typeof data.travelConfig === 'object') {
+                window.__travelConfig = Object.assign({}, window.__travelConfig || {}, data.travelConfig);
+                window.saveTravelConfig();
             }
 
             // 7.5 Buff Potion Config
@@ -9995,6 +10037,12 @@
                             <button class="p-btn p-btn-loop" id="p-btn-walk-map">🚀 เดินกลับแมพ</button>
                             <button class="p-btn p-btn-map" id="p-btn-open-map">🗺️ แผนที่โลก</button>
                         </div>
+                        <div class="p-row" title="ถ้าเงินต่ำกว่าจำนวนนี้ บอทจะไม่จ่ายค่าวาร์ปที่ NPC Alice แต่จะเปิดแผนที่โลกแล้วเดินไปเอง (0 = ปิด)" style="margin-top: 6px; gap: 6px;">
+                            <span style="font-size: 10px; color: #e2e8f0;">💸 เงินต่ำกว่า</span>
+                            <input type="number" id="p-warp-min-zeny" min="0" step="1000" value="${(window.__travelConfig && window.__travelConfig.minZenyForWarp) || 0}" class="p-input" style="width: 84px; text-align: center;">
+                            <span style="font-size: 10px; color: #e2e8f0;">z ไม่วาร์ป เดินแทน</span>
+                        </div>
+                        <div class="p-hint" style="font-size: 9px; color: #94a3b8;">0 = วาร์ปตามปกติ · ถ้าเดินไปจากจุดนั้นไม่ได้ จะยังวาร์ปให้</div>
                     </div>
                 </div>
 
@@ -10728,6 +10776,15 @@
                     document.getElementById('p-modal-raw-json').value = JSON.stringify(res, null, 2);
                     modal.style.display = 'flex';
                 }
+            };
+        }
+
+        const warpMinEl = document.getElementById('p-warp-min-zeny');
+        if (warpMinEl) {
+            warpMinEl.onchange = (e) => {
+                window.__travelConfig.minZenyForWarp = Math.max(0, parseInt(e.target.value, 10) || 0);
+                e.target.value = window.__travelConfig.minZenyForWarp;
+                window.saveTravelConfig();
             };
         }
 
