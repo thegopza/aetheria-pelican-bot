@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.23.2
+// @version      4.24.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.23.2';
+    const PELICAN_BOT_VERSION = '4.24.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -6706,6 +6706,35 @@
         });
     };
 
+    // HP potions for the game's AUTO (it drinks them under its HP %). The town trip never bought any: characters
+    // with VIT 1 and no potions died again and again. Level-based potion (Red < 15, Orange < 40, else White) or
+    // shopConfig.hpPotionId; tops up to shopConfig.hpPotionQty (30), never spends more than half the zeny.
+    const HEAL_POTIONS = { 90301: 'Red Potion', 90302: 'Orange Potion', 90303: 'White Potion' };
+    function buyHealingPotions() {
+        const pcfg = window.__shopConfig || {};
+        if (pcfg.autoBuyPotion === false) return;
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const lvl = Number(ch.baseLevel) || 1;
+        const potId = Number(pcfg.hpPotionId) || (lvl >= 40 ? 90303 : lvl >= 15 ? 90302 : 90301);
+        const target = Math.max(0, Number(pcfg.hpPotionQty) || 30);
+        const have = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(potId) : 0;
+        const need = target - have;
+        const name = HEAL_POTIONS[potId] || ('#' + potId);
+        if (need <= 0) return;
+        const shop = document.querySelector('.shop-window');
+        const row = shop && Array.from(shop.querySelectorAll('.shop-row')).find(r => {
+            const fk = Object.keys(r).find(k => k.startsWith('__reactFiber'));
+            return fk && r[fk] && String(r[fk].key) === String(potId);
+        });
+        if (!row) { console.warn(`[PmheeAether Shop] 🧪 ร้านนี้ไม่มี ${name} ขาย`); return; }
+        const price = parseInt(((row.querySelector('.shop-price') || {}).innerText || '').replace(/[^0-9]/g, ''), 10) || 0;
+        const zeny = Number(ch.zeny) || 0;
+        const n = price > 0 ? Math.min(need, Math.floor((zeny * 0.5) / price)) : need;
+        if (n <= 0) { console.warn(`[PmheeAether Shop] 🧪 เงินไม่พอซื้อ ${name} (ราคา ${price.toLocaleString()} z / มี ${zeny.toLocaleString()} z)`); return; }
+        console.log(`%c[PmheeAether Shop] 🧪 ซื้อยาฟื้นเลือด ${name} x${n} (มี ${have} / ตั้งเป้า ${target})`, 'color: #ec4899; font-weight: bold;');
+        window.sendShopBuy(potId, n);
+    }
+
     function executeSellAndBuyActions(onComplete) {
         if (!window.__isBotRunning && !window.__isManualSelling) return;
         console.log('%c[PmheeAether Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
@@ -6744,6 +6773,7 @@
             // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้ (Smart Restock: คำนวณส่วนต่างให้ครบ targetQty)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
+                buyHealingPotions();
                 if (cfg.useBwing) {
                     const bwingId = parseInt(cfg.bwingItemId) || 0x000160c7;
                     const targetBwing = parseInt(cfg.bwingBuyQty) || 5;
@@ -7171,6 +7201,33 @@
         return zeny !== null && zeny < min;
     };
 
+    // Death loop: 3 deaths within 10 minutes on the same farm map -> farm the plan's previous (easier) map for
+    // 30 minutes, then try again. Without a plan there is no "easier map" to pick: it only warns.
+    window.__deathLog = window.__deathLog || [];
+    window.noteDeathForMap = function () {
+        const map = window.__targetFarmMap || '';
+        const now = Date.now();
+        window.__deathLog = window.__deathLog.filter(d => now - d.at < 10 * 60 * 1000);
+        window.__deathLog.push({ at: now, map });
+        const n = window.__deathLog.filter(d => d.map === map).length;
+        if (n < 3 || (window.__safeMap && window.__safeMap.from === map && now < window.__safeMap.until)) return;
+        let easier = null;
+        const plan = window.__planScriptEnabled && window.__currentScriptPlan;
+        if (plan && Array.isArray(plan.triggers)) {
+            const maps = plan.triggers.filter(t => t.type === 'base_level')
+                .map(t => ({ lvl: parseInt(t.targetLevel, 10) || 0, map: ((t.actions || []).filter(a => a.type === 'change_map' && a.targetMap).pop() || {}).targetMap }))
+                .filter(x => x.map).sort((a, b) => a.lvl - b.lvl);
+            const idx = maps.map(x => x.map).lastIndexOf(map);
+            for (let i = (idx >= 0 ? idx : maps.length) - 1; i >= 0 && !easier; i--) if (maps[i].map !== map) easier = maps[i].map;
+        }
+        if (!easier) {
+            console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" — แมพนี้อาจยากเกินไป (ลองเพิ่ม VIT / ซื้อยา / เปลี่ยนแมพ)`);
+            return;
+        }
+        window.__safeMap = { from: map, to: easier, until: now + 30 * 60 * 1000 };
+        console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" -> ย้ายไปฟาร์ม "${easier}" ชั่วคราว 30 นาที แล้วค่อยกลับไปลองใหม่`);
+    };
+
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
         if (window.__isConsolidating) {
             console.log('%c[PmheeAether] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
@@ -7183,6 +7240,11 @@
                 console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${mapName}")`, 'color: #38bdf8; font-weight: bold;');
                 mapName = planMap;
             }
+        }
+        const safe = window.__safeMap;
+        if (safe && Date.now() < safe.until && mapName === safe.from) {
+            console.log(`%c[PmheeAether] ☠️ ตายบ่อยที่ "${safe.from}" -> ไปฟาร์ม "${safe.to}" ก่อน (อีก ${Math.ceil((safe.until - Date.now()) / 60000)} นาที)`, 'color: #f59e0b; font-weight: bold;');
+            mapName = safe.to;
         }
 
         // ถ้ากำลังนำทางอยู่ แต่เป็นการกดสั่งใหม่ (force) หรือเปลี่ยนแมพเป้าหมาย ให้ยกเลิกการเดินเดิมทันที
@@ -7461,6 +7523,8 @@
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
         if (isDead) {
             console.log('%c[PmheeAether] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
+            if (typeof window.noteDeathForMap === 'function') window.noteDeathForMap();
+            lastCityToFarmAttempt = Date.now() + 3000;   // the respawn below walks back itself (was sent twice)
             window.__isRecovering = true;
             autoActivateFailCount = 0;
 
