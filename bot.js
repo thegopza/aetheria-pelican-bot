@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.19.1
+// @version      4.19.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.19.1';
+    const PELICAN_BOT_VERSION = '4.19.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7632,6 +7632,8 @@
 
             // คลิกปุ่มเข้าเกมหลังเลือกตัวละคร
             setTimeout(() => {
+                if (characterShownOnline()) { handleStaleCharacterSession(); return; }
+                staleSessionSince = 0;
                 const enterBtn = findEnterButton();
                 if (enterBtn && !isLoginScreenVisible()) {
                     const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
@@ -7647,6 +7649,40 @@
                 triggerClick(enterBtn);
             }
         }
+    }
+
+    // The previous session of this character (page reload, auto-update, a window that was just closed) can
+    // still be open on the server for a moment. The character list is loaded once, so the game keeps showing
+    // "ตัวนี้ออนไลน์อยู่" until the page loads again. Wait a little, then reload — never "บังคับออกจากระบบ"
+    // (that would kick a session that really plays somewhere else). At most 4 reloads per 15 minutes.
+    let staleSessionSince = 0, staleSessionGaveUp = false;
+    function characterShownOnline() {
+        const btnOnline = Array.from(document.querySelectorAll('button.char-enter')).some(b => /ตัวนี้ออนไลน์อยู่|This character is online/i.test(b.innerText || ''));
+        const errOnline = /ตัวละครนี้ออนไลน์อยู่แล้ว|already online/i.test((document.querySelector('.char-select, .login-card, .char-panel, body') || document.body).innerText || '');
+        return btnOnline || (errOnline && !!document.querySelector('.char-card'));
+    }
+    function handleStaleCharacterSession() {
+        const now = Date.now();
+        if (!staleSessionSince) {
+            staleSessionSince = now;
+            console.log('%c[PmheeAether Auth] ⏳ เกมแสดงว่าตัวละครนี้ออนไลน์อยู่ (session เก่ายังไม่ปิด) -> รอสักครู่แล้วรีเฟรชหน้า', 'color: #f59e0b; font-weight: bold;');
+            return;
+        }
+        if (now - staleSessionSince < 15000) return;
+        let st = { n: 0, first: 0 };
+        try { st = JSON.parse(localStorage.getItem('pelican_stale_session_reloads') || '{}'); } catch (e) {}
+        if (!st.first || now - st.first > 15 * 60 * 1000) st = { n: 0, first: now };
+        if (st.n >= 4) {
+            if (!staleSessionGaveUp) {
+                staleSessionGaveUp = true;
+                console.warn('[PmheeAether Auth] ⚠️ รีเฟรชแล้ว 4 ครั้งตัวละครยังออนไลน์อยู่ — อาจเปิดตัวนี้อยู่ในจออื่นจริง ไม่รีเฟรชต่อ');
+            }
+            return;
+        }
+        st.n++;
+        try { localStorage.setItem('pelican_stale_session_reloads', JSON.stringify(st)); } catch (e) {}
+        console.log(`%c[PmheeAether Auth] ♻️ ตัวละครยังขึ้นว่าออนไลน์อยู่ -> รีเฟรชหน้า (ครั้งที่ ${st.n}/4)`, 'color: #f59e0b; font-weight: bold;');
+        location.reload();
     }
 
     // ---------- Auto-register + auto-create character ----------
