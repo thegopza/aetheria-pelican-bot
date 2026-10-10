@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.9.0
+// @version      4.10.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.9.0';
+    const PELICAN_BOT_VERSION = '4.10.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -11868,6 +11868,11 @@
                 console.log(`[PmheeAether Plan] ⏳ ยังไม่มีคนขาย "${itemName}"${terms.length ? ' ที่ออปชั่นตรง' : ''} ในราคาไม่เกิน ${Number(maxPrice).toLocaleString()} z — จะลองใหม่ภายหลัง`);
                 return 'pending';
             }
+            const zeny = Number(ch.zeny) || 0;
+            if (Number(best.price) > zeny) {
+                console.log(`%c[PmheeAether Plan] 💰 เงินไม่พอซื้อ "${itemName}" (มี ${zeny.toLocaleString()} z / ถูกสุด ${Number(best.price).toLocaleString()} z) — รอเงินพอแล้วจะซื้อให้เอง`, 'color: #f59e0b;');
+                return 'pending';
+            }
             console.log(`%c[PmheeAether Plan] 🛒 ซื้อ "${best.item.name}" ราคา ${Number(best.price).toLocaleString()} z จาก ${best.sellerName}`, 'color: #10b981; font-weight: bold;');
             room.send('market', { op: 'buy', listingId: Number(best.listingId), price: Number(best.price) });
             await new Promise(r => setTimeout(r, 1200));
@@ -11894,7 +11899,7 @@
     // A trigger fires when the level *crosses* its target (so multi-level jumps or bot downtime can't
     // skip it). Progress is stored per character + plan; actions that can't finish yet are retried.
     const PLAN_RETRY_MS = 60 * 1000;
-    const PLAN_EQUIP_GIVEUP_MS = 30 * 60 * 1000;
+    const PLAN_SLOW_RETRY_MS = 5 * 60 * 1000;   // after 10 min of waiting (e.g. saving up zeny)
     const planTriggerId = (t, i) => t.id || `${t.type || 'base_level'}_${t.targetLevel}_${i}`;
     let planTriggersRunning = false;
 
@@ -11961,8 +11966,14 @@
         const classChanged = lv.cls && st.lastJobClass && st.lastJobClass !== lv.cls;
         const lastJob = classChanged ? 0 : st.lastJob;
         const crossed = [];
+        const zenyNow = Number(((typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {}).zeny) || 0;
         plan.triggers.forEach((t, i) => {
             const id = planTriggerId(t, i);
+            if (t.type === 'zeny') {
+                const need = Number(t.targetZeny) || 0;
+                if (need > 0 && !st.done[id] && !st.pending[id] && zenyNow >= need) crossed.push({ id, t, lvl: need });
+                return;
+            }
             const lvl = parseInt(t.targetLevel, 10);
             if (!lvl || st.done[id] || st.pending[id]) return;
             const isJob = t.type === 'job_level';
@@ -11977,13 +11988,14 @@
         st.lastBase = lv.base;
         st.lastJob = lv.job;
         if (lv.cls) st.lastJobClass = lv.cls;
-        crossed.sort((a, b) => a.lvl - b.lvl);
+        crossed.sort((a, b) => ((a.t.type === 'zeny') - (b.t.type === 'zeny')) || a.lvl - b.lvl);
         // When several triggers are crossed at once only the last map change matters
         const lastMapTrigger = [...crossed].reverse().find(c => (c.t.actions || []).some(a => a.type === 'change_map'));
         crossed.forEach(c => {
             const actions = (c.t.actions || []).map((a, i) => i).filter(i => c.t.actions[i].type !== 'change_map' || c === lastMapTrigger);
             st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level', cls: c.t.type === 'job_level' ? (c.t.classId || '') : '' };
-            console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${c.t.type === 'job_level' ? `Job${c.t.classId ? ' (' + c.t.classId + ')' : ''}` : 'Base'} Lv.${c.lvl} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
+            const what = c.t.type === 'zeny' ? `เงินถึง ${c.lvl.toLocaleString()} z` : `${c.t.type === 'job_level' ? `Job${c.t.classId ? ' (' + c.t.classId + ')' : ''}` : 'Base'} Lv.${c.lvl}`;
+            console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${what} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
         });
         save();
 
@@ -11999,28 +12011,27 @@
         planTriggersRunning = true;
         try {
             const p = st.pending[nextId];
-            const equipTimedOut = Date.now() - p.firstAt > PLAN_EQUIP_GIVEUP_MS;
             // Run in the order the player placed them (e.g. change class first, then equip the bow):
             // the first action that isn't finished yet holds back the ones after it
+            // A class change that isn't done yet holds back the actions after it (e.g. equip the new class's
+            // bow). Anything else that has to wait (an item to buy when there is money) waits on its own
+            // and is retried until it works — it is never dropped.
             const remaining = [];
-            let waitingOn = null;
+            let blocker = null;
             for (const ai of p.actions) {
                 const act = (trig.actions || [])[ai];
                 if (!act) continue;
-                if (waitingOn) { remaining.push(ai); continue; }
+                if (blocker) { remaining.push(ai); continue; }
                 let r = 'failed';
                 try { r = await runPlanAction(act); } catch (e) { console.warn('[PmheeAether Plan] Action error:', e); r = 'pending'; }
                 if (r === 'pending') {
-                    if (act.type === 'equip_item' && equipTimedOut) {
-                        console.warn(`[PmheeAether Plan] ⌛ เลิกพยายามสวมใส่ "${act.itemName}" ของเงื่อนไข Lv.${p.level} (เกิน 30 นาที) — ทำ action ถัดไปต่อ`);
-                        continue;
-                    }
                     remaining.push(ai);
-                    waitingOn = act;
+                    if (act.type === 'change_class') blocker = act;
                 } else if (r === 'failed') {
                     console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
                 }
             }
+            const waitingOn = blocker;
             if (!remaining.length) {
                 console.log(`%c[PmheeAether Plan] ✅ ทำเงื่อนไข Lv.${p.level} ครบแล้ว`, 'color: #22c55e; font-weight: bold;');
                 delete st.pending[nextId];
@@ -12028,7 +12039,8 @@
             } else {
                 p.actions = remaining;
                 // A job change walks to Valkyrie: keep at it (other systems would pull the character back to the farm)
-                p.nextAt = Date.now() + (waitingOn && waitingOn.type === 'change_class' ? 4000 : PLAN_RETRY_MS);
+                const waitedLong = Date.now() - p.firstAt > 10 * 60 * 1000;
+                p.nextAt = Date.now() + (waitingOn ? 4000 : (waitedLong ? PLAN_SLOW_RETRY_MS : PLAN_RETRY_MS));
             }
             save();
         } finally {

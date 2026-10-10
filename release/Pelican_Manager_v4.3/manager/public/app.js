@@ -3165,12 +3165,17 @@ function planClassTier(cls) {
   if (typeof CLASS_TREE_MAP !== 'undefined' && CLASS_TREE_MAP[c]) return 1;
   return 2;
 }
+const PLAN_TRIGGER_RANK = { base_level: 0, job_level: 1, zeny: 2 };
 function planTriggerOrder(a, b) {
+  if (a.type === 'zeny' || b.type === 'zeny') {
+    return ((PLAN_TRIGGER_RANK[a.type] || 0) - (PLAN_TRIGGER_RANK[b.type] || 0)) || (Number(a.targetZeny) || 0) - (Number(b.targetZeny) || 0);
+  }
   return (a.type === b.type ? 0 : a.type === 'job_level' ? 1 : -1)
     || (a.type === 'job_level' ? planClassTier(a.classId) - planClassTier(b.classId) : 0)
     || (parseInt(a.targetLevel, 10) || 0) - (parseInt(b.targetLevel, 10) || 0);
 }
 function planTriggerLabel(t) {
+  if (t.type === 'zeny') return `เงิน ≥ ${(Number(t.targetZeny) || 0).toLocaleString()} z`;
   if (t.type !== 'job_level') return `Base Lv.${t.targetLevel}`;
   return `Job Lv.${t.targetLevel} (${t.classId ? planClassLabel(t.classId) : 'ทุกอาชีพ'})`;
 }
@@ -3178,6 +3183,13 @@ function jobClassChoices(trig) {
   const p = activeEditingPlan || {};
   const ids = ['novice', p.class1Target, p.class2Target, trig.classId].filter(Boolean).map(x => String(x).toLowerCase());
   return [...new Set(ids)];
+}
+function updateTriggerZeny(trigIdx, val) {
+  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
+  activeEditingPlan.triggers[trigIdx].targetZeny = Math.max(1, parseInt(String(val).replace(/[^0-9]/g, ''), 10) || 1);
+  sortPlanTriggers();
+  markPlanDirty();
+  renderPlanWorkflowCanvas();
 }
 function updateTriggerClass(trigIdx, cls) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
@@ -3210,30 +3222,38 @@ function renderPlanWorkflowCanvas() {
 
   canvas.innerHTML = `<div class="pe-timeline">${triggers.map((trig, trigIdx) => {
     const isJob = trig.type === 'job_level';
+    const isZeny = trig.type === 'zeny';
     const actions = trig.actions || [];
     const key = trig.id || `idx_${trigIdx}`;
     const collapsed = planCollapsedTriggers.has(key);
     return `
-      <div class="pe-node ${isJob ? 'job' : 'base'} ${collapsed ? 'collapsed' : ''}" data-trigger-idx="${trigIdx}">
-        <div class="pe-rail"><span class="pe-dot">${isJob ? 'J' : 'B'}</span></div>
+      <div class="pe-node ${isZeny ? 'zeny' : isJob ? 'job' : 'base'} ${collapsed ? 'collapsed' : ''}" data-trigger-idx="${trigIdx}">
+        <div class="pe-rail"><span class="pe-dot">${isZeny ? '💰' : isJob ? 'J' : 'B'}</span></div>
         <div class="pe-card">
           <div class="pe-head">
             <button type="button" class="pe-icon-btn pe-fold" onclick="togglePlanTriggerCollapse(${trigIdx})" title="${collapsed ? 'ขยาย' : 'ย่อ'}">${collapsed ? '▸' : '▾'}</button>
-            <div class="pe-seg" title="นับจากเลเวลตัวละคร (Base) หรือเลเวลอาชีพ (Job)">
-              <button type="button" class="${!isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'base_level')">Base</button>
+            <div class="pe-seg" title="ทำเมื่อถึงเลเวลตัวละคร (Base), เลเวลอาชีพ (Job) หรือเมื่อเงินถึงจำนวนที่ตั้ง (💰)">
+              <button type="button" class="${!isJob && !isZeny ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'base_level')">Base</button>
               <button type="button" class="${isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'job_level')">Job</button>
+              <button type="button" class="${isZeny ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'zeny')">💰 เงิน</button>
             </div>
             ${isJob ? `
             <select class="pe-jobclass" title="Job Lv. ของอาชีพไหน (Job Lv. เริ่มนับ 1 ใหม่ทุกครั้งที่เปลี่ยนอาชีพ)" onchange="updateTriggerClass(${trigIdx}, this.value)">
               ${jobClassChoices(trig).map(c => `<option value="${escapeHTML(c)}" ${String(trig.classId || '').toLowerCase() === c ? 'selected' : ''}>${escapeHTML(planClassLabel(c))}</option>`).join('')}
               <option value="" ${!trig.classId ? 'selected' : ''}>ทุกอาชีพ</option>
             </select>` : ''}
+            ${isZeny ? `
+            <div class="pe-stepper pe-zeny" title="เมื่อมีเงินถึงจำนวนนี้แล้วทำ 1 ครั้ง">
+              <span>≥</span>
+              <input type="number" min="1" step="1000" value="${Number(trig.targetZeny) || 20000}" onchange="updateTriggerZeny(${trigIdx}, this.value)">
+              <span>z</span>
+            </div>` : `
             <div class="pe-stepper" title="ถึงเลเวลนี้แล้วทำ 1 ครั้ง">
               <button type="button" onclick="stepTriggerLevel(${trigIdx}, -1)">−</button>
               <span>Lv.</span>
               <input type="number" min="1" max="200" value="${parseInt(trig.targetLevel, 10) || 1}" onchange="updateTriggerLevel(${trigIdx}, this.value)">
               <button type="button" onclick="stepTriggerLevel(${trigIdx}, 1)">+</button>
-            </div>
+            </div>`}
             <div class="pe-summary">
               ${actions.length ? actions.map(a => `<span class="pe-chip ${a.type}">${escapeHTML(planActionSummary(a))}</span>`).join('') : '<span class="pe-chip empty">ยังไม่มี Action</span>'}
             </div>
@@ -3392,6 +3412,7 @@ function updateTriggerType(trigIdx, type) {
   trig.type = type;
   if (type === 'job_level' && trig.classId === undefined) trig.classId = 'novice';
   if (type !== 'job_level') delete trig.classId;
+  if (type === 'zeny' && !(Number(trig.targetZeny) > 0)) trig.targetZeny = 20000;
   sortPlanTriggers();
   markPlanDirty();
   renderPlanWorkflowCanvas();
@@ -3480,7 +3501,7 @@ async function refreshPlanLiveStatus() {
   const assigned = currentPlanProfiles.find(p => p.id === assignedId);
   const total = assigned && Array.isArray(assigned.triggers) ? assigned.triggers.length : 0;
   const syncing = assigned && st.planId !== assigned.id;
-  const pending = (st.pending || []).map(p => `${p.type === 'job_level' ? `Job${p.cls ? ' ' + planClassLabel(p.cls).split(' ')[0] : ''}` : 'Base'} Lv.${p.level}`).join(', ');
+  const pending = (st.pending || []).map(p => p.type === 'zeny' ? `เงิน ≥ ${Number(p.level).toLocaleString()} z` : `${p.type === 'job_level' ? `Job${p.cls ? ' ' + planClassLabel(p.cls).split(' ')[0] : ''}` : 'Base'} Lv.${p.level}`).join(', ');
   box.innerHTML = `
     <label class="pl-switch" title="เปิด/ปิด Plan Script ของจอนี้">
       <input type="checkbox" ${st.enabled ? 'checked' : ''} onchange="togglePlanScriptEnabled(this.checked)">
@@ -3528,7 +3549,8 @@ function validatePlanForSave(plan) {
   const seen = {};
   triggers.forEach(t => {
     const label = planTriggerLabel(t);
-    const key = `${t.type}_${t.type === 'job_level' ? (t.classId || '') : ''}_${t.targetLevel}`;
+    if (t.type === 'zeny' && !(Number(t.targetZeny) > 0)) problems.push('เงื่อนไข 💰 เงิน ยังไม่ได้ใส่จำนวนเงิน');
+    const key = t.type === 'zeny' ? `zeny_${t.targetZeny}` : `${t.type}_${t.type === 'job_level' ? (t.classId || '') : ''}_${t.targetLevel}`;
     if (seen[key]) problems.push(`มีเงื่อนไข ${label} ซ้ำกัน (รวมไว้ในอันเดียวจะอ่านง่ายกว่า)`);
     seen[key] = true;
     if (!(t.actions || []).length) problems.push(`${label} ยังไม่มี Action`);
