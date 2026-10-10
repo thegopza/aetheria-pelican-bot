@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.6.2
+// @version      4.6.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.6.2';
+    const PELICAN_BOT_VERSION = '4.6.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -222,73 +222,98 @@
             return false;
         }
 
-        // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (npcKey: "n5")
+        // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (npcKey: "n5") แล้วไล่ตอบทีละหน้า
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (!room) {
             console.warn('[PmheeAether Plan] ⚠️ ไม่พบ Colyseus Room connection');
             return false;
         }
+        if ((window.__jobChangeBackoffUntil || 0) > Date.now()) return false;
+
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const readDialog = () => {
+            const d = document.querySelector('.npc-dialog');
+            if (!d) return null;
+            const body = d.querySelector('.npc-body p');
+            const btns = Array.from(d.querySelectorAll('.npc-options button'));
+            return {
+                text: ((body ? body.innerText : d.innerText) || '').trim(),
+                options: btns.map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim())
+            };
+        };
+        const sig = dl => dl ? dl.text + '|' + dl.options.join('|') : '';
+        // Wait until a dialog different from `prev` is shown (the server answers each option with a new page)
+        const waitDialog = async (prev, ms) => {
+            const end = Date.now() + ms;
+            while (Date.now() < end) {
+                const dl = readDialog();
+                if (dl && dl.options.length && sig(dl) !== prev) return dl;
+                await sleep(150);
+            }
+            return readDialog();
+        };
+        const classNow = () => String(((typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {}).classId || '').toLowerCase();
+
+        const thaiName = (PLAN_CLASS_TREE[targetClean] || [])[0] || '';
+        const classWords = {
+            archer: ['archer', 'ธนู'], mage: ['mage', 'เวท'], swordsman: ['swordsman', 'sword', 'ดาบ'],
+            thief: ['thief', 'โจร'], acolyte: ['acolyte', 'บวช'], merchant: ['merchant', 'ค้า']
+        }[targetClean] || [];
+        const isTarget = o => {
+            const t = o.toLowerCase();
+            return t.includes(targetClean) || (thaiName && o.includes(thaiName)) || classWords.some(w => t.includes(w));
+        };
+        // An option naming any class is never a plain 'continue' button (picking the wrong class can't be undone)
+        const mentionsClass = o => Object.keys(PLAN_CLASS_TREE).some(id => o.toLowerCase().includes(id) || (PLAN_CLASS_TREE[id][0] && o.includes(PLAN_CLASS_TREE[id][0])));
+        const isProceed = o => /พร้อมเปลี่ยนอาชีพ|ยืนยัน|ตกลง|ใช่|เปลี่ยนอาชีพ|confirm|^yes/i.test(o) && !/ไว้ก่อน|ยกเลิก|ไม่/.test(o) && !mentionsClass(o);
 
         console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (n5)...`, 'color: #a855f7; font-weight: bold;');
         room.send('npc_talk', { npcKey: 'n5' });
-        await new Promise(r => setTimeout(r, 600));
+        let dl = await waitDialog('', 3000);
 
-        // 6. กดตัวเลือกใน Dialog
-        const dialog = document.querySelector('.npc-dialog');
-        if (dialog) {
-            const text = dialog.innerText || '';
-
-            // ตรวจสอบข้อความแจ้งเตือนจากเซิร์ฟเวอร์
-            if (text.includes('ยังเร็วไป') || text.includes('กลับมาเมื่อถึง')) {
-                console.warn('[PmheeAether Plan] ⚠️ เงื่อนไขยังไม่ครบ: ' + text.replace(/\n+/g, ' '));
+        for (let step = 0; step < 6 && dl; step++) {
+            console.log(`[PmheeAether Plan] 📜 Valkyrie: "${dl.text.slice(0, 80)}" | ตัวเลือก: ${dl.options.map((o, i) => `${i}:${o}`).join(' / ')}`);
+            if (/ยังเร็วไป|กลับมาเมื่อถึง|ยังไม่ถึง|ไม่สามารถ/.test(dl.text) && !dl.options.some(isTarget)) {
+                console.warn('[PmheeAether Plan] ⚠️ Valkyrie แจ้งว่าเงื่อนไขยังไม่ครบ: ' + dl.text.replace(/\n+/g, ' '));
                 room.send('npc_close', {});
+                window.__jobChangeBackoffUntil = Date.now() + 60 * 1000;
                 return false;
             }
 
-            // หน้าแรก: ข้าพร้อมเปลี่ยนอาชีพแล้ว (Option 0)
-            if (text.includes('ถ้าเจ้าพร้อมจะเลือกเส้นทาง') || text.includes('ข้าพร้อมเปลี่ยนอาชีพแล้ว')) {
-                console.log('%c[PmheeAether Plan] ➡️ ส่งคำสั่ง: ข้าพร้อมเปลี่ยนอาชีพแล้ว (npc_option 0)...', 'color: #38bdf8;');
-                room.send('npc_option', { index: 0 });
-                await new Promise(r => setTimeout(r, 600));
+            let idx = dl.options.findIndex(isTarget);
+            if (idx < 0) {
+                // Class list without recognisable names: same count as the game's job options -> same order
+                const opts = planJobOptions(char);
+                if (opts.length > 1 && !dl.options.some(mentionsClass) && (dl.options.length === opts.length || dl.options.length === opts.length + 1)) idx = opts.indexOf(targetClean);
             }
+            const picked = idx >= 0;
+            if (idx < 0) idx = dl.options.findIndex(isProceed);
+            if (idx < 0) break;
 
-            // หน้าเลือกอาชีพ (เช่น Swordsman, Mage, Archer, Acolyte, Thief, Merchant)
-            const curDialog = document.querySelector('.npc-dialog');
-            if (curDialog) {
-                const btns = Array.from(curDialog.querySelectorAll('.npc-options button'));
-                let targetIdx = -1;
-                btns.forEach((b, idx) => {
-                    const bText = b.innerText.toLowerCase();
-                    if (bText.includes(targetClean) ||
-                        (targetClean === 'archer' && (bText.includes('ธนู') || bText.includes('archer'))) ||
-                        (targetClean === 'mage' && (bText.includes('เวท') || bText.includes('mage'))) ||
-                        (targetClean === 'swordsman' && (bText.includes('ดาบ') || bText.includes('sword'))) ||
-                        (targetClean === 'thief' && (bText.includes('โจร') || bText.includes('thief'))) ||
-                        (targetClean === 'acolyte' && (bText.includes('บวช') || bText.includes('acolyte'))) ||
-                        (targetClean === 'merchant' && (bText.includes('ค้า') || bText.includes('merchant')))) {
-                        targetIdx = idx;
-                    }
-                });
+            console.log(`%c[PmheeAether Plan] ➡️ เลือก "${dl.options[idx]}" (npc_option ${idx})${picked ? ` — อาชีพเป้าหมาย ${targetClass}` : ''}`, 'color: #38bdf8;');
+            const before = sig(dl);
+            room.send('npc_option', { index: idx });
 
-                const thaiName = (PLAN_CLASS_TREE[targetClean] || [])[0];
-                if (targetIdx < 0 && thaiName) {
-                    targetIdx = btns.findIndex(b => (b.innerText || '').includes(thaiName));
-                }
-                if (targetIdx < 0) {
-                    const opts = planJobOptions(char);
-                    if (opts.length && (btns.length === opts.length || btns.length === opts.length + 1)) targetIdx = opts.indexOf(targetClean);
-                }
-
-                if (targetIdx >= 0) {
-                    console.log(`%c[PmheeAether Plan] 🎯 เลือกเปลี่ยนเป็นอาชีพ "${targetClass}" (Option ${targetIdx}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
-                    room.send('npc_option', { index: targetIdx });
-                    await new Promise(r => setTimeout(r, 500));
-                    room.send('npc_close', {});
+            // Done as soon as the class actually changed
+            for (let t = 0; t < 10; t++) {
+                await sleep(200);
+                if (planClassLineage(classNow()).includes(targetClean)) {
+                    console.log(`%c[PmheeAether Plan] 🎉 เปลี่ยนอาชีพเป็น "${targetClass}" สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+                    if (readDialog()) room.send('npc_close', {});
+                    window.__jobChangeFails = 0;
                     return true;
                 }
             }
+            dl = await waitDialog(before, 3000);
+            if (dl && sig(dl) === before) break;   // the page didn't move on
         }
 
+        // Didn't work: close the dialog and slow down so it doesn't loop every few seconds
+        if (readDialog()) room.send('npc_close', {});
+        window.__jobChangeFails = (window.__jobChangeFails || 0) + 1;
+        const waitSec = Math.min(300, 20 * window.__jobChangeFails);
+        window.__jobChangeBackoffUntil = Date.now() + waitSec * 1000;
+        console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพเป็น "${targetClass}" ยังไม่สำเร็จ (ครั้งที่ ${window.__jobChangeFails}) — จะลองใหม่ใน ${waitSec} วิ (ดูตัวเลือกของ Valkyrie ใน log ด้านบน)`);
         return false;
     };
 
@@ -496,7 +521,9 @@
 
         // 2. ตรวจสอบหมวดหมู่ว่าเปิดให้กรองหรือไม่
         const isWeapon = equipType === 'weapon' || !!item.weaponType;
-        const isArmor = equipType === 'armor' || equipType === 'body' || equipType === 'head' || equipType === 'shield' || equipType === 'cape' || equipType === 'pants' || equipType === 'boot' || equipType === 'boots' || equipType === 'glove' || equipType === 'gloves' || equipType === 'garment' || equipType === 'legs';
+        // Game equipType values: Weapon, Helmet, HeadMid, HeadLow, Armor, Cape, Glove, Pants, Boot, Shield, Acc, Gem, Ammo, Costume*
+        // (Helmet / HeadMid / HeadLow were missing, so headgear like Elven Ears skipped the filter and was always kept)
+        const isArmor = ['armor', 'body', 'head', 'helmet', 'headtop', 'headmid', 'headlow', 'shield', 'cape', 'pants', 'boot', 'boots', 'glove', 'gloves', 'garment', 'legs'].includes(equipType);
         const isAccessory = equipType === 'acc' || equipType === 'accessory';
 
         if (isWeapon && !cfg.filterWeapons) return { pass: true, reason: 'category_not_filtered' };
@@ -11592,7 +11619,21 @@
         if (plan && Array.isArray(plan.triggers)) {
             console.log(`[PmheeAether Plan] แผนมีทั้งหมด ${plan.triggers.length} เงื่อนไขเลเวล`);
         }
+        window.updatePlanHudLabel();
     };
+
+    // HUD: plan name + switch (the plan usually arrives from the Manager after the HUD was built)
+    window.updatePlanHudLabel = function() {
+        const nameEl = document.getElementById('p-plan-name-display');
+        const plan = window.__currentScriptPlan;
+        if (nameEl) {
+            const txt = plan && plan.name ? plan.name : '(ยังไม่เลือกแผน)';
+            if (nameEl.textContent !== txt) nameEl.textContent = txt;
+        }
+        const cb = document.getElementById('p-plan-script-enabled');
+        if (cb && document.activeElement !== cb && cb.checked !== !!window.__planScriptEnabled) cb.checked = !!window.__planScriptEnabled;
+    };
+    setInterval(() => { try { window.updatePlanHudLabel(); } catch (e) {} }, 3000);
 
     // Class tree (from manager/public/game-classes.json): id -> [thai name, previous class, tier]
     const PLAN_CLASS_TREE = {"novice":["โนวิซ",null,0],"swordsman":["นักดาบ","novice",1],"mage":["นักเวท","novice",1],"archer":["นักธนู","novice",1],"acolyte":["นักบวชฝึกหัด","novice",1],"merchant":["พ่อค้า","novice",1],"thief":["โจร","novice",1],"knight":["อัศวิน","swordsman",2],"crusader":["ครูเซเดอร์","swordsman",2],"wizard":["จอมเวท","mage",2],"sage":["นักปราชญ์","mage",2],"hunter":["นักล่า","archer",2],"bard":["กวี","archer",2],"dancer":["นักเต้น","archer",2],"priest":["พรีสต์","acolyte",2],"monk":["มองค์","acolyte",2],"blacksmith":["ช่างตีเหล็ก","merchant",2],"alchemist":["นักเล่นแร่แปรธาตุ","merchant",2],"assassin":["นักฆ่า","thief",2],"rogue":["โร้ก","thief",2],"dragon-knight":["อัศวินมังกร","knight",3],"paladin":["พาลาดิน","crusader",3],"revenant":["เรเวแนนท์","crusader",3],"stormweaver":["จอมเวทพายุ","wizard",3],"frost-sage":["ปราชญ์น้ำแข็ง","sage",3],"sniper":["สไนเปอร์","hunter",3],"high-priest":["ไฮพรีสต์","priest",3],"champion":["แชมเปียน","monk",3],"whitesmith":["ไวท์สมิธ","blacksmith",3],"creator":["ครีเอเตอร์","alchemist",3],"assassin-cross":["แอสแซสซินครอส","assassin",3],"stalker":["สตอล์คเกอร์","rogue",3],"draken-paladin":["พาลาดินมังกร","paladin",4]};
