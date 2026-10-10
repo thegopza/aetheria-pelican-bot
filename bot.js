@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.19.2
+// @version      4.20.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.19.2';
+    const PELICAN_BOT_VERSION = '4.20.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -918,6 +918,25 @@
     function saveSellConfig() {
         localStorage.setItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig));
     }
+
+    // Arrows are only for a character that shoots: "Require Arrow" from a config copied off an archer must not
+    // make a Novice / Bard with an instrument buy arrows. Used when a bow is in the main hand, for the archer
+    // line, or while a plan's arrow action asked for them (e.g. just changed to Archer, bow not on yet).
+    let arrowSkipLogged = false;
+    window.arrowsNeeded = function () {
+        const cfg = window.__archerConfig;
+        if (!cfg || !cfg.requireArrow) return false;
+        if (Date.now() < (window.__planArrowBuyUntil || 0)) return true;
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const w = ch.equipment && ch.equipment['main-hand'];
+        const shoots = (w && w.weaponType) ? /bow/i.test(w.weaponType) : /archer|hunter|sniper|ranger/i.test(String(ch.classId || ''));
+        if (!shoots && !arrowSkipLogged && ch.classId) {
+            arrowSkipLogged = true;
+            console.log(`%c[PmheeAether Arrow] 🏹 เปิด Require Arrow อยู่ แต่ตัวละครนี้ (${ch.classId}${w && w.weaponType ? ', ' + w.weaponType : ''}) ไม่ได้ใช้ธนู -> ไม่ซื้อ/ไม่เช็คลูกธนู`, 'color: #94a3b8;');
+        }
+        if (shoots) arrowSkipLogged = false;
+        return shoots;
+    };
 
     // Hunter / Archer Suite Config
     const defaultArcherConfig = {
@@ -4426,7 +4445,7 @@
             }
 
             // ตรวจจับการยิงโจมตี (คำสั่ง target) เพื่อลดจำนวนลูกธนู Real-Time
-            if (window.__archerConfig && window.__archerConfig.requireArrow && !window.__isShopping) {
+            if (window.arrowsNeeded() && !window.__isShopping) {
                 if (uint8[1] === 0xa6 && uint8[2] === 0x74 && uint8[3] === 0x61 && uint8[4] === 0x72) {
                     if (typeof window.__currentAmmo === 'number' && window.__currentAmmo > 0) {
                         window.__currentAmmo--;
@@ -4677,7 +4696,7 @@
 
         console.log('%c[PmheeAether Auto] 🤖 กำลังคลิกเปิด In-Game AUTO...', 'color: #22c55e; font-weight: bold;');
 
-        if (window.__archerConfig && window.__archerConfig.requireArrow && window.__archerConfig.autoEquipArrow) {
+        if (window.arrowsNeeded() && window.__archerConfig.autoEquipArrow) {
             if (typeof window.equipArrowAndBow === 'function') {
                 window.equipArrowAndBow();
             }
@@ -4762,7 +4781,7 @@
 
             // 2. ตรวจสอบลูกธนูและเสบียง (Ammo Check)
             if (typeof syncAmmoFromDOM === 'function') syncAmmoFromDOM();
-            const requireArrow = window.__archerConfig && window.__archerConfig.requireArrow;
+            const requireArrow = window.arrowsNeeded();
             const threshold = (window.__archerConfig && typeof window.__archerConfig.ammoThreshold === 'number') ? window.__archerConfig.ammoThreshold : 50;
             const currentAmmo = typeof window.__currentAmmo === 'number' ? window.__currentAmmo : 999;
 
@@ -6620,11 +6639,12 @@
             const bagSame = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(arrowId) : 0;
             const curAmmo = Math.max(wornSame, bagSame);
             const qtyToBuy = Math.max(0, targetQty - curAmmo);
+            const needArrows = window.arrowsNeeded();
 
-            if (cfg.requireArrow && qtyToBuy > 0) {
+            if (needArrows && qtyToBuy > 0) {
                 console.log(`%c[PmheeAether Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
                 window.sendShopBuy(arrowId, qtyToBuy);
-            } else if (cfg.requireArrow) {
+            } else if (needArrows) {
                 console.log(`%c[PmheeAether Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
             }
 
@@ -6655,7 +6675,7 @@
             // 4. นำลูกธนูและ Butterfly Wing ใส่ช่องลัดด้านล่างอัตโนมัติ (เฉพาะเมื่อระบุช่อง)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
-                if (cfg.requireArrow) {
+                if (needArrows) {
                     if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
                     }
@@ -6674,7 +6694,7 @@
             // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
-                if (cfg.requireArrow) {
+                if (needArrows) {
                     if (typeof window.equipArrowAndBow === 'function') {
                         window.equipArrowAndBow();
                     } else if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
@@ -7388,7 +7408,7 @@
         // ระบบจะอ่านน้ำหนักจาก Debuff Status (.hud-status) บนหน้าจอแทนแบบ 100% Passive
 
         // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter
-        if (window.__archerConfig && window.__archerConfig.requireArrow && !inCity) {
+        if (window.arrowsNeeded() && !inCity) {
             const threshold = typeof window.__archerConfig.ammoThreshold === 'number' ? window.__archerConfig.ammoThreshold : 50;
 
             // ซิงก์จำนวนล่าสุดจาก DOM ก่อนตัดสินใจ
@@ -12374,6 +12394,7 @@
         }
         if (!window.__isShopping && Date.now() - planArrowShopAt > 10 * 60 * 1000 && typeof window.executeAutoShopRoutine === 'function') {
             planArrowShopAt = Date.now();
+            window.__planArrowBuyUntil = Date.now() + 15 * 60 * 1000;
             console.log(`%c[PmheeAether Plan] 🏹 ไม่มีลูกธนูชนิดที่ตั้ง (#${want}) ในตัว/กระเป๋า -> ไปซื้อ ${cfg.arrowBuyQty} ดอก`, 'color: #f59e0b; font-weight: bold;');
             window.executeAutoShopRoutine();
         }
