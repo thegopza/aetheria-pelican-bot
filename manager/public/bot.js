@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.8.0
+// @version      4.8.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.8.0';
+    const PELICAN_BOT_VERSION = '4.8.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -5917,6 +5917,10 @@
                         }
 
                         // กฎความปลอดภัย 2: Whitelist & Smart Stats Filter
+                        // When the option filter judged a whitelisted item "not worth keeping", that verdict is final:
+                        // the rarity cap and the option/socket locks below must not keep it again (they always would for
+                        // rare gear, e.g. a หายาก Gakkung Bow without random DEX). Refined items and inserted cards still win.
+                        let filterSellItem = null;
                         if (isWhitelisted(itemName)) {
                             const sf = sellCfg.statsFilter;
                             if (sf && sf.enabled) {
@@ -5927,8 +5931,9 @@
                                         console.log(`%c[PmheeAether Shop] 🔒 [Whitelist Pass] เก็บไอเทม: "${itemName}" (${statRes.reason} | ${statRes.matchedCount || 0} ออฟชั่นตรงเกณฑ์)`, 'color: #38bdf8; font-weight: bold;');
                                         return; // ผ่านเกณฑ์ -> ห้ามขายเด็ดขาด!
                                     } else {
-                                        console.log(`%c[PmheeAether Shop] 🗑️ [Whitelist Filtered] ปลด Whitelist ไอเทม: "${itemName}" (ออฟชั่นไม่ตรงเกณฑ์: ${statRes.reason}) -> อนุญาตให้ขาย`, 'color: #f59e0b; font-weight: bold;');
-                                        // ไม่ return -> หลุดลงไปขายตามเกณฑ์ปกติ!
+                                        const randomOpts = (bagItem.affixes || []).map(a => `${a.type}${a.mode === 'increasedPercent' ? '%' : ''}+${a.value}`).join(', ') || 'ไม่มี';
+                                        console.log(`%c[PmheeAether Shop] 🗑️ [Whitelist Filtered] "${itemName}" ออฟสุ่ม [${randomOpts}] ไม่ตรงเกณฑ์ (${statRes.reason}) -> ขาย`, 'color: #f59e0b; font-weight: bold;');
+                                        filterSellItem = bagItem;
                                     }
                                 } else {
                                     console.log(`[PmheeAether Shop] 🔒 [Whitelist Safe] ข้าม: "${itemName}" (ไม่พบข้อมูลในกระเป๋า ปลอดภัยไว้ก่อน)`);
@@ -5938,6 +5943,21 @@
                                 console.log(`[PmheeAether Shop] 🔒 [Whitelist] ข้าม: "${itemName}"`);
                                 return;
                             }
+                        }
+
+                        if (filterSellItem) {
+                            const hasCard = Array.isArray(filterSellItem.cards) && filterSellItem.cards.some(Boolean);
+                            if (sellCfg.keepRefined && (filterSellItem.refine || 0) > 0) {
+                                console.log(`[PmheeAether Shop] 🔒 [ของตีบวก] เก็บ: "${itemName}" +${filterSellItem.refine}`);
+                                return;
+                            }
+                            if (hasCard) {
+                                console.log(`[PmheeAether Shop] 🔒 [มีการ์ดใส่อยู่] เก็บ: "${itemName}"`);
+                                return;
+                            }
+                            console.log(`%c[PmheeAether Shop] 🛒 เลือกขาย (ตามตัวกรองออฟชั่น): "${itemName}"`, 'color: #22c55e;');
+                            itemsToSell.push({ name: itemName, btn: btn, row: row });
+                            return;
                         }
 
                         // กฎความปลอดภัย 3: กรองระดับความหายาก (Rarity ตามเกณฑ์เฉพาะของหมวดนี้: ธรรมดา, ดี, หายาก, มหากาพย์, ตำนาน)
@@ -10312,7 +10332,7 @@
                                 <span style="font-size: 9px; color: #94a3b8;">ออฟขึ้นไป</span>
                             </div>
                         </div>
-                        <div class="p-hint" style="font-size: 9px; color: #94a3b8; padding: 0 2px; line-height: 1.35;">นับเฉพาะออฟสุ่มที่ตรงกับรายการด้านล่าง (ออฟอื่นไม่นับ) — เก็บไว้เมื่อมีออฟ Must Have ครบ <b>และ</b> ตรงรายการถึงจำนวนนี้ ไม่งั้นขาย เช่น ตั้ง 2 + รายการ DEX/AGI = ต้องมีทั้ง DEX และ AGI</div>
+                        <div class="p-hint" style="font-size: 9px; color: #94a3b8; padding: 0 2px; line-height: 1.35;">นับเฉพาะออฟสุ่มที่ตรงกับรายการด้านล่าง (ออฟอื่นไม่นับ) — เก็บไว้เมื่อมีออฟ Must Have ครบ <b>และ</b> ตรงรายการถึงจำนวนนี้ ไม่งั้นขาย เช่น ตั้ง 2 + รายการ DEX/AGI = ต้องมีทั้ง DEX และ AGI · ค่าพื้นฐานของไอเทม (เช่น DEX+2 ของ Gakkung Bow) ไม่นับ · ของที่ไม่ผ่านจะขายเลยแม้เป็นระดับหายาก/มี Option (ยกเว้นของตีบวกหรือมีการ์ดใส่อยู่)</div>
 
                         <!-- Main Stats List -->
                         <div style="background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 4px; padding: 4px;">
