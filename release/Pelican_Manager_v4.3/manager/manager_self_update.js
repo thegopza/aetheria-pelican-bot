@@ -18,26 +18,12 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const REPO = 'thegopza/aetheria-pelican-bot';
+const { REPO, getMainHeadSha, apiGetJSON } = require('./github_check');
 const RESTART_EXIT_CODE = 75;
 const CHECK_MS = 10 * 60 * 1000;
 const LOCAL_SCAN_MS = 30 * 1000;
 // User data and runtime state are never overwritten
 const EXCLUDE = /^(profiles|plans|presets|settings)\.json$|^data\/|^sessions\//;
-
-function getJSON(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 15000 }, res => {
-      let d = '';
-      res.setEncoding('utf8');
-      res.on('data', c => d += c);
-      res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error(`GitHub HTTP ${res.statusCode}`));
-        try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
-      });
-    }).on('error', reject).on('timeout', function () { this.destroy(new Error('timeout')); });
-  });
-}
 
 function getBuffer(url) {
   return new Promise((resolve, reject) => {
@@ -158,23 +144,34 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
   }
 
   // ---------- release mode: pull manager/ from GitHub ----------
+  // api.github.com allows 60 requests/h per IP: main's commit comes from git's ref list (free), then one
+  // API call reads the manager/ folder's tree id, and the file list is read only when that folder changed.
+  // The folder's tree id is the "version" (a failed update is remembered by it, not by commit).
+  let checked = { head: null, treeSha: null, files: null };
   async function checkRemote() {
     status.lastCheckAt = Date.now();
     try {
-      const commits = await getJSON(`https://api.github.com/repos/${REPO}/commits?path=manager&per_page=1`);
-      const c = commits && commits[0];
-      if (!c) throw new Error('ไม่พบ commit ของ manager/');
-      const tree = await getJSON(`https://api.github.com/repos/${REPO}/git/trees/${c.sha}?recursive=1`);
+      const head = await getMainHeadSha();
+      if (checked.head !== head) {
+        const root = await apiGetJSON(`https://api.github.com/repos/${REPO}/git/trees/${head}`);
+        const dir = (root.tree || []).find(e => e.path === 'manager' && e.type === 'tree');
+        if (!dir) throw new Error('ไม่พบโฟลเดอร์ manager/ บน GitHub');
+        if (dir.sha !== checked.treeSha || !checked.files) {
+          const tree = await apiGetJSON(`https://api.github.com/repos/${REPO}/git/trees/${dir.sha}?recursive=1`);
+          checked.files = (tree.tree || []).filter(e => e.type === 'blob').map(e => ({ path: e.path, sha: e.sha }));
+          checked.treeSha = dir.sha;
+        }
+        checked.head = head;
+      }
       const pending = [];
-      for (const e of tree.tree || []) {
-        if (e.type !== 'blob' || !e.path.startsWith('manager/')) continue;
-        const rel = e.path.slice('manager/'.length);
+      for (const e of checked.files) {
+        const rel = e.path;
         if (EXCLUDE.test(rel)) continue;
         let buf = null;
         try { buf = fs.readFileSync(path.join(managerDir, rel)); } catch (err) {}
         if (!buf || !fileMatches(buf, e.sha)) pending.push({ path: rel, kind: isWebFile(rel) ? 'web' : 'server', sha: e.sha });
       }
-      status.latest = { sha: c.sha, message: String(c.commit?.message || '').split('\n')[0], date: Date.parse(c.commit?.committer?.date) || Date.now() };
+      status.latest = { sha: checked.head, treeSha: checked.treeSha, message: `manager/ ${checked.treeSha.slice(0, 7)}`, date: Date.now() };
       status.pending = pending;
       status.lastError = null;
     } catch (e) {
@@ -216,7 +213,7 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
       status.webBuild = webBuildOf(snapshot());
       if (files.some(f => f.kind === 'server')) {
         // The supervisor restores these backups if the updated server fails to start
-        fs.writeFileSync(pendingMarker, JSON.stringify({ backupDir, files: backedUp, sha, at: Date.now() }));
+        fs.writeFileSync(pendingMarker, JSON.stringify({ backupDir, files: backedUp, sha: status.latest.treeSha || sha, at: Date.now() }));
         scheduleRestart(`update ${sha.slice(0, 7)}`);
       }
       else status.note = 'อัปเดตหน้าเว็บแล้ว (ไม่ต้องรีสตาร์ท)';
@@ -232,8 +229,8 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
   async function tick() {
     if (gitMode) return scanLocal();
     await checkRemote();
-    if (status.latest && status.latest.sha === failedSha()) {
-      status.lastError = `เวอร์ชัน ${status.latest.sha.slice(0, 7)} เปิด server ไม่ขึ้น ระบบคืนไฟล์เดิมแล้ว — จะไม่อัปเดตอัตโนมัติจนกว่าจะมีเวอร์ชันใหม่ (กดอัปเดตเองได้)`;
+    if (status.latest && (status.latest.treeSha || status.latest.sha) === failedSha()) {
+      status.lastError = `เวอร์ชัน ${(status.latest.treeSha || status.latest.sha).slice(0, 7)} เปิด server ไม่ขึ้น ระบบคืนไฟล์เดิมแล้ว — จะไม่อัปเดตอัตโนมัติจนกว่าจะมีเวอร์ชันใหม่ (กดอัปเดตเองได้)`;
       return;
     }
     if (status.enabled && status.pending.length && !isBusy()) await applyRemote();

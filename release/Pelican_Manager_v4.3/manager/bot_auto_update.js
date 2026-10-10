@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO = 'thegopza/aetheria-pelican-bot';
+const { getMainHeadSha } = require('./github_check');
 const RAW_BOT_URL = `https://raw.githubusercontent.com/${REPO}/main/bot.js`;
 const POLL_MS = 5 * 60 * 1000;
 const TICK_MS = 15 * 1000;
@@ -40,7 +41,7 @@ const CLIENT_PROBE_JS = `(() => {
     loadedAt: Math.round(performance.timeOrigin),
     version: window.__pelicanBotVersion || null,
     inGame: Boolean(nameEl && map && !map.startsWith('ไม่ทราบ')),
-    running: Boolean(window.__autoLoopEnabled || window.__isBotRunning),
+    running: Boolean(window.__isBotRunning),
     busy
   };
 })()`;
@@ -53,20 +54,6 @@ const START_BOT_JS = `(() => {
   if (typeof window.startAutoLoop === 'function') window.startAutoLoop();
   return true;
 })()`;
-
-function getJSON(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 10000 }, res => {
-      let d = '';
-      res.setEncoding('utf8');
-      res.on('data', c => d += c);
-      res.on('end', () => {
-        if (res.statusCode !== 200) return reject(new Error(`GitHub HTTP ${res.statusCode}`));
-        try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
-      });
-    }).on('error', reject).on('timeout', function () { this.destroy(new Error('timeout')); });
-  });
-}
 
 function getBuffer(url) {
   return new Promise((resolve, reject) => {
@@ -113,22 +100,28 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     return r && r.success && r.result && typeof r.result === 'object' ? r.result : null;
   }
 
+  // No api.github.com here (60 requests/h per IP): main's commit comes from git's ref list, and only when
+  // it moved is bot.js of that exact commit downloaded (immutable URL, no CDN lag) to get its blob sha.
+  let checkedHead = null;
   async function checkGitHub() {
     status.lastCheckAt = Date.now();
     try {
-      const commits = await getJSON(`https://api.github.com/repos/${REPO}/commits?path=bot.js&per_page=1`);
-      const c = commits && commits[0];
-      if (!c) throw new Error('ไม่พบ commit ของ bot.js');
-      if (!status.latest || status.latest.sha !== c.sha) {
-        const tree = await getJSON(`https://api.github.com/repos/${REPO}/git/trees/${c.sha}`);
-        const entry = (tree.tree || []).find(t => t.path === 'bot.js');
-        status.latest = {
-          sha: c.sha,
-          message: String(c.commit?.message || '').split('\n')[0],
-          date: Date.parse(c.commit?.committer?.date) || Date.now(),
-          blobSha: entry ? entry.sha : null
-        };
-        if (!status.ready || status.ready.sha !== c.sha) status.ready = null;
+      const head = await getMainHeadSha();
+      if (!status.latest || checkedHead !== head) {
+        const buf = await getBuffer(`https://raw.githubusercontent.com/${REPO}/${head}/bot.js`);
+        const blob = gitBlobSha(buf);
+        checkedHead = head;
+        if (!status.latest || status.latest.blobSha !== blob) {
+          const version = (buf.toString('utf8').match(/PELICAN_BOT_VERSION = '([^']+)'/) || [])[1] || null;
+          status.latest = {
+            sha: head,
+            message: version ? `bot.js v${version}` : 'bot.js',
+            version,
+            date: Date.now(),
+            blobSha: blob
+          };
+          if (!status.ready || status.ready.sha !== head) status.ready = null;
+        }
       }
       status.lastError = null;
     } catch (e) {
@@ -211,7 +204,8 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
       for (const p of profiles) {
         const info = await probe(p);
         if (!info) { delete status.clients[p.id]; continue; }
-        if (info.loadedAt >= threshold) {
+        const sameVersion = Boolean(info.version && status.latest && status.latest.version && info.version === status.latest.version);
+        if (sameVersion || info.loadedAt >= threshold) {
           if (!status.clients[p.id] || status.clients[p.id].state !== 'done') setClient(p, 'up-to-date', 'ใช้เวอร์ชันล่าสุดอยู่แล้ว', info.version);
           else status.clients[p.id].version = info.version;
           continue;
