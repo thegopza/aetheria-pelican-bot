@@ -3205,7 +3205,28 @@ function sortPlanTriggers() {
   t.sort(planTriggerOrder);
 }
 
-// Render Triggers and Action nodes
+// ---------- Plan editor: summary timeline + "เพิ่ม/แก้ไขเงื่อนไข" dialog ----------
+// The plan page lists each condition as one readable card ("Base Lv.30 → 1. ขายของ 2. ย้ายแมพ").
+// Adding or editing happens in a dialog: ① when (Base / Job + class / money) ② what to do (in order).
+// The dialog edits a draft (trigIdx -1 in the action editors) that is only put into the plan on "ส่งลงแผน".
+let planDraft = null;
+let planDraftIdx = -1;
+
+function planTrigger(trigIdx) {
+  if (trigIdx === -1) return planDraft;
+  return activeEditingPlan && activeEditingPlan.triggers ? activeEditingPlan.triggers[trigIdx] : null;
+}
+function planRerender(trigIdx) {
+  if (trigIdx === -1) renderTriggerDialog();
+  else renderPlanWorkflowCanvas();
+}
+function planWhenText(t) {
+  if (t.type === 'zeny') return `💰 เงิน ≥ ${(Number(t.targetZeny) || 0).toLocaleString()} z`;
+  if (t.type === 'job_level') return `Job Lv.${parseInt(t.targetLevel, 10) || 1} · ${t.classId ? planClassLabel(t.classId).split(' (')[0] : 'ทุกอาชีพ'}`;
+  return `Base Lv.${parseInt(t.targetLevel, 10) || 1}`;
+}
+
+// Render Triggers (summary cards)
 function renderPlanWorkflowCanvas() {
   const canvas = document.getElementById("plan-workflow-canvas");
   if (!canvas || !activeEditingPlan) return;
@@ -3215,8 +3236,8 @@ function renderPlanWorkflowCanvas() {
     canvas.innerHTML = `
       <div class="pe-empty">
         <div class="pe-empty-icon">🎯</div>
-        <b>ยังไม่มีเงื่อนไขเลเวลในแผนนี้</b>
-        <span>กด <b>"➕ เพิ่มเงื่อนไขเลเวล"</b> แล้วเลือกว่าถึงเลเวลไหนให้ทำอะไร เช่น Lv.8 → สวม Gakkung Bow + ย้ายไปทะเลสาบอาซูร์</span>
+        <b>ยังไม่มีเงื่อนไขในแผนนี้</b>
+        <span>กด <b>"➕ เพิ่มเงื่อนไข"</b> แล้วเลือกว่า <b>เมื่อไหร่</b> (เลเวล / Job / เงิน) และ <b>ทำอะไร</b> เช่น Base Lv.8 → สวม Gakkung Bow → ย้ายไปทะเลสาบอาซูร์</span>
       </div>`;
     return;
   }
@@ -3225,63 +3246,203 @@ function renderPlanWorkflowCanvas() {
     const isJob = trig.type === 'job_level';
     const isZeny = trig.type === 'zeny';
     const actions = trig.actions || [];
-    const key = trig.id || `idx_${trigIdx}`;
-    const collapsed = planCollapsedTriggers.has(key);
     return `
-      <div class="pe-node ${isZeny ? 'zeny' : isJob ? 'job' : 'base'} ${collapsed ? 'collapsed' : ''}" data-trigger-idx="${trigIdx}">
+      <div class="pe-node ${isZeny ? 'zeny' : isJob ? 'job' : 'base'}" data-trigger-idx="${trigIdx}" data-trigger-id="${escapeHTML(trig.id || '')}">
         <div class="pe-rail"><span class="pe-dot">${isZeny ? '💰' : isJob ? 'J' : 'B'}</span></div>
-        <div class="pe-card">
-          <div class="pe-head">
-            <button type="button" class="pe-icon-btn pe-fold" onclick="togglePlanTriggerCollapse(${trigIdx})" title="${collapsed ? 'ขยาย' : 'ย่อ'}">${collapsed ? '▸' : '▾'}</button>
-            <div class="pe-seg" title="ทำเมื่อถึงเลเวลตัวละคร (Base), เลเวลอาชีพ (Job) หรือเมื่อเงินถึงจำนวนที่ตั้ง (💰)">
-              <button type="button" class="${!isJob && !isZeny ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'base_level')">Base</button>
-              <button type="button" class="${isJob ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'job_level')">Job</button>
-              <button type="button" class="${isZeny ? 'on' : ''}" onclick="updateTriggerType(${trigIdx}, 'zeny')">💰 เงิน</button>
-            </div>
-            ${isJob ? `
-            <select class="pe-jobclass" title="Job Lv. ของอาชีพไหน (Job Lv. เริ่มนับ 1 ใหม่ทุกครั้งที่เปลี่ยนอาชีพ)" onchange="updateTriggerClass(${trigIdx}, this.value)">
-              ${jobClassChoices(trig).map(c => `<option value="${escapeHTML(c)}" ${String(trig.classId || '').toLowerCase() === c ? 'selected' : ''}>${escapeHTML(planClassLabel(c))}</option>`).join('')}
-              <option value="" ${!trig.classId ? 'selected' : ''}>ทุกอาชีพ</option>
-            </select>` : ''}
-            ${isZeny ? `
-            <div class="pe-stepper pe-zeny" title="เมื่อมีเงินถึงจำนวนนี้แล้วทำ 1 ครั้ง">
-              <span>≥</span>
-              <input type="number" min="1" step="1000" value="${Number(trig.targetZeny) || 20000}" onchange="updateTriggerZeny(${trigIdx}, this.value)">
-              <span>z</span>
-            </div>` : `
-            <div class="pe-stepper" title="ถึงเลเวลนี้แล้วทำ 1 ครั้ง">
-              <button type="button" onclick="stepTriggerLevel(${trigIdx}, -1)">−</button>
-              <span>Lv.</span>
-              <input type="number" min="1" max="200" value="${parseInt(trig.targetLevel, 10) || 1}" onchange="updateTriggerLevel(${trigIdx}, this.value)">
-              <button type="button" onclick="stepTriggerLevel(${trigIdx}, 1)">+</button>
-            </div>`}
-            <div class="pe-summary">
-              ${actions.length ? actions.map(a => `<span class="pe-chip ${a.type}">${escapeHTML(planActionSummary(a))}</span>`).join('') : '<span class="pe-chip empty">ยังไม่มี Action</span>'}
-            </div>
-            <div class="pe-head-btns">
-              <button type="button" class="pe-icon-btn" onclick="duplicateTrigger(${trigIdx})" title="ทำสำเนาเงื่อนไขนี้">⧉</button>
-              <button type="button" class="pe-icon-btn danger" onclick="removeTrigger(${trigIdx})" title="ลบเงื่อนไขนี้">🗑</button>
-            </div>
+        <div class="pe-card pe-sum" onclick="openTriggerDialog(${trigIdx})" title="คลิกเพื่อแก้ไขเงื่อนไขนี้">
+          <div class="pe-sum-when">${escapeHTML(planWhenText(trig))}</div>
+          <div class="pe-sum-steps">
+            ${actions.length
+              ? actions.map((a, i) => `<span class="pe-sum-step"><i>${i + 1}</i><span class="pe-chip ${a.type}">${escapeHTML(planActionSummary(a))}</span></span>`).join('<span class="pe-sum-arrow">→</span>')
+              : '<span class="pe-chip empty">ยังไม่มี Action — คลิกเพื่อเพิ่ม</span>'}
           </div>
-          <div class="pe-body">
-            ${actions.map((act, actIdx) => renderActionNodeHtml(trigIdx, actIdx, act)).join('')}
-            <div class="pe-add-row">
-              <span>เพิ่ม Action:</span>
-              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'equip_item')">🛡️ สวมใส่ของ</button>
-              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_map')">🗺️ ย้ายแมพ</button>
-              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_class')">🏹 เปลี่ยนอาชีพ</button>
-              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'set_arrow')">🎯 ลูกธนู</button>
-              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'sell_trip')">🛒 ขายของ</button>
-            </div>
+          <div class="pe-head-btns" onclick="event.stopPropagation()">
+            <button type="button" class="pe-icon-btn" onclick="openTriggerDialog(${trigIdx})" title="แก้ไข">✏️</button>
+            <button type="button" class="pe-icon-btn" onclick="duplicateTrigger(${trigIdx})" title="ทำสำเนาเงื่อนไขนี้">⧉</button>
+            <button type="button" class="pe-icon-btn danger" onclick="removeTrigger(${trigIdx})" title="ลบเงื่อนไขนี้">🗑</button>
           </div>
         </div>
       </div>`;
   }).join('')}</div>`;
 }
 
-// Render single Action Node
+// Scroll to a condition and make it flash so the eye finds it
+function focusPlanTrigger(id) {
+  const node = document.querySelector(`.pe-node[data-trigger-id="${CSS.escape(String(id || ''))}"]`);
+  if (!node) return;
+  node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  node.classList.remove('pe-flash');
+  void node.offsetWidth;
+  node.classList.add('pe-flash');
+}
+
+// ---- dialog ----
+const PLAN_ACTION_TILES = [
+  { type: 'change_class', icon: '🏹', title: 'เปลี่ยนอาชีพ', desc: 'ไปคุยกับ Valkyrie เปลี่ยนอาชีพ' },
+  { type: 'equip_item', icon: '🛡️', title: 'สวมใส่ของ', desc: 'ใส่จากกระเป๋า หรือซื้อจากตลาด' },
+  { type: 'change_map', icon: '🗺️', title: 'ย้ายแมพฟาร์ม', desc: 'เปลี่ยนแมพที่ไปฟาร์ม' },
+  { type: 'set_arrow', icon: '🎯', title: 'ลูกธนู', desc: 'เปิด/ปิด เลือกชนิด จำนวน' },
+  { type: 'sell_trip', icon: '🛒', title: 'กลับไปขายของ', desc: 'กลับเมืองขาย/ซื้อของ 1 รอบ' }
+];
+
+function openTriggerDialog(trigIdx) {
+  if (!activeEditingPlan) return;
+  if (!Array.isArray(activeEditingPlan.triggers)) activeEditingPlan.triggers = [];
+  if (trigIdx >= 0 && activeEditingPlan.triggers[trigIdx]) {
+    planDraftIdx = trigIdx;
+    planDraft = JSON.parse(JSON.stringify(activeEditingPlan.triggers[trigIdx]));
+  } else {
+    planDraftIdx = -1;
+    const baseLevels = activeEditingPlan.triggers.filter(t => t.type === 'base_level' || !t.type).map(t => parseInt(t.targetLevel, 10) || 0);
+    planDraft = { id: "trig_" + Date.now(), type: "base_level", targetLevel: baseLevels.length ? Math.max(...baseLevels) + 5 : 8, actions: [] };
+  }
+  let dlg = document.getElementById('pe-trigger-dialog');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'pe-trigger-dialog';
+    dlg.className = 'modal-overlay pe-dlg';
+    document.body.appendChild(dlg);
+    dlg.addEventListener('mousedown', e => { if (e.target === dlg) closeTriggerDialog(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && dlg.classList.contains('active')) closeTriggerDialog(); });
+  }
+  renderTriggerDialog();
+  dlg.classList.add('active');
+}
+
+function closeTriggerDialog() {
+  const dlg = document.getElementById('pe-trigger-dialog');
+  if (dlg) dlg.classList.remove('active');
+  planDraft = null;
+  planDraftIdx = -1;
+}
+
+function draftSet(field, val) {
+  if (!planDraft) return;
+  if (field === 'type') {
+    planDraft.type = val;
+    if (val === 'job_level' && planDraft.classId === undefined) planDraft.classId = 'novice';
+    if (val !== 'job_level') delete planDraft.classId;
+    if (val === 'zeny' && !(Number(planDraft.targetZeny) > 0)) planDraft.targetZeny = 20000;
+    if (val !== 'zeny' && !(parseInt(planDraft.targetLevel, 10) > 0)) planDraft.targetLevel = 10;
+    renderTriggerDialog();
+    return;
+  }
+  if (field === 'targetLevel') planDraft.targetLevel = Math.max(1, Math.min(200, parseInt(val, 10) || 1));
+  else if (field === 'targetZeny') planDraft.targetZeny = Math.max(1, parseInt(String(val).replace(/[^0-9]/g, ''), 10) || 1);
+  else planDraft[field] = val;
+  const head = document.querySelector('#pe-trigger-dialog .pe-dlg-when-text');
+  if (head) head.textContent = planWhenText(planDraft);
+}
+
+function moveAction(trigIdx, actIdx, dir) {
+  const trig = planTrigger(trigIdx);
+  if (!trig || !trig.actions) return;
+  const to = actIdx + dir;
+  if (to < 0 || to >= trig.actions.length) return;
+  const [a] = trig.actions.splice(actIdx, 1);
+  trig.actions.splice(to, 0, a);
+  if (trigIdx !== -1) markPlanDirty();
+  planRerender(trigIdx);
+}
+
+function renderTriggerDialog() {
+  const dlg = document.getElementById('pe-trigger-dialog');
+  if (!dlg || !planDraft) return;
+  const t = planDraft;
+  const isJob = t.type === 'job_level', isZeny = t.type === 'zeny', isBase = !isJob && !isZeny;
+  const scrollBox = dlg.querySelector('.pe-dlg-body');
+  const keepScroll = scrollBox ? scrollBox.scrollTop : 0;
+  dlg.innerHTML = `
+    <div class="modal-card pe-dlg-card">
+      <div class="pe-dlg-head">
+        <div>
+          <h3>${planDraftIdx >= 0 ? '✏️ แก้ไขเงื่อนไข' : '➕ เพิ่มเงื่อนไขใหม่'}</h3>
+          <p class="pe-dlg-when-text">${escapeHTML(planWhenText(t))}</p>
+        </div>
+        <button type="button" class="pp-x" onclick="closeTriggerDialog()" title="ปิด (Esc)">✕</button>
+      </div>
+      <div class="pe-dlg-body">
+        <section class="pe-dlg-step">
+          <div class="pe-dlg-step-title"><span>1</span> ทำเมื่อไหร่</div>
+          <div class="pe-dlg-kinds">
+            <button type="button" class="${isBase ? 'on' : ''}" onclick="draftSet('type', 'base_level')"><b>Base Lv.</b><small>เลเวลตัวละคร</small></button>
+            <button type="button" class="${isJob ? 'on' : ''}" onclick="draftSet('type', 'job_level')"><b>Job Lv.</b><small>เลเวลอาชีพ</small></button>
+            <button type="button" class="${isZeny ? 'on' : ''}" onclick="draftSet('type', 'zeny')"><b>💰 เงิน</b><small>เมื่อเงินถึงจำนวน</small></button>
+          </div>
+          <div class="pe-dlg-when">
+            ${isZeny ? `
+              <label>เมื่อมีเงิน ≥ <input type="number" class="form-input" min="1" step="1000" value="${Number(t.targetZeny) || 20000}" oninput="draftSet('targetZeny', this.value)"> z</label>
+            ` : `
+              <label>ถึง ${isJob ? 'Job' : 'Base'} Lv. <input type="number" class="form-input" min="1" max="200" value="${parseInt(t.targetLevel, 10) || 1}" oninput="draftSet('targetLevel', this.value)"></label>
+              ${isJob ? `
+              <label>ของอาชีพ
+                <select class="form-select" onchange="draftSet('classId', this.value)">
+                  ${jobClassChoices(t).map(c => `<option value="${escapeHTML(c)}" ${String(t.classId || '').toLowerCase() === c ? 'selected' : ''}>${escapeHTML(planClassLabel(c))}</option>`).join('')}
+                  <option value="" ${!t.classId ? 'selected' : ''}>ทุกอาชีพ</option>
+                </select>
+              </label>` : ''}
+            `}
+          </div>
+          <small class="pe-hint">${isZeny ? 'ทำครั้งเดียวเมื่อเงินถึงจำนวนนี้' : isJob ? 'Job Lv. เริ่มนับ 1 ใหม่ทุกครั้งที่เปลี่ยนอาชีพ จึงต้องเลือกว่าเป็น Job ของอาชีพไหน' : 'ทำครั้งเดียวเมื่อเลเวลตัวละครถึงค่านี้'}</small>
+        </section>
+
+        <section class="pe-dlg-step">
+          <div class="pe-dlg-step-title"><span>2</span> ทำอะไร <small>(ทำตามลำดับจากบนลงล่าง)</small></div>
+          <div class="pe-dlg-actions">
+            ${(t.actions || []).length
+              ? t.actions.map((a, i) => `<div class="pe-dlg-act"><div class="pe-dlg-act-no">${i + 1}</div>${renderActionNodeHtml(-1, i, a)}</div>`).join('')
+              : '<div class="pe-dlg-noact">ยังไม่มี Action — เลือกจากปุ่มด้านล่าง</div>'}
+          </div>
+          <div class="pe-dlg-tiles">
+            ${PLAN_ACTION_TILES.map(x => `<button type="button" onclick="addActionToTrigger(-1, '${x.type}')"><span>${x.icon}</span><b>${x.title}</b><small>${x.desc}</small></button>`).join('')}
+          </div>
+        </section>
+      </div>
+      <div class="pe-dlg-foot">
+        <span class="pe-dlg-err" id="pe-dlg-err"></span>
+        <button type="button" class="btn btn-secondary" onclick="closeTriggerDialog()">ยกเลิก</button>
+        <button type="button" class="btn btn-success" onclick="submitTriggerDialog()">✔ ${planDraftIdx >= 0 ? 'บันทึกการแก้ไข' : 'ส่งลงแผน'}</button>
+      </div>
+    </div>`;
+  const body = dlg.querySelector('.pe-dlg-body');
+  if (body) body.scrollTop = keepScroll;
+}
+
+function submitTriggerDialog() {
+  const t = planDraft;
+  if (!t || !activeEditingPlan) return;
+  // inputs commit on change: make sure the focused one is in
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  const err = [];
+  if (!(t.actions || []).length) err.push('เพิ่ม Action อย่างน้อย 1 อย่าง');
+  (t.actions || []).forEach((a, i) => {
+    if (a.type === 'equip_item' && !String(a.itemName || '').trim()) err.push(`Action ${i + 1}: ยังไม่ได้ใส่ชื่อไอเทม`);
+  });
+  if (t.type === 'zeny' && !(Number(t.targetZeny) > 0)) err.push('ใส่จำนวนเงิน');
+  if (err.length) {
+    const box = document.getElementById('pe-dlg-err');
+    if (box) box.textContent = '⚠️ ' + err.join(' · ');
+    return;
+  }
+  const id = t.id || ("trig_" + Date.now());
+  t.id = id;
+  if (planDraftIdx >= 0 && activeEditingPlan.triggers[planDraftIdx]) activeEditingPlan.triggers[planDraftIdx] = t;
+  else activeEditingPlan.triggers.push(t);
+  sortPlanTriggers();
+  markPlanDirty();
+  closeTriggerDialog();
+  renderPlanWorkflowCanvas();
+  setTimeout(() => focusPlanTrigger(id), 60);
+}
+
+// Render single Action Node (used in the dialog; trigIdx -1 = the draft)
 function renderActionNodeHtml(trigIdx, actIdx, act) {
-  const del = `<button type="button" class="pe-icon-btn danger sm" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">✕</button>`;
+  const draft = trigIdx === -1 ? planDraft : planTrigger(trigIdx);
+  const count = draft && draft.actions ? draft.actions.length : 0;
+  const moves = `
+    <button type="button" class="pe-icon-btn sm" onclick="moveAction(${trigIdx}, ${actIdx}, -1)" ${actIdx === 0 ? 'disabled' : ''} title="ย้ายขึ้น">↑</button>
+    <button type="button" class="pe-icon-btn sm" onclick="moveAction(${trigIdx}, ${actIdx}, 1)" ${actIdx >= count - 1 ? 'disabled' : ''} title="ย้ายลง">↓</button>`;
+  const del = `<span class="pe-act-btns">${moves}<button type="button" class="pe-icon-btn danger sm" onclick="removeAction(${trigIdx}, ${actIdx})" title="ลบ Action นี้">✕</button></span>`;
   if (act.type === 'equip_item') {
     return `
       <div class="pe-action equip_item">
@@ -3353,7 +3514,7 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
         <div class="pe-act-icon">🎯</div>
         <div class="pe-act-main">
           <div class="pe-act-title"><b>ตั้งค่าลูกธนู (Require Arrow)</b>${del}</div>
-          <label class="pe-check"><input type="checkbox" ${on ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'requireArrow', this.checked); renderPlanWorkflowCanvas();"> เปิดใช้ลูกธนู (เช็ค & ซื้อให้อัตโนมัติ)</label>
+          <label class="pe-check"><input type="checkbox" ${on ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'requireArrow', this.checked); planRerender(${trigIdx});"> เปิดใช้ลูกธนู (เช็ค & ซื้อให้อัตโนมัติ)</label>
           ${on ? `
           <div class="pe-fields pe-fields-3">
             <label>ชนิดลูกธนู
@@ -3376,20 +3537,13 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
 
 // Trigger and Action Mutators
 function addLevelTrigger() {
-  if (!activeEditingPlan) return;
-  if (!Array.isArray(activeEditingPlan.triggers)) activeEditingPlan.triggers = [];
-  const baseLevels = activeEditingPlan.triggers.filter(t => t.type !== 'job_level').map(t => parseInt(t.targetLevel, 10) || 0);
-  const nextLevel = baseLevels.length ? Math.max(...baseLevels) + 5 : 8;
-  activeEditingPlan.triggers.push({ id: "trig_" + Date.now(), type: "base_level", targetLevel: nextLevel, actions: [] });
-  sortPlanTriggers();
-  markPlanDirty();
-  renderPlanWorkflowCanvas();
+  openTriggerDialog(-1);
 }
 
 function removeTrigger(trigIdx) {
   if (!activeEditingPlan || !activeEditingPlan.triggers) return;
   const t = activeEditingPlan.triggers[trigIdx];
-  if (t && (t.actions || []).length && !confirm(`ลบเงื่อนไข ${t.type === 'job_level' ? 'Job' : 'Base'} Lv.${t.targetLevel} และ Action ทั้ง ${(t.actions || []).length} รายการ?`)) return;
+  if (t && (t.actions || []).length && !confirm(`ลบเงื่อนไข "${planWhenText(t)}" และ Action ทั้ง ${(t.actions || []).length} รายการ?`)) return;
   activeEditingPlan.triggers.splice(trigIdx, 1);
   markPlanDirty();
   renderPlanWorkflowCanvas();
@@ -3401,12 +3555,14 @@ function duplicateTrigger(trigIdx) {
   if (!src) return;
   const copy = JSON.parse(JSON.stringify(src));
   copy.id = "trig_" + Date.now();
-  copy.targetLevel = (parseInt(src.targetLevel, 10) || 1) + 1;
+  if (copy.type === 'zeny') copy.targetZeny = (Number(src.targetZeny) || 0) + 10000;
+  else copy.targetLevel = (parseInt(src.targetLevel, 10) || 1) + 1;
   (copy.actions || []).forEach(a => { a.id = "act_" + Date.now() + "_" + Math.floor(Math.random() * 1000); });
   activeEditingPlan.triggers.push(copy);
   sortPlanTriggers();
   markPlanDirty();
   renderPlanWorkflowCanvas();
+  setTimeout(() => focusPlanTrigger(copy.id), 60);
 }
 
 function togglePlanTriggerCollapse(trigIdx) {
@@ -3445,8 +3601,9 @@ function stepTriggerLevel(trigIdx, delta) {
 }
 
 function addActionToTrigger(trigIdx, actionType) {
-  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
-  const trig = activeEditingPlan.triggers[trigIdx];
+  if (!activeEditingPlan) return;
+  const trig = planTrigger(trigIdx);
+  if (!trig) return;
   if (!Array.isArray(trig.actions)) trig.actions = [];
   const newAction = { id: "act_" + Date.now() + "_" + Math.floor(Math.random() * 100), type: actionType };
   if (actionType === 'equip_item') {
@@ -3467,26 +3624,31 @@ function addActionToTrigger(trigIdx, actionType) {
     Object.assign(newAction, { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 });
   }
   trig.actions.push(newAction);
-  planCollapsedTriggers.delete(trig.id || `idx_${trigIdx}`);
-  markPlanDirty();
-  renderPlanWorkflowCanvas();
+  if (trigIdx !== -1) markPlanDirty();
+  planRerender(trigIdx);
+  if (trigIdx === -1) {
+    // bring the new action into view inside the dialog
+    setTimeout(() => {
+      const acts = document.querySelectorAll('#pe-trigger-dialog .pe-dlg-act');
+      if (acts.length) acts[acts.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 30);
+  }
 }
 
 function removeAction(trigIdx, actIdx) {
-  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
-  const trig = activeEditingPlan.triggers[trigIdx];
+  const trig = planTrigger(trigIdx);
   if (trig && trig.actions) {
     trig.actions.splice(actIdx, 1);
-    markPlanDirty();
-    renderPlanWorkflowCanvas();
+    if (trigIdx !== -1) markPlanDirty();
+    planRerender(trigIdx);
   }
 }
 
 function updateActionField(trigIdx, actIdx, field, val) {
-  if (!activeEditingPlan || !activeEditingPlan.triggers) return;
-  const trig = activeEditingPlan.triggers[trigIdx];
+  const trig = planTrigger(trigIdx);
   if (trig && trig.actions && trig.actions[actIdx]) {
     trig.actions[actIdx][field] = val;
+    if (trigIdx === -1) return;
     markPlanDirty();
     // Refresh the header chips (cheap) without re-rendering the inputs being edited
     const node = document.querySelector(`.pe-node[data-trigger-idx="${trigIdx}"] .pe-summary`);

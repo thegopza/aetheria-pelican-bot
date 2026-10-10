@@ -118,6 +118,7 @@
    - **เงื่อนไข Job Lv. ผูกกับอาชีพ** (`trigger.classId`, ว่าง = ทุกอาชีพ) เพราะ Job Lv. เริ่มนับ 1 ใหม่ทุกอาชีพ — state เก็บ `lastJobClass`
    - `plan.autoJobChange` (สวิตช์ "เปลี่ยนอาชีพอัตโนมัติ"): แผนใหม่ = ปิด, แผนเก่าที่ไม่มีค่า = อัตโนมัติถ้าไม่มี action `change_class` (บอทและหน้าเว็บใช้กฎเดียวกัน)
    - **เปลี่ยนอาชีพอัตโนมัติ** (`checkAndExecuteAutoJobChange`): เปลี่ยนเมื่อ Job Lv. ถึง `plan.class1JobLevel` (ค่าเริ่มต้น 10) / `plan.class2JobLevel` (ค่าเริ่มต้น 50 — เกมให้เปลี่ยน Class 2 ได้ตั้งแต่ Job 40 แต่รอ 50 ได้แต้มสกิลเพิ่ม) จำกัดไม่เกิน `jobMaxLevel` และ **ใช้แต้มสกิลตามคิวให้หมดก่อน** (`autoAllocateSkills` คืน `true` เมื่อเพิ่งอัปไป 1 แต้ม = รอบนั้นยังไม่เปลี่ยนอาชีพ) — ฟิลด์ใหม่ของแผนต้องเพิ่มใน POST/PUT/import ของ `server.js` ด้วย (server เก็บเฉพาะฟิลด์ที่ระบุชื่อ)
+   - **หน้าแก้ไขแผน**: หน้าหลักเป็นการ์ดสรุป (คลิกเพื่อแก้) — เพิ่ม/แก้เงื่อนไขทำในกล่อง dialog (`openTriggerDialog`) ที่แก้ draft (`trigIdx = -1` ใน action editor) แล้วค่อยใส่ลงแผนตอน "ส่งลงแผน" + เลื่อนจอไปไฮไลต์ (`focusPlanTrigger`); action ใหม่ต้องเพิ่มใน `PLAN_ACTION_TILES`, `renderActionNodeHtml`, `planActionSummary`
    - หน้าจัดการสกิล: ทุกการเพิ่ม/ลดแต้มต้องผ่าน `repairSkillQueue` (สกิลเงื่อนไขมาก่อน, โควตา 9/49/49, ไม่เกิน maxLevel)
    - ฐานข้อมูลสกิลใน `manager/public/builder_module.js` (`SKILLS_DATABASE`) สร้างจาก `window.__skillCatalog` ของเกม — ถ้าเกมเพิ่ม/แก้สกิลให้ดึงใหม่ ห้ามพิมพ์เอง
 2. **Alice Service Priority**:
