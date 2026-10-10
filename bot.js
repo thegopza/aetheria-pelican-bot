@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.14.2
+// @version      4.14.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.14.2';
+    const PELICAN_BOT_VERSION = '4.14.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -3367,6 +3367,13 @@
     }
 
     function isCharacterDead() {
+        // 0. Server state (player.dead) first — after death the HUD can still show full HP (540/540)
+        try {
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            const me = room && room.state && room.state.players && room.state.players.get ? room.state.players.get(room.sessionId) : null;
+            if (me && typeof me.dead === 'boolean') return me.dead;
+        } catch (e) {}
+
         // กฎเหล็กข้อที่ 1: ตรวจสอบเลือด (HP) จาก HUD ก่อนเสมอ (Truth Source)
         const hp = getCharacterHP();
         if (hp && typeof hp.current === 'number') {
@@ -3391,7 +3398,7 @@
         // ตรวจปุ่มชุบชีวิตเดี่ยวๆ กลางจอ
         const respawnBtn = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).find(el => {
             if (el.closest('#pelican-hud') || el.closest('[class*="chat"]') || el.closest('.chat-log') || el.closest('.worldmap-window')) return false;
-            const txt = (el.innerText || '').trim();
+            const txt = (el.innerText || '').trim().split('\n')[0].trim();
             const isRespawnText = (txt === 'ฟื้นที่จุดเกิด' || txt === 'ฟื้นคืนชีพ' || txt === 'ฟื้นอัตโนมัติ');
             return isRespawnText && el.offsetWidth > 0 && el.offsetHeight > 0;
         });
@@ -3707,12 +3714,18 @@
             return false;
         }
 
+        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
+
         // กรณีฉุกเฉิน: บอทพยายามเปิด AUTO 3 ครั้งแล้วเกมไม่ยอมเปิด แสดงว่าตัวเกมล็อคเพราะน้ำหนักเกิน 90%
+        // — unless the real weight is known and below the limit (then AUTO failed for another reason, e.g. death)
         if (window.__isKnownOverweight) {
+            const wk = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
+            if (wk && typeof wk.percent === 'number' && wk.percent > 0 && wk.percent < threshold) {
+                window.__isKnownOverweight = false;
+                return false;
+            }
             return true;
         }
-
-        const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
         // 1. ตรวจสอบข้อมูลน้ำหนักคำนวณจริงจาก DOM หรือ Server เป็นหลัก
         const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
@@ -4399,6 +4412,12 @@
     setInterval(window.scanForActiveSocket, 1000);
 
     window.sendRespawn = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('respawn', { to: 'save' });
+            console.log('%c[PmheeAether] ⚡ ส่งคำสั่งฟื้นที่จุดเกิด (respawn save)', 'color: #ef4444; font-weight: bold;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x41];
         const buffer = new Uint8Array(9 + token.length + 9);
@@ -7144,9 +7163,17 @@
     let lastCityToFarmAttempt = 0;
 
     setInterval(() => {
-        if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isShopping || window.__isConsolidating) return;
+        if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isConsolidating) return;
+        const deadNow = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
+        if (window.__isShopping && !deadNow) return;
+        if (deadNow && (window.__isShopping || window.__isNavigating)) {
+            // a shop trip / walk can't finish while dead (e.g. Butterfly Wing loop): drop it and respawn
+            console.warn('[PmheeAether] ⚠️ ตัวละครตายระหว่างซื้อขาย/เดินทาง -> ยกเลิกแล้วฟื้นที่จุดเกิด');
+            window.__isShopping = false;
+            window.__isNavigating = false;
+        }
 
-        const isDead = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
+        const isDead = deadNow;
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
 
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
@@ -7164,7 +7191,7 @@
             try {
                 const respawnBtns = Array.from(document.querySelectorAll('button, div[role="button"], a.btn')).filter(el => {
                     if (el.closest('#pelican-hud') || el.closest('[class*="chat"]') || el.closest('.chat-log') || el.closest('.worldmap-window')) return false;
-                    const txt = (el.innerText || '').trim();
+                    const txt = (el.innerText || '').trim().split('\n')[0].trim();
                     return (txt === 'ฟื้นที่จุดเกิด' || txt === 'ฟื้นคืนชีพ' || txt === 'ฟื้นอัตโนมัติ') && el.offsetWidth > 0 && el.offsetHeight > 0;
                 });
                 if (respawnBtns[0]) triggerClick(respawnBtns[0]);
@@ -7271,7 +7298,7 @@
 
                     // FAIL-SAFE: ถ้ากดเปิด AUTO ไปแล้ว 3 ครั้ง แต่สถานะยังคงเป็น "off" ตลอด
                     // แสดงว่าตัวเกมบล็อคไม่ให้เปิด AUTO เพราะน้ำหนักในกระเป๋าเต็มหรือเกิน 90%!
-                    if (autoActivateFailCount >= 3) {
+                    if (autoActivateFailCount >= 3 && !(typeof isCharacterDead === 'function' && isCharacterDead())) {
                         console.error('%c[PmheeAether Watchdog] 🛑 กดเปิด AUTO ไม่สำเร็จ 3 ครั้งติดต่อกัน! ตัวเกมล็อค AUTO เนื่องจากน้ำหนักในกระเป๋าเต็มหรือเกิน 90% -> สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที!', 'color: #ef4444; font-weight: bold; font-size: 13px;');
                         autoActivateFailCount = 0;
                         window.__isKnownOverweight = true;
