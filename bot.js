@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.6.4
+// @version      4.7.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.6.4';
+    const PELICAN_BOT_VERSION = '4.7.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -746,7 +746,7 @@
 
     // Hunter / Archer Suite Config
     const defaultArcherConfig = {
-        requireArrow: true,
+        requireArrow: false,
         arrowType: 0x00015fae, // Normal Arrow (90030)
         arrowBuyQty: 200,
         useBwing: true,
@@ -11857,6 +11857,18 @@
         }
         if (act.type === 'equip_item' && act.itemName) {
             return await window.findAndEquipItemByName(act.itemName, act.buyFromMarket !== false, Number(act.maxPrice) || 0, act.optionFilter || '');
+        }
+        if (act.type === 'set_arrow') {
+            // Arrow supply for this stage of the plan (e.g. turn it on once the character is an Archer)
+            const cfg = window.__archerConfig || (window.__archerConfig = {});
+            cfg.requireArrow = act.requireArrow !== false;
+            if (Number(act.arrowType) > 0) cfg.arrowType = Number(act.arrowType);
+            if (Number(act.arrowBuyQty) > 0) cfg.arrowBuyQty = Math.round(Number(act.arrowBuyQty));
+            if (Number(act.ammoThreshold) > 0) cfg.ammoThreshold = Math.max(50, Math.round(Number(act.ammoThreshold)));
+            try { localStorage.setItem('pelican_archer_cfg', JSON.stringify(cfg)); } catch (e) {}
+            if (typeof window.syncAllHudInputsFromConfig === 'function') window.syncAllHudInputsFromConfig();
+            console.log(`%c[PmheeAether Plan] 🏹 ตั้งค่าลูกธนู: ${cfg.requireArrow ? `เปิด (ซื้อให้ครบ ${cfg.arrowBuyQty} ดอก, ซื้อเมื่อเหลือ <= ${cfg.ammoThreshold})` : 'ปิด'}`, 'color: #38bdf8; font-weight: bold;');
+            return 'done';
         }
         if (act.type === 'change_class' && act.targetClass) {
             const target = String(act.targetClass).trim().toLowerCase();

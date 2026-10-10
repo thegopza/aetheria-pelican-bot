@@ -100,6 +100,8 @@
    - ห้ามรบกวนหรือทับการตั้งค่าของตัวละครฟาร์มปกติที่ไม่ได้เปิด Plan Script
    - **ทำงานเฉพาะตอน START BOT** (`window.__isBotRunning`): Trigger, อัปสกิล/สเตตัส และเปลี่ยนอาชีพของแผน ห้ามทำงานตอนบอทหยุด และห้ามทำระหว่างระบบอื่นยุ่งอยู่ (`planBusyReason`: เดินไปแมพ/ซื้อของ/ฟื้นตัว/รวมเงิน/เปลี่ยนอาชีพ/ขายของ)
    - **Trigger แบบ "ข้ามผ่านเลเวล"**: ทำเมื่อ `lastLevel < target <= currentLevel` (ไม่ใช่เลเวลตรงเป๊ะ) และเก็บสถานะแยกต่อ ตัวละคร+แผน ใน `pelican_plan_state_<char>_<planId>` (`done`/`pending`) — Action ที่ยังไม่สำเร็จจะลองใหม่ทุก 60 วิ (ใส่ของยอมแพ้หลัง 30 นาที)
+   - **NPC key เลื่อนได้เมื่อเกมเพิ่ม NPC** (Valkyrie เคยเป็น n5 ตอนนี้ n6) → หา NPC จากชื่อใน `room.state.npcs` เสมอ (`getValkyrieNpc`, `getAliceNpc`) ห้าม hardcode key/พิกัด
+   - Action `set_arrow` {requireArrow, arrowType, arrowBuyQty, ammoThreshold} เขียนทับ `__archerConfig` (ค่าเริ่มต้นของ requireArrow คือ false); ปุ่ม "ใช้งาน" เปิดหน้าต่างเลือกจอ → `POST /api/plan-profiles/:id/assign {clientProfileIds, unassignProfileIds}`
    - **Action**: `change_map` ใช้ `window.setTargetFarmMap(map, walkNow)` (เขียน `pelican_farm_map` ด้วย), `equip_item` ใช้ `findAndEquipItemByName` (ชื่อตรงตัว + optionFilter; ซื้อจากตลาดต้อง `collect_all` ก่อนใส่ และต้องพัก sniper ระหว่างค้นหา), `change_class` รอจนเป้าหมายอยู่ใน `char.jobChangeOptions`
    - **คำสั่งอัปสเตตัส** คือ `stat_up {stat, n}` (ไม่ใช่ `amount`) ราคา/แต้ม = `floor((v-1)/10)+2`, ตันที่ 99; อัปสกิลใช้ `skill_up {skillId}` และต้องข้ามสกิลที่ยังเรียนไม่ได้ (สายอาชีพ/prerequisites/learnMaxLevel)
    - **`__applyScriptPlan(plan, enable)`** เปลี่ยนสวิตช์เฉพาะเมื่อส่ง `enable` เป็น boolean — การแก้ไขแผนใน Manager ต้องไม่เปิด Plan Script ให้เอง

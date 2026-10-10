@@ -99,7 +99,7 @@ function loadPresets() {
             whitelist: "Phracon, Rough Elunium, Enchant Rune, Composite Bow, Crossbow, Gakkung, Hunter Bow"
           },
           archerConfig: {
-            requireArrow: true,
+            requireArrow: false,
             arrowType: 90030,
             arrowBuyQty: 200,
             useBwing: true,
@@ -1949,32 +1949,47 @@ const server = http.createServer(async (req, res) => {
     req.on("end", async () => {
       try {
         const payload = JSON.parse(body);
-        const clientProfileId = payload.clientProfileId;
-        if (!clientProfileId) return sendJSON({ success: false, error: "Missing clientProfileId" }, 400);
+        // One client (clientProfileId) or a picked list (clientProfileIds); unassignProfileIds = unticked clients
+        const addIds = Array.isArray(payload.clientProfileIds) ? payload.clientProfileIds : (payload.clientProfileId ? [payload.clientProfileId] : []);
+        const removeIds = Array.isArray(payload.unassignProfileIds) ? payload.unassignProfileIds : [];
+        if (!addIds.length && !removeIds.length) return sendJSON({ success: false, error: "ยังไม่ได้เลือกจอเกม" }, 400);
 
         const plansData = loadPlans();
         const plan = plansData.profiles.find(p => p.id === id);
         if (!plan) return sendJSON({ success: false, error: "Plan profile not found" }, 404);
-
         if (!plansData.assignments) plansData.assignments = {};
-        plansData.assignments[clientProfileId] = id;
-
-        // Send to the client now and switch Plan Script on; if it's offline, do that when it comes online
-        const clientProf = loadProfiles().find(p => p.id === clientProfileId);
-        const syncedLive = await planSync.push(clientProf, plan, true);
         if (!plansData.pendingEnable) plansData.pendingEnable = {};
-        if (syncedLive) delete plansData.pendingEnable[clientProfileId];
-        else plansData.pendingEnable[clientProfileId] = true;
-        savePlans(plansData);
+        const profiles = loadProfiles();
+        const label = cid => { const p = profiles.find(x => x.id === cid); return p ? (p.name || cid) : cid; };
 
+        // Send to each client now and switch Plan Script on; offline ones get it when they come online
+        const live = [], later = [];
+        for (const cid of addIds) {
+          plansData.assignments[cid] = id;
+          const synced = await planSync.push(profiles.find(p => p.id === cid), plan, true);
+          if (synced) { delete plansData.pendingEnable[cid]; live.push(label(cid)); }
+          else { plansData.pendingEnable[cid] = true; later.push(label(cid)); }
+        }
+        const removed = [];
+        for (const cid of removeIds) {
+          if (plansData.assignments[cid] !== id || addIds.includes(cid)) continue;
+          delete plansData.assignments[cid];
+          delete plansData.pendingEnable[cid];
+          removed.push(cid);
+        }
+        savePlans(plansData);
+        if (removed.length) await planSync.clearClients(removed.map(cid => profiles.find(p => p.id === cid)).filter(Boolean));
+
+        const lines = [];
+        if (live.length) lines.push(`ส่งแผนและเปิด Plan Script แล้ว: ${live.join(', ')}`);
+        if (later.length) lines.push(`จะเริ่มเมื่อเปิดจอ (ออฟไลน์อยู่): ${later.join(', ')}`);
+        if (removed.length) lines.push(`ถอดแผนออกจาก: ${removed.map(label).join(', ')}`);
         return sendJSON({
           success: true,
           planId: id,
-          clientProfileId,
-          syncedLive,
-          message: syncedLive
-            ? `ผูกแผน "${plan.name}" กับจอเกมและซิงค์ข้อมูลสดสำเร็จ!`
-            : `ผูกแผน "${plan.name}" กับจอเกมเรียบร้อย (จะเริ่มทำงานเมื่อเปิดจอ)`
+          clientProfileId: addIds[0],
+          syncedLive: live.length > 0,
+          message: `แผน "${plan.name}"\n` + lines.join('\n')
         });
       } catch (err) {
         return sendJSON({ success: false, error: err.message }, 400);
@@ -2347,7 +2362,7 @@ const server = http.createServer(async (req, res) => {
           targetMap: profile.targetMap || "ซากโบราณสถาน Lv.45–55",
           autoLoop: true,
           sellConfig: { enabled: true, weightCheckEnabled: true, weightThreshold: 80, sellMaterials: true },
-          archerConfig: { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 },
+          archerConfig: { requireArrow: false, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 },
           authConfig: { enabled: true, autoResumeBot: true, charName: "" }
         };
 

@@ -2850,7 +2850,7 @@ function renderPlanProfilesList() {
           <button type="button" class="btn btn-primary btn-sm" onclick="openPlanWorkflowEditor('${plan.id}')" title="เปิดหน้าต่างแก้ไขแผนสไตล์ n8n">
             <span>✏️</span> Edit
           </button>
-          <button type="button" class="btn ${isAssigned ? 'btn-secondary' : 'btn-success'} btn-sm" onclick="assignPlanToActiveClient('${plan.id}')" title="${isAssigned ? 'ซิงค์ข้อมูลกับจอนี้อีกครั้ง' : 'เลือกใช้แผนนี้กับจอนี้'}">
+          <button type="button" class="btn ${isAssigned ? 'btn-secondary' : 'btn-success'} btn-sm" onclick="openPlanAssignPicker('${plan.id}')" title="เลือกจอเกมที่จะใช้แผนนี้">
             <span>⚡</span> ${isAssigned ? 'ซิงค์ซ้ำ' : 'ใช้งาน'}
           </button>
           <button type="button" class="btn btn-secondary btn-sm btn-icon" onclick="duplicatePlanProfile('${plan.id}')" title="ทำสำเนาแผนนี้">
@@ -2947,6 +2947,96 @@ async function duplicatePlanProfile(planId) {
   }
 }
 
+// ---------- "ใช้งาน": pick which game clients (sessions) use this plan ----------
+function openPlanAssignPicker(planId) {
+  const plan = currentPlanProfiles.find(p => p.id === planId);
+  if (!plan) return;
+
+  let modal = document.getElementById('plan-assign-picker');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'plan-assign-picker';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '1200';
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('active'); });
+  }
+
+  const planName = id => (currentPlanProfiles.find(p => p.id === id) || {}).name || '';
+  const rows = currentProfiles.map(p => {
+    const st = p.liveState || {};
+    const assigned = currentPlanAssignments[p.id];
+    const checked = assigned === planId || (!Object.values(currentPlanAssignments).includes(planId) && p.id === activePlanClientProfileId);
+    const charLabel = st.charName || p.lastCharName || '';
+    const cls = st.charClass || p.lastCharClass || p.charClass || '';
+    const other = assigned && assigned !== planId ? `<span class="pp-other">ตอนนี้ใช้: ${escapeHTML(planName(assigned) || assigned)}</span>` : '';
+    return `
+      <label class="pp-row">
+        <input type="checkbox" value="${escapeHTML(p.id)}" ${checked ? 'checked' : ''} data-was="${assigned === planId ? '1' : ''}">
+        <span class="pp-dot ${p.isRunning ? 'on' : ''}" title="${p.isRunning ? 'ออนไลน์' : 'ออฟไลน์'}"></span>
+        <span class="pp-main">
+          <b>${escapeHTML(p.name || p.id)}</b>
+          <small>${escapeHTML(charLabel)}${cls ? ' · ' + escapeHTML(cls) : ''} · Port ${escapeHTML(String(p.debugPort || '-'))}</small>
+        </span>
+        ${assigned === planId ? '<span class="pp-cur">ใช้แผนนี้อยู่</span>' : other}
+      </label>`;
+  }).join('');
+
+  modal.innerHTML = `
+    <div class="modal-card pp-card">
+      <div class="pp-head">
+        <div>
+          <h3>⚡ ใช้แผน "${escapeHTML(plan.name)}" กับจอไหนบ้าง?</h3>
+          <p>ติ๊กจอที่ต้องการ — จอที่เอาติ๊กออกจะถูกถอดแผนนี้ (ปิด Plan Script ของจอนั้น)</p>
+        </div>
+        <button type="button" class="pp-x" onclick="document.getElementById('plan-assign-picker').classList.remove('active')">✕</button>
+      </div>
+      <div class="pp-tools">
+        <button type="button" class="btn btn-secondary btn-sm" id="pp-all">เลือกทั้งหมด</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="pp-none">ไม่เลือกเลย</button>
+      </div>
+      <div class="pp-list">${rows || '<div class="pp-empty">ยังไม่มีโปรไฟล์จอเกม</div>'}</div>
+      <div class="pp-foot">
+        <span class="pp-hint">จอที่ออฟไลน์จะได้รับแผนและเปิด Plan Script เองเมื่อเปิดจอ</span>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('plan-assign-picker').classList.remove('active')">ยกเลิก</button>
+        <button type="button" class="btn btn-success" id="pp-ok">⚡ ยืนยัน</button>
+      </div>
+    </div>`;
+
+  const boxes = () => Array.from(modal.querySelectorAll('.pp-list input[type=checkbox]'));
+  modal.querySelector('#pp-all').onclick = () => boxes().forEach(b => { b.checked = true; });
+  modal.querySelector('#pp-none').onclick = () => boxes().forEach(b => { b.checked = false; });
+  modal.querySelector('#pp-ok').onclick = async () => {
+    const add = boxes().filter(b => b.checked).map(b => b.value);
+    const remove = boxes().filter(b => !b.checked && b.dataset.was === '1').map(b => b.value);
+    if (!add.length && !remove.length) { modal.classList.remove('active'); return; }
+    const okBtn = modal.querySelector('#pp-ok');
+    okBtn.disabled = true;
+    okBtn.textContent = '⏳ กำลังส่งแผน...';
+    try {
+      const res = await fetch(`${API_BASE}/api/plan-profiles/${planId}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientProfileIds: add, unassignProfileIds: remove })
+      });
+      const result = await res.json();
+      if (result.success) {
+        modal.classList.remove('active');
+        alert(`⚡ ${result.message}`);
+        await fetchAndRenderPlanProfiles();
+        if (typeof refreshPlanLiveStatus === 'function') refreshPlanLiveStatus();
+      } else {
+        alert('❌ ' + (result.error || 'ผูกแผนไม่สำเร็จ'));
+      }
+    } catch (e) {
+      alert('❌ เชื่อมต่อ Manager ไม่ได้');
+    }
+    okBtn.disabled = false;
+    okBtn.textContent = '⚡ ยืนยัน';
+  };
+  modal.classList.add('active');
+}
+
 // Assign Plan to Active Client Card
 async function assignPlanToActiveClient(planId) {
   if (!activePlanClientProfileId) return;
@@ -3019,6 +3109,22 @@ function planMapLabel(value) {
   return value || '-';
 }
 
+// Same arrow list as the in-game HUD (ธนู tab)
+const PLAN_ARROW_OPTIONS = [
+  { value: 90030, label: 'Arrow (ธรรมดา - 1z)' },
+  { value: 90031, label: 'Fire Arrow (ไฟ - 3z)' },
+  { value: 90032, label: 'Crystal Arrow (น้ำ - 3z)' },
+  { value: 90033, label: 'Stone Arrow (ดิน - 3z)' },
+  { value: 90034, label: 'Arrow of Wind (ลม - 3z)' },
+  { value: 90035, label: 'Poison Arrow (พิษ - 3z)' },
+  { value: 90036, label: 'Silver Arrow (ศักดิ์สิทธิ์ - 3z)' },
+  { value: 90037, label: 'Shadow Arrow (เงา - 3z)' }
+];
+function planArrowLabel(value) {
+  const a = PLAN_ARROW_OPTIONS.find(x => x.value === Number(value));
+  return a ? a.label : 'Arrow';
+}
+
 function planClassLabel(value) {
   const c = PLAN_CLASS_OPTIONS.find(x => x.value === String(value || '').toLowerCase());
   return c ? c.label : (value || '-');
@@ -3029,6 +3135,7 @@ function planActionSummary(act) {
   if (act.type === 'equip_item') return `🛡️ ${act.itemName || '(ยังไม่ใส่ชื่อ)'}${act.optionFilter ? ` [${act.optionFilter}]` : ''}`;
   if (act.type === 'change_map') return `🗺️ ${planMapLabel(act.targetMap)}`;
   if (act.type === 'change_class') return `🏹 ${planClassLabel(act.targetClass)}`;
+  if (act.type === 'set_arrow') return act.requireArrow === false ? '🎯 ลูกธนู: ปิด' : `🎯 ลูกธนู ${planArrowLabel(act.arrowType).split(' (')[0]} x${act.arrowBuyQty || 200}`;
   return act.type;
 }
 
@@ -3090,6 +3197,7 @@ function renderPlanWorkflowCanvas() {
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'equip_item')">🛡️ สวมใส่ของ</button>
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_map')">🗺️ ย้ายแมพ</button>
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_class')">🏹 เปลี่ยนอาชีพ</button>
+              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'set_arrow')">🎯 ลูกธนู</button>
             </div>
           </div>
         </div>
@@ -3151,6 +3259,31 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
             ${PLAN_CLASS_OPTIONS.map(cls => `<option value="${cls.value}" ${String(act.targetClass || '').toLowerCase() === cls.value ? 'selected' : ''}>${cls.label}</option>`).join('')}
           </select>
           <small class="pe-hint">บอทจะเปลี่ยนเมื่อเกมเปิดให้เปลี่ยนอาชีพนี้ได้ (คุยกับ Valkyrie ในเมืองหลวงให้เอง)</small>
+        </div>
+      </div>`;
+  }
+  if (act.type === 'set_arrow') {
+    const on = act.requireArrow !== false;
+    return `
+      <div class="pe-action set_arrow">
+        <div class="pe-act-icon">🎯</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>ตั้งค่าลูกธนู (Require Arrow)</b>${del}</div>
+          <label class="pe-check"><input type="checkbox" ${on ? 'checked' : ''} onchange="updateActionField(${trigIdx}, ${actIdx}, 'requireArrow', this.checked); renderPlanWorkflowCanvas();"> เปิดใช้ลูกธนู (เช็ค & ซื้อให้อัตโนมัติ)</label>
+          ${on ? `
+          <div class="pe-fields pe-fields-3">
+            <label>ชนิดลูกธนู
+              <select class="form-select" onchange="updateActionField(${trigIdx}, ${actIdx}, 'arrowType', Number(this.value))">
+                ${PLAN_ARROW_OPTIONS.map(a => `<option value="${a.value}" ${Number(act.arrowType || 90030) === a.value ? 'selected' : ''}>${a.label}</option>`).join('')}
+              </select>
+            </label>
+            <label>ซื้อให้ครบ (ดอก)
+              <input type="number" class="form-input" min="1" step="50" value="${act.arrowBuyQty || 200}" oninput="updateActionField(${trigIdx}, ${actIdx}, 'arrowBuyQty', Math.max(1, parseInt(this.value, 10) || 200))">
+            </label>
+            <label>ซื้อเมื่อเหลือ <= (ดอก)
+              <input type="number" class="form-input" min="50" step="10" value="${act.ammoThreshold || 50}" oninput="updateActionField(${trigIdx}, ${actIdx}, 'ammoThreshold', Math.max(50, parseInt(this.value, 10) || 50))">
+            </label>
+          </div>` : '<small class="pe-hint">บอทจะเลิกเช็คและเลิกซื้อลูกธนูตั้งแต่เลเวลนี้</small>'}
         </div>
       </div>`;
   }
@@ -3234,6 +3367,8 @@ function addActionToTrigger(trigIdx, actionType) {
     newAction.targetMap = "ซากโบราณสถาน";
   } else if (actionType === 'change_class') {
     newAction.targetClass = activeEditingPlan.class1Target || "archer";
+  } else if (actionType === 'set_arrow') {
+    Object.assign(newAction, { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 });
   }
   trig.actions.push(newAction);
   planCollapsedTriggers.delete(trig.id || `idx_${trigIdx}`);
