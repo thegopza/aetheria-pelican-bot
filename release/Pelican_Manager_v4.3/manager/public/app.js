@@ -3135,6 +3135,7 @@ function planActionSummary(act) {
   if (act.type === 'equip_item') return `🛡️ ${act.itemName || '(ยังไม่ใส่ชื่อ)'}${act.optionFilter ? ` [${act.optionFilter}]` : ''}`;
   if (act.type === 'change_map') return `🗺️ ${planMapLabel(act.targetMap)}`;
   if (act.type === 'change_class') return `🏹 ${planClassLabel(act.targetClass)}`;
+  if (act.type === 'sell_trip') return '🛒 กลับเมืองขายของ';
   if (act.type === 'set_arrow') return act.requireArrow === false ? '🎯 ลูกธนู: ปิด' : `🎯 ลูกธนู ${planArrowLabel(act.arrowType).split(' (')[0]} x${act.arrowBuyQty || 200}`;
   return act.type;
 }
@@ -3270,6 +3271,7 @@ function renderPlanWorkflowCanvas() {
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_map')">🗺️ ย้ายแมพ</button>
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'change_class')">🏹 เปลี่ยนอาชีพ</button>
               <button type="button" onclick="addActionToTrigger(${trigIdx}, 'set_arrow')">🎯 ลูกธนู</button>
+              <button type="button" onclick="addActionToTrigger(${trigIdx}, 'sell_trip')">🛒 ขายของ</button>
             </div>
           </div>
         </div>
@@ -3331,6 +3333,16 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
             ${PLAN_CLASS_OPTIONS.map(cls => `<option value="${cls.value}" ${String(act.targetClass || '').toLowerCase() === cls.value ? 'selected' : ''}>${cls.label}</option>`).join('')}
           </select>
           <small class="pe-hint">บอทจะเปลี่ยนเมื่อเกมเปิดให้เปลี่ยนอาชีพนี้ได้ (คุยกับ Valkyrie ในเมืองหลวงให้เอง)</small>
+        </div>
+      </div>`;
+  }
+  if (act.type === 'sell_trip') {
+    return `
+      <div class="pe-action sell_trip">
+        <div class="pe-act-icon">🛒</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>กลับไปขายของ 1 รอบ</b>${del}</div>
+          <small class="pe-hint">บอทจะกลับเมือง ขายของตามที่ตั้งไว้ในแท็บ "ขาย" ซื้อของใช้ (ลูกธนู/ยา/ปีก) แล้วเดินกลับแมพฟาร์มเอง — เหมือนตอนกระเป๋าเต็ม</small>
         </div>
       </div>`;
   }

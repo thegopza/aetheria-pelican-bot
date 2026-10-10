@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.12.0
+// @version      4.13.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.12.0';
+    const PELICAN_BOT_VERSION = '4.13.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -12001,6 +12001,26 @@
         return 'pending';
     }
 
+    // "กลับไปขายของ" action: run the normal town trip once (sell by the sell settings, restock, back to the
+    // farm map). Done when a trip started by this action has finished.
+    const planSellTrips = {};
+    function runPlanSellTrip(act) {
+        const key = act.id || 'sell_trip';
+        const started = planSellTrips[key];
+        if (window.__isShopping) return 'pending';
+        if (started && Date.now() - started > 3000) {
+            delete planSellTrips[key];
+            console.log('%c[PmheeAether Plan] 🛒 กลับไปขายของตามแผนเสร็จแล้ว', 'color: #22c55e; font-weight: bold;');
+            return 'done';
+        }
+        if (started) return 'pending';
+        if (typeof window.executeAutoShopRoutine !== 'function') return 'failed';
+        console.log('%c[PmheeAether Plan] 🛒 ถึงเงื่อนไขในแผน -> กลับเมืองไปขายของ 1 รอบ', 'color: #f59e0b; font-weight: bold;');
+        window.executeAutoShopRoutine();
+        if (window.__isShopping) planSellTrips[key] = Date.now();   // refused (cooldown / walking): try again later
+        return 'pending';
+    }
+
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
@@ -12010,6 +12030,7 @@
         if (act.type === 'equip_item' && act.itemName) {
             return await window.findAndEquipItemByName(act.itemName, act.buyFromMarket !== false, Number(act.maxPrice) || 0, act.optionFilter || '');
         }
+        if (act.type === 'sell_trip') return runPlanSellTrip(act);
         if (act.type === 'set_arrow') {
             // Arrow supply for this stage of the plan (e.g. turn it on once the character is an Archer)
             const cfg = window.__archerConfig || (window.__archerConfig = {});
@@ -12107,6 +12128,7 @@
             // and is retried until it works — it is never dropped.
             const remaining = [];
             let blocker = null;
+            let quickRetry = false;
             for (const ai of p.actions) {
                 const act = (trig.actions || [])[ai];
                 if (!act) continue;
@@ -12116,6 +12138,7 @@
                 if (r === 'pending') {
                     remaining.push(ai);
                     if (act.type === 'change_class') blocker = act;
+                    if (act.type === 'sell_trip') quickRetry = true;
                 } else if (r === 'failed') {
                     console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
                 }
@@ -12129,7 +12152,7 @@
                 p.actions = remaining;
                 // A job change walks to Valkyrie: keep at it (other systems would pull the character back to the farm)
                 const waitedLong = Date.now() - p.firstAt > 10 * 60 * 1000;
-                p.nextAt = Date.now() + (waitingOn ? 4000 : (waitedLong ? PLAN_SLOW_RETRY_MS : PLAN_RETRY_MS));
+                p.nextAt = Date.now() + ((waitingOn || quickRetry) ? 4000 : (waitedLong ? PLAN_SLOW_RETRY_MS : PLAN_RETRY_MS));
             }
             save();
         } finally {

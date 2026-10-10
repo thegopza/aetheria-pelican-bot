@@ -234,3 +234,7 @@
 .pe-node.zeny .pe-card { border-left: 3px solid rgba(52, 211, 153, 0.7); }
 .pe-node.zeny .pe-seg button.on { background: #34d399; color: #052e1f; }
 .pe-stepper.pe-zeny input { width: 104px; }
+
+/* Plan action: sell trip */
+.pe-chip.sell_trip { color: #fde68a; background: rgba(234, 179, 8, 0.12); border-color: rgba(234, 179, 8, 0.4); }
+.pe-action.sell_trip .pe-act-icon { background: rgba(234, 179, 8, 0.15); }
