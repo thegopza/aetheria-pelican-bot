@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.8.2
+// @version      4.8.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.8.2';
+    const PELICAN_BOT_VERSION = '4.8.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -228,21 +228,12 @@
             return false;
         }
 
-        // 6. เดินไปหน้า Valkyrie — หา key/พิกัดจากชื่อ NPC ในแมพ (เกมเพิ่ม NPC แล้ว key เลื่อน: เดิม n5 ตอนนี้ n6)
+        // 6. Valkyrie — key จากชื่อ NPC ในแมพ (เกมเพิ่ม NPC แล้ว key เลื่อน: เดิม n5 ตอนนี้ n6).
+        // ไม่ต้องเดินเอง: npc_talk จากที่ไหนก็ได้ในแมพ เซิร์ฟเวอร์จะเดินตัวละครไปหา NPC แล้วเปิดบทสนทนาให้
+        // (เกมเองก็ทำแบบนี้) — การ move_to เองเคยค้างเมื่อทางเดินอ้อมแม่น้ำ/สะพาน
         const valk = window.getValkyrieNpc();
-        const standX = valk.x, standY = valk.y + 48;
         const pos = window.__currentPos || { x: 0, y: 0 };
-        const dist = Math.hypot(pos.x - standX, pos.y - standY);
-        if (dist > 80) {
-            console.log(`%c[PmheeAether Plan] 🚶 กำลังเดินไปหา NPC Valkyrie หน้าปราสาท (ระยะห่าง ${Math.round(dist)}px)...`, 'color: #38bdf8;');
-            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
-            if (room) {
-                room.send('move_to', { x: standX, y: standY });
-            } else if (typeof window.sendRemoteNpcTalk === 'function') {
-                window.sendRemoteNpcTalk(valk.key);
-            }
-            return false;
-        }
+        const dist = Math.round(Math.hypot(pos.x - valk.x, pos.y - valk.y));
 
         // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (หา key จากชื่อ NPC) แล้วไล่ตอบทีละหน้า
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
@@ -295,9 +286,9 @@
             if (x) x.click(); else room.send('npc_close', {});
         };
 
-        console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (${valk.key})...`, 'color: #a855f7; font-weight: bold;');
+        console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (${valk.key}, ห่าง ${dist}px — เซิร์ฟเวอร์เดินไปให้)...`, 'color: #a855f7; font-weight: bold;');
         room.send('npc_talk', { npcKey: valk.key });
-        let dl = await waitDialog('', 3000);
+        let dl = await waitDialog('', 15000);   // includes the walk over
 
         for (let step = 0; step < 6 && dl; step++) {
             console.log(`[PmheeAether Plan] 📜 Valkyrie: "${dl.text.slice(0, 80)}" | ตัวเลือก: ${dl.options.map((o, i) => `${i}:${o}`).join(' / ')}`);
