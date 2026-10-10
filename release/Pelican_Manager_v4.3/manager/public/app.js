@@ -3984,8 +3984,52 @@ if (document.readyState === 'loading') {
 // ==========================================
 // PROFILE MODAL (EDIT / ADD)
 // ==========================================
+// "จำนวนจอที่จะสร้าง": names and ports for N new profiles. "Client 16" x3 -> Client 16, 17, 18; a name without a
+// number gets " 1", " 2"...; ports continue from the port box, skipping ports other profiles use.
+function planNewProfiles(baseName, count, firstPort) {
+  const used = new Set(currentProfiles.map(p => Number(p.debugPort)));
+  const m = String(baseName).trim().match(/^(.*?)(\d+)$/);
+  const out = [];
+  let port = firstPort;
+  for (let i = 0; i < count; i++) {
+    while (i > 0 && used.has(port)) port++;
+    const name = count === 1 ? baseName.trim() : (m ? `${m[1]}${Number(m[2]) + i}` : `${baseName.trim()} ${i + 1}`);
+    out.push({ name, port });
+    used.add(port);
+    port++;
+  }
+  return out;
+}
+const formCount = document.getElementById("form-count");
+function refreshCountUi() {
+  if (!formCount) return;
+  const isAdd = !formId.value;
+  document.getElementById("form-count-group").style.display = isAdd ? "" : "none";
+  const n = isAdd ? Math.max(1, Math.min(50, parseInt(formCount.value) || 1)) : 1;
+  const many = n > 1;
+  // several new screens can't share one ID: each one registers its own account
+  formAccount.disabled = many;
+  if (formPassword) formPassword.disabled = many;
+  if (many) { formAccount.value = ""; if (formPassword) formPassword.value = ""; }
+  const hint = document.getElementById("form-count-hint");
+  if (hint) {
+    if (many) {
+      const plan = planNewProfiles(formName.value || "Client 1", n, parseInt(formPort.value) || 49876);
+      const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      hint.innerHTML = `➕ จะสร้าง <b>${n} จอ</b>: ${esc(plan[0].name)} → ${esc(plan[n - 1].name)} (พอร์ต ${plan[0].port} → ${plan[n - 1].port})<br>📝 ทุกจอ<b>สมัครบัญชีใหม่ + สร้างตัวละคร</b>ให้เอง (ID/รหัสสุ่มแยกกันทุกจอ)`;
+      hint.style.display = "";
+    } else hint.style.display = "none";
+  }
+}
+if (formCount) ["input", "change"].forEach(ev => {
+  formCount.addEventListener(ev, refreshCountUi);
+  formName.addEventListener(ev, refreshCountUi);
+  formPort.addEventListener(ev, refreshCountUi);
+});
+
 function openAddModal() {
   formId.value = "";
+  if (formCount) formCount.value = 1;
   formName.value = `Client ${currentProfiles.length + 1}`;
   formAccount.value = "";
   formClass.value = "Hunter";
@@ -3995,6 +4039,7 @@ function openAddModal() {
   formNotes.value = "";
   if (formPassword) { formPassword.value = ""; formPassword.placeholder = "เว้นว่าง = สมัครบัญชีใหม่ให้"; }
   modalTitle.innerText = "➕ เพิ่มโปรไฟล์จอเกมใหม่";
+  refreshCountUi();
   modalEl.classList.add("active");
 }
 
@@ -4013,6 +4058,7 @@ function openEditModal(id) {
     formPassword.placeholder = profile.hasLoginPassword ? "•••••• (มีรหัสแล้ว — เว้นว่าง = ไม่เปลี่ยน)" : (profile.autoRegister ? "กำลังรอสมัครบัญชีอัตโนมัติ" : "ใส่รหัสผ่านเพื่อเปิด Auto-login");
   }
   modalTitle.innerText = `⚙️ แก้ไขโปรไฟล์: ${profile.name}`;
+  refreshCountUi();
   modalEl.classList.add("active");
 }
 
@@ -4041,11 +4087,23 @@ profileForm.onsubmit = async (e) => {
         body: JSON.stringify(payload)
       });
     } else {
-      await fetch(`${API_BASE}/api/profiles`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      const count = formCount ? Math.max(1, Math.min(50, parseInt(formCount.value) || 1)) : 1;
+      const plan = planNewProfiles(payload.name, count, payload.debugPort);
+      const submitBtn = document.getElementById("modal-submit-btn");
+      const failed = [];
+      for (let i = 0; i < plan.length; i++) {
+        if (submitBtn && count > 1) submitBtn.innerText = `⏳ กำลังสร้าง ${i + 1}/${count}...`;
+        const one = count > 1 ? { ...payload, name: plan[i].name, debugPort: plan[i].port, account: "", loginPassword: "" } : payload;
+        const r = await fetch(`${API_BASE}/api/profiles`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(one)
+        }).then(x => x.json()).catch(e => ({ success: false, error: e.message }));
+        if (!r.success) failed.push(`${plan[i].name}: ${r.error || "ไม่สำเร็จ"}`);
+      }
+      if (submitBtn) submitBtn.innerText = "💾 บันทึกโปรไฟล์";
+      if (count > 1) showToast(failed.length ? `สร้างได้ ${count - failed.length}/${count} จอ` : `➕ สร้างโปรไฟล์ ${count} จอแล้ว`, failed.length ? "warning" : "success");
+      if (failed.length) alert("สร้างไม่สำเร็จบางจอ:\n" + failed.join("\n"));
     }
     modalEl.classList.remove("active");
     fetchProfiles();

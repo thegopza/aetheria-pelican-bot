@@ -593,10 +593,17 @@
           📝 ไม่ใส่รหัสผ่าน → บอท<b>สมัครบัญชีใหม่</b> (ID ว่าง = สุ่มให้) แล้ว<b>สร้างตัวละคร</b>ให้เอง — ID/รหัสที่ได้จะถูกเก็บไว้ในโปรไฟล์นี้
         </div>
 
-        <div class="form-group">
-          <label>พอร์ต Debug API (Auto Port):</label>
-          <input type="number" id="form-port" required min="40000" max="65000" class="form-input">
+        <div class="form-row">
+          <div class="form-group" id="form-count-group">
+            <label>จำนวนจอที่จะสร้าง:</label>
+            <input type="number" id="form-count" min="1" max="50" value="1" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>พอร์ต Debug API (Auto Port):</label>
+            <input type="number" id="form-port" required min="30000" max="65000" class="form-input">
+          </div>
         </div>
+        <div class="pf-hint" id="form-count-hint" style="display: none;"></div>
         <input type="hidden" id="form-class">
         <input type="hidden" id="form-map">
         <input type="hidden" id="form-notes">
@@ -1034,7 +1041,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=41704"></script>
+  <script src="app.js?v=41705"></script>
   <script src="patcher_module.js?v=41700"></script>
   <script src="builder_module.js?v=41200"></script>
   <script src="inventory_market.js?v=4360"></script>

@@ -923,8 +923,10 @@ const server = http.createServer(async (req, res) => {
         const data = JSON.parse(body);
         const profiles = loadProfiles();
         const nextPort = Math.max(49875, ...profiles.map(p => p.debugPort || 49876)) + 1;
+        let newId = "profile_" + Date.now();
+        while (profiles.some(p => p.id === newId)) newId = "profile_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
         const newProfile = {
-          id: "profile_" + Date.now(),
+          id: newId,
           name: (data.name || "New Client").trim(),
           account: (data.account || "").trim(),
           autoRegister: !(data.loginPassword || "").trim(),
