@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.21.0
+// @version      4.22.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.21.0';
+    const PELICAN_BOT_VERSION = '4.22.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1507,12 +1507,14 @@
             }
             if (found) return found;
         }
-        return { key: 'n7', name: 'Alice Service', x: 1632, y: 1696 };
+        // Not on this map: NO guessed key. 'n7' used to be Alice; the game added NPCs and n7 is now Blacksmith Enok,
+        // so talking to it from a farm map made the server walk the character to the Blacksmith.
+        return null;
     };
 
     window.getAliceNpcKey = function() {
         const a = window.getAliceNpc();
-        return a ? a.key : 'n7';
+        return a ? a.key : null;
     };
 
     window.getValkyrieNpcKey = function() {
@@ -5110,6 +5112,12 @@
         if (typeof window.closeShopUI === 'function') {
             window.closeShopUI();
         }
+        // Alice only stands in the capital: elsewhere use the world map (walking) instead of talking to a guess
+        if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
+            console.log('%c[PmheeAether Warp] 🗺️ ไม่ได้อยู่ในเมืองหลวง (ไม่มี Alice ในแมพนี้) -> เปิดแผนที่โลกเดินไปแทน', 'color: #f59e0b;');
+            openWorldMap(() => { if (callback) callback(); });
+            return;
+        }
 
         // ตรวจสอบว่าหน้าต่างบทสนทนาของ Alice เปิดอยู่บนจอหรือไม่
         function isAliceDialogOpen() {
@@ -5215,8 +5223,8 @@
             return false;
         }
 
-        const aliceNpc = (typeof window.getAliceNpc === 'function') ? window.getAliceNpc() : { key: 'n7', x: 1632, y: 1696 };
-        const aliceKey = aliceNpc.key || 'n7';
+        const aliceNpc = ((typeof window.getAliceNpc === 'function') ? window.getAliceNpc() : null) || { key: null, x: 0, y: 0 };
+        const aliceKey = aliceNpc.key;
 
         // 1. ตรวจสอบระยะห่าง ถ้าตัวละครอยู่ไกลจาก Alice ให้เดินเข้าหาก่อน
         const curPos = window.__currentPos || { x: 0, y: 0 };
@@ -5232,8 +5240,8 @@
         // 2. ลองคลิกที่ตัว Alice บนจอเกม
         clickAliceOnScreen();
 
-        // 3. ส่ง Packet npc_talk (Alice = n7) เพื่อเปิดคุย
-        window.sendRemoteNpcTalk(aliceKey);
+        // 3. ส่ง Packet npc_talk เพื่อเปิดคุย (เฉพาะเมื่อเจอ Alice จริงในแมพนี้)
+        if (aliceKey) window.sendRemoteNpcTalk(aliceKey);
 
         let attempts = 0;
         let lastPos = { x: 0, y: 0 };
@@ -5260,6 +5268,14 @@
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
+                return;
+            }
+
+            // Left the capital (the warp went through, or teleported away): this loop is done
+            if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
+                clearInterval(window.__alicePollInterval);
+                window.__alicePollInterval = null;
+                console.log('%c[PmheeAether Warp] ✅ ออกจากเมืองหลวงแล้ว -> หยุดเรียก Alice', 'color: #94a3b8;');
                 return;
             }
 
@@ -5339,20 +5355,20 @@
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
 
-            const currentAliceKey = (typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : 'n7';
+            const currentAliceKey = (typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : null;
 
             // ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก เฉพาะตอนที่ dialog ยังไม่เปิด
             if (attempts % 5 === 0) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 clickAliceOnScreen();
-                window.sendRemoteNpcTalk(currentAliceKey);
+                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
             }
 
             // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice แล้ว) ส่ง packet คุยทันที
             if (isStationary && stillCount === 2) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 console.log(`%c[PmheeAether Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (${currentAliceKey})...`, 'color: #38bdf8;');
-                window.sendRemoteNpcTalk(currentAliceKey);
+                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
             }
 
             // Timeout: ให้เวลาเดินอย่างน้อย 21 วินาที (35 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
@@ -5544,7 +5560,7 @@
         const bwingInBag = findItemInServerInv(it => {
             const id = it.itemId || it.id || it.item_id;
             const name = (it.name || it.itemName || '').toLowerCase();
-            return (id === 90311 || id === 0x000160c7 || name.includes('wing') || name.includes('bwing') || name.includes('butterfly') || name.includes('วิง')) && typeof (it.slot ?? it.idx) === 'number';
+            return (Number(id) === 90311 || name.includes('butterfly')) && typeof (it.slot ?? it.idx) === 'number';
         });
         if (bwingInBag) {
             bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
@@ -5610,10 +5626,10 @@
             }
         } catch(e) {}
 
-        // 5. Fallback: ส่ง Packet inv_use ช่อง 8 (Hotbar Bwing)
+        // 5. Fallback: ไม่มีปีกในกระเป๋า -> เปิดกระเป๋าให้เกมส่งข้อมูลมาสแกนใหม่ (ไม่กดใช้ช่องที่ 8 มั่วๆ อีกแล้ว:
+        //    เดิมส่ง inv_use ช่อง 8 = ใช้ของอะไรก็ได้ที่อยู่ช่องนั้น)
         if (!bwingInBag && !domFound) {
-            window.sendInvUse(8);
-            dispatchKeyAll('8', 'Digit8', 56);
+            console.warn('[PmheeAether] 🦋 ไม่พบ Butterfly Wing ในกระเป๋า');
 
             // ถ้าหน้าต่างกระเป๋ายังไม่เคยเปิด ให้กดเปิดเพื่อดึง Packet และสแกน DOM
             if (bagModals.length === 0) {
@@ -6713,6 +6729,27 @@
 
     let lastAutoShopCompletionTime = 0;
 
+    // A town trip cut off half way (bot stopped, a step that never called back) used to leave __isShopping on
+    // for good: the farm loop and the plan then wait forever ("🛒 กำลังซื้อขาย" on the farm map). A trip takes
+    // ~1-2 minutes (Butterfly Wing, walk to the NPC, sell/buy), so clear it after 6 minutes without a shop open.
+    setInterval(() => {
+        if (!window.__isShopping) return;
+        if (!window.__shoppingSince) { window.__shoppingSince = Date.now(); return; }
+        if (Date.now() - window.__shoppingSince < 6 * 60 * 1000 || document.querySelector('.shop-window')) return;
+        if (window.__isNavigating || window.__isWalkingToMap) { window.__shoppingSince = Date.now() - 4 * 60 * 1000; return; }
+        console.warn('[PmheeAether Shop] ⚠️ สถานะ "กำลังซื้อขาย" ค้างเกิน 6 นาที -> ยกเลิกรอบนี้แล้วทำงานต่อ');
+        if (window.__shopWarpInterval) clearInterval(window.__shopWarpInterval);
+        if (window.__shopArrivalInterval) clearInterval(window.__shopArrivalInterval);
+        window.__shopWarpInterval = null;
+        window.__shopArrivalInterval = null;
+        window.__isShopping = false;
+        window.__shoppingSince = 0;
+        lastAutoShopCompletionTime = Date.now();
+        // a trip that walked toward the capital set it as the farm map: put the real one back
+        const back = window.__shopReturnMap;
+        if (back && back !== window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(back) && typeof window.walkToTargetMap === 'function') window.walkToTargetMap(back);
+    }, 30000);
+
     window.executeAutoShopRoutine = function() {
         if (window.__isShopping) {
             console.warn('[PmheeAether Shop] ⚠️ กำลังดำเนินการซื้อขายอยู่แล้ว');
@@ -6739,10 +6776,12 @@
         }
 
         window.__isShopping = true;
+        window.__shoppingSince = Date.now();
         const startMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : 'ไม่ทราบแมพ';
         console.log(`%c[PmheeAether Shop] 🛒 เริ่มต้น Routine ซื้อ/ขายอัตโนมัติ (แมพปัจจุบัน: "${startMap}")`, 'color: #f59e0b; font-weight: bold;');
 
         const currentFarmMap = window.__targetFarmMap;
+        window.__shopReturnMap = currentFarmMap;
         const targetNpc = (window.__shopConfig && window.__shopConfig.npcKey) ? window.__shopConfig.npcKey : 'n2';
 
         function startCityWalk() {
@@ -6882,6 +6921,7 @@
             }
 
             let warpAttempts = 0;
+            let walkFallbackStarted = false;
             window.__shopWarpInterval = setInterval(() => {
                 if (!window.__isBotRunning) {
                     clearInterval(window.__shopWarpInterval);
@@ -6916,6 +6956,16 @@
                 if (warpAttempts <= 3) {
                     console.log(`%c[PmheeAether Shop] 🔄 ยังไม่ถึงเมืองหลวง (อยู่ที่ "${getCurrentMapName()}") กำลังใช้วาร์ปซ้ำ (${warpAttempts}/3)...`, 'color: #f59e0b;');
                     window.useButterflyWing();
+                } else if (!walkFallbackStarted && typeof window.walkToTargetMap === 'function') {
+                    // No Butterfly Wing (e.g. no zeny to buy any): travel to the capital the normal way (Alice
+                    // warp, or walking when zeny is short) instead of giving up — the overweight check restarted
+                    // the trip right away, forever. The farm map is put back at the end of the trip.
+                    walkFallbackStarted = true;
+                    console.log(`%c[PmheeAether Shop] 🚶 ใช้ Butterfly Wing ไม่ได้ (ไม่มีปีกในตัว?) -> เดินทางกลับเมืองหลวงแทน`, 'color: #f59e0b; font-weight: bold;');
+                    window.__shoppingSince = Date.now();
+                    window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                } else if (walkFallbackStarted && warpAttempts < 180) {
+                    // walking: keep waiting for the capital (checked at the top of this loop) — up to 6 minutes
                 } else {
                     clearInterval(window.__shopWarpInterval);
                     window.__shopWarpInterval = null;
@@ -12427,6 +12477,17 @@
     const WEIGHT_SCROLL_ID = 90309;
     let weightScrollBusy = false;
     let weightShopTriedAt = 0;
+    // No NPC sells the scroll, or not enough zeny: go back to farming and try again much later. Before, the
+    // character stayed in town (or walked back) and asked the shops again every minute — "always in town
+    // talking to the Blacksmith".
+    let weightShopBackoffUntil = 0;
+    const weightShopGiveUp = (r) => {
+        const mins = r === 'not-sold' ? 30 : 10;
+        weightShopBackoffUntil = Date.now() + mins * 60000;
+        console.warn(`[PmheeAether Plan] 📦 ซื้อ Weight Limit Scroll ไม่ได้ (${r === 'not-sold' ? 'ไม่มีร้าน NPC ในเมืองที่ขาย' : 'เงินไม่พอ'}) -> กลับไปฟาร์มก่อน ลองใหม่ใน ${mins} นาที`);
+        window.__planJobChangeHoldUntil = 0;
+        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+    };
     const planSleep = ms => new Promise(r => setTimeout(r, ms));
     const planBag = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
     const inCapital = () => /เมืองหลวง|โซลเฮเวน/.test((typeof window.getCurrentMapName === 'function' && window.getCurrentMapName()) || '');
@@ -12441,6 +12502,8 @@
         room.state.npcs.forEach((n, k) => { if (/Shopkeeper|Blacksmith|Bag Merchant/i.test((n && n.name) || '')) add(k); });
         const closeAll = () => { const x = document.querySelector('.shop-window .win-close, .npc-dialog .win-close'); if (x) x.click(); };
         for (const key of keys) {
+            const npcName = (room.state.npcs.get && room.state.npcs.get(key) && room.state.npcs.get(key).name) || '?';
+            console.log(`[PmheeAether Plan] 🏪 ถามร้าน NPC ${key} (${npcName}) ว่ามี item #${itemId} ไหม`);
             room.send('npc_talk', { npcKey: key });
             let shop = null, dlg = null;
             for (let i = 0; i < 75 && !shop && !dlg; i++) { await planSleep(200); shop = document.querySelector('.shop-window'); dlg = document.querySelector('.npc-dialog'); }
@@ -12535,6 +12598,7 @@
             if (used >= target) return finish(`ใช้ครบ ${used}/${target} แล้ว บันทึกไว้กับตัวละครนี้ (จะไม่ซื้อซ้ำ)`);
 
             // 2. Need more: go to the capital, then buy the missing amount from the shop that sells it
+            if (Date.now() < weightShopBackoffUntil) return 'pending';
             if (!inCapital()) {
                 if (window.__isNavigating || window.__isWalkingToMap) return 'pending';
                 const farm = window.__targetFarmMap || '';
@@ -12548,7 +12612,7 @@
             weightShopTriedAt = Date.now();
             window.__planJobChangeHoldUntil = Date.now() + 60000;
             const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, target - used, Number(act.maxPrice) || 0);
-            if (r === 'not-sold') console.warn('[PmheeAether Plan] ⚠️ ไม่พบร้าน NPC ที่ขาย Weight Limit Scroll ในเมือง — จะลองใหม่ภายหลัง');
+            if (r === 'not-sold' || r === 'no-money') weightShopGiveUp(r);
             return 'pending';   // next round uses what was bought
         } finally {
             weightScrollBusy = false;
@@ -12627,7 +12691,7 @@
 
             // 2. Buy the missing amount in the capital (not more than the zeny allows — waits for zeny otherwise)
             const need = Math.min(10, Math.ceil((req.target - planWeightLimit()) / WEIGHT_PER_SCROLL));
-            if (Date.now() - weightTopUpNoMoneyAt < 5 * 60000) return false;
+            if (Date.now() - weightTopUpNoMoneyAt < 5 * 60000 || Date.now() < weightShopBackoffUntil) return false;
             if (!inCapital()) {
                 if (window.__isNavigating || window.__isWalkingToMap) return true;
                 const farm = window.__targetFarmMap || '';
@@ -12648,7 +12712,7 @@
                 if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
                 return false;
             }
-            if (r === 'not-sold') console.warn('[PmheeAether Plan] ⚠️ ไม่พบร้าน NPC ที่ขาย Weight Limit Scroll ในเมือง — จะลองใหม่ภายหลัง');
+            if (r === 'not-sold') { weightShopGiveUp(r); return false; }
             return true;   // next round uses what was bought
         } finally {
             weightScrollBusy = false;
@@ -12957,6 +13021,7 @@
     const EVENT_PET_EGG_ID = 90334;   // Orc Cub Egg
     let eventPetNextTry = 0;
     let eventPetFails = 0;
+    let eventPetEggRefusals = 0;
     window.runEventPetStep = async function() {
         const plan = window.__currentScriptPlan;
         if (!plan || plan.eventPet === false || Date.now() < eventPetNextTry) return false;
@@ -12975,14 +13040,26 @@
             if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
         };
 
+        // 0. The character already has this pet: nothing to do (the game refuses another egg of it)
+        const petsNow = ((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).pets;
+        if (petsNow && Array.isArray(petsNow.owned) && petsNow.owned.some(p => /orc/i.test(String(p)))) {
+            console.log('%c[PmheeAether Plan] 🐣 ตัวละครนี้มีสัตว์เลี้ยงออร์คน้อยแล้ว -> ข้ามขั้นตอนรับ/ฟักไข่', 'color: #22c55e;');
+            finish('owned');
+            return false;
+        }
+
         // 1. Egg already in the bag: hatch it
         const egg = bag().find(it => Number(it.itemId) === EVENT_PET_EGG_ID);
         if (egg) {
             console.log(`%c[PmheeAether Plan] 🥚 ใช้ "${egg.name}" เพื่อฟักสัตว์เลี้ยง`, 'color: #22c55e; font-weight: bold;');
             room.send('inv_use', { slot: egg.slot });
             await sleep(1500);
-            if (!bag().some(it => Number(it.itemId) === EVENT_PET_EGG_ID)) finish('hatched');
-            else eventPetNextTry = Date.now() + 15000;
+            const left = bag().filter(it => Number(it.itemId) === EVENT_PET_EGG_ID).reduce((a, it) => a + (it.qty || 1), 0);
+            if (left < (egg.qty || 1)) finish('hatched');
+            else if (++eventPetEggRefusals >= 3) {
+                console.log('%c[PmheeAether Plan] 🐣 เกมไม่ให้ฟักไข่ (3 ครั้ง) — น่าจะมีสัตว์เลี้ยงตัวนี้แล้ว -> ข้าม', 'color: #94a3b8;');
+                finish('egg-refused');
+            } else eventPetNextTry = Date.now() + 15000;
             return true;
         }
 
