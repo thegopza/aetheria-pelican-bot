@@ -1423,7 +1423,8 @@ const server = http.createServer(async (req, res) => {
 
     const action = parsedUrl.searchParams.get("action"); // 'start', 'stop', or toggle
     const live = await queryClientState(profile.debugPort);
-    const isRunning = Boolean(live && (live.autoLoop || live.isBotRunning));
+    // "ลูป 24 ชม." (autoLoop) is only a setting — START BOT is __isBotRunning
+    const isRunning = Boolean(live && live.isBotRunning);
     const targetRunning = action === "start" ? true : (action === "stop" ? false : !isRunning);
 
     const code = targetRunning ? `(() => {

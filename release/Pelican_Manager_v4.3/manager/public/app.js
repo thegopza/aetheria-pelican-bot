@@ -217,7 +217,7 @@ function updateMetrics() {
   if (tabCount) tabCount.innerText = total;
   const onlineCount = currentProfiles.filter(p => p.isRunning).length;
   if (onlineEl) onlineEl.innerText = onlineCount;
-  const farmingCount = currentProfiles.filter(p => p.liveState && (p.liveState.autoLoop || p.liveState.isBotRunning)).length;
+  const farmingCount = currentProfiles.filter(p => p.liveState && p.liveState.isBotRunning).length;
   if (farmingEl) farmingEl.innerText = farmingCount;
 
   const setBar = (id, ofId, count) => {
@@ -289,7 +289,7 @@ function buildProfileCard(p) {
   const isOnline = p.isRunning;
   const isWindowHidden = Boolean(p.windowState?.isHidden);
   const state = isOnline ? p.liveState : null;
-  const isBotRunning = Boolean(state && (state.autoLoop || state.isBotRunning));
+  const isBotRunning = Boolean(state && state.isBotRunning);
 
   const charName = state?.charName || p.lastCharName || null;
   const curClass = state?.charClass || p.lastCharClass || p.charClass || 'Archer';
@@ -1914,7 +1914,7 @@ async function openWebBotHUD(profileId) {
   const toggleBotBtn = hudEl.querySelector('#p-btn-toggle-bot');
   if (toggleBotBtn) {
     toggleBotBtn.onclick = () => {
-      const isRunning = Boolean(activeWebHuds[profileId]?.data?.autoLoopEnabled || activeWebHuds[profileId]?.data?.isBotRunning);
+      const isRunning = Boolean(activeWebHuds[profileId]?.data?.isBotRunning);
       toggleBotExecution(profileId, !isRunning);
     };
   }
@@ -2335,7 +2335,7 @@ function populateWebHudData(profileId, data) {
   if (charStateEl) {
     if (data.state?.botStatus) {
       charStateEl.innerText = data.state.botStatus;
-    } else if (data.isBotRunning || data.autoLoopEnabled) {
+    } else if (data.isBotRunning) {
       charStateEl.innerText = '⚔️ Auto-Farm ทำงาน';
     } else {
       charStateEl.innerText = '⏸️ หยุดทำงาน';
@@ -2348,7 +2348,7 @@ function populateWebHudData(profileId, data) {
   // Toggle Bot Button (Exact in-game styling)
   const btn = hud.querySelector('#p-btn-toggle-bot');
   if (btn) {
-    const isRunning = Boolean(data.autoLoopEnabled || data.isBotRunning);
+    const isRunning = Boolean(data.isBotRunning);
     if (isRunning) {
       btn.innerHTML = '⏹️ STOP BOT (หยุดทำงาน)';
       btn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';

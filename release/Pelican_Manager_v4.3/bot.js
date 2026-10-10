@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.17.1
+// @version      4.17.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.17.1';
+    const PELICAN_BOT_VERSION = '4.17.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13570,7 +13570,7 @@
         if (window.__isRecovering) activity = '⚠️ กำลังชุบชีวิต';
         else if (window.__isShopping) activity = '🛒 ซื้อ/ขายของที่ NPC';
         else if (window.__isNavigating) activity = '🚶 กำลังเดินทาง';
-        else if (window.__autoLoopEnabled || window.__isBotRunning) activity = '⚔️ Auto-Farm ทำงาน';
+        else if (window.__isBotRunning) activity = '⚔️ Auto-Farm ทำงาน';   // the 24h-loop switch alone is not running
         else if (hudState) activity = hudState;
 
         const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};

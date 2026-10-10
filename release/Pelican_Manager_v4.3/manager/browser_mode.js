@@ -51,6 +51,17 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   const listeners = new Set();          // CDP event listeners
   const clients = new Map();            // profileId -> { targetId, sessionId, server, port }
   let startupPages = [];                // the empty window Chrome opens on start — closed once a game window exists
+  const portServers = new Map();        // port -> proxy server (one per port, even if a client object went stale)
+  let rediscovering = null;
+
+  // A window that is gone (closed with Chrome's X, crashed, browser closed, CDP reconnected) must not stay
+  // "open": that made launch answer "already open" and left a proxy with a dead session on the port.
+  function drop(c) {
+    if (!c) return;
+    stopProxy(c);
+    if (clients.get(c.profileId) === c) clients.delete(c.profileId);
+  }
+  const isGoneError = e => /Session with given id not found|No target with given id|Target closed|CDP closed|CDP not connected/i.test(String(e && e.message || e));
 
   // ---------- CDP connection ----------
   async function connect() {
@@ -62,7 +73,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
         ws = new WebSocket(info.webSocketDebuggerUrl);
         ws.onopen = resolve;
         ws.onerror = e => reject(new Error('CDP connect failed'));
-        ws.onclose = () => { ws = null; for (const [, p] of pending) p.reject(new Error('CDP closed')); pending.clear(); clients.clear(); };
+        ws.onclose = () => { ws = null; for (const [, p] of pending) p.reject(new Error('CDP closed')); pending.clear(); Array.from(clients.values()).forEach(drop); };
         ws.onmessage = ev => {
           const msg = JSON.parse(ev.data);
           if (msg.id && pending.has(msg.id)) {
@@ -75,6 +86,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       });
     })();
     try { await wsReady; } finally { wsReady = null; }
+    await send('Target.setDiscoverTargets', { discover: true }).catch(() => {});
   }
   function send(method, params = {}, sessionId) {
     return new Promise((resolve, reject) => {
@@ -148,8 +160,11 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       .catch(() => {});
   });
   listeners.add(msg => {
-    if (msg.method === 'Target.targetDestroyed') {
-      for (const [id, c] of clients) if (c.targetId === msg.params.targetId) { stopProxy(c); clients.delete(id); }
+    if (msg.method === 'Target.targetDestroyed' || (msg.method === 'Target.targetCrashed')) {
+      for (const c of Array.from(clients.values())) if (c.targetId === msg.params.targetId) drop(c);
+    }
+    if (msg.method === 'Target.detachedFromTarget') {
+      for (const c of Array.from(clients.values())) if (c.sessionId === msg.params.sessionId) drop(c);
     }
   });
 
@@ -164,7 +179,11 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   }
 
   // After a Manager restart the browser windows are still there: find them again by __pmProfileId
-  async function rediscover() {
+  function rediscover() {
+    if (!rediscovering) rediscovering = rediscoverOnce().finally(() => { rediscovering = null; });
+    return rediscovering;
+  }
+  async function rediscoverOnce() {
     if (!(await browserAlive())) return;
     await connect();
     const { targetInfos } = await send('Target.getTargets');
@@ -221,7 +240,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
           }
           if (!code) return reply(400, { error: 'Missing code' });
           try { return reply(200, { success: true, result: await evaluate(c, code) }); }
-          catch (e) { return reply(500, { success: false, error: e.message }); }
+          catch (e) { if (isGoneError(e)) drop(c); return reply(500, { success: false, error: e.message }); }
         }
         if (url.pathname === '/api/state') {
           return reply(200, await evaluate(c, `typeof window.__getClientLiveState === 'function' ? window.__getClientLiveState() : null`));
@@ -232,14 +251,22 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
         }
         reply(200, { name: 'PmheeAether browser-mode client', profileId: c.profileId, endpoints: ['/api/eval', '/api/state', '/api/window'] });
       } catch (e) {
+        if (isGoneError(e)) drop(c);
         reply(500, { success: false, error: e.message });
       }
     });
     c.server.on('error', e => console.warn(`[BrowserMode] port ${port}: ${e.message}`));
+    const old = portServers.get(port);
+    if (old) { try { old.close(); old.closeAllConnections && old.closeAllConnections(); } catch (e) {} }
+    portServers.set(port, c.server);
     c.server.listen(port, '127.0.0.1');
   }
   function stopProxy(c) {
-    if (c && c.server) { try { c.server.close(); } catch (e) {} c.server = null; }
+    if (c && c.server) {
+      try { c.server.close(); c.server.closeAllConnections && c.server.closeAllConnections(); } catch (e) {}
+      if (portServers.get(c.port) === c.server) portServers.delete(c.port);
+      c.server = null;
+    }
   }
 
   // ---------- public ----------
@@ -248,8 +275,12 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     await rediscover();
     const existing = clients.get(profile.id);
     if (existing) {
-      await windowAction(existing, 'focus', new URLSearchParams()).catch(() => {});
-      return { success: true, message: 'หน้าต่างนี้เปิดอยู่แล้ว' };
+      const { targetInfos } = await send('Target.getTargets');
+      if (targetInfos.some(t => t.targetId === existing.targetId)) {
+        await windowAction(existing, 'focus', new URLSearchParams()).catch(() => {});
+        return { success: true, message: 'หน้าต่างนี้เปิดอยู่แล้ว' };
+      }
+      drop(existing);
     }
     const { targetId } = await send('Target.createTarget', { url: 'about:blank', newWindow: true });
     const c = await attach(profile.id, targetId);
