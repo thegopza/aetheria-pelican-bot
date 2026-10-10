@@ -624,6 +624,12 @@ function renderSkillBuilderUI() {
 
           ${reqHtml ? `<div class="skill-req-row">ต้องมี: ${reqHtml}</div>` : ''}
 
+          ${skill.kind !== 'passive' ? `
+          <button type="button" class="skill-auto-toggle ${isSkillAutoOn(skill.id) ? 'on' : 'off'}" onclick="toggleSkillAuto('${skill.id}')"
+            title="${isSkillAutoOn(skill.id) ? 'บอทจะติ๊กสกิลนี้ใน AUTO ของเกม (กดเพื่อปิด)' : 'บอทจะไม่ใช้สกิลนี้ใน AUTO (กดเพื่อเปิด)'}">
+            <span class="sat-switch"></span> ${isSkillAutoOn(skill.id) ? 'ใช้ใน AUTO' : 'ไม่ใช้ใน AUTO'}
+          </button>` : ''}
+
           <div class="skill-card-controls">
             <div class="skill-level-indicator ${isMaxed ? 'maxed' : ''}">
               Lv. ${curLv} / ${skill.maxLevel}
@@ -762,6 +768,21 @@ function repairSkillQueue(queue, insertMissing) {
 
   return { queue: out, levels: lv, dropped, added };
 }
+
+// "ใช้ใน AUTO" switch on a skill card: switched-off skills are not ticked for the game's AUTO
+// (stored as skillBuild.autoOff; everything else stays on, like before)
+function isSkillAutoOn(id) {
+  const off = activeEditingPlan && activeEditingPlan.skillBuild && activeEditingPlan.skillBuild.autoOff;
+  return !(Array.isArray(off) && off.includes(id));
+}
+function toggleSkillAuto(id) {
+  if (!activeEditingPlan || !activeEditingPlan.skillBuild) return;
+  const off = new Set(Array.isArray(activeEditingPlan.skillBuild.autoOff) ? activeEditingPlan.skillBuild.autoOff : []);
+  if (off.has(id)) off.delete(id); else off.add(id);
+  activeEditingPlan.skillBuild.autoOff = Array.from(off);
+  renderSkillBuilderUI();
+}
+window.toggleSkillAuto = toggleSkillAuto;
 
 function applySkillQueue(newQueue) {
   activeEditingPlan.skillBuild.skillPointQueue = newQueue;

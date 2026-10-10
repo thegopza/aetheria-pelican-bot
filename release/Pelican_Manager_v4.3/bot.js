@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.20.0
+// @version      4.21.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.20.0';
+    const PELICAN_BOT_VERSION = '4.21.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13256,8 +13256,14 @@
             });
         }
 
+        // Skills switched off in the plan's skill page ("ใช้ใน AUTO" off, skillBuild.autoOff) are never ticked,
+        // and are unticked when they already are
+        const planNow = window.__currentScriptPlan;
+        const autoOff = new Set(planNow && planNow.skillBuild && Array.isArray(planNow.skillBuild.autoOff) ? planNow.skillBuild.autoOff : []);
+        autoUsableSkills = autoUsableSkills.filter(id => !autoOff.has(id));
+
         // จัดเตรียมรายการสกิลเป้าหมาย: คงลำดับสกิลเดิมไว้ และเพิ่มสกิล Auto ที่ยังไม่ได้ติ๊กต่อท้าย (สูงสุด 9 สกิล)
-        const targetSkills = [...currentSkills];
+        const targetSkills = currentSkills.filter(id => !autoOff.has(id));
         for (const skillId of autoUsableSkills) {
             if (!targetSkills.includes(skillId) && targetSkills.length < 9) {
                 targetSkills.push(skillId);
@@ -13268,7 +13274,7 @@
         // 1. ระยะล่าไม่เป็น 'all' (เช่น ค่าเริ่มต้น 12 ช่อง หรือตัวเลขอื่นๆ)
         // 2. มีสกิล Auto ที่ยังไม่ได้ถูกติ๊กใน config
         const needsRadiusUpdate = curRadius !== 'all';
-        const needsSkillsUpdate = targetSkills.length > currentSkills.length;
+        const needsSkillsUpdate = targetSkills.length !== currentSkills.length || targetSkills.some((id, i) => id !== currentSkills[i]);
 
         if (!needsRadiusUpdate && !needsSkillsUpdate && !force) {
             return false;
