@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.22.0
+// @version      4.23.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.22.0';
+    const PELICAN_BOT_VERSION = '4.23.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -919,9 +919,10 @@
         localStorage.setItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig));
     }
 
-    // Arrows are only for a character that shoots: "Require Arrow" from a config copied off an archer must not
-    // make a Novice / Bard with an instrument buy arrows. Used when a bow is in the main hand, for the archer
-    // line, or while a plan's arrow action asked for them (e.g. just changed to Archer, bow not on yet).
+    // Arrows only for a character whose weapon uses them: "Require Arrow" from a config copied off an archer must
+    // not make a Novice buy arrows. The game tells it per character (ch.ammoType = "Arrow" for bows AND for a
+    // Bard's instrument — Musical Strike / Throw Arrow use the arrow's element). Without that field: a bow in the
+    // main hand / the archer line. Always while a plan's arrow action asked for them (just changed to Archer).
     let arrowSkipLogged = false;
     window.arrowsNeeded = function () {
         const cfg = window.__archerConfig;
@@ -929,10 +930,12 @@
         if (Date.now() < (window.__planArrowBuyUntil || 0)) return true;
         const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
         const w = ch.equipment && ch.equipment['main-hand'];
-        const shoots = (w && w.weaponType) ? /bow/i.test(w.weaponType) : /archer|hunter|sniper|ranger/i.test(String(ch.classId || ''));
+        const shoots = ch.ammoType !== undefined
+            ? /arrow/i.test(String(ch.ammoType || ''))
+            : (w && w.weaponType) ? /bow/i.test(w.weaponType) : /archer|hunter|bard|dancer|sniper|ranger/i.test(String(ch.classId || ''));
         if (!shoots && !arrowSkipLogged && ch.classId) {
             arrowSkipLogged = true;
-            console.log(`%c[PmheeAether Arrow] 🏹 เปิด Require Arrow อยู่ แต่ตัวละครนี้ (${ch.classId}${w && w.weaponType ? ', ' + w.weaponType : ''}) ไม่ได้ใช้ธนู -> ไม่ซื้อ/ไม่เช็คลูกธนู`, 'color: #94a3b8;');
+            console.log(`%c[PmheeAether Arrow] 🏹 เปิด Require Arrow อยู่ แต่อาวุธของตัวละครนี้ (${ch.classId}${w && w.weaponType ? ', ' + w.weaponType : ''}) ไม่ใช้ลูกธนู -> ไม่ซื้อ/ไม่เช็คลูกธนู`, 'color: #94a3b8;');
         }
         if (shoots) arrowSkipLogged = false;
         return shoots;
@@ -7371,6 +7374,7 @@
     let autoActivateFailCount = 0;
     let lastPeriodicWeightRefresh = 0;
     let lastCityToFarmAttempt = 0;
+    let navStaleSince = 0;
 
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isConsolidating) return;
@@ -7435,8 +7439,17 @@
             return;
         }
 
-        // 2. ถ้ากำลังเดินทางข้ามแมพ ให้รอเดินทางเสร็จก่อน
-        if (window.__isNavigating) return;
+        // 2. ถ้ากำลังเดินทางข้ามแมพ ให้รอเดินทางเสร็จก่อน — but a "travelling" flag left on while the character
+        //    stands in the capital for minutes (e.g. after the job-change trip) is stale: clear it, or nothing
+        //    sends the character back to the farm until STOP / START
+        if (window.__isNavigating) {
+            if (!inCity || window.__isWalkingToMap) { navStaleSince = 0; return; }
+            if (!navStaleSince) navStaleSince = Date.now();
+            if (Date.now() - navStaleSince < 4 * 60 * 1000) return;
+            console.warn('[PmheeAether Watchdog] ⚠️ สถานะ "กำลังเดินทาง" ค้างอยู่ในเมืองหลวงเกิน 4 นาที -> รีเซ็ตแล้วส่งกลับแมพฟาร์ม');
+            window.__isNavigating = false;
+            navStaleSince = 0;
+        } else navStaleSince = 0;
 
         // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คทั้งในเมืองและนอกเมือง!
         if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
@@ -13338,6 +13351,24 @@
         const planNow = window.__currentScriptPlan;
         const autoOff = new Set(planNow && planNow.skillBuild && Array.isArray(planNow.skillBuild.autoOff) ? planNow.skillBuild.autoOff : []);
         autoUsableSkills = autoUsableSkills.filter(id => !autoOff.has(id));
+        // Passives can't be ticked (the skill catalog marks some of them autoUse anyway), and skills the server
+        // dropped from the AUTO list after we sent them (not allowed / over its limit) are not sent again —
+        // otherwise auto_set went out every 5 s forever. Remembered per character + class for this page.
+        const kindOf = {};
+        ((window.__skillCatalog && window.__skillCatalog.skills) || []).forEach(sk => { if (sk && sk.id) kindOf[sk.id] = sk.kind; });
+        window.__autoSkillRejected = window.__autoSkillRejected || {};
+        window.__autoSkillSent = window.__autoSkillSent || {};
+        const rejKey = charName + ':' + (charData.classId || '');
+        const rejected = window.__autoSkillRejected[rejKey] || (window.__autoSkillRejected[rejKey] = new Set());
+        const sentBefore = window.__autoSkillSent[rejKey];
+        if (sentBefore && Date.now() - sentBefore.at > 6000) {
+            sentBefore.skills.filter(id => !currentSkills.includes(id)).forEach(id => {
+                if (!rejected.has(id)) console.log(`[PmheeAether Auto] ℹ️ เกมไม่รับสกิล "${id}" ใน AUTO -> ไม่ส่งซ้ำ`);
+                rejected.add(id);
+            });
+            delete window.__autoSkillSent[rejKey];
+        }
+        autoUsableSkills = autoUsableSkills.filter(id => kindOf[id] !== 'passive' && !rejected.has(id));
 
         // จัดเตรียมรายการสกิลเป้าหมาย: คงลำดับสกิลเดิมไว้ และเพิ่มสกิล Auto ที่ยังไม่ได้ติ๊กต่อท้าย (สูงสุด 9 สกิล)
         const targetSkills = currentSkills.filter(id => !autoOff.has(id));
@@ -13364,6 +13395,7 @@
             return false;
         }
         window.__lastAutoSetTime[charName] = now;
+        window.__autoSkillSent[rejKey] = { skills: targetSkills.slice(), at: now };
 
         console.log(`%c[PmheeAether Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
 
