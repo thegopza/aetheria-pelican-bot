@@ -1047,6 +1047,8 @@ body {
 .btn-ghost.ghost-red:hover { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.4); color: #fecaca; }
 .btn-ghost.ghost-indigo { color: #c7d2fe; }
 .btn-ghost.ghost-indigo:hover { background: rgba(99, 102, 241, 0.16); border-color: rgba(129, 140, 248, 0.45); color: #e0e7ff; }
+.btn-ghost.ghost-cyan { color: #a5f3fc; }
+.btn-ghost.ghost-cyan:hover { background: rgba(34, 211, 238, 0.14); border-color: rgba(34, 211, 238, 0.4); color: #cffafe; }
 
 .btn-bot-toggle,
 .btn-bot-menu,

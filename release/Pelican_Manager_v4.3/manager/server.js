@@ -1375,6 +1375,70 @@ const server = http.createServer(async (req, res) => {
     return sendJSON({ success: true, allWindowsHidden });
   }
 
+  // POST /api/profiles/:id/focus-window — bring this game window to the front (shows it first if hidden)
+  if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/focus-window$/)) {
+    const id = pathname.split("/")[3];
+    const profile = loadProfiles().find(p => p.id === id);
+    if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
+    if (!profile.debugPort) return sendJSON({ success: false, error: "Client debug port not set" }, 400);
+    const port = profile.debugPort;
+
+    const proc = runningProcesses[id];
+    if (windowStates[id] && windowStates[id].isHidden) {
+      windowStates[id].isHidden = false;
+      if (proc && proc.pid) {
+        runPowerShell(`Add-Type 'using System; using System.Runtime.InteropServices; public class PmShow { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c); }'
+          Get-Process -Id ${proc.pid} -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { [PmShow]::ShowWindow($_.MainWindowHandle, 9) }`);
+      }
+    }
+    evalProfilePort(port, `typeof window.setLowPowerMode === 'function' && window.setLowPowerMode(false)`, 3000);
+    // Electron loader: restore + always-on-top for a moment + focus. Browser mode: restore + activate tab.
+    await new Promise(resolve => {
+      http.get(`http://127.0.0.1:${port}/api/window?action=top`, { timeout: 5000 }, r => { r.resume(); r.on("end", resolve); })
+        .on("error", resolve).on("timeout", resolve);
+    });
+
+    // Windows does not let a background program raise another program's window, and a browser window has
+    // no process of its own to look up: tag the page title, find that top-level window, then raise it.
+    if (browserMode.isOpen(id)) {
+      const token = `PMFOCUS${Date.now()}`;
+      await evalProfilePort(port, `(() => { window.__pmTitleBeforeFocus = document.title; document.title = ${JSON.stringify(token)} + ' ' + document.title; return true; })()`, 3000);
+      await new Promise(r => setTimeout(r, 350));
+      const ps = await runPowerShell(`Add-Type @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public class PmFocus {
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
+  public static string Raise(string token) {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      var sb = new StringBuilder(512); GetWindowText(h, sb, 512);
+      if (sb.ToString().Contains(token)) { found = h; return false; }
+      return true;
+    }, IntPtr.Zero);
+    if (found == IntPtr.Zero) return "notfound";
+    if (IsIconic(found)) ShowWindow(found, 9);
+    keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero); // Alt tap: allows SetForegroundWindow
+    BringWindowToTop(found);
+    return SetForegroundWindow(found) ? "ok" : "fail";
+  }
+}
+"@
+[PmFocus]::Raise('${token}')`);
+      await evalProfilePort(port, `(() => { if (document.title.startsWith(${JSON.stringify(token)})) document.title = window.__pmTitleBeforeFocus; return true; })()`, 3000);
+      return sendJSON({ success: true, raised: String(ps.stdout || "").trim() });
+    }
+    return sendJSON({ success: true });
+  }
+
   // POST /api/profiles/:id/toggle-window (Hide/Show single game window)
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/toggle-window$/)) {
     const id = pathname.split("/")[3];

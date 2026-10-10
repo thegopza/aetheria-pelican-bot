@@ -466,6 +466,9 @@ function buildProfileCard(p) {
           </button>
         </div>
         <div class="card-action-row sub-actions">
+          <button class="btn btn-sm btn-ghost ghost-cyan" onclick="focusClientWindow('${p.id}', this)" title="ดึงหน้าต่างเกมของจอนี้ขึ้นมาไว้บนสุด (ถ้าซ่อนอยู่จะแสดงให้ด้วย)">
+            <span>🔝</span> Popup
+          </button>
           <button class="btn btn-sm btn-ghost" onclick="toggleClientWindow('${p.id}')" title="${isWindowHidden ? 'แสดงหน้าต่างเกมบนจอ' : 'ซ่อนหน้าต่างเกม (ทำงานแบบ Headless)'}">
             <span>👁️</span> ${isWindowHidden ? 'เลิกซ่อน' : 'ซ่อน'}
           </button>
@@ -567,6 +570,21 @@ async function toggleBotExecution(id, start, btnEl) {
   } catch (err) {
     console.error("toggleBotExecution error:", err);
     await fetchProfiles();
+  }
+}
+
+// Bring this client's game window to the front
+async function focusClientWindow(id, btnEl) {
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/profiles/${id}/focus-window`, { method: "POST" });
+    const data = await res.json();
+    if (!data.success) showToast("❌ แสดงจอไม่สำเร็จ: " + (data.error || "เกิดข้อผิดพลาด"), "error");
+    fetchProfiles();
+  } catch (err) {
+    console.error("focusClientWindow error:", err);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
   }
 }
 
