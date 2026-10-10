@@ -7,3 +7,4 @@ manager/data/manager_update_state.json
 manager/data/manager_update_pending.json
 manager/data/update_backup/
 manager/data/manager_update_failed.json
+manager/data/credentials.json

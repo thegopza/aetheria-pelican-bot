@@ -71,6 +71,8 @@ const { createBotAutoUpdater } = require("./bot_auto_update");
 const { createManagerSelfUpdater } = require("./manager_self_update");
 const { handleConfigCopyRoute } = require("./config_copy_api");
 const { createPlanSync } = require("./plan_sync");
+const { createAuthSync } = require("./auth_sync");
+const credentials = require("./credentials");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -746,6 +748,8 @@ const botAutoUpdater = createBotAutoUpdater({
 });
 
 const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
+// Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
+const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
 
 const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
@@ -817,6 +821,7 @@ const server = http.createServer(async (req, res) => {
 
         return {
           ...p,
+          hasLoginPassword: !!credentials.getPassword(p.id),
           isRunning: alive,
           pid: alive ? (proc ? proc.pid : null) : null,
           uptime: alive ? (proc ? Math.round((Date.now() - proc.startTime) / 1000) : 0) : 0,
@@ -878,6 +883,7 @@ const server = http.createServer(async (req, res) => {
           id: "profile_" + Date.now(),
           name: (data.name || "New Client").trim(),
           account: (data.account || "").trim(),
+          autoRegister: !(data.loginPassword || "").trim(),
           charClass: data.charClass || "Archer",
           targetMap: data.targetMap || "ถนนต้นหลิว",
           debugPort: data.debugPort || nextPort,
@@ -893,6 +899,7 @@ const server = http.createServer(async (req, res) => {
         const sessionFolder = path.join(SESSIONS_DIR, newProfile.id);
         if (!fs.existsSync(sessionFolder)) fs.mkdirSync(sessionFolder, { recursive: true });
 
+        if ((data.loginPassword || "").trim()) credentials.setPassword(newProfile.id, data.loginPassword.trim());
         sendJSON({ success: true, profile: newProfile });
       } catch (err) {
         sendJSON({ success: false, error: err.message }, 400);
@@ -917,6 +924,7 @@ const server = http.createServer(async (req, res) => {
           ...profiles[idx],
           name: data.name !== undefined ? data.name.trim() : profiles[idx].name,
           account: data.account !== undefined ? data.account.trim() : profiles[idx].account,
+          autoRegister: (data.loginPassword || "").trim() ? false : profiles[idx].autoRegister,
           charClass: data.charClass || profiles[idx].charClass,
           targetMap: data.targetMap || profiles[idx].targetMap,
           debugPort: data.debugPort || profiles[idx].debugPort,
@@ -925,6 +933,7 @@ const server = http.createServer(async (req, res) => {
           whitelist: data.whitelist !== undefined ? data.whitelist : profiles[idx].whitelist
         };
         saveProfiles(profiles);
+        if ((data.loginPassword || "").trim()) credentials.setPassword(id, data.loginPassword.trim());
         sendJSON({ success: true, profile: profiles[idx] });
       } catch (err) {
         sendJSON({ success: false, error: err.message }, 400);
@@ -2410,6 +2419,7 @@ server.listen(PORT, "127.0.0.1", () => {
   botAutoUpdater.start();
   managerUpdater.start();
   planSync.start();
+  authSync.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);

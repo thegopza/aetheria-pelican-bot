@@ -157,6 +157,10 @@ const formClass = document.getElementById("form-class");
 const formMap = document.getElementById("form-map");
 const formPort = document.getElementById("form-port");
 const formNotes = document.getElementById("form-notes");
+const formPassword = document.getElementById("form-password");
+const formAuthHint = document.getElementById("form-auth-hint");
+const formPasswordEye = document.getElementById("form-password-eye");
+if (formPasswordEye && formPassword) formPasswordEye.onclick = () => { formPassword.type = formPassword.type === 'password' ? 'text' : 'password'; };
 
 // Script Plan Modal Elements
 const planModalEl = document.getElementById("plan-modal");
@@ -3936,6 +3940,7 @@ function openAddModal() {
   const maxPort = Math.max(49875, ...currentProfiles.map(p => p.debugPort || 49876));
   formPort.value = maxPort + 1;
   formNotes.value = "";
+  if (formPassword) { formPassword.value = ""; formPassword.placeholder = "เว้นว่าง = สมัครบัญชีใหม่ให้"; }
   modalTitle.innerText = "➕ เพิ่มโปรไฟล์จอเกมใหม่";
   modalEl.classList.add("active");
 }
@@ -3950,6 +3955,10 @@ function openEditModal(id) {
   formMap.value = profile.targetMap || "ถนนต้นหลิว";
   formPort.value = profile.debugPort || 49876;
   formNotes.value = profile.notes || "";
+  if (formPassword) {
+    formPassword.value = "";
+    formPassword.placeholder = profile.hasLoginPassword ? "•••••• (มีรหัสแล้ว — เว้นว่าง = ไม่เปลี่ยน)" : (profile.autoRegister ? "กำลังรอสมัครบัญชีอัตโนมัติ" : "ใส่รหัสผ่านเพื่อเปิด Auto-login");
+  }
   modalTitle.innerText = `⚙️ แก้ไขโปรไฟล์: ${profile.name}`;
   modalEl.classList.add("active");
 }
@@ -3967,7 +3976,8 @@ profileForm.onsubmit = async (e) => {
     charClass: formClass.value,
     targetMap: formMap.value,
     debugPort: parseInt(formPort.value),
-    notes: formNotes.value
+    notes: formNotes.value,
+    loginPassword: formPassword ? formPassword.value : ""
   };
 
   try {

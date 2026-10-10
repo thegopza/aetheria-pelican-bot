@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.14.3
+// @version      4.15.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.14.3';
+    const PELICAN_BOT_VERSION = '4.15.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -7396,11 +7396,18 @@
             const txt = (el.innerText || el.textContent || el.value || '').trim();
             return txt === 'เข้าเกม' || txt === 'เข้าสู่ระบบ' || txt === 'Login' || txt === 'Sign In';
         }) || null;
+        // The form can be in sign-up mode (3 fields, "สมัครและเข้าเกม"): logging in needs the login mode
+        const loginForm = document.querySelector('form.login-form');
+        if (loginForm && loginForm.querySelectorAll('input').length >= 3 && !(window.__authConfig || {}).register) {
+            const toLogin = Array.from(loginForm.querySelectorAll('button.ghost')).find(b => /เข้าสู่ระบบ|Log in/.test(b.innerText || ''));
+            return { userInput, passInput, loginBtn: null, toLogin };
+        }
 
         return { userInput, passInput, loginBtn };
     }
 
     function isLoginScreenVisible() {
+        if (document.querySelector('form.login-form')) return true;
         const { passInput, loginBtn } = findLoginElements();
         if (passInput && loginBtn) return true;
 
@@ -7466,6 +7473,7 @@
             return cards;
         }
 
+        if (isCharSelectScreen && runAutoCreateCharacter()) return;
         if (isCharSelectScreen) {
             const cards = findCharacterCards();
             if (cards.length > 0) {
@@ -7501,9 +7509,112 @@
         }
     }
 
+    // ---------- Auto-register + auto-create character ----------
+    // The Manager sets authConfig.register (profile created without a password): sign up with the given
+    // ID/password on the game's login form, then create a character when the account has none.
+    // registerDone / username changes are read back by the Manager (manager/auth_sync.js).
+    const saveAuth = () => { try { localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig)); } catch (e) {} };
+    const randomId = () => 'pm' + Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x');
+    function randomCharName() {
+        const syl = ['ka', 'ri', 'to', 'mi', 'sa', 'ne', 'lo', 'va', 'zu', 'ra', 'ko', 'ya', 'hi', 'no', 'me', 'ru', 'ta', 'shi', 'ren', 'dai', 'el', 'an', 'is', 'or'];
+        let n = '';
+        for (let i = 0; i < 3; i++) n += syl[Math.floor(Math.random() * syl.length)];
+        return n.charAt(0).toUpperCase() + n.slice(1, 10) + Math.floor(10 + Math.random() * 90);
+    }
+    let registerSubmittedAt = 0;
+    let registerTries = 0;
+    function runAutoRegister() {
+        const cfg = window.__authConfig;
+        const form = document.querySelector('form.login-form');
+        if (!form || isLoginInProgress) return;
+        const inputs = Array.from(form.querySelectorAll('input'));
+        const ghost = Array.from(form.querySelectorAll('button.ghost')).find(b => /สมัครบัญชีใหม่|Create an account/.test(b.innerText || ''));
+        if (inputs.length < 3) {
+            // login mode on screen: switch the form to "สมัครบัญชีใหม่"
+            if (ghost) { console.log('%c[PmheeAether Auth] 📝 สลับหน้าเป็น "สมัครบัญชีใหม่"', 'color: #a855f7;'); ghost.click(); }
+            return;
+        }
+        const now = Date.now();
+        if (now - registerSubmittedAt < 6000) return;
+        // the previous sign-up was refused (shown in the form): new generated ID, or log in with the user's ID
+        const err = form.querySelector('.error');
+        if (registerSubmittedAt && err && (err.innerText || '').trim()) {
+            const msg = (err.innerText || '').trim();
+            if (cfg.generatedUser && registerTries < 6) {
+                const old = cfg.username;
+                cfg.username = randomId();
+                saveAuth();
+                console.warn(`[PmheeAether Auth] ⚠️ สมัครด้วย ID "${old}" ไม่สำเร็จ (${msg}) -> ลองใหม่ด้วย ID "${cfg.username}"`);
+            } else {
+                cfg.register = false;
+                cfg.registerError = msg;
+                saveAuth();
+                console.warn(`[PmheeAether Auth] ⚠️ สมัครด้วย ID "${cfg.username}" ไม่สำเร็จ (${msg}) -> เปลี่ยนเป็นเข้าสู่ระบบด้วย ID/รหัสนี้แทน`);
+                const back = Array.from(form.querySelectorAll('button.ghost')).find(b => /เข้าสู่ระบบ|Log in/.test(b.innerText || ''));
+                if (back) back.click();
+                return;
+            }
+        }
+        const submit = Array.from(form.querySelectorAll('button')).find(b => !b.classList.contains('ghost') && b.type !== 'button');
+        if (!submit || submit.disabled) return;
+        registerTries++;
+        console.log(`%c[PmheeAether Auth] 📝 สมัครบัญชีใหม่อัตโนมัติ ID: "${cfg.username}" (ครั้งที่ ${registerTries})`, 'color: #a855f7; font-weight: bold;');
+        setNativeInputValue(inputs[0], cfg.username);
+        setNativeInputValue(inputs[1], cfg.password);
+        setNativeInputValue(inputs[2], cfg.password);
+        registerSubmittedAt = now;
+        setTimeout(() => submit.click(), 400);
+    }
+    // Called while not on the login screen: a sign-up from this page went through
+    function confirmRegistered() {
+        const cfg = window.__authConfig;
+        if (!cfg || !cfg.register) return;
+        // past the login screen = the account exists (also after a page reload that lost registerSubmittedAt)
+        const inGameOrSelect = document.querySelector('.char-card') || (typeof getCurrentMapName === 'function' && getCurrentMapName());
+        if (!registerSubmittedAt && !inGameOrSelect) return;
+        cfg.register = false;
+        cfg.registerDone = true;
+        delete cfg.registerError;
+        saveAuth();
+        console.log(`%c[PmheeAether Auth] ✅ สมัครบัญชี "${cfg.username}" สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+    }
+    // Character select with no character yet: create one with a random name
+    let charCreateAt = 0;
+    let charCreateName = '';
+    function runAutoCreateCharacter() {
+        const cfg = window.__authConfig;
+        if (!cfg || !cfg.autoCreateChar) return false;
+        const realCards = document.querySelectorAll('.char-card:not(.empty)');
+        if (realCards.length) {
+            if (charCreateName) cfg.charName = charCreateName;
+            cfg.autoCreateChar = false;
+            saveAuth();
+            if (charCreateName) console.log(`%c[PmheeAether Auth] ✅ สร้างตัวละคร "${charCreateName}" สำเร็จ -> เข้าเกม`, 'color: #22c55e; font-weight: bold;');
+            return false;
+        }
+        const now = Date.now();
+        if (now - charCreateAt < 5000) return true;
+        const form = document.querySelector('form.char-create');
+        if (!form) {
+            const empty = document.querySelector('.char-card.empty');
+            if (empty) { empty.click(); charCreateAt = now - 4000; }
+            return true;
+        }
+        const input = form.querySelector('input');
+        const btn = form.querySelector('button');
+        if (!input || !btn) return true;
+        charCreateName = randomCharName();
+        console.log(`%c[PmheeAether Auth] 🧝 สร้างตัวละครใหม่ชื่อ "${charCreateName}"...`, 'color: #a855f7; font-weight: bold;');
+        setNativeInputValue(input, charCreateName);
+        charCreateAt = now;
+        setTimeout(() => { if (!btn.disabled) btn.click(); }, 400);
+        return true;
+    }
+
     window.executeAutoLogin = function(force = false) {
         const cfg = window.__authConfig || {};
         if (!force && !cfg.enabled) return;
+        if (cfg.register && cfg.username && cfg.password) { runAutoRegister(); return; }
 
         if (!cfg.username || !cfg.password) {
             if (force) {
@@ -7515,7 +7626,8 @@
 
         if (isLoginInProgress) return;
 
-        const { userInput, passInput, loginBtn } = findLoginElements();
+        const { userInput, passInput, loginBtn, toLogin } = findLoginElements();
+        if (toLogin) { toLogin.click(); return; }
         if (!passInput || !loginBtn) {
             if (force) {
                 console.warn('%c[PmheeAether Auth] ⚠️ ไม่พบหน้าต่าง Login บนหน้าจอ (ตัวละครอาจอยู่ในเกมอยู่แล้ว)', 'color: #f59e0b;');
@@ -7574,6 +7686,7 @@
             window.executeAutoLogin(false);
             return;
         }
+        confirmRegistered();
 
         // ตรวจสอบหน้าเลือกตัวละคร (ถ้ามี)
         checkPostLoginScreen();

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4400">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=41510">
+  <link rel="stylesheet" href="plan_editor.css?v=41600">
 </head>
 <body>
   <div class="app-container">
@@ -571,58 +571,29 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label>ไอดี / บัญชี (Account Memo):</label>
-            <input type="text" id="form-account" placeholder="เช่น Account 1 หรือ ID เกม" class="form-input">
+            <label>ไอดีเกม (ID):</label>
+            <input type="text" id="form-account" placeholder="เว้นว่าง = สุ่มให้ (ตอนสมัครใหม่)" class="form-input" autocomplete="off">
           </div>
           <div class="form-group">
-            <label>อาชีพตัวละคร (Class):</label>
-            <select id="form-class" class="form-select">
-              <option value="Hunter">🏹 Hunter (ยิงไกล/เติมธนู)</option>
-              <option value="Archer">🏹 Archer</option>
-              <option value="Rogue">🗡️ Rogue</option>
-              <option value="Assassin">🗡️ Assassin</option>
-              <option value="Knight">🛡️ Knight</option>
-              <option value="Crusader">🛡️ Crusader</option>
-              <option value="Wizard">🪄 Wizard</option>
-              <option value="Priest">✨ Priest</option>
-              <option value="Blacksmith">⚒️ Blacksmith</option>
-            </select>
+            <label>รหัสผ่าน (Password):</label>
+            <div class="pf-pass">
+              <input type="password" id="form-password" placeholder="เว้นว่าง = สมัครบัญชีใหม่ให้" class="form-input" autocomplete="new-password">
+              <button type="button" class="btn btn-secondary btn-sm" id="form-password-eye" title="แสดง/ซ่อนรหัสผ่าน">👁</button>
+            </div>
           </div>
         </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label>แมพเป้าหมาย (Target Farm Map):</label>
-            <select id="form-map" class="form-select">
-              <option value="ซากโบราณสถาน Lv.45–55">ซากโบราณสถาน Lv.45–55</option>
-              <option value="ถนนต้นหลิว">ถนนต้นหลิว</option>
-              <option value="ทะเลสาบอาซูร์">ทะเลสาบอาซูร์</option>
-              <option value="ทุ่งโคลเวอร์">ทุ่งโคลเวอร์</option>
-              <option value="ป่ามูนลีฟ">ป่ามูนลีฟ</option>
-              <option value="เส้นทางก็อบลิน">เส้นทางก็อบลิน</option>
-              <option value="ถ้ำเอมเบอร์">ถ้ำเอมเบอร์</option>
-              <option value="ที่ราบสูงเกล">ที่ราบสูงเกล</option>
-              <option value="แอ่งเวอร์แดนท์">แอ่งเวอร์แดนท์</option>
-              <option value="ชายฝั่งปะการัง">ชายฝั่งปะการัง</option>
-              <option value="สุสานเงา">สุสานเงา</option>
-              <option value="โบสถ์อเวจี">โบสถ์อเวจี</option>
-              <option value="บึงรากเน่า">บึงรากเน่า</option>
-              <option value="เนินทรายแผดเผา">เนินทรายแผดเผา</option>
-              <option value="พีระมิดจมทราย">พีระมิดจมทราย</option>
-              <option value="แกนลาวา">แกนลาวา</option>
-              <option value="ไร่ซันเกรน">ไร่ซันเกรน</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>พอร์ต Debug API (Auto Port):</label>
-            <input type="number" id="form-port" required min="40000" max="65000" class="form-input">
-          </div>
+        <div class="pf-hint" id="form-auth-hint">
+          🔐 ใส่ ID + รหัสผ่าน → บันทึกลง Auto-login ของจอนี้และเปิดให้อัตโนมัติ<br>
+          📝 ไม่ใส่รหัสผ่าน → บอท<b>สมัครบัญชีใหม่</b> (ID ว่าง = สุ่มให้) แล้ว<b>สร้างตัวละคร</b>ให้เอง — ID/รหัสที่ได้จะถูกเก็บไว้ในโปรไฟล์นี้
         </div>
 
         <div class="form-group">
-          <label>บันทึกช่วยจำ (Notes / Strategy):</label>
-          <input type="text" id="form-notes" placeholder="เช่น แบกธนูไฟ 2,000 ดอก / ขายขยะเมื่อเกิน 80%" class="form-input">
+          <label>พอร์ต Debug API (Auto Port):</label>
+          <input type="number" id="form-port" required min="40000" max="65000" class="form-input">
         </div>
+        <input type="hidden" id="form-class">
+        <input type="hidden" id="form-map">
+        <input type="hidden" id="form-notes">
 
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="modal-cancel-btn">ยกเลิก</button>
@@ -1057,7 +1028,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=41520"></script>
+  <script src="app.js?v=41600"></script>
   <script src="patcher_module.js?v=1791551058115"></script>
   <script src="builder_module.js?v=41200"></script>
   <script src="inventory_market.js?v=4360"></script>
