@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.8.1
+// @version      4.8.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.8.1';
+    const PELICAN_BOT_VERSION = '4.8.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -166,6 +166,18 @@
     // ==========================================
     // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
     // ==========================================
+    // Put back the farm map that the walk to Valkyrie replaced with the capital
+    function restoreFarmMapAfterJobChange() {
+        let map = null;
+        try { map = localStorage.getItem('pelican_job_return_map'); localStorage.removeItem('pelican_job_return_map'); } catch (e) {}
+        if (!map || !/เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) return;
+        console.log(`%c[PmheeAether Plan] 🗺️ คืนแมพฟาร์มเดิม "${map}" หลังเปลี่ยนอาชีพ`, 'color: #38bdf8;');
+        window.__targetFarmMap = map;
+        try { localStorage.setItem('pelican_farm_map', map); } catch (e) {}
+        const sel = document.getElementById('p-target-map-select');
+        if (sel) sel.value = map;
+    }
+
     window.executeAutoJobChange = async function(targetClass) {
         if (!window.__planScriptEnabled) return false;
         if (!targetClass) return false;
@@ -177,6 +189,7 @@
 
         // 1. Already this class (or a later class of the same line): nothing to do
         if (planClassLineage(curClass).includes(targetClean)) {
+            restoreFarmMapAfterJobChange();
             return true;
         }
 
@@ -205,6 +218,11 @@
         if (!curMap.includes('โซลเฮเวน') && !curMap.includes('เมืองหลวง')) {
             console.log(`%c[PmheeAether Plan] 🏛️ ตัวละครไม่ได้อยู่ในเมืองหลวง -> กำลังเดินทางกลับเมืองหลวงโซลเฮเวน...`, 'color: #38bdf8;');
             if (typeof window.walkToTargetMap === 'function') {
+                // walkToTargetMap() also makes the capital the farm map: remember the real one to restore it
+                const farm = window.__targetFarmMap || '';
+                if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) {
+                    try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {}
+                }
                 window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
             }
             return false;
@@ -312,6 +330,7 @@
                     if (readDialog()) closeDialog();
                     window.__jobChangeFails = 0;
                     window.__planJobChangeHoldUntil = 0;
+                    restoreFarmMapAfterJobChange();
                     return true;
                 }
             }
@@ -325,6 +344,7 @@
         const waitSec = Math.min(300, 20 * window.__jobChangeFails);
         window.__jobChangeBackoffUntil = Date.now() + waitSec * 1000;
         window.__planJobChangeHoldUntil = 0;
+        restoreFarmMapAfterJobChange();
         console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพเป็น "${targetClass}" ยังไม่สำเร็จ (ครั้งที่ ${window.__jobChangeFails}) — จะลองใหม่ใน ${waitSec} วิ (ดูตัวเลือกของ Valkyrie ใน log ด้านบน)`);
         return false;
     };
@@ -11917,7 +11937,9 @@
         try { st = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
         // First run of this plan for this character: triggers at the current level still fire once,
         // levels already passed don't (no retroactive buying or map hopping)
-        if (!st) st = { lastBase: lv.base - 1, lastJob: lv.job - 1, lastJobClass: lv.cls, done: {}, pending: {} };
+        if (!st) st = { lastBase: lv.base - 1, lastJob: lv.job - 1, lastJobClass: lv.cls, done: {}, pending: {}, known: {} };
+        const firstSeen = !st.known;   // older state: every current trigger is already "known"
+        if (!st.known) st.known = {};
         const save = () => { try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };
 
         // 1. Queue triggers whose level was crossed since the last check.
@@ -11932,10 +11954,13 @@
             if (!lvl || st.done[id] || st.pending[id]) return;
             const isJob = t.type === 'job_level';
             if (isJob && t.classId && lv.cls && String(t.classId).toLowerCase() !== lv.cls) return;
-            const last = isJob ? lastJob : st.lastBase;
             const cur = isJob ? lv.job : lv.base;
+            // A trigger the player just added: its level counts if the character is on it right now
+            const isNew = !firstSeen && !st.known[id];
+            const last = isNew ? Math.min(cur - 1, isJob ? lastJob : st.lastBase) : (isJob ? lastJob : st.lastBase);
             if (last < lvl && lvl <= cur) crossed.push({ id, t, lvl });
         });
+        plan.triggers.forEach((t, i) => { st.known[planTriggerId(t, i)] = 1; });
         st.lastBase = lv.base;
         st.lastJob = lv.job;
         if (lv.cls) st.lastJobClass = lv.cls;
