@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.14.1
+// @version      4.14.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.14.1';
+    const PELICAN_BOT_VERSION = '4.14.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -148,7 +148,16 @@
     // COLYSEUS ROOM RESOLVER
     // ==========================================
     window.getColyseusRoom = function() {
-        if (window.__colyseusRoom && window.__colyseusRoom.state) return window.__colyseusRoom;
+        // The game joins a new room on every map change; the old room object keeps its .state, so a cached
+        // room is only valid while its connection is still open (sending on a left room does nothing)
+        const cached = window.__colyseusRoom;
+        if (cached && cached.state && cached.connection && cached.connection.isOpen) return cached;
+        window.__colyseusRoom = null;
+        const live = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
+        if (live && live.state && live.connection && live.connection.isOpen) {
+            window.__colyseusRoom = live;
+            return live;
+        }
         const root = document.querySelector('#root');
         let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
         let room = null;
@@ -159,7 +168,7 @@
             if (n.sibling) walk(n.sibling, depth + 1);
         }
         if (fiber) walk(fiber);
-        if (room) window.__colyseusRoom = room;
+        if (room && (!room.connection || room.connection.isOpen)) window.__colyseusRoom = room;
         return room;
     };
 
@@ -291,7 +300,9 @@
 
         console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (${valk.key}, ห่าง ${dist}px — เซิร์ฟเวอร์เดินไปให้)...`, 'color: #a855f7; font-weight: bold;');
         room.send('npc_talk', { npcKey: valk.key });
-        let dl = await waitDialog('', 15000);   // includes the walk over
+        window.__planJobChangeHoldUntil = Date.now() + 60000;
+        let dl = await waitDialog('', 40000);   // includes the walk over (far side of the river takes a while)
+        if (!dl) console.warn(`[PmheeAether Plan] ⚠️ คุยกับ Valkyrie แล้วหน้าต่างไม่ขึ้น (ห่าง ${dist}px)`);
 
         for (let step = 0; step < 6 && dl; step++) {
             console.log(`[PmheeAether Plan] 📜 Valkyrie: "${dl.text.slice(0, 80)}" | ตัวเลือก: ${dl.options.map((o, i) => `${i}:${o}`).join(' / ')}`);
@@ -335,10 +346,16 @@
         // Didn't work: close the dialog and slow down so it doesn't loop every few seconds
         if (readDialog()) closeDialog();
         window.__jobChangeFails = (window.__jobChangeFails || 0) + 1;
-        const waitSec = Math.min(300, 20 * window.__jobChangeFails);
+        const quick = window.__jobChangeFails < 3;
+        const waitSec = quick ? 15 : Math.min(300, 20 * window.__jobChangeFails);
         window.__jobChangeBackoffUntil = Date.now() + waitSec * 1000;
-        window.__planJobChangeHoldUntil = 0;
-        restoreFarmMapAfterJobChange();
+        if (quick) {
+            // stay in the capital for the next try (walking out and back in is what made it loop)
+            window.__planJobChangeHoldUntil = Date.now() + (waitSec + 30) * 1000;
+        } else {
+            window.__planJobChangeHoldUntil = 0;
+            restoreFarmMapAfterJobChange();
+        }
         console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพเป็น "${targetClass}" ยังไม่สำเร็จ (ครั้งที่ ${window.__jobChangeFails}) — จะลองใหม่ใน ${waitSec} วิ (ดูตัวเลือกของ Valkyrie ใน log ด้านบน)`);
         return false;
     };
@@ -12605,7 +12622,7 @@
     window.getCharacterName = function() {
         const hud = (document.querySelector('.hud-name')?.innerText || '').trim();
         if (hud) return hud;
-        const r = window.__colyseusRoom || (window.getColyseusRoom ? window.getColyseusRoom() : null);
+        const r = window.getColyseusRoom ? window.getColyseusRoom() : window.__colyseusRoom;
         if (r && r.state && r.state.players) {
             const p = r.state.players.get ? r.state.players.get(r.sessionId) : r.state.players[r.sessionId];
             if (p && p.name) return p.name;
