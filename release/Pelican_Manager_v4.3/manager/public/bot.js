@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.18.0
+// @version      4.18.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.18.0';
+    const PELICAN_BOT_VERSION = '4.18.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13461,158 +13461,165 @@
         return { success: false, error: 'Timeout waiting to arrive at capital' };
     };
 
+    // ---- Zeny consolidation trades (driven one sender at a time by the Manager) ----
+    // The game sends 'trade' = { partner, mine: {items, zeny, locked, confirmed}, theirs: {...}, expiresAt } while a
+    // trade window is open and null when it closes. A trade counts as done only when the window closed after both
+    // sides confirmed AND the zeny really changed. Each side acts only on a trade with the expected partner,
+    // sends offer / lock / confirm once, and there is never more than one receiver watcher.
+    const tradeRoom = () => (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null);
+    const tradeZeny = () => Number(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).zeny);
+    const sameName = (x, y) => String(x || '').trim().toLowerCase() === String(y || '').trim().toLowerCase();
+
+    window.stopReceiverTradeWatcher = function () {
+        if (typeof window.__receiverWatcherStop === 'function') window.__receiverWatcherStop('stopped');
+        return true;
+    };
+
     window.setupReceiverTradeWatcher = function(allowedSenderName, timeoutMs = 60000) {
+        // a new sender replaces the previous watcher (old ones used to keep answering for 40 s)
+        window.stopReceiverTradeWatcher();
         return new Promise((resolve) => {
-            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+            const room = tradeRoom();
             if (!room) return resolve({ success: false, error: 'No room connection' });
-            
+            const expected = allowedSenderName ? String(allowedSenderName).trim() : '';
+            if (!expected) return resolve({ success: false, error: 'Missing sender name' });
+
             window.__consolidationReceiverMode = true;
-            window.__consolidationExpectedSender = allowedSenderName ? allowedSenderName.trim().toLowerCase() : null;
-            console.log(`%c[PmheeAether Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${allowedSenderName || 'ทุกคน'}'...`, 'color: #a855f7; font-weight: bold;');
+            window.__consolidationExpectedSender = expected.toLowerCase();
+            console.log(`%c[PmheeAether Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${expected}'...`, 'color: #a855f7; font-weight: bold;');
 
-            let unsubInvite = null;
-            let unsubTrade = null;
-            let unsubInv = null;
-            let done = false;
-            let receivedZeny = 0;
+            const zenyBefore = tradeZeny();
+            let accepted = false, lockSent = false, confirmSent = false, finished = false, receivedOffer = 0;
+            let unsubInvite = null, unsubTrade = null;
 
-            const cleanup = () => {
+            const finish = (result) => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
                 if (typeof unsubInvite === 'function') unsubInvite();
                 if (typeof unsubTrade === 'function') unsubTrade();
-                if (typeof unsubInv === 'function') unsubInv();
-                window.__consolidationReceiverMode = false;
-                window.__consolidationExpectedSender = null;
-            };
-
-            const timer = setTimeout(() => {
-                if (!done) {
-                    done = true;
-                    cleanup();
-                    resolve({ success: false, error: 'Receiver timeout waiting for trade' });
+                if (window.__receiverWatcherStop === stop) {
+                    window.__receiverWatcherStop = null;
+                    window.__consolidationReceiverMode = false;
+                    window.__consolidationExpectedSender = null;
                 }
-            }, timeoutMs);
+                resolve(result);
+            };
+            const stop = reason => finish({ success: false, error: `Receiver watcher ${reason}` });
+            window.__receiverWatcherStop = stop;
+            const timer = setTimeout(() => finish({ success: false, error: 'Receiver timeout waiting for trade' }), timeoutMs);
 
             unsubInvite = room.onMessage('invite', (inv) => {
-                if (!inv || done) return;
-                if (inv.kind === 'trade') {
-                    const senderClean = (inv.from || '').trim().toLowerCase();
-                    if (!window.__consolidationExpectedSender || senderClean === window.__consolidationExpectedSender) {
-                        console.log(`%c[PmheeAether Trade] 👑 Receiver: ได้รับคำขอเทรดจาก ${inv.from} -> ตอบรับ (accept)!`, 'color: #22c55e; font-weight: bold;');
-                        room.send('trade', { action: 'accept' });
-                    }
+                if (finished || !inv || inv.kind !== 'trade' || accepted) return;
+                if (!sameName(inv.from, expected)) {
+                    console.log(`[PmheeAether Trade] 👑 Receiver: ไม่รับคำขอเทรดจาก ${inv.from} (รอ ${expected})`);
+                    return;
                 }
+                accepted = true;
+                console.log(`%c[PmheeAether Trade] 👑 Receiver: ได้รับคำขอเทรดจาก ${inv.from} -> ตอบรับ (accept)`, 'color: #22c55e; font-weight: bold;');
+                room.send('trade', { action: 'accept' });
             });
 
             unsubTrade = room.onMessage('trade', (tr) => {
-                if (!tr || done) return;
-                if (tr.theirs && typeof tr.theirs.zeny === 'number') {
-                    receivedZeny = tr.theirs.zeny;
-                }
-                if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked) {
-                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${tr.theirs.zeny?.toLocaleString()} z) -> กดล็อค (lock)...`, 'color: #38bdf8;');
+                if (finished) return;
+                if (!tr) {
+                    // window closed: done if we confirmed and the zeny arrived, else the sender cancelled
+                    if (!confirmSent) { accepted = false; lockSent = false; return; }
                     setTimeout(() => {
-                        if (!done) room.send('trade', { action: 'lock' });
-                    }, 300);
+                        const now = tradeZeny();
+                        const got = (isFinite(now) && isFinite(zenyBefore)) ? now - zenyBefore : receivedOffer;
+                        finish(got > 0 ? { success: true, receivedZeny: got } : { success: false, error: 'หน้าต่างเทรดปิดแต่เงินไม่เข้า' });
+                    }, 1200);
+                    return;
                 }
-                if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed) {
-                    console.log(`%c[PmheeAether Trade] 👑 Receiver: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...`, 'color: #22c55e; font-weight: bold;');
-                    setTimeout(() => {
-                        if (!done) room.send('trade', { action: 'confirm' });
-                    }, 400);
+                if (!sameName(tr.partner, expected)) return;
+                if (tr.theirs && typeof tr.theirs.zeny === 'number') receivedOffer = tr.theirs.zeny;
+                if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked && !lockSent) {
+                    lockSent = true;
+                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${Number(tr.theirs.zeny || 0).toLocaleString()} z) -> ล็อค`, 'color: #38bdf8;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 300);
                 }
-            });
-
-            unsubInv = room.onMessage('inventory', (inv) => {
-                if (done) return;
-                console.log('%c[PmheeAether Trade] 👑 Receiver: Inventory อัปเดตหลังเทรดสำเร็จ!', 'color: #22c55e; font-weight: bold;');
-                done = true;
-                clearTimeout(timer);
-                setTimeout(() => {
-                    cleanup();
-                    resolve({ success: true, receivedZeny });
-                }, 1000);
+                if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed && !confirmSent) {
+                    confirmSent = true;
+                    console.log('%c[PmheeAether Trade] 👑 Receiver: ทั้งสองฝ่ายล็อคแล้ว -> ยืนยัน (confirm)', 'color: #22c55e; font-weight: bold;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'confirm' }); }, 400);
+                }
             });
         });
     };
 
     window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000) {
+        // one trade at a time per client: a second call while one runs must not send another request
+        if (window.__senderTradeBusy) return Promise.resolve({ success: false, error: 'กำลังเทรดอยู่แล้ว (ไม่ส่งซ้ำ)' });
         return new Promise((resolve) => {
-            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+            const room = tradeRoom();
             if (!room) return resolve({ success: false, error: 'No room connection' });
             if (!receiverCharName) return resolve({ success: false, error: 'Missing receiver name' });
-            
             const amount = Math.max(0, parseInt(zenyAmount) || 0);
-            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มขั้นตอนเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
+            const zenyBefore = tradeZeny();
+            if (isFinite(zenyBefore) && amount > zenyBefore) return resolve({ success: false, error: `เงินไม่พอ (มี ${zenyBefore.toLocaleString()} z)` });
+            window.__senderTradeBusy = true;
+            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
 
+            let opened = false, offerSent = false, lockSent = false, confirmSent = false, finished = false;
             let unsubTrade = null;
-            let unsubInv = null;
-            let done = false;
-            let offered = false;
-            let locked = false;
-            let confirmed = false;
-
-            const cleanup = () => {
+            const finish = (result) => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
+                clearTimeout(noAnswer);
                 if (typeof unsubTrade === 'function') unsubTrade();
-                if (typeof unsubInv === 'function') unsubInv();
+                window.__senderTradeBusy = false;
+                resolve(result);
             };
-
             const timer = setTimeout(() => {
-                if (!done) {
-                    done = true;
-                    cleanup();
-                    try { room.send('trade', { action: 'cancel' }); } catch(e) {}
-                    resolve({ success: false, error: 'Sender timeout in trade process' });
-                }
+                try { room.send('trade', { action: 'cancel' }); } catch (e) {}
+                finish({ success: false, error: 'Sender timeout in trade process' });
             }, timeoutMs);
+            // the receiver never opened the trade: give up instead of asking again
+            const noAnswer = setTimeout(() => {
+                if (!opened) finish({ success: false, error: 'ตัวรับไม่ตอบรับคำขอเทรด (ไม่ได้ส่งคำขอซ้ำ)' });
+            }, 12000);
 
             unsubTrade = room.onMessage('trade', (tr) => {
-                if (!tr || done) return;
-                
-                if (!offered) {
-                    offered = true;
-                    console.log(`%c[PmheeAether Trade] 📤 Sender: ส่งข้อเสนอเงิน ${amount.toLocaleString()} z...`, 'color: #38bdf8;');
+                if (finished) return;
+                if (!tr) {
+                    if (!opened) return;
+                    if (!confirmSent) return finish({ success: false, error: 'อีกฝ่ายยกเลิก/ปิดหน้าต่างเทรด' });
                     setTimeout(() => {
-                        if (!done) room.send('trade', { action: 'offer', items: [], zeny: amount });
-                    }, 350);
+                        const now = tradeZeny();
+                        const sent = (isFinite(now) && isFinite(zenyBefore)) ? zenyBefore - now : null;
+                        if (sent === null) finish({ success: true, transferredZeny: amount, unverified: true });
+                        else if (sent > 0) finish({ success: true, transferredZeny: sent });
+                        else finish({ success: false, error: 'หน้าต่างเทรดปิดแต่เงินไม่ลด (เทรดไม่สำเร็จ)' });
+                    }, 1200);
                     return;
                 }
-
-                if (offered && !locked && tr.mine && tr.mine.zeny === amount && !tr.mine.locked) {
-                    locked = true;
-                    console.log('%c[PmheeAether Trade] 📤 Sender: ล็อคข้อเสนอเงิน (lock)...', 'color: #38bdf8;');
-                    setTimeout(() => {
-                        if (!done) room.send('trade', { action: 'lock' });
-                    }, 400);
+                if (!sameName(tr.partner, receiverCharName)) return;
+                opened = true;
+                if (!offerSent) {
+                    offerSent = true;
+                    console.log(`%c[PmheeAether Trade] 📤 Sender: ใส่เงิน ${amount.toLocaleString()} z`, 'color: #38bdf8;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'offer', items: [], zeny: amount }); }, 350);
                     return;
                 }
-
-                if (locked && !confirmed && tr.mine && tr.mine.locked && tr.theirs && tr.theirs.locked && !tr.mine.confirmed) {
-                    confirmed = true;
-                    console.log('%c[PmheeAether Trade] 📤 Sender: ทั้งสองฝ่ายล็อคแล้ว -> กดยืนยัน (confirm)...', 'color: #22c55e; font-weight: bold;');
-                    setTimeout(() => {
-                        if (!done) room.send('trade', { action: 'confirm' });
-                    }, 400);
+                if (!lockSent && tr.mine && tr.mine.zeny === amount && !tr.mine.locked) {
+                    lockSent = true;
+                    console.log('%c[PmheeAether Trade] 📤 Sender: ล็อคข้อเสนอ (lock)', 'color: #38bdf8;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 400);
+                    return;
                 }
-            });
-
-            unsubInv = room.onMessage('inventory', (inv) => {
-                if (done) return;
-                if (confirmed) {
-                    console.log('%c[PmheeAether Trade] 📤 Sender: เทรดเสร็จสิ้นสมบูรณ์!', 'color: #22c55e; font-weight: bold;');
-                    done = true;
-                    clearTimeout(timer);
-                    setTimeout(() => {
-                        cleanup();
-                        resolve({ success: true, transferredZeny: amount });
-                    }, 1000);
+                if (lockSent && !confirmSent && tr.mine && tr.mine.locked && tr.theirs && tr.theirs.locked && !tr.mine.confirmed) {
+                    confirmSent = true;
+                    console.log('%c[PmheeAether Trade] 📤 Sender: ทั้งสองฝ่ายล็อคแล้ว -> ยืนยัน (confirm)', 'color: #22c55e; font-weight: bold;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'confirm' }); }, 400);
                 }
             });
 
             setTimeout(() => {
-                if (!done) {
-                    console.log(`%c[PmheeAether Trade] 📤 Sender: ส่งคำขอเทรดไปยัง '${receiverCharName}'...`, 'color: #38bdf8;');
-                    room.send('trade', { action: 'request', name: receiverCharName });
-                }
+                if (finished) return;
+                console.log(`%c[PmheeAether Trade] 📤 Sender: ส่งคำขอเทรดไปยัง '${receiverCharName}' (ครั้งเดียว)`, 'color: #38bdf8;');
+                room.send('trade', { action: 'request', name: receiverCharName });
             }, 600);
         });
     };

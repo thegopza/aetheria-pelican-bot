@@ -643,33 +643,50 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
       `);
       await new Promise(r => setTimeout(r, 3500));
 
-      // B. ให้ Receiver รอรับคำขอเทรดจาก Sender นี้
-      addConsolidationLog(`👑 ตั้งค่าตัวรับเงิน (${receiverCharName}) รอรับคำขอเทรดจาก '${senderCharName}'...`, 'info');
-      evalProfilePort(receiverProfile.debugPort, `
-        window.setupReceiverTradeWatcher ? window.setupReceiverTradeWatcher(${JSON.stringify(senderCharName)}, 40000) : null
-      `);
-      await new Promise(r => setTimeout(r, 1000));
+      // B + C: the receiver waits for exactly this sender (replaces the previous watcher), then the sender
+      // requests ONE trade, offers, locks and confirms. Done = the sender's zeny really went down. One more
+      // try only when nothing moved (zeny unchanged), never while a trade may still be open.
+      let attempt = 0, moved = 0, lastErr = '';
+      while (attempt < 2 && moved <= 0) {
+        attempt++;
+        if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+        addConsolidationLog(`👑 ตัวรับเงิน (${receiverCharName}) รอรับคำขอเทรดจาก '${senderCharName}'${attempt > 1 ? ' (ลองใหม่ครั้งที่ 2)' : ''}...`, 'info');
+        evalProfilePort(receiverProfile.debugPort, `
+          window.setupReceiverTradeWatcher ? window.setupReceiverTradeWatcher(${JSON.stringify(senderCharName)}, 45000) : null
+        `);
+        await new Promise(r => setTimeout(r, 1200));
 
-      // C. ให้ Sender ส่งคำขอเทรด ใส่เงิน ล็อค และยืนยัน
-      addConsolidationLog(`📤 จอ ${sender.name} (${senderCharName}) ส่งคำขอเทรดเงิน ${zenyToTransfer.toLocaleString()} z...`, 'info');
-      const tradeRes = await evalProfilePort(sender.debugPort, `
-        (async () => {
-          if (typeof window.executeSenderTrade === 'function') {
-            return await window.executeSenderTrade(${JSON.stringify(receiverCharName)}, ${zenyToTransfer}, 35000);
-          }
-          return { success: false, error: 'No executeSenderTrade function' };
-        })()
-      `, 40000);
-
-      if (tradeRes && tradeRes.result && tradeRes.result.success) {
-        consolidationState.totalTransferredZeny += zenyToTransfer;
-        consolidationState.completedSenders.push(sender.id);
-        addConsolidationLog(`✅ โอนเงินจาก [${senderCharName}] ให้ [${receiverCharName}] จำนวน ${zenyToTransfer.toLocaleString()} z สำเร็จ!`, 'success');
-      } else {
-        const err = tradeRes?.result?.error || tradeRes?.error || 'เกิดข้อผิดพลาดในการเทรด';
-        addConsolidationLog(`⚠️ จอ ${sender.name} (${senderCharName}) เทรดไม่สำเร็จ: ${err}`, 'error');
+        addConsolidationLog(`📤 จอ ${sender.name} (${senderCharName}) ส่งคำขอเทรดเงิน ${zenyToTransfer.toLocaleString()} z...`, 'info');
+        const tradeRes = await evalProfilePort(sender.debugPort, `
+          (async () => {
+            if (typeof window.executeSenderTrade === 'function') {
+              return await window.executeSenderTrade(${JSON.stringify(receiverCharName)}, ${zenyToTransfer}, 35000);
+            }
+            return { success: false, error: 'No executeSenderTrade function' };
+          })()
+        `, 42000);
+        await new Promise(r => setTimeout(r, 1500));
+        const after = await queryClientState(sender.debugPort);
+        const afterZeny = (after && typeof after.zeny === 'number') ? after.zeny : null;
+        moved = afterZeny === null ? 0 : curZeny - afterZeny;
+        lastErr = tradeRes?.result?.error || tradeRes?.error || '';
+        if (moved > 0) break;
+        if (tradeRes?.result?.success && afterZeny === null) { moved = zenyToTransfer; break; }   // can't read zeny: trust the game's answer
+        if (afterZeny === null || /No executeSenderTrade/.test(lastErr)) break;
+        if (attempt < 2) {
+          addConsolidationLog(`⚠️ จอ ${sender.name} เทรดไม่สำเร็จ (${lastErr || 'เงินไม่ลด'}) — เงินยังอยู่ครบ จะลองใหม่อีก 1 ครั้ง`, 'warning');
+          await new Promise(r => setTimeout(r, 4000));
+        }
       }
 
+      if (moved > 0) {
+        consolidationState.totalTransferredZeny += moved;
+        consolidationState.completedSenders.push(sender.id);
+        addConsolidationLog(`✅ โอนเงินจาก [${senderCharName}] ให้ [${receiverCharName}] จำนวน ${moved.toLocaleString()} z สำเร็จ (ตรวจจากเงินที่ลดจริง)`, 'success');
+      } else {
+        addConsolidationLog(`⚠️ จอ ${sender.name} (${senderCharName}) เทรดไม่สำเร็จ: ${lastErr || 'เงินไม่ลด'} — ข้ามไปจอถัดไป`, 'error');
+      }
+      evalProfilePort(receiverProfile.debugPort, `window.stopReceiverTradeWatcher ? window.stopReceiverTradeWatcher() : null`, 3000);
       await new Promise(r => setTimeout(r, 2000));
     }
 
