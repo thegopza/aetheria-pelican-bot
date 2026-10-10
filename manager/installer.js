@@ -383,5 +383,6 @@ module.exports = {
     restoreOriginal,
     browseFolder,
     saveSettings,
+    loadSettings,
     checkManagerOnlineUpdate
 };

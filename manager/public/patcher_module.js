@@ -140,9 +140,33 @@
       }
     }
 
+    // Launch mode (Electron app / browser windows)
+    async function loadLaunchMode() {
+      try {
+        const r = await fetch('/api/launch-mode').then(x => x.json());
+        if (!r.success) return;
+        document.querySelectorAll('input[name="launch-mode"]').forEach(el => { el.checked = el.value === r.launchMode; });
+        const kind = document.getElementById('lm-browser-kind');
+        if (kind) kind.value = r.browserKind;
+        const p = document.getElementById('lm-browser-path');
+        if (p) p.textContent = r.browserPath ? '✅ ' + r.browserPath : '⚠️ ไม่พบเบราว์เซอร์ในเครื่อง';
+        const row = document.getElementById('lm-browser-row');
+        if (row) row.style.display = r.launchMode === 'browser' ? '' : 'none';
+      } catch (e) {}
+    }
+    async function saveLaunchMode(patch) {
+      await fetch('/api/launch-mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).catch(() => {});
+      loadLaunchMode();
+      showMsg(patch.launchMode === 'browser' ? 'ตั้งเป็นโหมดเบราว์เซอร์แล้ว — ปิดจอเดิมแล้วกดเปิดใหม่' : patch.launchMode === 'electron' ? 'ตั้งเป็นโหมดแอปเกม (Electron) แล้ว' : 'บันทึกแล้ว');
+    }
+    document.querySelectorAll('input[name="launch-mode"]').forEach(el => el.addEventListener('change', () => { if (el.checked) saveLaunchMode({ launchMode: el.value }); }));
+    const lmKind = document.getElementById('lm-browser-kind');
+    if (lmKind) lmKind.addEventListener('change', () => saveLaunchMode({ browserKind: lmKind.value }));
+
     // Event Listeners
     btnOpen.addEventListener('click', () => {
       modal.style.display = 'flex';
+      loadLaunchMode();
       fetchStatus(pathInput.value);
       checkGitHub();
     });

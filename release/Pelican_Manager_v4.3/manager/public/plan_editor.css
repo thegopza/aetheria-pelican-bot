@@ -302,3 +302,16 @@
 .pf-pass { display: flex; gap: 6px; }
 .pf-pass .form-input { flex: 1; min-width: 0; }
 .pf-hint { margin: -4px 0 12px; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; line-height: 1.6; color: #cbd5e1; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); }
+
+/* Launch mode card (สคริปต์เกม window) */
+.lm-card { margin-bottom: 16px; padding: 12px; border-radius: 8px; background: rgba(56, 189, 248, 0.06); border: 1px solid rgba(56, 189, 248, 0.3); }
+.lm-title { font-size: 13px; font-weight: 800; color: #e2e8f0; margin-bottom: 8px; }
+.lm-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lm-opt { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 9px 10px; border-radius: 8px; cursor: pointer; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(148, 163, 184, 0.2); }
+.lm-opt:has(input:checked) { border-color: #38bdf8; box-shadow: inset 0 0 0 1px #38bdf8; }
+.lm-opt input { margin-top: 3px; accent-color: #38bdf8; }
+.lm-opt b { display: block; font-size: 12.5px; color: #f1f5f9; }
+.lm-opt small { display: block; font-size: 11px; color: #94a3b8; line-height: 1.4; }
+.lm-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: #cbd5e1; flex-wrap: wrap; }
+.lm-row small { color: #94a3b8; font-size: 10.5px; word-break: break-all; }
+.lm-hint { margin-top: 8px; font-size: 10.5px; color: #94a3b8; }

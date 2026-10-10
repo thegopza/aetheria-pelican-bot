@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4400">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=41600">
+  <link rel="stylesheet" href="plan_editor.css?v=41700">
 </head>
 <body>
   <div class="app-container">
@@ -1029,7 +1029,7 @@
   </div>
 
   <script src="app.js?v=41600"></script>
-  <script src="patcher_module.js?v=1791551058115"></script>
+  <script src="patcher_module.js?v=41700"></script>
   <script src="builder_module.js?v=41200"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=4390"></script>
@@ -1049,6 +1049,24 @@
           </div>
         </div>
         <button type="button" class="modal-close" id="btn-patcher-close" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Launch mode: Electron app per client, or windows of one real browser -->
+      <div class="lm-card">
+        <div class="lm-title">🖥️ วิธีเปิดจอเกม</div>
+        <div class="lm-options">
+          <label class="lm-opt"><input type="radio" name="launch-mode" value="electron"> <span><b>แอปเกม (Electron)</b><small>แบบเดิม — 1 แอปต่อ 1 จอ ต้องติดตั้งสคริปต์ด้านล่าง</small></span></label>
+          <label class="lm-opt"><input type="radio" name="launch-mode" value="browser"> <span><b>เบราว์เซอร์ (แนะนำ ลื่นกว่า)</b><small>ทุกจอเป็นหน้าต่างของเบราว์เซอร์เดียวกัน ใช้การ์ดจอร่วมกัน — ไม่ต้องติดตั้งสคริปต์</small></span></label>
+        </div>
+        <div class="lm-row" id="lm-browser-row">
+          <span>เบราว์เซอร์:</span>
+          <select id="lm-browser-kind" class="form-select" style="width: auto; padding: 4px 8px; font-size: 12px;">
+            <option value="chrome">Google Chrome</option>
+            <option value="edge">Microsoft Edge</option>
+          </select>
+          <small id="lm-browser-path"></small>
+        </div>
+        <div class="lm-hint">เปลี่ยนโหมดแล้ว ให้ปิดจอเกมเดิมแล้วกดเปิดใหม่ · เบราว์เซอร์ที่ Manager เปิดใช้โปรไฟล์แยก ไม่ปนกับเบราว์เซอร์ส่วนตัว</div>
       </div>
 
       <!-- Game Path Selection Bar -->

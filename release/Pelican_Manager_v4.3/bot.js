@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.16.1
+// @version      4.17.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,8 +13,24 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.16.1';
+    const PELICAN_BOT_VERSION = '4.17.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
+
+    // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
+    // gives each window its profile id before the page runs; keep every pelican_* key of this window separate.
+    (function namespaceBotStorage() {
+        const pid = window.__pmProfileId;
+        if (!pid || window.__pmStorageNamespaced) return;
+        window.__pmStorageNamespaced = true;
+        const P = 'pelican_', NS = 'pelican_' + String(pid) + '__';
+        const proto = Storage.prototype;
+        const get = proto.getItem, set = proto.setItem, del = proto.removeItem;
+        const map = (st, k) => (st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS)) ? NS + k.slice(P.length) : k;
+        proto.getItem = function (k) { return get.call(this, map(this, k)); };
+        proto.setItem = function (k, v) { return set.call(this, map(this, k), v); };
+        proto.removeItem = function (k) { return del.call(this, map(this, k)); };
+        console.log(`%c[PmheeAether] 🌐 โหมดเบราว์เซอร์: แยกการตั้งค่าบอทของหน้าต่างนี้ (โปรไฟล์ ${pid})`, 'color: #38bdf8;');
+    })();
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
 
@@ -13532,7 +13548,7 @@
         const fullArtUrl = `https://www.aetheria-online.in.th/art/classes/${cId}.webp`;
 
         return {
-            charName: nameEl?.innerText?.trim() || window.__charName || 'G4YSuuuuu',
+            charName: nameEl?.innerText?.trim() || window.__charName || null,
             charClass: classEl?.innerText?.trim() || liveChar.className || 'Hunter',
             classId: cId,
             portrait: faceUrl,

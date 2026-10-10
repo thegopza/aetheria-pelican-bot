@@ -73,6 +73,7 @@ const { handleConfigCopyRoute } = require("./config_copy_api");
 const { createPlanSync } = require("./plan_sync");
 const { createAuthSync } = require("./auth_sync");
 const credentials = require("./credentials");
+const { createBrowserMode } = require("./browser_mode");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -750,6 +751,9 @@ const botAutoUpdater = createBotAutoUpdater({
 const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
+// Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
+const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles });
+const isBrowserMode = () => (installer.loadSettings() || {}).launchMode === "browser";
 
 const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
@@ -1116,6 +1120,13 @@ const server = http.createServer(async (req, res) => {
     const profile = profiles.find(p => p.id === id);
     if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
 
+    if (isBrowserMode()) {
+      browserMode.launch(profile)
+        .then(r => sendJSON(r))
+        .catch(e => sendJSON({ success: false, error: `เปิดในเบราว์เซอร์ไม่สำเร็จ: ${e.message}` }, 500));
+      return;
+    }
+
     if (runningProcesses[id] && isProcessAlive(runningProcesses[id].pid)) {
       return sendJSON({ success: true, message: "Client is already running", pid: runningProcesses[id].pid });
     }
@@ -1157,6 +1168,10 @@ const server = http.createServer(async (req, res) => {
   // 6. POST /api/profiles/:id/stop
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/stop$/)) {
     const id = pathname.split("/")[3];
+    if (browserMode.isOpen(id)) {
+      browserMode.stop(id).then(() => sendJSON({ success: true })).catch(e => sendJSON({ success: false, error: e.message }, 500));
+      return;
+    }
     const proc = runningProcesses[id];
     if (proc && proc.pid) {
       exec(`taskkill /pid ${proc.pid} /f /t`, (err) => {
@@ -1172,6 +1187,17 @@ const server = http.createServer(async (req, res) => {
 
   // 7. POST /api/launch-all
   if (req.method === "POST" && pathname === "/api/launch-all") {
+    if (isBrowserMode()) {
+      (async () => {
+        const launched = [], failed = [];
+        for (const p of loadProfiles()) {
+          try { await browserMode.launch(p); launched.push({ id: p.id, name: p.name }); }
+          catch (e) { failed.push(`${p.name}: ${e.message}`); }
+        }
+        sendJSON({ success: failed.length === 0, launched, error: failed.length ? failed.join('\n') : undefined });
+      })();
+      return;
+    }
     const launchProblem = gameLaunchProblem();
     if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
     const profiles = loadProfiles();
@@ -1200,6 +1226,7 @@ const server = http.createServer(async (req, res) => {
 
   // 8. POST /api/stop-all
   if (req.method === "POST" && pathname === "/api/stop-all") {
+    for (const p of loadProfiles()) if (browserMode.isOpen(p.id)) browserMode.stop(p.id).catch(() => {});
     for (const id in runningProcesses) {
       const proc = runningProcesses[id];
       if (proc && proc.pid) {
@@ -1214,6 +1241,21 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && pathname === "/api/tile-windows") {
     const reqLayout = parsedUrl.searchParams.get("layout");
     const layout = ["side", "grid", "compact", "shrink"].includes(reqLayout) ? reqLayout : "grid"; // only known values reach the PowerShell script
+    const browserOpen = loadProfiles().filter(p => browserMode.isOpen(p.id));
+    if (browserOpen.length) {
+      const scr = await runPowerShell("Add-Type -AssemblyName System.Windows.Forms; $a=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; Write-Output \"$($a.Width)x$($a.Height)\"");
+      const m = String((scr && (scr.stdout || scr.output)) || '').match(/(\d+)x(\d+)/);
+      const sw = m ? Number(m[1]) : 1920, sh = m ? Number(m[2]) : 1040;
+      const n = browserOpen.length;
+      const cols = layout === 'side' || n <= 2 ? n : (n <= 4 ? 2 : n <= 9 ? 3 : 4);
+      const rows = Math.ceil(n / cols);
+      const w = Math.floor(sw / cols), h = Math.floor(sh / rows);
+      browserOpen.forEach((p, i) => {
+        const x = (i % cols) * w, y = Math.floor(i / cols) * h;
+        http.get(`http://127.0.0.1:${p.debugPort}/api/window?action=set-bounds&x=${x}&y=${y}&w=${w}&h=${h}`, () => {}).on('error', () => {});
+      });
+      return sendJSON({ success: true });
+    }
     
     const psScript = `
       Add-Type @"
@@ -1801,6 +1843,29 @@ const server = http.createServer(async (req, res) => {
     const qPath = parsedUrl.searchParams.get("path");
     const status = installer.checkStatus(qPath);
     return sendJSON({ success: true, ...status });
+  }
+
+  // GET/POST /api/launch-mode ({ launchMode: 'electron' | 'browser', browserKind: 'chrome' | 'edge' })
+  if (pathname === "/api/launch-mode") {
+    if (req.method === "GET") {
+      const st = installer.loadSettings() || {};
+      return sendJSON({ success: true, launchMode: st.launchMode || "electron", browserKind: st.browserKind || "chrome", chrome: !!browserMode.findBrowser("chrome"), browserPath: browserMode.findBrowser(st.browserKind) });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const st = installer.loadSettings() || {};
+          if (["electron", "browser"].includes(data.launchMode)) st.launchMode = data.launchMode;
+          if (["chrome", "edge"].includes(data.browserKind)) st.browserKind = data.browserKind;
+          installer.saveSettings(st);
+          sendJSON({ success: true, launchMode: st.launchMode, browserKind: st.browserKind });
+        } catch (e) { sendJSON({ success: false, error: e.message }, 400); }
+      });
+      return;
+    }
   }
 
   // POST /api/game-install/install
@@ -2422,6 +2487,7 @@ server.listen(PORT, "127.0.0.1", () => {
   managerUpdater.start();
   planSync.start();
   authSync.start();
+  browserMode.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);
   console.log(`📁 Sessions directory: ${SESSIONS_DIR}`);

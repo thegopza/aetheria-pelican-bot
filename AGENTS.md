@@ -50,6 +50,13 @@
 - **ห้าม hot-inject `bot.js` ทั้งไฟล์เข้าเกมที่รันอยู่** (เช่น `scratch/hot_reload_game.js`) — setInterval ของบอทจะซ้อนกันหลายชุด ถ้าจำเป็นให้ inject เฉพาะฟังก์ชันเล็กๆ ที่แยกอิสระ หรือใช้การรีเฟรชหน้าแทน
 - สถานะที่ "ห้ามรีเฟรชแทรก" อยู่ใน `CLIENT_PROBE_JS` ของ `bot_auto_update.js` — ถ้าเพิ่มสถานะ busy ใหม่ใน bot.js (เช่น `window.__isXxx = true`) ให้เพิ่มในรายการนี้ด้วย
 
+### 3.0 โหมดเบราว์เซอร์ (`manager/browser_mode.js`, settings.launchMode = 'browser')
+
+- Manager เปิด Chrome/Edge 1 ตัว (โปรไฟล์แยก `sessions/_browser`, `--remote-debugging-port=9339`, ปิด timer throttling) แต่ละโปรไฟล์ = 1 หน้าต่าง คุมผ่าน Chrome DevTools Protocol
+- แต่ละโปรไฟล์มี proxy บน `debugPort` เดิม (`/api/eval`, `/api/state`, `/api/window`) หน้าตาเหมือน Electron loader → ส่วนอื่นของ Manager ใช้ได้เหมือนเดิม; ใส่บอทเองทุกครั้งที่หน้า play โหลด (GitHub → สำรองไฟล์ในเครื่อง)
+- ทุกหน้าต่างใช้ localStorage ร่วมกัน → Manager ตั้ง `window.__pmProfileId` ก่อนหน้าเว็บรัน และ bot.js แยกคีย์ `pelican_*` เป็น `pelican_<profileId>__*` (Electron ไม่มี `__pmProfileId` จึงไม่เปลี่ยน) — เกมไม่ได้เก็บ token login ใน localStorage จึงล็อกอินหลายบัญชีในเบราว์เซอร์เดียวได้
+- ปิด/เปิดจอในโหมดนี้ห้าม taskkill (จะปิดทุกจอ) ใช้ `browserMode.stop(id)` (Target.closeTarget)
+
 ### 3.1 การอัปเดตตัว Manager เอง (`manager/manager_self_update.js`)
 
 - PelicanManager.exe (.NET launcher) รัน `node server.js` และผูก process ไว้กับ Job Object แบบ kill-on-close → **ถ้าปิด/รีสตาร์ท PelicanManager.exe จอเกมทุกจอจะปิดตาม**
