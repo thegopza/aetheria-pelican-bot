@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.23.1
+// @version      4.23.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.23.1';
+    const PELICAN_BOT_VERSION = '4.23.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -25,10 +25,54 @@
         const P = 'pelican_', NS = 'pelican_' + String(pid) + '__';
         const proto = Storage.prototype;
         const get = proto.getItem, set = proto.setItem, del = proto.removeItem;
-        const map = (st, k) => (st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS)) ? NS + k.slice(P.length) : k;
+        // Same for every window -> one shared copy (it was stored once per window: 16 x 128 KB)
+        const SHARED = new Set(['pelican_icon_manifest']);
+        const map = (st, k) => (st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) ? NS + k.slice(P.length) : k;
+        // One site = one storage quota (~5-10 MB) for ALL windows. The game keeps 100 chat lines per channel per
+        // character (webgame.chat.<name>, ~270 KB each): 16 characters filled it and saving a bot config failed
+        // ("exceeded the quota"). Keep 20 per channel (only the history shown after a reload), and when a save
+        // still doesn't fit, trim / drop those and the per-window icon copies, then save again.
+        const CHAT = 'webgame.chat.';
+        const trimChat = v => {
+            try {
+                const a = JSON.parse(v);
+                if (!Array.isArray(a)) return v;
+                const per = {}, keep = [];
+                for (let i = a.length - 1; i >= 0; i--) {
+                    const c = (a[i] && a[i].channel) || '';
+                    per[c] = (per[c] || 0) + 1;
+                    if (per[c] <= 20) keep.push(a[i]);
+                }
+                return keep.length === a.length ? v : JSON.stringify(keep.reverse());
+            } catch (e) { return v; }
+        };
+        const freeSpace = () => {
+            const ls = window.localStorage;
+            const keys = [];
+            for (let i = 0; i < ls.length; i++) keys.push(ls.key(i));
+            keys.forEach(k => {
+                if (/^pelican_profile_[A-Za-z0-9]+__icon_manifest$/.test(k)) { del.call(ls, k); return; }
+                if (k.startsWith(CHAT)) {
+                    const v = get.call(ls, k);
+                    const t = v ? trimChat(v) : v;
+                    if (t !== v) { try { set.call(ls, k, t); } catch (e) { del.call(ls, k); } }
+                }
+            });
+        };
         proto.getItem = function (k) { return get.call(this, map(this, k)); };
-        proto.setItem = function (k, v) { return set.call(this, map(this, k), v); };
+        proto.setItem = function (k, v) {
+            if (this === window.localStorage && typeof k === 'string' && k.startsWith(CHAT)) v = trimChat(String(v));
+            const key = map(this, k);
+            try { return set.call(this, key, v); }
+            catch (e) {
+                if (this !== window.localStorage) throw e;
+                console.warn('[PmheeAether] 💾 พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็ม -> ล้างประวัติแชทเก่า/ไฟล์ซ้ำแล้วบันทึกใหม่');
+                freeSpace();
+                return set.call(this, key, v);
+            }
+        };
         proto.removeItem = function (k) { return del.call(this, map(this, k)); };
+        setTimeout(() => { try { freeSpace(); } catch (e) {} }, 4000);
         console.log(`%c[PmheeAether] 🌐 โหมดเบราว์เซอร์: แยกการตั้งค่าบอทของหน้าต่างนี้ (โปรไฟล์ ${pid})`, 'color: #38bdf8;');
     })();
 
