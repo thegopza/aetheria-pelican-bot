@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.17.2
+// @version      4.18.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.17.2';
+    const PELICAN_BOT_VERSION = '4.18.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -12460,6 +12460,106 @@
         }
     }
 
+    // "⚖️ เช็คน้ำหนัก" (Manager button): a character on a plan whose max weight is still below the target
+    // (e.g. its weight-scroll step ran when only one scroll got used) buys and uses the missing Weight Limit
+    // Scrolls (+500 max weight each) until the target is reached. The request is kept in localStorage so it
+    // survives a page refresh; it runs from the plan loop (START BOT on, nothing else busy).
+    const WEIGHT_TOPUP_KEY = 'pelican_weight_topup';
+    const WEIGHT_PER_SCROLL = 500;
+    let weightTopUpShopAt = 0, weightTopUpNoMoneyAt = 0;
+    const planWeightLimit = () => Number((window.__latestInventory || {}).weightLimit) || 0;
+    window.getWeightTopUpState = function () {
+        try { return JSON.parse(localStorage.getItem(WEIGHT_TOPUP_KEY) || 'null'); } catch (e) { return null; }
+    };
+    window.requestWeightTopUp = function (target = 7000) {
+        const t = Math.max(1000, Math.min(20000, Number(target) || 7000));
+        try { localStorage.setItem(WEIGHT_TOPUP_KEY, JSON.stringify({ target: t, at: Date.now() })); } catch (e) {}
+        weightTopUpShopAt = 0;
+        weightTopUpNoMoneyAt = 0;
+        console.log(`%c[PmheeAether Plan] ⚖️ เช็คน้ำหนัก: เป้าหมายน้ำหนักสูงสุด ${t.toLocaleString()} (ตอนนี้ ${planWeightLimit().toLocaleString()})`, 'color: #38bdf8; font-weight: bold;');
+        return true;
+    };
+    // true = working on it this round (walking / buying / using), false = nothing to do or waiting for zeny
+    window.runWeightTopUpStep = async function () {
+        const req = window.getWeightTopUpState();
+        if (!req || !req.target) return false;
+        const limit = planWeightLimit();
+        if (!limit) return false;
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        const usedKey = charName && charName !== 'default_char' ? 'pelican_weight_scroll_v2_' + charName : '';
+        const done = msg => {
+            try { localStorage.removeItem(WEIGHT_TOPUP_KEY); } catch (e) {}
+            console.log(`%c[PmheeAether Plan] ⚖️ เช็คน้ำหนัก: ${msg}`, 'color: #22c55e; font-weight: bold;');
+            window.__planJobChangeHoldUntil = 0;
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+            return false;
+        };
+        if (limit >= req.target) return done(`น้ำหนักสูงสุด ${limit.toLocaleString()} ถึงเป้า ${req.target.toLocaleString()} แล้ว`);
+        if (weightScrollBusy) return true;
+        weightScrollBusy = true;
+        try {
+            const room = getPlanRoom();
+            if (!room) return false;
+            // 1. Use the scrolls already in the bag, one at a time (game cooldown ~3 s)
+            const scrollQty = () => planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
+            let scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+            let refusals = 0;
+            while (scroll && planWeightLimit() < req.target) {
+                const qtyBefore = scrollQty();
+                const limitBefore = planWeightLimit();
+                room.send('inv_use', { slot: scroll.slot });
+                let ok = false;
+                for (let i = 0; i < 16 && !ok; i++) {
+                    await planSleep(250);
+                    ok = scrollQty() < qtyBefore || planWeightLimit() > limitBefore;
+                }
+                if (!ok) {
+                    if (++refusals >= 3) {
+                        if (usedKey) localStorage.setItem(usedKey, '10');
+                        return done(`เกมไม่ให้ใช้เพิ่มแล้ว (ตัวละครนี้ใช้ครบโควตา) น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()}`);
+                    }
+                    await planSleep(4000);
+                    scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+                    continue;
+                }
+                refusals = 0;
+                if (usedKey) localStorage.setItem(usedKey, String(Math.min(10, (Number(localStorage.getItem(usedKey)) || 0) + 1)));
+                console.log(`%c[PmheeAether Plan] ⚖️ ใช้ Weight Limit Scroll -> น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} / ${req.target.toLocaleString()}`, 'color: #38bdf8;');
+                await planSleep(3500);
+                scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+            }
+            if (planWeightLimit() >= req.target) return done(`น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} ถึงเป้าแล้ว`);
+
+            // 2. Buy the missing amount in the capital (not more than the zeny allows — waits for zeny otherwise)
+            const need = Math.min(10, Math.ceil((req.target - planWeightLimit()) / WEIGHT_PER_SCROLL));
+            if (Date.now() - weightTopUpNoMoneyAt < 5 * 60000) return false;
+            if (!inCapital()) {
+                if (window.__isNavigating || window.__isWalkingToMap) return true;
+                const farm = window.__targetFarmMap || '';
+                if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
+                window.__planJobChangeHoldUntil = Date.now() + 120000;
+                console.log(`%c[PmheeAether Plan] ⚖️ ต้องซื้อ Weight Limit Scroll ${need} อัน -> กลับเมืองหลวง`, 'color: #f59e0b; font-weight: bold;');
+                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                return true;
+            }
+            if (Date.now() - weightTopUpShopAt < 60000) return true;
+            weightTopUpShopAt = Date.now();
+            window.__planJobChangeHoldUntil = Date.now() + 60000;
+            const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, need, 0);
+            if (r === 'no-money') {
+                // go back to farming; try again in 5 minutes
+                weightTopUpNoMoneyAt = Date.now();
+                window.__planJobChangeHoldUntil = 0;
+                if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+                return false;
+            }
+            if (r === 'not-sold') console.warn('[PmheeAether Plan] ⚠️ ไม่พบร้าน NPC ที่ขาย Weight Limit Scroll ในเมือง — จะลองใหม่ภายหลัง');
+            return true;   // next round uses what was bought
+        } finally {
+            weightScrollBusy = false;
+        }
+    };
+
     // The farm map the plan says to be on now: the change_map of the highest Base trigger at or below the
     // current Base Lv. (and Job triggers of the current class at or below the current Job Lv.)
     const planLastMapKey = () => {
@@ -13226,6 +13326,7 @@
             await window.autoAllocateStats();
             if (planBusyReason() === null && await window.autoUpgradeGems()) return;
             if (planBusyReason() === null && await window.runEventPetStep()) return;
+            if (planBusyReason() === null && await window.runWeightTopUpStep()) return;
             await window.checkAndExecutePlanTriggers();
         } catch (e) {
             console.warn('[PmheeAether Plan] loop error:', e);

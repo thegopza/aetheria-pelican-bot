@@ -710,6 +710,50 @@ async function setBotOnAllClients(start, btn) {
   showToast(`${start ? "▶️ START" : "⏹️ STOP"} BOT สำเร็จ ${online.length - failed.length}/${online.length} จอ${failed.length ? " — ไม่สำเร็จ: " + failed.join(", ") : ""}`, failed.length ? "warning" : "success");
   fetchProfiles();
 }
+// ⚖️ เช็คน้ำหนัก: list max weight of every plan client, then (after confirming) let the ones below 7,000
+// buy + use the missing Weight Limit Scrolls (+500 each, ~5,000 z each)
+const WEIGHT_TARGET = 7000, WEIGHT_SCROLL_PRICE = 5000;
+async function runWeightCheck(btn) {
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="icon">⏳</span> กำลังเช็ค...';
+  try {
+    const data = await fetch(`${API_BASE}/api/weight-check?apply=0&target=${WEIGHT_TARGET}`, { method: "POST" }).then(r => r.json());
+    if (!data.success) return showToast("❌ เช็คน้ำหนักไม่สำเร็จ: " + (data.error || ""), "error");
+    const rows = data.results.filter(r => !r.offline);
+    if (!rows.length) return showToast("ยังไม่มีจอที่ออนไลน์", "warning");
+    const lines = [], toFix = [];
+    let total = 0;
+    for (const r of rows) {
+      if (r.skip === "no-plan") { lines.push(`➖ ${r.name}: ไม่ได้ใช้ Plan — ข้าม`); continue; }
+      if (r.error) { lines.push(`⚠️ ${r.name}: ${r.error}`); continue; }
+      const lim = `${r.limit.toLocaleString()} / ${WEIGHT_TARGET.toLocaleString()}`;
+      if (!r.need) { lines.push(`✅ ${r.name}: ${lim} ครบแล้ว`); continue; }
+      if (!r.supported) { lines.push(`⚠️ ${r.name}: ${lim} — บอทในจอนี้ยังเป็นเวอร์ชันเก่า (รอ Auto-update / รีเฟรชจอ)`); continue; }
+      const buy = Math.max(0, r.need - (r.scrolls || 0));
+      const cost = buy * WEIGHT_SCROLL_PRICE;
+      total += r.need;
+      toFix.push(r.id);
+      let note = `ต้องใช้อีก ${r.need} อัน`;
+      if (r.scrolls) note += ` (มีในกระเป๋า ${r.scrolls})`;
+      if (buy) note += ` ซื้อ ${buy} อัน ≈ ${cost.toLocaleString()} z${r.zeny < cost ? ` ⚠️ เงินมี ${r.zeny.toLocaleString()} z (ซื้อเท่าที่พอ แล้วรอเงิน)` : ""}`;
+      if (!r.bot) note += " ⏸️ บอทยังไม่ START (จะไปซื้อเมื่อกด START BOT)";
+      if (r.pending) note += " — กำลังดำเนินการอยู่แล้ว";
+      lines.push(`📦 ${r.name}: ${lim} — ${note}`);
+    }
+    if (!toFix.length) return alert(`⚖️ เช็คน้ำหนัก (เป้า ${WEIGHT_TARGET.toLocaleString()})\n\n` + lines.join("\n") + "\n\nไม่มีจอที่ต้องซื้อเพิ่ม");
+    if (!confirm(`⚖️ เช็คน้ำหนัก (เป้า ${WEIGHT_TARGET.toLocaleString()})\n\n` + lines.join("\n") + `\n\nกด OK ให้ ${toFix.length} จอไปซื้อและใช้ Weight Limit Scroll ให้ครบ (รวม ${total} อัน)`)) return;
+    const res = await fetch(`${API_BASE}/api/weight-check?apply=1&target=${WEIGHT_TARGET}&ids=${encodeURIComponent(toFix.join(","))}`, { method: "POST" }).then(r => r.json());
+    const ok = (res.results || []).filter(r => r.requested).length;
+    showToast(`⚖️ สั่งเติมน้ำหนักแล้ว ${ok}/${toFix.length} จอ`, ok === toFix.length ? "success" : "warning");
+  } catch (e) {
+    showToast("❌ เช็คน้ำหนักไม่สำเร็จ: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = label;
+  }
+}
+document.getElementById("btn-weight-check").onclick = e => runWeightCheck(e.currentTarget);
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);
 

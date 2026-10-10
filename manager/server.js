@@ -1377,6 +1377,34 @@ const server = http.createServer(async (req, res) => {
     return sendJSON({ success: true, allWindowsHidden });
   }
 
+  // POST /api/weight-check?apply=0|1&target=7000 — max weight of every online client that runs a plan.
+  // apply=1 asks those below the target to buy + use Weight Limit Scrolls (bot: window.requestWeightTopUp).
+  if (req.method === "POST" && pathname === "/api/weight-check") {
+    const apply = parsedUrl.searchParams.get("apply") === "1";
+    const target = Math.max(1000, Math.min(20000, parseInt(parsedUrl.searchParams.get("target")) || 7000));
+    const only = (parsedUrl.searchParams.get("ids") || "").split(",").filter(Boolean);
+    const code = `(() => {
+      if (!window.__planScriptEnabled || !window.__currentScriptPlan) return { skip: 'no-plan' };
+      const limit = Number((window.__latestInventory || {}).weightLimit) || 0;
+      if (!limit) return { error: 'ยังไม่มีข้อมูลกระเป๋า (ยังไม่เข้าเกม?)' };
+      const ch = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+      const need = Math.max(0, Math.min(10, Math.ceil((${target} - limit) / 500)));
+      const supported = typeof window.requestWeightTopUp === 'function';
+      const scrolls = ((window.__latestInventory || {}).items || []).filter(it => it && Number(it.itemId) === 90309).reduce((a, it) => a + (it.qty || 1), 0);
+      let requested = false;
+      if (${apply} && need > 0 && supported) requested = window.requestWeightTopUp(${target});
+      return { limit, need, scrolls, zeny: Number(ch.zeny) || 0, bot: !!window.__isBotRunning, supported, requested,
+               pending: !!(typeof window.getWeightTopUpState === 'function' && window.getWeightTopUpState()) };
+    })()`;
+    const profiles = loadProfiles().filter(p => p.debugPort && (!only.length || only.includes(p.id)));
+    const results = await Promise.all(profiles.map(async p => {
+      const r = await evalProfilePort(p.debugPort, code, 5000);
+      if (!r || !r.success) return { id: p.id, name: p.name, offline: true };
+      return { id: p.id, name: p.name, ...(r.result || {}) };
+    }));
+    return sendJSON({ success: true, target, apply, results });
+  }
+
   // POST /api/profiles/:id/focus-window — bring this game window to the front (shows it first if hidden)
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/focus-window$/)) {
     const id = pathname.split("/")[3];
