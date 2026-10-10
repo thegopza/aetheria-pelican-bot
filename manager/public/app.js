@@ -4119,7 +4119,8 @@ function openCopyToModal(presetId) {
           <div style="display: flex; align-items: center; gap: 10px;">
             <input type="checkbox" class="copy-to-profile-checkbox" value="${p.id}" data-online="${p.isRunning ? '1' : ''}" ${p.isRunning ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
             <span style="font-weight: 600; color: #f8fafc; font-size: 12px;">${escapeHTML(p.name)}</span>
-            <span style="font-size: 11px; color: #94a3b8;">(${escapeHTML(p.charClass || 'Archer')})</span>
+            ${(p.liveState && p.liveState.charName) || p.lastCharName ? `<span style="font-size: 11.5px; font-weight: 700; color: #fcd34d;">👤 ${escapeHTML((p.liveState && p.liveState.charName) || p.lastCharName)}</span>` : ''}
+            <span style="font-size: 11px; color: #94a3b8;">(${escapeHTML((p.liveState && p.liveState.charClass) || p.charClass || 'Archer')})</span>
             <span style="font-size: 10px; color: #64748b;">Port: ${p.debugPort || '--'}</span>
           </div>
           <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; ${p.isRunning ? 'background: rgba(34,197,94,0.18); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : 'background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2);'}">
