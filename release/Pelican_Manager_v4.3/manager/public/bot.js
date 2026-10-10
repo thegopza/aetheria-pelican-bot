@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.6.3
+// @version      4.6.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.6.3';
+    const PELICAN_BOT_VERSION = '4.6.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -208,21 +208,23 @@
             return false;
         }
 
-        // 6. เดินไปที่หน้าปราสาท (พิกัดหน้า Valkyrie: x 1680, y 1008)
+        // 6. เดินไปหน้า Valkyrie — หา key/พิกัดจากชื่อ NPC ในแมพ (เกมเพิ่ม NPC แล้ว key เลื่อน: เดิม n5 ตอนนี้ n6)
+        const valk = window.getValkyrieNpc();
+        const standX = valk.x, standY = valk.y + 48;
         const pos = window.__currentPos || { x: 0, y: 0 };
-        const dist = Math.hypot(pos.x - 1680, pos.y - 1008);
+        const dist = Math.hypot(pos.x - standX, pos.y - standY);
         if (dist > 80) {
             console.log(`%c[PmheeAether Plan] 🚶 กำลังเดินไปหา NPC Valkyrie หน้าปราสาท (ระยะห่าง ${Math.round(dist)}px)...`, 'color: #38bdf8;');
             const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
             if (room) {
-                room.send('move_to', { x: 1680, y: 1008 });
+                room.send('move_to', { x: standX, y: standY });
             } else if (typeof window.sendRemoteNpcTalk === 'function') {
-                window.sendRemoteNpcTalk('n5');
+                window.sendRemoteNpcTalk(valk.key);
             }
             return false;
         }
 
-        // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (npcKey: "n5") แล้วไล่ตอบทีละหน้า
+        // 5. หากอยู่ใกล้แล้ว คุยกับ Valkyrie (หา key จากชื่อ NPC) แล้วไล่ตอบทีละหน้า
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (!room) {
             console.warn('[PmheeAether Plan] ⚠️ ไม่พบ Colyseus Room connection');
@@ -267,15 +269,21 @@
         const mentionsClass = o => Object.keys(PLAN_CLASS_TREE).some(id => o.toLowerCase().includes(id) || (PLAN_CLASS_TREE[id][0] && o.includes(PLAN_CLASS_TREE[id][0])));
         const isProceed = o => /พร้อมเปลี่ยนอาชีพ|ยืนยัน|ตกลง|ใช่|เปลี่ยนอาชีพ|confirm|^yes/i.test(o) && !/ไว้ก่อน|ยกเลิก|ไม่/.test(o) && !mentionsClass(o);
 
-        console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (n5)...`, 'color: #a855f7; font-weight: bold;');
-        room.send('npc_talk', { npcKey: 'n5' });
+        // Close through the dialog's own ✕ (room 'npc_close' alone leaves the dialog on screen)
+        const closeDialog = () => {
+            const x = document.querySelector('.npc-dialog .win-close');
+            if (x) x.click(); else room.send('npc_close', {});
+        };
+
+        console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (${valk.key})...`, 'color: #a855f7; font-weight: bold;');
+        room.send('npc_talk', { npcKey: valk.key });
         let dl = await waitDialog('', 3000);
 
         for (let step = 0; step < 6 && dl; step++) {
             console.log(`[PmheeAether Plan] 📜 Valkyrie: "${dl.text.slice(0, 80)}" | ตัวเลือก: ${dl.options.map((o, i) => `${i}:${o}`).join(' / ')}`);
             if (/ยังเร็วไป|กลับมาเมื่อถึง|ยังไม่ถึง|ไม่สามารถ/.test(dl.text) && !dl.options.some(isTarget)) {
                 console.warn('[PmheeAether Plan] ⚠️ Valkyrie แจ้งว่าเงื่อนไขยังไม่ครบ: ' + dl.text.replace(/\n+/g, ' '));
-                room.send('npc_close', {});
+                closeDialog();
                 window.__jobChangeBackoffUntil = Date.now() + 60 * 1000;
                 return false;
             }
@@ -299,7 +307,7 @@
                 await sleep(200);
                 if (planClassLineage(classNow()).includes(targetClean)) {
                     console.log(`%c[PmheeAether Plan] 🎉 เปลี่ยนอาชีพเป็น "${targetClass}" สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
-                    if (readDialog()) room.send('npc_close', {});
+                    if (readDialog()) closeDialog();
                     window.__jobChangeFails = 0;
                     return true;
                 }
@@ -309,7 +317,7 @@
         }
 
         // Didn't work: close the dialog and slow down so it doesn't loop every few seconds
-        if (readDialog()) room.send('npc_close', {});
+        if (readDialog()) closeDialog();
         window.__jobChangeFails = (window.__jobChangeFails || 0) + 1;
         const waitSec = Math.min(300, 20 * window.__jobChangeFails);
         window.__jobChangeBackoffUntil = Date.now() + waitSec * 1000;
@@ -1327,6 +1335,18 @@
             if (found) return found;
         }
         return 'n6';
+    };
+
+    // Valkyrie (job change NPC) with its position; falls back to the capital castle entrance
+    window.getValkyrieNpc = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        let found = null;
+        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((npc, key) => {
+                if (!found && npc && npc.name && (npc.name.includes('Valkyrie') || npc.name.includes('วัลคีรี'))) found = { key, x: npc.x, y: npc.y };
+            });
+        }
+        return found || { key: window.getValkyrieNpcKey(), x: 1664, y: 960 };
     };
 
     window.findNpcByName = function(query) {
