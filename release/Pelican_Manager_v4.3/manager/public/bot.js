@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.11.0
+// @version      4.12.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.11.0';
+    const PELICAN_BOT_VERSION = '4.12.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -12257,6 +12257,99 @@
         return false;
     };
 
+    // 1.6 Built-in plan step (every plan, switch "รับสัตว์เลี้ยง Event"): at Base Lv.15 get the free pet egg
+    // from Event Lily in the capital and use it. Once per character; skipped for good when Lily says it was
+    // already taken or the event NPC is gone.
+    const EVENT_PET_MIN_BASE = 15;
+    const EVENT_PET_EGG_ID = 90334;   // Orc Cub Egg
+    let eventPetNextTry = 0;
+    let eventPetFails = 0;
+    window.runEventPetStep = async function() {
+        const plan = window.__currentScriptPlan;
+        if (!plan || plan.eventPet === false || Date.now() < eventPetNextTry) return false;
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        const lv = readPlanLevels();
+        if (!charName || charName === 'default_char' || !lv || lv.base < EVENT_PET_MIN_BASE) return false;
+        const doneKey = 'pelican_event_pet_' + charName;
+        if (localStorage.getItem(doneKey)) return false;
+        const room = getPlanRoom();
+        if (!room) return false;
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const bag = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
+        const finish = why => {
+            try { localStorage.setItem(doneKey, why || String(Date.now())); } catch (e) {}
+            window.__planJobChangeHoldUntil = 0;
+            restoreFarmMapAfterJobChange();
+        };
+
+        // 1. Egg already in the bag: hatch it
+        const egg = bag().find(it => Number(it.itemId) === EVENT_PET_EGG_ID);
+        if (egg) {
+            console.log(`%c[PmheeAether Plan] 🥚 ใช้ "${egg.name}" เพื่อฟักสัตว์เลี้ยง`, 'color: #22c55e; font-weight: bold;');
+            room.send('inv_use', { slot: egg.slot });
+            await sleep(1500);
+            if (!bag().some(it => Number(it.itemId) === EVENT_PET_EGG_ID)) finish('hatched');
+            else eventPetNextTry = Date.now() + 15000;
+            return true;
+        }
+
+        // 2. Go to the capital (farm map is remembered and put back afterwards)
+        const map = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : '';
+        if (!/เมืองหลวง|โซลเฮเวน/.test(map)) {
+            if (window.__isWalkingToMap || window.__isNavigating) return false;
+            const farm = window.__targetFarmMap || '';
+            if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
+            console.log('%c[PmheeAether Plan] 🐣 Base Lv.15 แล้ว -> กลับเมืองหลวงไปรับไข่สัตว์เลี้ยงจาก Event Lily', 'color: #f59e0b; font-weight: bold;');
+            window.__planJobChangeHoldUntil = Date.now() + 120000;
+            if (typeof window.walkToTargetMap === 'function') window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+            eventPetNextTry = Date.now() + 15000;
+            return true;
+        }
+
+        // 3. Talk to Event Lily (the server walks the character over) and take the egg
+        let lily = null;
+        if (room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((n, k) => { if (!lily && n && /Event Lily/i.test(n.name || '')) lily = k; });
+        }
+        if (!lily) {
+            console.warn('[PmheeAether Plan] 🐣 ไม่พบ NPC Event Lily ในเมือง (อีเวนต์อาจจบแล้ว) -> ข้ามขั้นตอนรับสัตว์เลี้ยง');
+            finish('no-npc');
+            return false;
+        }
+        window.__planJobChangeHoldUntil = Date.now() + 30000;
+        const readDialog = () => {
+            const d = document.querySelector('.npc-dialog');
+            if (!d) return null;
+            return { text: ((d.querySelector('.npc-body p') || d).innerText || '').trim(), options: Array.from(d.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim()) };
+        };
+        const closeDialog = () => { const x = document.querySelector('.npc-dialog .win-close'); if (x) x.click(); else room.send('npc_close', {}); };
+        console.log(`%c[PmheeAether Plan] 💬 คุยกับ Event Lily (${lily}) เพื่อรับไข่สัตว์เลี้ยง...`, 'color: #a855f7; font-weight: bold;');
+        room.send('npc_talk', { npcKey: lily });
+        let dl = null;
+        for (let i = 0; i < 75 && !(dl && dl.options.length); i++) { await sleep(200); dl = readDialog(); }
+        if (!dl) {
+            eventPetFails++;
+            eventPetNextTry = Date.now() + Math.min(600000, 20000 * eventPetFails);
+            return true;
+        }
+        console.log(`[PmheeAether Plan] 📜 Event Lily: "${dl.text.slice(0, 80)}" | ตัวเลือก: ${dl.options.map((o, i) => `${i}:${o}`).join(' / ')}`);
+        const idx = dl.options.findIndex(o => /รับ/.test(o) && !/ไว้ก่อน/.test(o));
+        if (idx < 0) {
+            closeDialog();
+            console.log('[PmheeAether Plan] 🐣 Event Lily ไม่มีตัวเลือกรับไข่แล้ว (รับไปแล้ว) -> ข้าม');
+            finish('already');
+            return true;
+        }
+        room.send('npc_option', { index: idx });
+        for (let i = 0; i < 20; i++) {
+            await sleep(250);
+            if (bag().some(it => Number(it.itemId) === EVENT_PET_EGG_ID)) break;
+        }
+        if (readDialog()) closeDialog();
+        eventPetNextTry = Date.now() + 1000;   // next cycle hatches the egg
+        return true;
+    };
+
     // 2. Automated Stat Allocation: fill stats to their targets in priority order.
     // The game's stat_up payload is { stat, n }. Cost per point = floor((value - 1) / 10) + 2.
     const planStatCost = v => Math.floor((v - 1) / 10) + 2;
@@ -12603,6 +12696,7 @@
             if (await window.checkAndExecuteAutoJobChange()) return;
             await window.autoAllocateStats();
             if (planBusyReason() === null && await window.autoUpgradeGems()) return;
+            if (planBusyReason() === null && await window.runEventPetStep()) return;
             await window.checkAndExecutePlanTriggers();
         } catch (e) {
             console.warn('[PmheeAether Plan] loop error:', e);

@@ -397,6 +397,14 @@ function updateClassDropdownsInEditor() {
     };
   }
   refreshAutoJobUi();
+  const petCb = document.getElementById("plan-editor-eventpet");
+  if (petCb) {
+    petCb.checked = activeEditingPlan.eventPet !== false;
+    petCb.onchange = () => {
+      activeEditingPlan.eventPet = petCb.checked;
+      if (typeof markPlanDirty === 'function') markPlanDirty();
+    };
+  }
   const gemCb = document.getElementById("plan-editor-autogem");
   if (gemCb) {
     gemCb.checked = activeEditingPlan.autoUpgradeGems !== false;
