@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.23.0
+// @version      4.23.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.23.0';
+    const PELICAN_BOT_VERSION = '4.23.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -4790,6 +4790,10 @@
             const threshold = (window.__archerConfig && typeof window.__archerConfig.ammoThreshold === 'number') ? window.__archerConfig.ammoThreshold : 50;
             const currentAmmo = typeof window.__currentAmmo === 'number' ? window.__currentAmmo : 999;
 
+            if (requireArrow && window.equipAnyArrowFromBag()) {
+                setTimeout(() => { if (window.__isBotRunning) continueStart(); }, 2500);
+                return;
+            }
             if (requireArrow && currentAmmo <= threshold) {
                 console.log(`%c[PmheeAether Master] 🏹 ลูกธนูหมดหรือเหลือน้อย (${currentAmmo} <= ${threshold} ดอก)! เริ่มต้นกระบวนการซื้อลูกธนูทันที...`, 'color: #f59e0b; font-weight: bold;');
                 window.executeAutoShopRoutine();
@@ -5497,6 +5501,26 @@
         scan(window.__latestInventory);
         return found;
     }
+
+    // Nothing in the ammo slot but arrows in the bag (e.g. 996 Fire Arrows while the config says normal Arrow,
+    // or a job change took them off): put them on instead of going to town to buy. The configured type first,
+    // else the biggest stack. Returns true while it handled it (sent / waiting for the game).
+    let lastAnyArrowEquipAt = 0;
+    window.equipAnyArrowFromBag = function () {
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        if (ch.ammo && (ch.ammo.qty || 0) > 0) return false;
+        const items = ((window.__latestInventory && window.__latestInventory.items) || []).filter(it => it && (it.equipType === 'Ammo' || it.ammoType) && typeof it.slot === 'number');
+        if (!items.length) return false;
+        if (Date.now() - lastAnyArrowEquipAt < 10000) return true;
+        const want = Number(window.__archerConfig && window.__archerConfig.arrowType) || 90030;
+        const pick = items.find(it => Number(it.itemId) === want) || items.slice().sort((a, b) => (b.qty || 0) - (a.qty || 0))[0];
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (!room) return false;
+        lastAnyArrowEquipAt = Date.now();
+        console.log(`%c[PmheeAether Ammo] 🏹 ยังไม่ได้ใส่ลูกธนู แต่มี "${pick.name}" x${pick.qty} ในกระเป๋า -> สวมใส่เลย (ไม่ต้องกลับไปซื้อ)`, 'color: #22c55e; font-weight: bold;');
+        room.send('equip', { slot: pick.slot });
+        return true;
+    };
 
     window.equipArrowAndBow = function() {
         console.log('%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
@@ -7470,7 +7494,8 @@
         // หมายเหตุ: ตัดระบบเปิดกระเป๋าอัตโนมัติเป็นระยะออกแล้ว เพื่อไม่ให้หน้าต่างกระเป๋าเด้งรบกวนผู้เล่น
         // ระบบจะอ่านน้ำหนักจาก Debuff Status (.hud-status) บนหน้าจอแทนแบบ 100% Passive
 
-        // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter
+        // 4. ตรวจจับลูกธนูหมด สำหรับอาชีพ Archer / Hunter / Bard (ใส่จากกระเป๋าก่อนถ้ามี)
+        if (window.arrowsNeeded() && window.equipAnyArrowFromBag()) return;
         if (window.arrowsNeeded() && !inCity) {
             const threshold = typeof window.__archerConfig.ammoThreshold === 'number' ? window.__archerConfig.ammoThreshold : 50;
 
