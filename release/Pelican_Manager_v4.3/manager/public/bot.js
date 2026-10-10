@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.16.0
+// @version      4.16.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.16.0';
+    const PELICAN_BOT_VERSION = '4.16.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -12372,7 +12372,7 @@
     async function runWeightScrollAction(act) {
         const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
         if (!charName || charName === 'default_char') return 'pending';
-        const key = 'pelican_weight_scroll_' + charName;
+        const key = 'pelican_weight_scroll_v2_' + charName;   // v1 counted cooldown refusals as "quota full"
         const target = Math.max(1, Math.min(10, Number(act.qty) || 10));
         let used = Number(localStorage.getItem(key)) || 0;
         const finish = msg => {
@@ -12387,25 +12387,38 @@
         try {
             const room = getPlanRoom();
             if (!room) return 'pending';
-            // 1. Use the scrolls in the bag one by one, counting each use that the game accepted
+            // 1. Use the scrolls in the bag one by one. The game has a ~3 s cooldown between uses, so wait
+            //    between them; a use counts when the bag count drops or the max weight goes up (+500 each).
+            //    Only 3 refusals in a row (spaced past the cooldown) mean the character's quota is full.
+            const scrollQty = () => planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
+            const weightLimit = () => Number((window.__latestInventory || {}).weightLimit) || 0;
             let scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+            let refusals = 0;
             while (scroll && used < target) {
-                const qtyBefore = planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
+                const qtyBefore = scrollQty();
+                const limitBefore = weightLimit();
                 room.send('inv_use', { slot: scroll.slot });
                 let ok = false;
-                for (let i = 0; i < 12 && !ok; i++) {
+                for (let i = 0; i < 16 && !ok; i++) {
                     await planSleep(250);
-                    const now = planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
-                    ok = now < qtyBefore;
+                    ok = scrollQty() < qtyBefore || (limitBefore > 0 && weightLimit() > limitBefore);
                 }
                 if (!ok) {
-                    // The game refused it: this character has reached its limit
-                    localStorage.setItem(key, String(target));
-                    return finish(`เกมไม่ให้ใช้เพิ่มแล้ว (ใช้ครบโควตาของตัวละครนี้) — ไม่ซื้ออีก`);
+                    refusals++;
+                    if (refusals >= 3) {
+                        localStorage.setItem(key, String(target));
+                        return finish(`เกมไม่ให้ใช้เพิ่ม 3 ครั้งติดกัน (ใช้ครบโควตาของตัวละครนี้แล้ว) — ไม่ซื้ออีก`);
+                    }
+                    console.log(`[PmheeAether Plan] ⏳ ใช้ Weight Limit Scroll ยังไม่ติด (อาจติดคูลดาวน์) -> รอแล้วลองใหม่ (${refusals}/3)`);
+                    await planSleep(4000);
+                    scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+                    continue;
                 }
+                refusals = 0;
                 used++;
                 localStorage.setItem(key, String(used));
-                console.log(`%c[PmheeAether Plan] 📦 ใช้ Weight Limit Scroll (${used}/${target})`, 'color: #38bdf8;');
+                console.log(`%c[PmheeAether Plan] 📦 ใช้ Weight Limit Scroll (${used}/${target}) น้ำหนักสูงสุด ${weightLimit().toLocaleString()}`, 'color: #38bdf8;');
+                await planSleep(3500);   // game cooldown between uses
                 scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
             }
             if (used >= target) return finish(`ใช้ครบ ${used}/${target} แล้ว บันทึกไว้กับตัวละครนี้ (จะไม่ซื้อซ้ำ)`);
