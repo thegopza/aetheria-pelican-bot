@@ -278,7 +278,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       const { targetInfos } = await send('Target.getTargets');
       if (targetInfos.some(t => t.targetId === existing.targetId)) {
         await windowAction(existing, 'focus', new URLSearchParams()).catch(() => {});
-        return { success: true, message: 'หน้าต่างนี้เปิดอยู่แล้ว' };
+        return { success: true, message: 'หน้าต่างนี้เปิดอยู่แล้ว', alreadyOpen: true };
       }
       drop(existing);
     }

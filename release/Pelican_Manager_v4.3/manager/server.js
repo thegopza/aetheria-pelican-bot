@@ -386,6 +386,14 @@ function portAnswers(port) {
     req.on("timeout", () => { req.destroy(); resolve(false); });
   });
 }
+// Is this profile's game window already open? runningProcesses is lost when the Manager restarts (updates)
+// while the detached game windows keep running, so also ask the profile's port (loader or browser proxy).
+async function clientAlreadyOpen(p) {
+  if (browserMode.isOpen(p.id)) return true;
+  if (runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid)) return true;
+  return Boolean(p.debugPort) && await portAnswers(p.debugPort);
+}
+
 async function ensureUsableDebugPort(profileId) {
   const profiles = loadProfiles();
   const p = profiles.find(x => x.id === profileId);
@@ -1158,7 +1166,13 @@ const server = http.createServer(async (req, res) => {
   // 5. POST /api/profiles/:id/launch
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/launch$/)) {
     const id = pathname.split("/")[3];
-    if (!loadProfiles().some(p => p.id === id)) return sendJSON({ success: false, error: "Profile not found" }, 404);
+    const p0 = loadProfiles().find(p => p.id === id);
+    if (!p0) return sendJSON({ success: false, error: "Profile not found" }, 404);
+    // already open (also after a Manager restart, or as the other kind of window): bring it up, don't open a 2nd
+    if (!browserMode.isOpen(id) && await clientAlreadyOpen(p0)) {
+      http.get(`http://127.0.0.1:${p0.debugPort}/api/window?action=top`, r => r.resume()).on("error", () => {});
+      return sendJSON({ success: true, message: "จอนี้เปิดอยู่แล้ว", alreadyOpen: true });
+    }
     const alreadyRunning = !isBrowserMode() && runningProcesses[id] && isProcessAlive(runningProcesses[id].pid);
     const profile = (!alreadyRunning && !browserMode.isOpen(id)) ? await ensureUsableDebugPort(id) : loadProfiles().find(p => p.id === id);
 
@@ -1229,43 +1243,44 @@ const server = http.createServer(async (req, res) => {
 
   // 7. POST /api/launch-all
   if (req.method === "POST" && pathname === "/api/launch-all") {
+    const allProfiles = loadProfiles();
+    const openFlags = await Promise.all(allProfiles.map(p => clientAlreadyOpen(p)));
+    const skipped = allProfiles.filter((p, i) => openFlags[i]).map(p => p.name);
+    const toOpen = allProfiles.filter((p, i) => !openFlags[i]);
     if (isBrowserMode()) {
       (async () => {
         const launched = [], failed = [];
-        for (const p0 of loadProfiles()) {
-          const p = browserMode.isOpen(p0.id) ? p0 : (await ensureUsableDebugPort(p0.id)) || p0;
-          try { await browserMode.launch(p); launched.push({ id: p.id, name: p.name }); }
+        for (const p0 of toOpen) {
+          const p = (await ensureUsableDebugPort(p0.id)) || p0;
+          try { const r = await browserMode.launch(p); if (r && r.alreadyOpen) skipped.push(p.name); else launched.push({ id: p.id, name: p.name }); }
           catch (e) { failed.push(`${p.name}: ${e.message}`); }
         }
-        sendJSON({ success: failed.length === 0, launched, error: failed.length ? failed.join('\n') : undefined });
+        sendJSON({ success: failed.length === 0, launched, skipped, error: failed.length ? failed.join('\n') : undefined });
       })();
       return;
     }
     const launchProblem = gameLaunchProblem();
     if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
-    const profiles = loadProfiles();
     const launched = [];
-    for (const p0 of profiles) {
-      if (!runningProcesses[p0.id] || !isProcessAlive(runningProcesses[p0.id].pid)) {
-        const p = (await ensureUsableDebugPort(p0.id)) || p0;
-        const sessionDir = path.join(SESSIONS_DIR, p.id);
-        if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+    for (const p0 of toOpen) {
+      const p = (await ensureUsableDebugPort(p0.id)) || p0;
+      const sessionDir = path.join(SESSIONS_DIR, p.id);
+      if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
-        const args = [
-          `--user-data-dir=${sessionDir}`,
-          `--profile-name=${encodeURIComponent(p.name)}`,
-          `--debug-port=${p.debugPort || 49876}`,
-          "--multi-instance"
-        ];
-        try {
-          const child = spawn(getGameExe(), args, { cwd: path.dirname(getGameExe()), detached: true, stdio: "ignore", windowsHide: false });
-          child.unref();
-          runningProcesses[p.id] = { pid: child.pid, startTime: Date.now() };
-          launched.push({ id: p.id, name: p.name, pid: child.pid });
-        } catch (e) {}
-      }
+      const args = [
+        `--user-data-dir=${sessionDir}`,
+        `--profile-name=${encodeURIComponent(p.name)}`,
+        `--debug-port=${p.debugPort || 49876}`,
+        "--multi-instance"
+      ];
+      try {
+        const child = spawn(getGameExe(), args, { cwd: path.dirname(getGameExe()), detached: true, stdio: "ignore", windowsHide: false });
+        child.unref();
+        runningProcesses[p.id] = { pid: child.pid, startTime: Date.now() };
+        launched.push({ id: p.id, name: p.name, pid: child.pid });
+      } catch (e) {}
     }
-    return sendJSON({ success: true, launched });
+    return sendJSON({ success: true, launched, skipped });
   }
 
   // 8. POST /api/stop-all

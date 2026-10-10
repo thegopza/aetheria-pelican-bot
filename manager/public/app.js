@@ -673,6 +673,7 @@ document.getElementById("btn-launch-all").onclick = async () => {
       const res = await fetch(`${API_BASE}/api/launch-all`, { method: "POST" });
       const data = await res.json();
       if (!data.success) alert("❌ เปิดจอไม่สำเร็จ: " + (data.error || "เกิดข้อผิดพลาด"));
+      else showToast(`🚀 เปิดใหม่ ${(data.launched || []).length} จอ${(data.skipped || []).length ? ` · ข้าม ${data.skipped.length} จอที่เปิดอยู่แล้ว` : ""}`, "success");
     } catch (e) {}
     fetchProfiles();
   }
