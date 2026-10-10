@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.19.0
+// @version      4.19.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.19.0';
+    const PELICAN_BOT_VERSION = '4.19.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -118,6 +118,44 @@
         document.addEventListener('visibilitychange', onChange);
         window.setLowPowerMode = on => { window.__pmForceLowPower = !!on; onChange(); };
         if (hidden()) setTimeout(onChange, 3000);
+
+        // The game (build of 2026-10-09 on) raises "game-fatal" ('webgl') 4 s after ANY WebGL context loss and
+        // shows "การแสดงผลของเกมหยุดทำงาน ... กดโหลดใหม่" for good. Our hidden-window mode releases the context on
+        // purpose, and browsers drop it for covered / hidden windows and give it back later — so keep that
+        // notice away. The game listens on window before the bot loads (listeners there run in order), so the
+        // event is stopped where the game raises it: window.dispatchEvent.
+        const nativeDispatch = window.dispatchEvent;
+        window.dispatchEvent = function (ev) {
+            if (ev && ev.type === 'game-fatal' && ev.detail === 'webgl') {
+                console.log('%c[PmheeAether Power] 🛡️ กันข้อความ "การแสดงผลของเกมหยุดทำงาน" (ภาพเกมถูกปล่อยชั่วคราว เดี๋ยวโหลดกลับเอง)', 'color: #94a3b8;');
+                return true;
+            }
+            return nativeDispatch.call(this, ev);
+        };
+        // Shown but the picture really doesn't come back (or the notice got through anyway): reload the page
+        // when nothing important is going on — at most once per 10 minutes, the bot resumes after the reload.
+        const busyNow = () => window.__isWalkingToMap || window.__isShopping || window.__isRecovering || window.__isConsolidating
+            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow;
+        let brokenSince = 0;
+        setInterval(() => {
+            if (hidden()) { brokenSince = 0; return; }
+            const gl = gameGl();
+            const lost = gl && gl.isContextLost();
+            const notice = Array.from(document.querySelectorAll('.crash-box')).some(b => /การแสดงผลของเกมหยุดทำงาน|stopped drawing/.test(b.innerText || ''));
+            if (!lost && !notice) { brokenSince = 0; return; }
+            if (lost && loseExt) restoreGpu();
+            if (!brokenSince) { brokenSince = Date.now(); return; }
+            if (Date.now() - brokenSince < 20000 || busyNow()) return;
+            let lastReload = 0;
+            try { lastReload = Number(localStorage.getItem('pelican_webgl_reload_at')) || 0; } catch (e) {}
+            if (Date.now() - lastReload < 10 * 60 * 1000) return;
+            try {
+                localStorage.setItem('pelican_webgl_reload_at', String(Date.now()));
+                localStorage.setItem('pelican_bot_running', window.__isBotRunning ? 'true' : 'false');
+            } catch (e) {}
+            console.warn('[PmheeAether Power] ♻️ ภาพเกมไม่กลับมา -> โหลดหน้าเกมใหม่ (บอทจะทำงานต่อเอง)');
+            location.reload();
+        }, 5000);
     })();
 
     window.__gameSocket = null;

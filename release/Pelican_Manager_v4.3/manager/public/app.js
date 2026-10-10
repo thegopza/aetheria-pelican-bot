@@ -770,6 +770,26 @@ document.getElementById("tile-side").onclick = async (e) => {
   await fetch(`${API_BASE}/api/tile-windows?layout=side`, { method: "POST" });
 };
 
+// Fixed grid cols x rows: windows fill left to right, top to bottom; window cells+1 goes back on cell 1
+async function tileFixedGrid(cols, rows) {
+  const r = await fetch(`${API_BASE}/api/tile-windows?layout=custom&cols=${cols}&rows=${rows}`, { method: "POST" }).then(x => x.json()).catch(() => null);
+  const online = currentProfiles.filter(p => p.isRunning).length;
+  if (r && r.success) showToast(`📐 จัดจอแบบ ${cols} × ${rows}${online > cols * rows ? ` — ${online} จอ เกิน ${cols * rows} ช่อง: จอที่ ${cols * rows + 1} ขึ้นไปซ้อนช่องเดิมตามลำดับ` : ""}`, "success");
+}
+document.querySelectorAll(".tile-fixed").forEach(a => a.onclick = e => { e.preventDefault(); tileFixedGrid(Number(a.dataset.cols), Number(a.dataset.rows)); });
+document.getElementById("tile-custom").onclick = e => {
+  e.preventDefault();
+  let last = "4x3";
+  try { last = localStorage.getItem("pm_tile_custom") || last; } catch (err) {}
+  const v = prompt("จัดจอเป็นตารางกี่คอลัมน์ × กี่แถว? (เช่น 4x3 = 4 คอลัมน์ 3 แถว)", last);
+  if (!v) return;
+  const m = String(v).match(/(\d+)\s*[x×*,\s]\s*(\d+)/i);
+  if (!m) return alert("พิมพ์แบบ 4x3 (คอลัมน์ x แถว)");
+  const cols = Math.max(1, Math.min(10, Number(m[1]))), rows = Math.max(1, Math.min(10, Number(m[2])));
+  try { localStorage.setItem("pm_tile_custom", `${cols}x${rows}`); } catch (err) {}
+  tileFixedGrid(cols, rows);
+};
+
 document.getElementById("tile-grid").onclick = async (e) => {
   e.preventDefault();
   await fetch(`${API_BASE}/api/tile-windows?layout=grid`, { method: "POST" });

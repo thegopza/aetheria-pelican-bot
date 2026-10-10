@@ -114,6 +114,8 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       // the bot's timers must keep running in background / covered windows
       '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
       '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
+      // many game windows in one browser: Chrome drops the oldest WebGL context past 16 live ones
+      '--max-active-webgl-contexts=64',
       '--no-first-run', '--no-default-browser-check', '--mute-audio', 'about:blank'
     ];
     browserProc = spawn(exe, args, { detached: true, stdio: 'ignore' });

@@ -3330,3 +3330,6 @@ label {
     white-space: nowrap;
 }
 .pelican-hud-web .p-copy-cfg-btn:hover { background: rgba(16, 185, 129, 0.3); color: #d1fae5; }
+
+/* fixed-grid section in the "จัดหน้าต่าง" menu */
+.dropdown-content .dropdown-sep { padding: 6px 12px 3px; margin-top: 4px; border-top: 1px solid rgba(148, 163, 184, 0.15); font-size: 10.5px; color: #94a3b8; }

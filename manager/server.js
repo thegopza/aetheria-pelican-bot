@@ -1377,23 +1377,29 @@ const server = http.createServer(async (req, res) => {
   // 9. POST /api/tile-windows (Arrange Windows side-by-side, grid, or shrink)
   if (req.method === "POST" && pathname === "/api/tile-windows") {
     const reqLayout = parsedUrl.searchParams.get("layout");
-    const layout = ["side", "grid", "compact", "shrink"].includes(reqLayout) ? reqLayout : "grid"; // only known values reach the PowerShell script
+    const layout = ["side", "grid", "compact", "shrink", "custom"].includes(reqLayout) ? reqLayout : "grid"; // only known values reach the PowerShell script
+    // "custom": a fixed cols x rows grid (e.g. 4x4) filled left to right, top to bottom; with more windows
+    // than cells, window cells+1 goes back on cell 1 (stacked on top of window 1), and so on
+    const gridCols = Math.max(1, Math.min(10, parseInt(parsedUrl.searchParams.get("cols")) || 3));
+    const gridRows = Math.max(1, Math.min(10, parseInt(parsedUrl.searchParams.get("rows")) || 3));
     const browserOpen = loadProfiles().filter(p => browserMode.isOpen(p.id));
     if (browserOpen.length) {
       const scr = await runPowerShell("Add-Type -AssemblyName System.Windows.Forms; $a=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; Write-Output \"$($a.Width)x$($a.Height)\"");
       const m = String((scr && (scr.stdout || scr.output)) || '').match(/(\d+)x(\d+)/);
       const sw = m ? Number(m[1]) : 1920, sh = m ? Number(m[2]) : 1040;
       const n = browserOpen.length;
-      const cols = layout === 'side' || n <= 2 ? n : (n <= 4 ? 2 : n <= 9 ? 3 : 4);
-      const rows = Math.ceil(n / cols);
+      const cols = layout === 'custom' ? gridCols : (layout === 'side' || n <= 2 ? n : (n <= 4 ? 2 : n <= 9 ? 3 : 4));
+      const rows = layout === 'custom' ? gridRows : Math.ceil(n / cols);
       const w = Math.floor(sw / cols), h = Math.floor(sh / rows);
       browserOpen.forEach((p, i) => {
-        const x = (i % cols) * w, y = Math.floor(i / cols) * h;
+        const cell = i % (cols * rows);
+        const x = (cell % cols) * w, y = Math.floor(cell / cols) * h;
         http.get(`http://127.0.0.1:${p.debugPort}/api/window?action=set-bounds&x=${x}&y=${y}&w=${w}&h=${h}`, () => {}).on('error', () => {});
       });
       return sendJSON({ success: true });
     }
     
+    const pidOrder = loadProfiles().map(p => runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid) ? Number(runningProcesses[p.id].pid) : 0).filter(Boolean).join(",");
     const psScript = `
       Add-Type @"
         using System;
@@ -1408,7 +1414,9 @@ const server = http.createServer(async (req, res) => {
         }
 "@
       Add-Type -AssemblyName System.Windows.Forms
-      $procs = @(Get-Process -Name "Aetheria Online" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Sort-Object MainWindowTitle)
+      # same order as the profile list (windows started by this Manager), the rest after them
+      $order = @(${pidOrder})
+      $procs = @(Get-Process -Name "Aetheria Online" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Sort-Object @{ Expression = { $k = [array]::IndexOf($order, $_.Id); if ($k -lt 0) { 100000 } else { $k } } }, MainWindowTitle)
       $count = $procs.Count
       if ($count -gt 0) {
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
@@ -1417,7 +1425,14 @@ const server = http.createServer(async (req, res) => {
         for ($i = 0; $i -lt $count; $i++) {
           $h = $procs[$i].MainWindowHandle
           [WinPos]::ShowWindow($h, 9)
-          if ('${layout}' -eq 'side' -or $count -le 2) {
+          if ('${layout}' -eq 'custom') {
+            $cols = ${gridCols}
+            $rows = ${gridRows}
+            $cell = $i % ($cols * $rows)
+            $w = [int][Math]::Floor($sw / $cols)
+            $h_h = [int][Math]::Floor($sh / $rows)
+            [WinPos]::MoveWindow($h, ($cell % $cols) * $w, [Math]::Floor($cell / $cols) * $h_h, $w, $h_h, $true)
+          } elseif ('${layout}' -eq 'side' -or $count -le 2) {
             $w = [int]($sw / $count)
             $x = $i * $w
             [WinPos]::MoveWindow($h, $x, 0, $w, $sh, $true)
