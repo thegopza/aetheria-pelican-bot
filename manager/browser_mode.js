@@ -50,6 +50,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   const pending = new Map();            // CDP call id -> {resolve, reject}
   const listeners = new Set();          // CDP event listeners
   const clients = new Map();            // profileId -> { targetId, sessionId, server, port }
+  let startupPages = [];                // the empty window Chrome opens on start — closed once a game window exists
 
   // ---------- CDP connection ----------
   async function connect() {
@@ -107,7 +108,11 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     browserProc.unref();
     for (let i = 0; i < 40; i++) {
       await new Promise(r => setTimeout(r, 300));
-      if (await browserAlive()) return connect();
+      if (await browserAlive()) {
+        await connect();
+        try { startupPages = (await send('Target.getTargets')).targetInfos.filter(t => t.type === 'page').map(t => t.targetId); } catch (e) {}
+        return;
+      }
     }
     throw new Error('เปิดเบราว์เซอร์ไม่สำเร็จ');
   }
@@ -250,6 +255,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     const c = await attach(profile.id, targetId);
     startProxy(c, profile.debugPort);
     await send('Page.navigate', { url: GAME_URL }, c.sessionId);
+    for (const targetId of startupPages.splice(0)) await send('Target.closeTarget', { targetId }).catch(() => {});
     return { success: true, message: 'เปิดหน้าต่างเบราว์เซอร์แล้ว' };
   }
   async function stop(profileId) {

@@ -367,6 +367,46 @@ function queryStandardState(port) {
   });
 }
 
+// Windows can reserve blocks of ports for Hyper-V / WSL / Docker (`netsh int ipv4 show excludedportrange
+// protocol=tcp`) or give a port in the dynamic range (49152+) to another program. The game loader then cannot
+// listen on the profile's debugPort and the Manager gets ECONNREFUSED (card stuck on "connecting"). Before
+// launching, move such a profile to a free port below the dynamic range.
+const reservedDebugPorts = new Set();
+function canListenOn(port) {
+  return new Promise((resolve) => {
+    const srv = require("net").createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen(port, "127.0.0.1", () => srv.close(() => resolve(true)));
+  });
+}
+function portAnswers(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/`, { timeout: 1500 }, (res) => { res.resume(); resolve(true); });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
+}
+async function ensureUsableDebugPort(profileId) {
+  const profiles = loadProfiles();
+  const p = profiles.find(x => x.id === profileId);
+  if (!p) return null;
+  const port = Number(p.debugPort) || 49876;
+  if (await canListenOn(port) || await portAnswers(port)) return p;   // free, or one of our clients already answers there
+  const used = new Set([...profiles.map(x => Number(x.debugPort)).filter(Boolean), ...reservedDebugPorts]);
+  for (let cand = 38760; cand < 39760; cand++) {
+    if (used.has(cand) || !(await canListenOn(cand))) continue;
+    reservedDebugPorts.add(cand);
+    const fresh = loadProfiles();
+    const target = fresh.find(x => x.id === profileId);
+    if (!target) return p;
+    target.debugPort = cand;
+    saveProfiles(fresh);
+    console.log(`[PmheeAether Manager] 🔌 Port ${port} of "${target.name}" cannot be used on this PC (reserved by Windows or taken) -> moved to ${cand}`);
+    return { ...target, movedFromPort: port };
+  }
+  return p;
+}
+
 function evalProfilePort(port, code, timeoutMs = 8000) {
   return new Promise((resolve) => {
     if (!port) return resolve({ success: false, error: 'No debug port' });
@@ -1116,9 +1156,9 @@ const server = http.createServer(async (req, res) => {
   // 5. POST /api/profiles/:id/launch
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/launch$/)) {
     const id = pathname.split("/")[3];
-    const profiles = loadProfiles();
-    const profile = profiles.find(p => p.id === id);
-    if (!profile) return sendJSON({ success: false, error: "Profile not found" }, 404);
+    if (!loadProfiles().some(p => p.id === id)) return sendJSON({ success: false, error: "Profile not found" }, 404);
+    const alreadyRunning = !isBrowserMode() && runningProcesses[id] && isProcessAlive(runningProcesses[id].pid);
+    const profile = (!alreadyRunning && !browserMode.isOpen(id)) ? await ensureUsableDebugPort(id) : loadProfiles().find(p => p.id === id);
 
     if (isBrowserMode()) {
       browserMode.launch(profile)
@@ -1159,7 +1199,7 @@ const server = http.createServer(async (req, res) => {
       };
 
       console.log(`[PmheeAether Manager] 🚀 Launched client "${profile.name}" (PID: ${child.pid}, Port: ${profile.debugPort})`);
-      return sendJSON({ success: true, pid: child.pid, port: profile.debugPort });
+      return sendJSON({ success: true, pid: child.pid, port: profile.debugPort, movedFromPort: profile.movedFromPort });
     } catch (err) {
       return sendJSON({ success: false, error: err.message }, 500);
     }
@@ -1190,7 +1230,8 @@ const server = http.createServer(async (req, res) => {
     if (isBrowserMode()) {
       (async () => {
         const launched = [], failed = [];
-        for (const p of loadProfiles()) {
+        for (const p0 of loadProfiles()) {
+          const p = browserMode.isOpen(p0.id) ? p0 : (await ensureUsableDebugPort(p0.id)) || p0;
           try { await browserMode.launch(p); launched.push({ id: p.id, name: p.name }); }
           catch (e) { failed.push(`${p.name}: ${e.message}`); }
         }
@@ -1202,8 +1243,9 @@ const server = http.createServer(async (req, res) => {
     if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
     const profiles = loadProfiles();
     const launched = [];
-    for (const p of profiles) {
-      if (!runningProcesses[p.id] || !isProcessAlive(runningProcesses[p.id].pid)) {
+    for (const p0 of profiles) {
+      if (!runningProcesses[p0.id] || !isProcessAlive(runningProcesses[p0.id].pid)) {
+        const p = (await ensureUsableDebugPort(p0.id)) || p0;
         const sessionDir = path.join(SESSIONS_DIR, p.id);
         if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
