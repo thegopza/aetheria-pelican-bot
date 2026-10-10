@@ -289,3 +289,7 @@
 .pe-act-btns { display: inline-flex; gap: 4px; }
 .pe-act-btns .pe-icon-btn:disabled { opacity: 0.3; cursor: default; }
 @media (max-width: 640px) { .pe-dlg-kinds { grid-template-columns: 1fr; } .pe-card.pe-sum { flex-wrap: wrap; } }
+
+/* Plan action: weight scroll */
+.pe-chip.weight_scroll { color: #fed7aa; background: rgba(249, 115, 22, 0.12); border-color: rgba(249, 115, 22, 0.4); }
+.pe-action.weight_scroll .pe-act-icon { background: rgba(249, 115, 22, 0.15); }

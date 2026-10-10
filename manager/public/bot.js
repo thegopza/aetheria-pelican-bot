@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.13.1
+// @version      4.14.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.13.1';
+    const PELICAN_BOT_VERSION = '4.14.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -12024,6 +12024,127 @@
         return 'pending';
     }
 
+    // "📦 Weight Limit Scroll" action: buy the scrolls from the NPC shop that sells them and use them until
+    // this character has used `qty` (the game allows 10 per character). Uses are counted per character in
+    // pelican_weight_scroll_<char>, so a character never buys them again once done.
+    const WEIGHT_SCROLL_ID = 90309;
+    let weightScrollBusy = false;
+    let weightShopTriedAt = 0;
+    const planSleep = ms => new Promise(r => setTimeout(r, ms));
+    const planBag = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
+    const inCapital = () => /เมืองหลวง|โซลเฮเวน/.test((typeof window.getCurrentMapName === 'function' && window.getCurrentMapName()) || '');
+
+    // Open each candidate NPC shop (arrow shop first, then Blacksmith Enok) and buy where the item is listed
+    async function planBuyFromNpcShop(itemId, qty, maxTotal) {
+        const room = getPlanRoom();
+        if (!room || !room.state || !room.state.npcs) return 'no-room';
+        const keys = [];
+        const add = k => { if (k && !keys.includes(k)) keys.push(k); };
+        add(window.__shopConfig && window.__shopConfig.npcKey);
+        room.state.npcs.forEach((n, k) => { if (/Shopkeeper|Blacksmith|Bag Merchant/i.test((n && n.name) || '')) add(k); });
+        const closeAll = () => { const x = document.querySelector('.shop-window .win-close, .npc-dialog .win-close'); if (x) x.click(); };
+        for (const key of keys) {
+            room.send('npc_talk', { npcKey: key });
+            let shop = null, dlg = null;
+            for (let i = 0; i < 75 && !shop && !dlg; i++) { await planSleep(200); shop = document.querySelector('.shop-window'); dlg = document.querySelector('.npc-dialog'); }
+            if (dlg && !shop) {
+                const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
+                const idx = opts.findIndex(o => /ซื้อ/.test(o) && !/แร่|ตีบวก/.test(o));
+                if (idx < 0) { closeAll(); await planSleep(300); continue; }
+                room.send('npc_option', { index: idx });
+                for (let i = 0; i < 30 && !shop; i++) { await planSleep(200); shop = document.querySelector('.shop-window'); }
+            }
+            if (!shop) { closeAll(); await planSleep(300); continue; }
+            const row = Array.from(shop.querySelectorAll('.shop-row')).find(r => {
+                const fk = Object.keys(r).find(k => k.startsWith('__reactFiber'));
+                return fk && r[fk] && String(r[fk].key) === String(itemId);
+            });
+            if (!row) { closeAll(); await planSleep(400); continue; }
+            const price = parseInt(((row.querySelector('.shop-price') || {}).innerText || '').replace(/[^0-9]/g, ''), 10) || 0;
+            const zeny = Number(((window.getLiveCharacterData && window.getLiveCharacterData()) || {}).zeny) || 0;
+            let n = qty;
+            if (price > 0) n = Math.min(qty, Math.floor(zeny / price), maxTotal ? Math.floor(maxTotal / price) : qty);
+            if (n <= 0) {
+                console.log(`%c[PmheeAether Plan] 💰 เงินไม่พอซื้อ (ราคา ${price.toLocaleString()} z / มี ${zeny.toLocaleString()} z) — รอเงินพอ`, 'color: #f59e0b;');
+                closeAll();
+                return 'no-money';
+            }
+            const before = planBag().filter(it => Number(it.itemId) === Number(itemId)).reduce((a, it) => a + (it.qty || 1), 0);
+            console.log(`%c[PmheeAether Plan] 🛒 ซื้อ item #${itemId} x${n} (${price ? (price * n).toLocaleString() + ' z' : 'ราคาไม่ทราบ'}) จาก NPC ${key}`, 'color: #10b981; font-weight: bold;');
+            room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: n }] });
+            for (let i = 0; i < 20; i++) {
+                await planSleep(250);
+                const now = planBag().filter(it => Number(it.itemId) === Number(itemId)).reduce((a, it) => a + (it.qty || 1), 0);
+                if (now > before) break;
+            }
+            closeAll();
+            return 'bought';
+        }
+        return 'not-sold';
+    }
+
+    async function runWeightScrollAction(act) {
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        if (!charName || charName === 'default_char') return 'pending';
+        const key = 'pelican_weight_scroll_' + charName;
+        const target = Math.max(1, Math.min(10, Number(act.qty) || 10));
+        let used = Number(localStorage.getItem(key)) || 0;
+        const finish = msg => {
+            console.log(`%c[PmheeAether Plan] 📦 Weight Limit Scroll: ${msg}`, 'color: #22c55e; font-weight: bold;');
+            window.__planJobChangeHoldUntil = 0;
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+            return 'done';
+        };
+        if (used >= target) return finish(`ตัวละครนี้ใช้ครบ ${used} ครั้งแล้ว`);
+        if (weightScrollBusy) return 'pending';
+        weightScrollBusy = true;
+        try {
+            const room = getPlanRoom();
+            if (!room) return 'pending';
+            // 1. Use the scrolls in the bag one by one, counting each use that the game accepted
+            let scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+            while (scroll && used < target) {
+                const qtyBefore = planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
+                room.send('inv_use', { slot: scroll.slot });
+                let ok = false;
+                for (let i = 0; i < 12 && !ok; i++) {
+                    await planSleep(250);
+                    const now = planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
+                    ok = now < qtyBefore;
+                }
+                if (!ok) {
+                    // The game refused it: this character has reached its limit
+                    localStorage.setItem(key, String(target));
+                    return finish(`เกมไม่ให้ใช้เพิ่มแล้ว (ใช้ครบโควตาของตัวละครนี้) — ไม่ซื้ออีก`);
+                }
+                used++;
+                localStorage.setItem(key, String(used));
+                console.log(`%c[PmheeAether Plan] 📦 ใช้ Weight Limit Scroll (${used}/${target})`, 'color: #38bdf8;');
+                scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
+            }
+            if (used >= target) return finish(`ใช้ครบ ${used}/${target} แล้ว บันทึกไว้กับตัวละครนี้ (จะไม่ซื้อซ้ำ)`);
+
+            // 2. Need more: go to the capital, then buy the missing amount from the shop that sells it
+            if (!inCapital()) {
+                if (window.__isNavigating || window.__isWalkingToMap) return 'pending';
+                const farm = window.__targetFarmMap || '';
+                if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
+                window.__planJobChangeHoldUntil = Date.now() + 120000;
+                console.log(`%c[PmheeAether Plan] 📦 ต้องซื้อ Weight Limit Scroll อีก ${target - used} อัน -> กลับเมืองหลวง`, 'color: #f59e0b; font-weight: bold;');
+                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                return 'pending';
+            }
+            if (Date.now() - weightShopTriedAt < 60000) return 'pending';
+            weightShopTriedAt = Date.now();
+            window.__planJobChangeHoldUntil = Date.now() + 60000;
+            const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, target - used, Number(act.maxPrice) || 0);
+            if (r === 'not-sold') console.warn('[PmheeAether Plan] ⚠️ ไม่พบร้าน NPC ที่ขาย Weight Limit Scroll ในเมือง — จะลองใหม่ภายหลัง');
+            return 'pending';   // next round uses what was bought
+        } finally {
+            weightScrollBusy = false;
+        }
+    }
+
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
@@ -12034,6 +12155,7 @@
             return await window.findAndEquipItemByName(act.itemName, act.buyFromMarket !== false, Number(act.maxPrice) || 0, act.optionFilter || '');
         }
         if (act.type === 'sell_trip') return runPlanSellTrip(act);
+        if (act.type === 'weight_scroll') return await runWeightScrollAction(act);
         if (act.type === 'set_arrow') {
             // Arrow supply for this stage of the plan (e.g. turn it on once the character is an Archer)
             const cfg = window.__archerConfig || (window.__archerConfig = {});
@@ -12141,7 +12263,7 @@
                 if (r === 'pending') {
                     remaining.push(ai);
                     if (act.type === 'change_class') blocker = act;
-                    if (act.type === 'sell_trip') quickRetry = true;
+                    if (act.type === 'sell_trip' || act.type === 'weight_scroll') quickRetry = true;
                 } else if (r === 'failed') {
                     console.warn('[PmheeAether Plan] ⚠️ Action ไม่ถูกต้อง (ข้าม):', act);
                 }

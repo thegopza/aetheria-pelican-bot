@@ -3136,6 +3136,7 @@ function planActionSummary(act) {
   if (act.type === 'change_map') return `🗺️ ${planMapLabel(act.targetMap)}`;
   if (act.type === 'change_class') return `🏹 ${planClassLabel(act.targetClass)}`;
   if (act.type === 'sell_trip') return '🛒 กลับเมืองขายของ';
+  if (act.type === 'weight_scroll') return `📦 Weight Scroll x${act.qty || 10}`;
   if (act.type === 'set_arrow') return act.requireArrow === false ? '🎯 ลูกธนู: ปิด' : `🎯 ลูกธนู ${planArrowLabel(act.arrowType).split(' (')[0]} x${act.arrowBuyQty || 200}`;
   return act.type;
 }
@@ -3282,7 +3283,8 @@ const PLAN_ACTION_TILES = [
   { type: 'equip_item', icon: '🛡️', title: 'สวมใส่ของ', desc: 'ใส่จากกระเป๋า หรือซื้อจากตลาด' },
   { type: 'change_map', icon: '🗺️', title: 'ย้ายแมพฟาร์ม', desc: 'เปลี่ยนแมพที่ไปฟาร์ม' },
   { type: 'set_arrow', icon: '🎯', title: 'ลูกธนู', desc: 'เปิด/ปิด เลือกชนิด จำนวน' },
-  { type: 'sell_trip', icon: '🛒', title: 'กลับไปขายของ', desc: 'กลับเมืองขาย/ซื้อของ 1 รอบ' }
+  { type: 'sell_trip', icon: '🛒', title: 'กลับไปขายของ', desc: 'กลับเมืองขาย/ซื้อของ 1 รอบ' },
+  { type: 'weight_scroll', icon: '📦', title: 'เพิ่มน้ำหนัก', desc: 'ซื้อ+ใช้ Weight Limit Scroll ให้ครบ' }
 ];
 
 function openTriggerDialog(trigIdx) {
@@ -3497,6 +3499,24 @@ function renderActionNodeHtml(trigIdx, actIdx, act) {
         </div>
       </div>`;
   }
+  if (act.type === 'weight_scroll') {
+    return `
+      <div class="pe-action weight_scroll">
+        <div class="pe-act-icon">📦</div>
+        <div class="pe-act-main">
+          <div class="pe-act-title"><b>ซื้อ + ใช้ Weight Limit Scroll</b>${del}</div>
+          <div class="pe-fields">
+            <label>ใช้ให้ครบ (ครั้ง ต่อตัวละคร)
+              <input type="number" class="form-input" min="1" max="10" value="${act.qty || 10}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'qty', Math.max(1, Math.min(10, parseInt(this.value, 10) || 10)))">
+            </label>
+            <label>งบสูงสุดรวม (0 = ไม่จำกัด)
+              <input type="number" class="form-input" min="0" step="1000" value="${Number(act.maxPrice) || 0}" onchange="updateActionField(${trigIdx}, ${actIdx}, 'maxPrice', Math.max(0, parseInt(this.value, 10) || 0))">
+            </label>
+          </div>
+          <small class="pe-hint">บอทจะใช้ที่มีในกระเป๋าก่อน ถ้าไม่พอจะกลับเมืองไปซื้อจากร้าน NPC ที่ขาย (เช็คเงินก่อนซื้อ) แล้วกดใช้ทีละอันจนครบ — จำไว้กับตัวละครนี้ ใช้ครบแล้วจะไม่ซื้ออีก</small>
+        </div>
+      </div>`;
+  }
   if (act.type === 'sell_trip') {
     return `
       <div class="pe-action sell_trip">
@@ -3622,6 +3642,8 @@ function addActionToTrigger(trigIdx, actionType) {
     }
   } else if (actionType === 'set_arrow') {
     Object.assign(newAction, { requireArrow: true, arrowType: 90030, arrowBuyQty: 200, ammoThreshold: 50 });
+  } else if (actionType === 'weight_scroll') {
+    Object.assign(newAction, { qty: 10, maxPrice: 0 });
   }
   trig.actions.push(newAction);
   if (trigIdx !== -1) markPlanDirty();
