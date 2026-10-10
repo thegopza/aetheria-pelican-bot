@@ -660,6 +660,41 @@ document.getElementById("btn-launch-all").onclick = async () => {
   }
 };
 
+// Small notice in the corner (same look as the bag window's toasts)
+function showToast(text, kind = "success") {
+  let host = document.getElementById("im-toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "im-toast-host";
+    document.body.appendChild(host);
+  }
+  const t = document.createElement("div");
+  t.className = `im-toast ${kind === "error" ? "err" : kind === "warning" ? "warn" : "ok"}`;
+  t.textContent = text;
+  host.appendChild(t);
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, 3200);
+}
+
+// START / STOP BOT on every online client at once
+async function setBotOnAllClients(start, btn) {
+  const online = currentProfiles.filter(p => p.isRunning);
+  if (!online.length) return showToast("ยังไม่มีจอที่ออนไลน์", "warning");
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="icon">⏳</span> ${start ? "กำลังเริ่มบอท..." : "กำลังหยุดบอท..."}`;
+  const results = await Promise.all(online.map(p =>
+    fetch(`${API_BASE}/api/profiles/${p.id}/toggle-bot?action=${start ? "start" : "stop"}`, { method: "POST" })
+      .then(r => r.json()).catch(e => ({ success: false, error: e.message }))
+  ));
+  btn.disabled = false;
+  btn.innerHTML = label;
+  const failed = online.filter((p, i) => !results[i].success).map(p => p.name);
+  showToast(`${start ? "▶️ START" : "⏹️ STOP"} BOT สำเร็จ ${online.length - failed.length}/${online.length} จอ${failed.length ? " — ไม่สำเร็จ: " + failed.join(", ") : ""}`, failed.length ? "warning" : "success");
+  fetchProfiles();
+}
+document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
+document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);
+
 document.getElementById("btn-stop-all").onclick = async () => {
   if (confirm("ยืนยันสั่งปิดจอเกมทั้งหมดทันที?")) {
     await fetch(`${API_BASE}/api/stop-all`, { method: "POST" });

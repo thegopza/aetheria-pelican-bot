@@ -1451,7 +1451,10 @@ const server = http.createServer(async (req, res) => {
       cRes.setEncoding('utf8');
       cRes.on("data", c => d += c);
       cRes.on("end", () => {
-        sendJSON({ success: true, isBotRunning: targetRunning });
+        let ok = false;
+        try { const r = JSON.parse(d); ok = !!(r && r.success && r.result && r.result.success); } catch (e) {}
+        if (ok) sendJSON({ success: true, isBotRunning: targetRunning });
+        else sendJSON({ success: false, error: "เกมไม่ตอบรับคำสั่ง (บอทอาจยังโหลดไม่เสร็จ)" }, 502);
       });
     }).on('error', (err) => {
       sendJSON({ success: false, error: err.message }, 502);
