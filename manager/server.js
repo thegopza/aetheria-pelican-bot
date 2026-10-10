@@ -330,6 +330,7 @@ function queryClientState(port) {
     const evalUrl = `http://127.0.0.1:${port}/api/eval?code=` + encodeURIComponent(LIVE_STATE_EVAL);
     const req = http.get(evalUrl, { timeout: 800 }, (res) => {
       let data = "";
+      res.setEncoding('utf8');
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
@@ -353,6 +354,7 @@ function queryStandardState(port) {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${port}/api/state`, { timeout: 700 }, (res) => {
       let data = "";
+      res.setEncoding('utf8');
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try { resolve(JSON.parse(data)); } catch (e) { resolve(null); }
@@ -378,6 +380,7 @@ function evalProfilePort(port, code, timeoutMs = 8000) {
       timeout: timeoutMs
     }, (res) => {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', chunk => d += chunk);
       res.on('end', () => {
         try { resolve(JSON.parse(d)); } catch(e) { resolve({ success: true, result: d }); }
@@ -752,6 +755,7 @@ const managerUpdater = createManagerSelfUpdater({
 });
 
 const server = http.createServer(async (req, res) => {
+  req.setEncoding('utf8');   // request bodies are built with += (Thai split across chunks -> U+FFFD)
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -958,6 +962,7 @@ const server = http.createServer(async (req, res) => {
 
       http.get(evalUrl, (cRes) => {
         let d = "";
+        cRes.setEncoding('utf8');
         cRes.on("data", c => d += c);
         cRes.on("end", () => {
           if (responded) return;
@@ -1347,6 +1352,7 @@ const server = http.createServer(async (req, res) => {
     const evalUrl = `http://127.0.0.1:${profile.debugPort}/api/eval?code=` + encodeURIComponent(code);
     http.get(evalUrl, (cRes) => {
       let d = "";
+      cRes.setEncoding('utf8');
       cRes.on("data", c => d += c);
       cRes.on("end", () => {
         sendJSON({ success: true, isBotRunning: targetRunning });
@@ -1397,6 +1403,7 @@ const server = http.createServer(async (req, res) => {
     const evalUrl = `http://127.0.0.1:${profile.debugPort}/api/eval?code=` + encodeURIComponent(code);
     http.get(evalUrl, (cRes) => {
       let d = "";
+      cRes.setEncoding('utf8');
       cRes.on("data", c => d += c);
       cRes.on("end", () => {
         try {

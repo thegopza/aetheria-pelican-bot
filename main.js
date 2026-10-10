@@ -103,6 +103,7 @@ function open() {
         const req = https.get(GITHUB_RAW_URL + "?t=" + Date.now(), (res) => {
           if (res.statusCode === 200) {
             let data = "";
+            res.setEncoding("utf8");   // Thai text split across chunks would otherwise become U+FFFD
             res.on("data", chunk => data += chunk);
             res.on("end", () => {
               if (data.length > 1000) {
@@ -209,6 +210,7 @@ function startDebugServer(port = DEBUG_PORT) {
 
       if (req.method === "POST") {
         let body = "";
+        req.setEncoding("utf8");
         req.on("data", chunk => body += chunk);
         req.on("end", () => {
           try {

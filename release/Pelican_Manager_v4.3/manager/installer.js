@@ -9,7 +9,7 @@ const https = require('https');
 const LOADER_PACKAGE = {
     name: 'aetheria-launcher',
     productName: 'Aetheria Online',
-    version: '1.0.4',
+    version: '1.0.5',
     description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
     main: 'main.js',
     private: true
@@ -345,6 +345,7 @@ function checkManagerOnlineUpdate() {
 
         const req = https.get(options, (res) => {
             let data = '';
+            res.setEncoding('utf8');
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 try {

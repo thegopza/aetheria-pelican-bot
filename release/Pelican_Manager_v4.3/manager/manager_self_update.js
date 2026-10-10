@@ -29,6 +29,7 @@ function getJSON(url) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'PmheeAether-Manager', 'Accept': 'application/vnd.github+json' }, timeout: 15000 }, res => {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', c => d += c);
       res.on('end', () => {
         if (res.statusCode !== 200) return reject(new Error(`GitHub HTTP ${res.statusCode}`));

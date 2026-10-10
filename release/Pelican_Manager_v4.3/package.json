@@ -1,7 +1,7 @@
 {
   "name": "aetheria-launcher",
   "productName": "Aetheria Online",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Aetheria Online for Windows: the web game in its own window",
   "main": "main.js",
   "private": true
