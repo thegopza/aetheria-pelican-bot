@@ -2028,6 +2028,9 @@ async function openWebBotHUD(profileId) {
     };
   }
 
+  // Auto Sell ตั้งขาย list (web version)
+  wireWebAutoSell(profileId, hudEl);
+
   // Action Buttons Wiring
   const toggleBotBtn = hudEl.querySelector('#p-btn-toggle-bot');
   if (toggleBotBtn) {
@@ -2422,10 +2425,119 @@ function toggleWebHudCollapse(profileId) {
   }
 }
 
+// "🏷️ Auto Sell ตั้งขาย" list in the web bot menu. The HUD copy called the game's own functions
+// (renderAutoSellHudRulesHtml / addAutoMarketSellRule ...), which only exist inside the game window, so the
+// list was always empty here. Drawn from client-data; every change is sent as update-autosell { rules }.
+const escAttr = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function webAutoSellRules(profileId) {
+  const d = activeWebHuds[profileId]?.data;
+  return ((d && d.autoMarketSellConfig && d.autoMarketSellConfig.rules) || []).map(r => ({ ...r }));
+}
+function renderWebAutoSellRules(profileId, force) {
+  const hud = activeWebHuds[profileId]?.el;
+  const box = hud && hud.querySelector('#p-autosell-hud-rules-container');
+  if (!box) return;
+  if (!force && box.contains(document.activeElement)) return;   // don't redraw under the user's cursor
+  const rules = webAutoSellRules(profileId);
+  const sig = JSON.stringify(rules);
+  if (!force && box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const badge = hud.querySelector('#p-subtab-autosell-count');
+  if (badge) badge.innerText = rules.length;
+  if (!rules.length) {
+    box.innerHTML = `<div style="background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(168, 85, 247, 0.35); border-radius: 6px; padding: 10px 8px; text-align: center; color: #94a3b8; font-size: 10px; margin: 4px 0;">
+      💡 ยังไม่มีรายการตั้งขายอัตโนมัติ<br><span style="color: #cbd5e1; font-size: 9px;">กดปุ่ม <b style="color: #4ade80;">[➕ เพิ่มรายการลงขาย]</b> ด้านบน แล้วใส่ชื่อไอเทมและจำนวนขั้นต่ำ</span></div>`;
+    return;
+  }
+  box.innerHTML = rules.map((r, i) => `
+    <div class="p-card ws-rule" data-rule-id="${escAttr(r.id)}" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(15, 23, 42, 0.7); padding: 5px; margin-bottom: 4px; ${r.enabled === false ? 'opacity: .55;' : ''}">
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <span style="color: #a855f7; font-weight: bold; font-size: 10px; font-family: monospace;">#${i + 1}</span>
+        <input type="checkbox" class="ws-en" ${r.enabled === false ? '' : 'checked'} title="เปิด/ปิดรายการนี้">
+        <input type="text" class="ws-name" value="${escAttr(r.itemName)}" placeholder="ชื่อไอเทม (ตรงตัว)..." style="flex: 1; min-width: 0; background: #020617; border: 1px solid #475569; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: bold;">
+        <button type="button" class="ws-del" title="ลบรายการนี้" style="background: #ef4444; color: #fff; border: none; width: 20px; height: 20px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; flex-shrink: 0;">➖</button>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; gap: 4px; font-size: 9.5px; color: #cbd5e1;">
+        <span>ครบ ≥ <input type="number" class="ws-min" min="1" value="${Number(r.minQty) || 20}" style="width: 48px; background: #020617; border: 1px solid #475569; color: #38bdf8; padding: 1px 3px; border-radius: 3px; font-size: 10px; text-align: center; font-weight: bold;"> ชิ้น</span>
+        <select class="ws-mode" style="background: #020617; border: 1px solid #475569; color: #c084fc; padding: 1px 4px; border-radius: 3px; font-size: 9.5px;">
+          <option value="all" ${r.sellMode !== 'min' ? 'selected' : ''}>ขายหมดในตัว</option>
+          <option value="min" ${r.sellMode === 'min' ? 'selected' : ''}>ทีละ ${Number(r.minQty) || 20} ชิ้น</option>
+        </select>
+      </div>
+    </div>`).join('');
+}
+function readWebAutoSellRules(box) {
+  return Array.from(box.querySelectorAll('.ws-rule')).map(row => ({
+    id: row.dataset.ruleId,
+    itemName: row.querySelector('.ws-name').value.trim(),
+    minQty: Math.max(1, parseInt(row.querySelector('.ws-min').value) || 1),
+    sellMode: row.querySelector('.ws-mode').value,
+    enabled: row.querySelector('.ws-en').checked
+  }));
+}
+async function saveWebAutoSellRules(profileId, rules) {
+  const d = activeWebHuds[profileId]?.data;
+  if (d) d.autoMarketSellConfig = Object.assign({}, d.autoMarketSellConfig, { rules });
+  const r = await sendWebHudAction(profileId, { type: 'update-autosell', config: { rules } });
+  if (!r || r.success === false) showToast('❌ บันทึกรายการตั้งขายไม่สำเร็จ: ' + ((r && r.error) || 'จอเกมไม่ตอบ'), 'error');
+}
+function wireWebAutoSell(profileId, hudEl) {
+  const box = hudEl.querySelector('#p-autosell-hud-rules-container');
+  if (!box) return;
+  let typing = null;
+  const saveNow = () => saveWebAutoSellRules(profileId, readWebAutoSellRules(box));
+  box.addEventListener('input', e => {
+    if (!e.target.matches('.ws-name, .ws-min')) return;
+    clearTimeout(typing);
+    typing = setTimeout(saveNow, 700);
+  });
+  box.addEventListener('change', e => {
+    if (!e.target.matches('.ws-mode, .ws-en, .ws-name, .ws-min')) return;
+    clearTimeout(typing);
+    saveNow();
+    if (e.target.matches('.ws-en')) e.target.closest('.ws-rule').style.opacity = e.target.checked ? '' : '.55';
+  });
+  box.addEventListener('click', e => {
+    const del = e.target.closest('.ws-del');
+    if (!del) return;
+    const row = del.closest('.ws-rule');
+    const rules = readWebAutoSellRules(box).filter(r => r.id !== row.dataset.ruleId);
+    saveWebAutoSellRules(profileId, rules);
+    renderWebAutoSellRules(profileId, true);
+  });
+  // buttons of the HUD copy that pointed at in-game functions
+  hudEl.querySelectorAll('button').forEach(btn => {
+    const on = btn.getAttribute('onclick') || '';
+    if (on.includes('addAutoMarketSellRule')) {
+      btn.onclick = () => {
+        const rules = box.querySelector('.ws-rule') ? readWebAutoSellRules(box) : webAutoSellRules(profileId);
+        rules.push({ id: 'rule_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), itemName: '', minQty: 20, sellMode: 'all', enabled: true });
+        saveWebAutoSellRules(profileId, rules);
+        renderWebAutoSellRules(profileId, true);
+        const names = box.querySelectorAll('.ws-name');
+        if (names.length) names[names.length - 1].focus();
+      };
+    } else if (on.includes('runAutoMarketSellCycle')) {
+      btn.onclick = async () => {
+        const r = await sendWebHudAction(profileId, { type: 'trigger-autosell-now' });
+        showToast(r && r.success !== false ? '⚡ สั่งตรวจสอบกระเป๋าและลงขายแล้ว (ดูผลในจอเกม)' : '❌ สั่งงานจอเกมไม่สำเร็จ', r && r.success !== false ? 'success' : 'error');
+      };
+    } else if (on.includes("showDataViewerModal('market')")) {
+      btn.onclick = () => showToast('ตารางเต็มจอ (Data Hub) เปิดได้ในหน้าต่างเกม — รายการด้านบนแก้ได้จากหน้านี้เลย', 'warning');
+    }
+  });
+  const toggle = hudEl.querySelector('#p-autosell-toggle-hud');
+  if (toggle) toggle.onchange = e => sendWebHudAction(profileId, { type: 'update-autosell', config: { enabled: e.target.checked } });
+  renderWebAutoSellRules(profileId, true);
+}
+
 function populateWebHudData(profileId, data) {
   if (!data) return;
   const hud = activeWebHuds[profileId]?.el;
   if (!hud) return;
+  renderWebAutoSellRules(profileId);
+  const autoTog = hud.querySelector('#p-autosell-toggle-hud');
+  if (autoTog && document.activeElement !== autoTog && data.autoMarketSellConfig) autoTog.checked = !!data.autoMarketSellConfig.enabled;
 
   // Title: Only character / profile name (NO Pmhee)
   const titleEl = hud.querySelector('.p-header-title');
