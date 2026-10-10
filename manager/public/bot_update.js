@@ -143,6 +143,7 @@
     pill.querySelector('.bu-text').textContent =
       !status.enabled ? 'Auto-update ปิด'
         : status.phase === 'waiting-cdn' ? 'รอ GitHub ส่งไฟล์ใหม่'
+          : status.phase === 'settling' ? `มีบอทใหม่ · อัปเดต ${new Date(status.settleUntil).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`
           : pending ? `กำลังอัปเดต (${pending})`
             : (mgr && mgr.pending && mgr.pending.length) || reloadPending ? 'มีอัปเดต Manager'
               : 'Auto-update';
@@ -159,7 +160,7 @@
       <p class="bu-desc">เช็ก GitHub ทุก ${status.pollMinutes || 5} นาที เมื่อ bot.js มีเวอร์ชันใหม่ จะรีเฟรชหน้าเกมทีละจอเฉพาะตอนที่ปลอดภัย แล้วให้บอทกลับมาทำงานต่อ</p>
       <div class="bu-latest">
         <small>bot.js ล่าสุดบน GitHub</small>
-        ${l ? `<div><code>${esc(l.sha.slice(0, 7))}</code> ${esc(l.message)}</div><small>${ago(l.date)}${status.ready && status.ready.sha === l.sha ? ' · ✅ พร้อมใช้งาน' : status.phase === 'waiting-cdn' ? ' · ⏳ รอ GitHub CDN' : ''}</small>`
+        ${l ? `<div><code>${esc(l.sha.slice(0, 7))}</code> ${esc(l.message)}</div><small>${ago(l.date)}${status.ready && status.ready.sha === l.sha ? ' · ✅ พร้อมใช้งาน' : status.phase === 'waiting-cdn' ? ' · ⏳ รอ GitHub CDN' : ''}${status.phase === 'settling' ? ' · ⏳ จะรีเฟรชจอตอน ' + new Date(status.settleUntil).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' (รอ 10 นาทีเผื่อมีเวอร์ชันใหม่ตามมา จะได้รีเฟรชรอบเดียว — กด "เช็กตอนนี้" เพื่ออัปเดตทันที)' : ''}</small>`
           : '<div class="bu-muted">ยังไม่ได้เช็ก (เช็กครั้งแรกหลังเปิด Manager 1 นาที)</div>'}
       </div>
       ${status.lastError ? `<div class="bu-error">⚠️ ${esc(status.lastError)}</div>` : ''}

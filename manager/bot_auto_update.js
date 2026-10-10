@@ -21,6 +21,9 @@ const POLL_MS = 5 * 60 * 1000;
 const TICK_MS = 15 * 1000;
 const RAW_WAIT_LIMIT_MS = 20 * 60 * 1000;
 const RESUME_GRACE_MS = 45 * 1000;
+// Several bot.js versions pushed close together used to refresh every client once per version. Roll out only
+// when no newer version showed up for this long (the "ตรวจตอนนี้" button skips the wait).
+const SETTLE_MS = 10 * 60 * 1000;
 const CLIENT_BACK_TIMEOUT_MS = 3 * 60 * 1000;
 
 // Evaluated in the game: page load time, busy flags and whether the bot is farming.
@@ -79,10 +82,12 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     lastError: null,
     latest: null,          // { sha, message, date, blobSha }
     ready: null,           // { sha, at } — raw CDN confirmed serving this version
-    phase: 'idle',         // idle | waiting-cdn | updating
+    phase: 'idle',         // idle | waiting-cdn | settling | updating
+    settleUntil: null,
     clients: {}            // profileId -> { name, state, note, at }
   };
   let busyCycle = false;
+  let manualAt = 0;
 
   const persist = () => {
     try {
@@ -198,6 +203,13 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     busyCycle = true;
     try {
       if (!status.ready) return;
+      const settleUntil = status.latest ? status.latest.date + SETTLE_MS : 0;
+      if (Date.now() < settleUntil && Date.now() - manualAt > SETTLE_MS) {
+        status.phase = 'settling';
+        status.settleUntil = settleUntil;
+        return;
+      }
+      status.settleUntil = null;
       const threshold = outdatedThreshold();
       const profiles = loadProfiles().filter(p => p.debugPort);
       let pending = 0;
@@ -255,6 +267,7 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
       return true;
     }
     if (pathname === '/api/bot-update/check' && req.method === 'POST') {
+      manualAt = Date.now();
       checkNow();
       sendJSON({ success: true });
       return true;
