@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.15.0
+// @version      4.16.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,10 +13,96 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.15.0';
+    const PELICAN_BOT_VERSION = '4.16.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
+
+    // ---------- Low-power drawing ----------
+    // AUTO battle runs on the server (auto_set); the client only draws it. The game (Phaser) draws through
+    // requestAnimationFrame, so pacing rAF cuts CPU/GPU without touching the bot (its timers are setInterval).
+    //  - window hidden / minimized: ~2 fps and the game canvas is hidden (nothing to composite)
+    //  - visible: optional cap from the HUD (pelican_fps_cap: 0 = off, 30, 20, 10)
+    (function setupLowPower() {
+        if (window.__pmLowPowerReady) return;
+        window.__pmLowPowerReady = true;
+        const nativeRaf = window.requestAnimationFrame.bind(window);
+        const nativeCaf = window.cancelAnimationFrame.bind(window);
+        const HIDDEN_FPS = 2;
+        let seq = 1e9, last = 0;
+        const pending = new Map();   // our handle -> { t: timeout id } | { r: rAF id }
+        const visibleCap = () => { try { return Number(localStorage.getItem('pelican_fps_cap')) || 0; } catch (e) { return 0; } };
+        const hidden = () => document.visibilityState === 'hidden' || window.__pmForceLowPower === true;
+        const interval = () => {
+            if (hidden()) return 1000 / HIDDEN_FPS;
+            const cap = visibleCap();
+            return cap > 0 && cap < 60 ? 1000 / cap : 0;
+        };
+        window.requestAnimationFrame = function (cb) {
+            const iv = interval();
+            if (!iv) return nativeRaf(cb);
+            const h = ++seq;
+            const wait = Math.max(0, last + iv - performance.now());
+            const fire = () => {
+                const r = nativeRaf(ts => { pending.delete(h); last = performance.now(); cb(ts); });
+                pending.set(h, { r });
+            };
+            if (wait <= 0) fire();
+            else pending.set(h, { t: setTimeout(fire, wait) });
+            return h;
+        };
+        window.cancelAnimationFrame = function (h) {
+            const p = pending.get(h);
+            if (!p) return nativeCaf(h);
+            if (p.t) clearTimeout(p.t);
+            if (p.r) nativeCaf(p.r);
+            pending.delete(h);
+        };
+        // Hidden: don't composite the game canvas at all
+        const applyCanvas = () => {
+            const off = hidden();
+            document.querySelectorAll('canvas').forEach(c => {
+                if (c.closest('#pelican-hud')) return;
+                if (off) { if (c.style.visibility !== 'hidden') { c.dataset.pmVis = c.style.visibility || ''; c.style.visibility = 'hidden'; } }
+                else if (c.dataset.pmVis !== undefined) { c.style.visibility = c.dataset.pmVis; delete c.dataset.pmVis; }
+            });
+        };
+        // Hidden for a while: release the game's WebGL context -> its GPU memory (2-3 GB per window) is freed.
+        // Phaser restores its textures on webglcontextrestored, done as soon as the window is shown again.
+        let loseExt = null, loseTimer = null;
+        const gameGl = () => {
+            const c = Array.from(document.querySelectorAll('canvas')).find(x => !x.closest('#pelican-hud') && x.width > 200);
+            if (!c) return null;
+            try { return c.getContext('webgl2') || c.getContext('webgl'); } catch (e) { return null; }
+        };
+        const releaseGpu = () => {
+            loseTimer = null;
+            if (!hidden() || loseExt || window.__pmKeepGpu === true) return;
+            const gl = gameGl();
+            const ext = gl && !gl.isContextLost() ? gl.getExtension('WEBGL_lose_context') : null;
+            if (!ext) return;
+            loseExt = ext;
+            ext.loseContext();
+            console.log('%c[PmheeAether Power] 🧊 คืนหน่วยความจำการ์ดจอของภาพเกม (จะโหลดภาพกลับเมื่อแสดงจอ)', 'color: #94a3b8;');
+        };
+        const restoreGpu = () => {
+            if (loseTimer) { clearTimeout(loseTimer); loseTimer = null; }
+            if (!loseExt) return;
+            const ext = loseExt;
+            loseExt = null;
+            try { ext.restoreContext(); } catch (e) {}
+        };
+
+        const onChange = () => {
+            applyCanvas();
+            if (hidden()) { if (!loseTimer && !loseExt) loseTimer = setTimeout(releaseGpu, 5000); }
+            else restoreGpu();
+            console.log(`%c[PmheeAether Power] ${hidden() ? '🌙 จอถูกซ่อน -> โหมดประหยัด (วาด ~' + HIDDEN_FPS + ' fps, ซ่อนภาพเกม)' : '☀️ แสดงจอ -> วาดปกติ' + (visibleCap() ? ' (จำกัด ' + visibleCap() + ' fps)' : '')}`, 'color: #94a3b8;');
+        };
+        document.addEventListener('visibilitychange', onChange);
+        window.setLowPowerMode = on => { window.__pmForceLowPower = !!on; onChange(); };
+        if (hidden()) setTimeout(onChange, 3000);
+    })();
 
     window.__gameSocket = null;
     window.__lastMoveToken = null;
@@ -10820,6 +10906,20 @@
                     </div>
 
                     
+                    <div class="p-card" style="border-color: rgba(148, 163, 184, 0.35);">
+                        <span style="font-size: 10.5px; font-weight: bold; color: #e2e8f0;">🌙 ประหยัดทรัพยากรเครื่อง</span>
+                        <div class="p-row" style="margin-top: 4px;">
+                            <span style="font-size: 10px; color: #cbd5e1;">จำกัด FPS ตอนแสดงจอ:</span>
+                            <select id="p-fps-cap" class="p-select" style="width: 120px;">
+                                <option value="0">ไม่จำกัด (60)</option>
+                                <option value="30">30 fps</option>
+                                <option value="20">20 fps</option>
+                                <option value="10">10 fps (เบาสุด)</option>
+                            </select>
+                        </div>
+                        <div class="p-hint" style="font-size: 9px; color: #94a3b8;">ตอนซ่อนจอ/ย่อจอ บอทหยุดวาดภาพเกมและคืนหน่วยความจำการ์ดจอให้อัตโนมัติ (บอทยังฟาร์มปกติ) — FPS นี้ใช้ตอนที่จอแสดงอยู่ เช่น เปิดหลายจอพร้อมกัน</div>
+                    </div>
+
                     <div class="p-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.05);">
                         <span style="font-size: 10.5px; font-weight: bold; color: #38bdf8;">🎮 ตั้งค่าอัตโนมัติใน Plan Script (Auto-Battle & Display)</span>
                         <label class="p-check-box" style="margin-top: 2px;">
@@ -10956,6 +11056,15 @@
                     document.getElementById('p-modal-raw-json').value = JSON.stringify(res, null, 2);
                     modal.style.display = 'flex';
                 }
+            };
+        }
+
+        const fpsCapEl = document.getElementById('p-fps-cap');
+        if (fpsCapEl) {
+            try { fpsCapEl.value = String(Number(localStorage.getItem('pelican_fps_cap')) || 0); } catch (e) {}
+            fpsCapEl.onchange = (e) => {
+                try { localStorage.setItem('pelican_fps_cap', String(Number(e.target.value) || 0)); } catch (err) {}
+                console.log(`%c[PmheeAether Power] 🎞️ จำกัด FPS ตอนแสดงจอ: ${Number(e.target.value) || 'ไม่จำกัด'}`, 'color: #94a3b8;');
             };
         }
 

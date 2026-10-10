@@ -63,6 +63,21 @@ function open() {
   });
 
   try { win.show(); win.focus(); } catch(e){}
+
+  // Low-power while hidden or minimized: the bot stops drawing the game and frees its GPU memory
+  // (window.setLowPowerMode in bot.js); audio is muted. A hidden window keeps document "visible"
+  // because backgroundThrottling is off, so the page has to be told.
+  const setLowPower = on => {
+    try { win.webContents.setAudioMuted(on); } catch (e) {}
+    win.webContents.executeJavaScript(`typeof window.setLowPowerMode === 'function' && window.setLowPowerMode(${on})`).catch(() => {});
+  };
+  const isAway = () => !win.isVisible() || win.isMinimized();
+  win.on("hide", () => setLowPower(true));
+  win.on("minimize", () => setLowPower(true));
+  win.on("show", () => { if (!isAway()) setLowPower(false); });
+  win.on("restore", () => { if (!isAway()) setLowPower(false); });
+  // after a reload (bot updates) the bot starts in normal mode: tell it again once it has loaded
+  win.webContents.on("did-finish-load", () => setTimeout(() => { if (isAway()) setLowPower(true); }, 8000));
   win.once("ready-to-show", () => {
     win.maximize();
     win.show();

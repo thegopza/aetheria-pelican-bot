@@ -1270,6 +1270,7 @@ const server = http.createServer(async (req, res) => {
       windowStates[p.id] = { isHidden: allWindowsHidden };
       if (p.debugPort) {
         http.get(`http://127.0.0.1:${p.debugPort}/api/window?action=${allWindowsHidden ? 'hide' : 'show'}`, () => {}).on('error', () => {});
+        evalProfilePort(p.debugPort, `typeof window.setLowPowerMode === 'function' && window.setLowPowerMode(${allWindowsHidden})`, 3000);
       }
     }
     const cmd = allWindowsHidden ? 0 : 9;
@@ -1303,6 +1304,7 @@ const server = http.createServer(async (req, res) => {
 
     if (profile.debugPort) {
       http.get(`http://127.0.0.1:${profile.debugPort}/api/window?action=${isHidden ? 'hide' : 'show'}`, () => {}).on('error', () => {});
+      evalProfilePort(profile.debugPort, `typeof window.setLowPowerMode === 'function' && window.setLowPowerMode(${isHidden})`, 3000);
     }
 
     const proc = runningProcesses[id];
