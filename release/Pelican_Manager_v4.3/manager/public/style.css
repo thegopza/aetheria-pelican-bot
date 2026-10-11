@@ -2240,6 +2240,8 @@ label {
   outline: none;
   transition: all 0.2s ease;
 }
+.zeny-keep-box { max-width: 210px; }
+.zeny-keep-box input { font-family: var(--font-mono); text-align: right; }
 .zeny-select:focus {
   border-color: #38bdf8;
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);

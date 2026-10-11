@@ -840,6 +840,24 @@ let selectedSenderIds = new Set();
 let consolidationPollTimer = null;
 let isConsolidationRunning = false;
 
+// "เหลือเงินติดตัวจอที่โอน": each sender keeps this much zeny (server: keepZeny). Remembered in this browser.
+function getConsolidationKeepZeny() {
+  const el = document.getElementById("zeny-keep-input");
+  const v = el ? parseInt(String(el.value).replace(/[^0-9]/g, ""), 10) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+(function initConsolidationKeepInput() {
+  const el = document.getElementById("zeny-keep-input");
+  if (!el) return;
+  try { const saved = localStorage.getItem("pm_consolidation_keep"); if (saved) el.value = Number(saved).toLocaleString(); } catch (e) {}
+  el.addEventListener("input", () => {
+    const n = getConsolidationKeepZeny();
+    try { localStorage.setItem("pm_consolidation_keep", String(n)); } catch (e) {}
+    if (typeof updateZenyConsolidationView === "function") updateZenyConsolidationView();
+  });
+  el.addEventListener("blur", () => { el.value = getConsolidationKeepZeny().toLocaleString(); });
+})();
+
 function updateZenyConsolidationView() {
   const onlineProfiles = currentProfiles.filter(p => p.isRunning);
   
@@ -906,7 +924,7 @@ function updateZenyConsolidationView() {
         }
         isChecked = selectedSenderIds.has(p.id) && isOnline;
         if (isChecked) {
-          pendingTransferSum += zeny;
+          pendingTransferSum += Math.max(0, zeny - getConsolidationKeepZeny());
         }
       }
 
@@ -942,6 +960,7 @@ function updateZenyConsolidationView() {
           </td>
           <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${zeny > 0 ? '#facc15' : '#94a3b8'};">
             ${zenyText}
+            ${!isReceiver && isChecked && getConsolidationKeepZeny() > 0 ? `<div style="font-size: 10.5px; font-weight: 600; color: #94a3b8;">→ โอน ${Math.max(0, zeny - getConsolidationKeepZeny()).toLocaleString()} z</div>` : ''}
           </td>
           <td style="text-align: center;">${statusBadge}</td>
         </tr>
@@ -1064,7 +1083,8 @@ function initZenyConsolidationEvents() {
 
       const recProfile = currentProfiles.find(p => p.id === selectedReceiverProfileId);
       const recName = recProfile?.liveState?.charName || recProfile?.name || selectedReceiverProfileId;
-      if (!confirm(`คุณต้องการเริ่มต้นรวมเงินจาก ${senderList.length} จอ เข้าตัวหลัก [${recName}] ใช่หรือไม่?\n\n(ทุกจอจะหยุดบอท วาร์ปกลับเมืองหลวง และเรียงคิวเทรดเงิน)`)) {
+      const keepZeny = getConsolidationKeepZeny();
+      if (!confirm(`คุณต้องการเริ่มต้นรวมเงินจาก ${senderList.length} จอ เข้าตัวหลัก [${recName}] ใช่หรือไม่?\n\n${keepZeny > 0 ? `💰 แต่ละจอจะเหลือเงินติดตัวไว้ ${keepZeny.toLocaleString()} z\n` : '💰 โอนเงินทั้งหมดของแต่ละจอ\n'}(ทุกจอจะหยุดบอท วาร์ปกลับเมืองหลวง และเรียงคิวเทรดเงิน)`)) {
         return;
       }
 
@@ -1076,7 +1096,7 @@ function initZenyConsolidationEvents() {
           body: JSON.stringify({
             receiverProfileId: selectedReceiverProfileId,
             senderProfileIds: senderList,
-            keepZeny: 0
+            keepZeny
           })
         });
         const text = await res.text();
