@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.27.0
+// @version      4.28.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.27.0';
+    const PELICAN_BOT_VERSION = '4.28.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -13732,7 +13732,8 @@
     let planLastStatAttempt = null;
     window.autoAllocateStats = async function() {
         const plan = window.__currentScriptPlan;
-        if (!plan || !plan.statBuild || !plan.statBuild.targets) return;
+        const sb = plan && plan.statBuild;
+        if (!sb || !((Array.isArray(sb.queue) && sb.queue.length) || sb.targets)) return;
         const ch = window.getLiveCharacterData();
         if (!ch || !(ch.statusPoints > 0)) { planLastStatAttempt = null; return; }
         const room = getPlanRoom();
@@ -13752,11 +13753,15 @@
             planLastStatAttempt = null;
         }
 
-        const targets = plan.statBuild.targets;
-        const priority = (plan.statBuild.priorityOrder && plan.statBuild.priorityOrder.length) ? plan.statBuild.priorityOrder : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
-        for (const st of priority) {
-            const key = String(st).toUpperCase();
-            const target = Math.min(99, Math.max(1, Number(targets[key]) || 1));
+        // The plan's stat queue (Manager "Stat Build": step 1 to its value, then step 2, ...). Plans saved
+        // before the queue: targets in priority order (the same as before).
+        const steps = (Array.isArray(sb.queue) && sb.queue.length)
+            ? sb.queue
+            : ((Array.isArray(sb.priorityOrder) && sb.priorityOrder.length) ? sb.priorityOrder : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR']).map(k => ({ stat: k, to: (sb.targets || {})[String(k).toUpperCase()] }));
+        for (const stp of steps) {
+            const key = String((stp && stp.stat) || '').toUpperCase();
+            if (!['STR', 'AGI', 'VIT', 'INT', 'DEX', 'LUK'].includes(key)) continue;
+            const target = Math.min(99, Math.max(1, Number(stp.to) || 1));
             const cur = Number(stats[key]) || 1;
             if (cur >= target) continue;
             let n = 0, spent = 0;

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=42510">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=42600">
+  <link rel="stylesheet" href="plan_editor.css?v=42700">
 </head>
 <body>
   <div class="app-container">
@@ -972,7 +972,7 @@
           </div>
           <div>
             <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #f8fafc;">ระบบวางแผนอัปสเตตัสอัตโนมัติ (Auto Stat Allocation)</h3>
-            <span style="font-size: 11px; color: #94a3b8;">กำหนดค่าสเตตัสเป้าหมายและลำดับความสำคัญ บอทจะอัปสเตตัสอัตโนมัติเมื่อมี Status Points</span>
+            <span style="font-size: 11px; color: #94a3b8;">กด + ที่สเตตัสตามลำดับที่อยากอัป บอทจะอัปตามคิวนี้ทีละขั้นเมื่อมี Status Points (เหมือนคิวสกิล)</span>
           </div>
         </div>
         <button class="modal-close" id="stat-builder-close-btn">&times;</button>
@@ -990,67 +990,18 @@
         </div>
       </div>
 
-      <!-- Stats Grid Form -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0;">
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #f87171;">💪 STR (กายภาพ / แบกน้ำหนัก):</span>
-            <input type="number" id="stat-target-str" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-str" min="1" max="99" value="1" style="width: 100%;">
-        </div>
+      <!-- Stat cards: + adds to the queue in click order -->
+      <div id="stat-cards-grid" class="sb-grid"></div>
 
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #34d399;">⚡ AGI (ความเร็วโจมตี / หลบหลีก):</span>
-            <input type="number" id="stat-target-agi" class="form-input" min="1" max="99" value="50" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-agi" min="1" max="99" value="50" style="width: 100%;">
+      <!-- Stat queue (the order the bot raises stats) -->
+      <div class="sb-queue-box">
+        <div class="sb-queue-head">
+          <b>📋 ลำดับการอัปสเตตัส (<span id="stat-queue-count">0</span> ขั้น)</b>
+          <span id="stat-queue-cost" class="sb-queue-cost"></span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-stat-reset" style="font-size: 10.5px; padding: 2px 8px;">🗑️ ล้างคิว</button>
         </div>
-
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #fbbf24;">🛡️ VIT (HP สูงสุด / ป้องกัน):</span>
-            <input type="number" id="stat-target-vit" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-vit" min="1" max="99" value="1" style="width: 100%;">
-        </div>
-
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #60a5fa;">🔮 INT (SP สูงสุด / เวท):</span>
-            <input type="number" id="stat-target-int" class="form-input" min="1" max="99" value="1" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-int" min="1" max="99" value="1" style="width: 100%;">
-        </div>
-
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">🏹 DEX (แม่นยำ / โจมตีไกล / ร่ายไว):</span>
-            <input type="number" id="stat-target-dex" class="form-input" min="1" max="99" value="99" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-dex" min="1" max="99" value="99" style="width: 100%;">
-        </div>
-
-        <div class="stat-input-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 12px; font-weight: 700; color: #c084fc;">🍀 LUK (คริติคอล / นกออกบ่อย):</span>
-            <input type="number" id="stat-target-luk" class="form-input" min="1" max="99" value="30" style="width: 60px; font-size: 12px; padding: 3px 6px; text-align: center; font-weight: bold;">
-          </div>
-          <input type="range" id="stat-slider-luk" min="1" max="99" value="30" style="width: 100%;">
-        </div>
-      </div>
-
-      <!-- Stat Priority Selector -->
-      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">🎯 ลำดับการอัปก่อน-หลัง (Priority Order):</span>
-        <select id="stat-priority-order-select" class="form-select" style="font-size: 11.5px; padding: 3px 8px; width: auto; font-weight: 600;">
-          <option value="DEX,AGI,LUK,VIT,INT,STR">1. DEX ➔ 2. AGI ➔ 3. LUK ➔ อื่นๆ</option>
-          <option value="AGI,DEX,LUK,VIT,INT,STR">1. AGI ➔ 2. DEX ➔ 3. LUK ➔ อื่นๆ</option>
-          <option value="STR,AGI,VIT,DEX,LUK,INT">1. STR ➔ 2. AGI ➔ 3. VIT ➔ อื่นๆ</option>
-          <option value="INT,DEX,VIT,AGI,LUK,STR">1. INT ➔ 2. DEX ➔ 3. VIT ➔ อื่นๆ</option>
-          <option value="VIT,INT,DEX,AGI,STR,LUK">1. VIT ➔ 2. INT ➔ 3. DEX ➔ อื่นๆ</option>
-        </select>
+        <div id="stat-queue-container" class="sb-queue"></div>
+        <div class="sb-queue-hint">บอทอัปขั้นแรกให้ถึงค่าที่ตั้งก่อน แล้วค่อยไปขั้นถัดไป · กดสเตตัสเดิมต่อกันจะรวมเป็นขั้นเดียว · กด ‹ › เพื่อสลับลำดับ</div>
       </div>
 
       <div class="modal-footer" style="margin-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
@@ -1062,7 +1013,7 @@
 
   <script src="app.js?v=42600"></script>
   <script src="patcher_module.js?v=41700"></script>
-  <script src="builder_module.js?v=42600"></script>
+  <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42600"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=41920"></script>

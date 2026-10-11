@@ -457,9 +457,11 @@ function updatePlanEditorBadges() {
   }
 
   if (statBadge) {
-    const sb = activeEditingPlan.statBuild?.targets;
-    if (sb) {
-      statBadge.innerText = `DEX ${sb.DEX || 1} / AGI ${sb.AGI || 1}`;
+    const q = statQueueOf(activeEditingPlan.statBuild);
+    if (q.length) {
+      const sb = statFinal(q);
+      const top = STAT_KEYS.filter(k => sb[k] > 1).sort((x, y) => sb[y] - sb[x]).slice(0, 2);
+      statBadge.innerText = `${q.length} ขั้น · ${top.map(k => `${k} ${sb[k]}`).join(' / ')}`;
       statBadge.style.background = 'rgba(56, 189, 248, 0.4)';
     } else {
       statBadge.innerText = 'Default';
@@ -917,93 +919,195 @@ function saveSkillBuild() {
   updatePlanEditorBadges();
 }
 
-// 6. Open Stat Builder Modal
+// 6. Stat Builder: an ordered queue of steps { stat, to } — the bot raises step 1 to its value, then step 2...
+//    (like the skill queue). statBuild = { queue, targets (final values), priorityOrder } — targets/priority
+//    are kept for older bots. Old plans without a queue: targets in priority order (what the bot did before).
+const STAT_KEYS = ['STR', 'AGI', 'VIT', 'INT', 'DEX', 'LUK'];
+const STAT_META = {
+  STR: { icon: '💪', color: '#f87171', th: 'กายภาพ / แบกน้ำหนัก' },
+  AGI: { icon: '⚡', color: '#34d399', th: 'ความเร็วโจมตี / หลบหลีก' },
+  VIT: { icon: '🛡️', color: '#fbbf24', th: 'HP สูงสุด / ป้องกัน' },
+  INT: { icon: '🔮', color: '#60a5fa', th: 'SP สูงสุด / เวท' },
+  DEX: { icon: '🏹', color: '#38bdf8', th: 'แม่นยำ / โจมตีไกล / ร่ายไว' },
+  LUK: { icon: '🍀', color: '#c084fc', th: 'คริติคอล / นกออกบ่อย' }
+};
+const STAT_PRESETS = {
+  agi_dex: [['DEX', 30], ['AGI', 30], ['DEX', 60], ['AGI', 60], ['DEX', 99], ['AGI', 99], ['LUK', 9]],
+  blitz_beat: [['DEX', 40], ['LUK', 30], ['AGI', 30], ['DEX', 80], ['LUK', 60], ['AGI', 80], ['INT', 20]],
+  str_agi: [['STR', 30], ['AGI', 30], ['STR', 60], ['AGI', 60], ['VIT', 30], ['STR', 90], ['AGI', 90], ['DEX', 30]],
+  int_dex: [['INT', 30], ['DEX', 30], ['INT', 60], ['DEX', 60], ['VIT', 30], ['INT', 99], ['DEX', 99]],
+  vit_tank: [['VIT', 40], ['INT', 20], ['VIT', 70], ['DEX', 30], ['INT', 40], ['VIT', 99], ['STR', 30], ['INT', 60], ['DEX', 50]]
+};
+let statWork = null;   // the queue being edited (written to the plan only on save)
+
+// Status points to raise a stat from v to v + 1 (game: floor((v - 1) / 10) + 2)
+const statPointCost = v => Math.floor((v - 1) / 10) + 2;
+const statRangeCost = (from, to) => { let c = 0; for (let v = from; v < to; v++) c += statPointCost(v); return c; };
+
+// Valid queue: values 1..99, each step raises its stat, consecutive steps of the same stat merged
+function normalizeStatQueue(q) {
+  const lv = {};
+  const out = [];
+  (Array.isArray(q) ? q : []).forEach(e => {
+    const k = String((e && e.stat) || '').toUpperCase();
+    if (!STAT_KEYS.includes(k)) return;
+    const to = Math.min(99, Math.max(1, parseInt(e.to, 10) || 1));
+    if (to <= (lv[k] || 1)) return;
+    if (out.length && out[out.length - 1].stat === k) out[out.length - 1].to = to;
+    else out.push({ stat: k, to });
+    lv[k] = to;
+  });
+  return out;
+}
+function statQueueOf(sb) {
+  if (!sb) return [];
+  if (Array.isArray(sb.queue) && sb.queue.length) return normalizeStatQueue(sb.queue);
+  const t = sb.targets || {};
+  const pr = Array.isArray(sb.priorityOrder) && sb.priorityOrder.length ? sb.priorityOrder : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
+  return normalizeStatQueue(pr.map(k => ({ stat: k, to: t[String(k).toUpperCase()] })));
+}
+function statFinal(q) {
+  const t = { STR: 1, AGI: 1, VIT: 1, INT: 1, DEX: 1, LUK: 1 };
+  q.forEach(e => { t[e.stat] = Math.max(t[e.stat], e.to); });
+  return t;
+}
+// Value of each step's stat before the step
+function statStepFrom(q) {
+  const lv = {};
+  return q.map(e => { const from = lv[e.stat] || 1; lv[e.stat] = e.to; return from; });
+}
+
 function openStatBuilderModal() {
   if (!activeEditingPlan) return;
-  if (!activeEditingPlan.statBuild) {
-    activeEditingPlan.statBuild = {
-      targets: { STR: 1, AGI: 50, VIT: 1, INT: 1, DEX: 99, LUK: 30 },
-      priorityOrder: ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR']
-    };
-  }
-
-  const targets = activeEditingPlan.statBuild.targets || {};
-  ['str', 'agi', 'vit', 'int', 'dex', 'luk'].forEach(st => {
-    const key = st.toUpperCase();
-    const val = targets[key] !== undefined ? targets[key] : (key === 'DEX' ? 99 : (key === 'AGI' ? 50 : 1));
-    const numInput = document.getElementById(`stat-target-${st}`);
-    const slider = document.getElementById(`stat-slider-${st}`);
-    if (numInput) numInput.value = val;
-    if (slider) slider.value = val;
-  });
-
-  const pSel = document.getElementById("stat-priority-order-select");
-  if (pSel && activeEditingPlan.statBuild.priorityOrder) {
-    const pStr = activeEditingPlan.statBuild.priorityOrder.join(',');
-    pSel.value = pStr;
-  }
-
+  statWork = statQueueOf(activeEditingPlan.statBuild);
+  renderStatBuilderUI();
   const modal = document.getElementById("stat-builder-modal");
   if (modal) modal.style.display = 'flex';
 }
 
+function renderStatBuilderUI() {
+  if (!statWork) return;
+  const final = statFinal(statWork);
+  const grid = document.getElementById('stat-cards-grid');
+  if (grid) {
+    grid.innerHTML = STAT_KEYS.map(k => {
+      const m = STAT_META[k];
+      const steps = [];
+      statWork.forEach((e, i) => { if (e.stat === k) steps.push(i + 1); });
+      const v = final[k];
+      return `
+        <div class="sb-card ${v > 1 ? 'on' : ''}" style="--sb-c: ${m.color};">
+          <div class="sb-card-top">
+            <span class="sb-name">${m.icon} ${k}</span>
+            <span class="sb-val">${v}</span>
+          </div>
+          <div class="sb-desc">${m.th}</div>
+          <div class="sb-btns">
+            <button type="button" onclick="statQueueAdd('${k}', -1)" ${v <= 1 ? 'disabled' : ''} title="ลด 1 (จากขั้นล่าสุดของ ${k})">−</button>
+            <button type="button" onclick="statQueueAdd('${k}', 1)" ${v >= 99 ? 'disabled' : ''}>+1</button>
+            <button type="button" onclick="statQueueAdd('${k}', 5)" ${v >= 99 ? 'disabled' : ''}>+5</button>
+            <button type="button" onclick="statQueueAdd('${k}', 10)" ${v >= 99 ? 'disabled' : ''}>+10</button>
+            <button type="button" onclick="statQueueAdd('${k}', 99)" ${v >= 99 ? 'disabled' : ''} title="อัปจนถึง 99">99</button>
+          </div>
+          <div class="sb-steps">${steps.map(n => `<span>#${n}</span>`).join('')}</div>
+        </div>`;
+    }).join('');
+  }
+  const froms = statStepFrom(statWork);
+  const box = document.getElementById('stat-queue-container');
+  const count = document.getElementById('stat-queue-count');
+  const costEl = document.getElementById('stat-queue-cost');
+  if (count) count.textContent = statWork.length;
+  const total = statWork.reduce((a, e, i) => a + statRangeCost(froms[i], e.to), 0);
+  if (costEl) costEl.textContent = statWork.length ? `ใช้ Status Points รวม ${total.toLocaleString()} แต้ม` : '';
+  if (box) {
+    box.innerHTML = statWork.length ? statWork.map((e, i) => `
+      <span class="sb-chip" style="--sb-c: ${STAT_META[e.stat].color};" title="ขั้นที่ ${i + 1}: ${e.stat} ${froms[i]} → ${e.to} (ใช้ ${statRangeCost(froms[i], e.to)} แต้ม)">
+        <button type="button" class="sb-mv" onclick="statQueueMove(${i}, -1)" ${i === 0 ? 'disabled' : ''} aria-label="เลื่อนขึ้น">‹</button>
+        <span class="sb-chip-no">#${i + 1}</span>
+        <b>${e.stat}</b> ${froms[i]} → ${e.to}
+        <button type="button" class="sb-mv" onclick="statQueueMove(${i}, 1)" ${i === statWork.length - 1 ? 'disabled' : ''} aria-label="เลื่อนลง">›</button>
+        <button type="button" class="sb-del" onclick="statQueueRemove(${i})" aria-label="ลบ">&times;</button>
+      </span>`).join('')
+      : '<span class="sb-empty">ยังไม่มีลำดับ — กด +1 / +5 / +10 ที่สเตตัสด้านบนตามลำดับที่อยากให้อัป หรือเลือก Preset</span>';
+  }
+}
+
+// +n (n = 99: up to 99) adds to the last step when it is the same stat, else a new step; -1 lowers the last
+// step of that stat (removed when it no longer raises anything)
+function statQueueAdd(stat, n) {
+  if (!statWork) return;
+  const final = statFinal(statWork);
+  if (n < 0) {
+    for (let i = statWork.length - 1; i >= 0; i--) {
+      if (statWork[i].stat !== stat) continue;
+      statWork[i].to -= 1;
+      break;
+    }
+  } else {
+    const to = n >= 99 ? 99 : Math.min(99, final[stat] + n);
+    const last = statWork[statWork.length - 1];
+    if (last && last.stat === stat) last.to = to;
+    else statWork.push({ stat, to });
+  }
+  statWork = normalizeStatQueue(statWork);
+  renderStatBuilderUI();
+}
+function statQueueRemove(i) {
+  if (!statWork) return;
+  statWork.splice(i, 1);
+  statWork = normalizeStatQueue(statWork);
+  renderStatBuilderUI();
+}
+function statQueueMove(i, dir) {
+  if (!statWork) return;
+  const j = i + dir;
+  if (j < 0 || j >= statWork.length) return;
+  [statWork[i], statWork[j]] = [statWork[j], statWork[i]];
+  statWork = normalizeStatQueue(statWork);
+  renderStatBuilderUI();
+}
+function resetStatQueue() {
+  if (!statWork || !statWork.length) return;
+  if (!confirm('ล้างลำดับการอัปสเตตัสทั้งหมด?')) return;
+  statWork = [];
+  renderStatBuilderUI();
+}
+window.statQueueAdd = statQueueAdd;
+window.statQueueRemove = statQueueRemove;
+window.statQueueMove = statQueueMove;
+
 function applyStatPreset(presetKey) {
-  const presets = {
-    agi_dex: { targets: { STR: 1, AGI: 99, VIT: 1, INT: 1, DEX: 99, LUK: 9 }, priority: 'DEX,AGI,LUK,VIT,INT,STR' },
-    blitz_beat: { targets: { STR: 1, AGI: 80, VIT: 1, INT: 20, DEX: 80, LUK: 60 }, priority: 'DEX,AGI,LUK,VIT,INT,STR' },
-    str_agi: { targets: { STR: 90, AGI: 90, VIT: 30, INT: 1, DEX: 30, LUK: 1 }, priority: 'STR,AGI,VIT,DEX,LUK,INT' },
-    int_dex: { targets: { STR: 1, AGI: 1, VIT: 30, INT: 99, DEX: 99, LUK: 1 }, priority: 'INT,DEX,VIT,AGI,LUK,STR' },
-    vit_tank: { targets: { STR: 30, AGI: 1, VIT: 99, INT: 60, DEX: 50, LUK: 1 }, priority: 'VIT,INT,DEX,AGI,STR,LUK' }
-  };
-
-  const p = presets[presetKey];
-  if (!p) return;
-
-  ['str', 'agi', 'vit', 'int', 'dex', 'luk'].forEach(st => {
-    const key = st.toUpperCase();
-    const val = p.targets[key] || 1;
-    const numInput = document.getElementById(`stat-target-${st}`);
-    const slider = document.getElementById(`stat-slider-${st}`);
-    if (numInput) numInput.value = val;
-    if (slider) slider.value = val;
-  });
-
-  const pSel = document.getElementById("stat-priority-order-select");
-  if (pSel && p.priority) pSel.value = p.priority;
+  const p = STAT_PRESETS[presetKey];
+  if (!p || !statWork) return;
+  if (statWork.length && !confirm('แทนที่ลำดับปัจจุบันด้วย Preset นี้?')) return;
+  statWork = normalizeStatQueue(p.map(([stat, to]) => ({ stat, to })));
+  renderStatBuilderUI();
 }
 
 function saveStatBuild() {
-  if (!activeEditingPlan) return;
-  const targets = {};
-  ['str', 'agi', 'vit', 'int', 'dex', 'luk'].forEach(st => {
-    const key = st.toUpperCase();
-    const numInput = document.getElementById(`stat-target-${st}`);
-    targets[key] = Math.min(99, Math.max(1, numInput ? parseInt(numInput.value, 10) || 1 : 1));
-  });
-
-  const pSel = document.getElementById("stat-priority-order-select");
-  const priorityOrder = pSel ? pSel.value.split(',') : ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'];
-
-  activeEditingPlan.statBuild = { targets, priorityOrder };
+  if (!activeEditingPlan || !statWork) return;
+  const queue = normalizeStatQueue(statWork);
+  const targets = statFinal(queue);
+  // older bots read targets + priority: first appearance order, the rest after
+  const priorityOrder = [];
+  queue.forEach(e => { if (!priorityOrder.includes(e.stat)) priorityOrder.push(e.stat); });
+  ['DEX', 'AGI', 'LUK', 'VIT', 'INT', 'STR'].forEach(k => { if (!priorityOrder.includes(k)) priorityOrder.push(k); });
+  activeEditingPlan.statBuild = { queue, targets, priorityOrder };
+  statWork = null;
   if (typeof markPlanDirty === 'function') markPlanDirty();
   updatePlanEditorBadges();
-
+  const modal = document.getElementById("stat-builder-modal");
+  if (modal) modal.style.display = 'none';
+}
+function closeStatBuilder() {
+  statWork = null;
   const modal = document.getElementById("stat-builder-modal");
   if (modal) modal.style.display = 'none';
 }
 
 // 7. Setup Event Listeners for Plan Builder Modals
 function setupPlanBuilderEventListeners() {
-  // Stat sliders sync
-  ['str', 'agi', 'vit', 'int', 'dex', 'luk'].forEach(st => {
-    const numInput = document.getElementById(`stat-target-${st}`);
-    const slider = document.getElementById(`stat-slider-${st}`);
-    if (numInput && slider) {
-      numInput.oninput = () => { slider.value = numInput.value; };
-      slider.oninput = () => { numInput.value = slider.value; };
-    }
-  });
-
   // Buttons in Plan Editor Header
   const btnOpenSkill = document.getElementById("btn-open-skill-builder");
   if (btnOpenSkill) btnOpenSkill.onclick = openSkillBuilderModal;
@@ -1039,9 +1143,11 @@ function setupPlanBuilderEventListeners() {
 
   // Stat Builder Controls
   const btnStatClose = document.getElementById("stat-builder-close-btn");
-  if (btnStatClose) btnStatClose.onclick = () => { document.getElementById("stat-builder-modal").style.display = 'none'; };
+  if (btnStatClose) btnStatClose.onclick = closeStatBuilder;
   const btnStatCancel = document.getElementById("stat-builder-cancel-btn");
-  if (btnStatCancel) btnStatCancel.onclick = () => { document.getElementById("stat-builder-modal").style.display = 'none'; };
+  if (btnStatCancel) btnStatCancel.onclick = closeStatBuilder;
+  const btnStatReset = document.getElementById("btn-stat-reset");
+  if (btnStatReset) btnStatReset.onclick = resetStatQueue;
   const btnStatSave = document.getElementById("stat-builder-save-btn");
   if (btnStatSave) btnStatSave.onclick = saveStatBuild;
 
