@@ -104,14 +104,48 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
     } catch (e) {}
   };
 
+  let restartQueued = false;
+  let restartReason = null;
+  function restartBlocked() {
+    try {
+      if (!isBusy()) return false;
+      status.note = 'รอให้รีเฟรชเกมหรือรวมเงินเสร็จก่อนรีสตาร์ท Manager server';
+    } catch (e) {
+      status.note = 'ตรวจสอบสถานะเกมไม่ได้ — รอรีสตาร์ท Manager server';
+    }
+    return true;
+  }
+  function restartSourcesReady() {
+    if (!gitMode) return true;
+    try {
+      const now = snapshot();
+      const changedServer = Object.keys(now).filter(rel => !isWebFile(rel) && now[rel] !== startSnap[rel]);
+      if (changedServer.every(rel => gitClean(rel) && syntaxOk(rel))) return true;
+      status.note = 'ไฟล์ server ในเครื่องถูกแก้ แต่ยังไม่ commit หรือมี syntax error — ยังไม่รีสตาร์ท';
+    } catch (e) {
+      status.note = 'ตรวจสอบไฟล์ server ไม่ได้ — ยังไม่รีสตาร์ท';
+    }
+    return false;
+  }
   function scheduleRestart(reason) {
     if (!supervised) {
       status.note = 'ไฟล์ฝั่ง server อัปเดตแล้ว แต่ต้องปิด-เปิด PelicanManager.exe เองหนึ่งครั้ง (เวอร์ชันนี้ยังไม่มีตัว supervisor)';
       return false;
     }
+    restartReason = reason;
+    if (restartBlocked()) return false;
+    if (!restartSourcesReady()) return false;
+    if (restartQueued) return true;
+    restartQueued = true;
     console.log(`[Manager Update] ♻️ ${reason} — restarting server (game windows stay open)`);
     status.note = 'กำลังรีสตาร์ท Manager server...';
-    setTimeout(() => process.exit(RESTART_EXIT_CODE), 1500);
+    setTimeout(() => {
+      restartQueued = false;
+      // Game refresh can start after this timer was queued. Check again at the exit boundary.
+      if (restartBlocked()) return;
+      if (!restartSourcesReady()) return;
+      process.exit(RESTART_EXIT_CODE);
+    }, 1500);
     return true;
   }
 
@@ -140,7 +174,7 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
       return;
     }
     status.note = 'ไฟล์ server ในเครื่องถูก commit แล้ว รอรีสตาร์ท';
-    if (status.enabled && !isBusy()) scheduleRestart(`local commit: ${changedServer.join(', ')}`);
+    if (status.enabled) scheduleRestart(restartReason || `local commit: ${changedServer.join(', ')}`);
   }
 
   // ---------- release mode: pull manager/ from GitHub ----------
@@ -228,12 +262,14 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
 
   async function tick() {
     if (gitMode) return scanLocal();
+    // A deferred restart must survive pending being cleared after files were applied.
+    if (status.enabled && restartReason) scheduleRestart(restartReason);
     await checkRemote();
     if (status.latest && (status.latest.treeSha || status.latest.sha) === failedSha()) {
       status.lastError = `เวอร์ชัน ${(status.latest.treeSha || status.latest.sha).slice(0, 7)} เปิด server ไม่ขึ้น ระบบคืนไฟล์เดิมแล้ว — จะไม่อัปเดตอัตโนมัติจนกว่าจะมีเวอร์ชันใหม่ (กดอัปเดตเองได้)`;
       return;
     }
-    if (status.enabled && status.pending.length && !isBusy()) await applyRemote();
+    if (status.enabled && status.pending.length && !restartBlocked()) await applyRemote();
   }
 
   function start() {

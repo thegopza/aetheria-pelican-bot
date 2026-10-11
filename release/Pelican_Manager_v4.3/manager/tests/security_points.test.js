@@ -167,3 +167,51 @@ test('loopback guard rejects foreign origin, null, DNS rebinding, LAN and cross-
   for (const headers of [{ host: 'evil.test:3899' }, { origin: 'https://evil.test' }, { origin: 'null' }, { 'sec-fetch-site': 'cross-site' }]) assert.equal(allowLocalRequest(req(headers), 3899), false);
   assert.equal(allowLocalRequest(req({}, '192.168.1.1'), 3899), false);
 });
+
+
+test('security reports bind the account and carry only bounded client identification', async t => {
+  const f = fixture(t, async (route, payload) => {
+    if (route.endsWith('/enroll')) return { success: true, accountId: 'account-test', token: TOKEN };
+    if (route.endsWith('/report')) return { success: true };
+    throw new Error('UNEXPECTED_ROUTE');
+  });
+  const client = f.create();
+  assert.equal(await client.reportSecurityEvent('local_credit_override', { profileId: 'profile-offline', password: 'must-not-send', token: 'must-not-send' }), true);
+  const call = f.calls.find(c => c.route.endsWith('/report'));
+  assert.equal(call.token, TOKEN);
+  assert.equal(call.payload.kind, 'local_credit_override');
+  assert.equal(call.payload.clientContext.profileId, 'profile-offline');
+  assert.match(call.payload.clientContext.sessionId, /^[a-f0-9-]{36}$/);
+  assert.equal('password' in call.payload.clientContext, false);
+  assert.equal('token' in call.payload.clientContext, false);
+  assert.equal(await client.reportSecurityEvent('unknown-kind'), false);
+});
+
+test('the compatibility lure never mints balance even if a fake transport claims success', async t => {
+  const f = fixture(t, async (route) => {
+    if (route.endsWith('/enroll')) return { success: true, accountId: 'account-test', token: TOKEN };
+    if (route.endsWith('/balance')) return { success: true, points: 7 };
+    if (route.endsWith('/admin/add-points')) return { success: true, totalPoints: 999999 };
+    throw new Error('UNEXPECTED_ROUTE');
+  });
+  const client = f.create();
+  await client.refreshBalance();
+  assert.equal((await client.recoverOfflineCredit(999999, { profileId: 'profile-offline' })).success, false);
+  assert.equal(client.loadSettings().points, 7);
+  const call = f.calls.find(c => c.route.endsWith('/admin/add-points'));
+  assert.equal(call.payload.clientContext.profileId, 'profile-offline');
+  assert.equal(call.token, TOKEN);
+});
+
+test('failed security reporting does not spend or erase cached points', async t => {
+  const f = fixture(t, async route => {
+    if (route.endsWith('/enroll')) return { success: true, accountId: 'account-test', token: TOKEN };
+    if (route.endsWith('/balance')) return { success: true, points: 7 };
+    throw new Error('SIMULATED_SECURITY_BACKEND_DOWN');
+  });
+  const client = f.create();
+  await client.refreshBalance();
+  assert.equal(await client.reportSecurityEvent('offline_solver_probe'), false);
+  assert.equal(client.loadSettings().points, 7);
+  assert.equal(f.calls.some(c => c.route.endsWith('/solve') || c.route.endsWith('/topup')), false);
+});

@@ -1112,7 +1112,7 @@ const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
   dataDir: path.join(__dirname, "data"),
   // Never restart in the middle of reloading game clients or a zeny consolidation run
-  isBusy: () => botAutoUpdater.status.phase !== "idle" || consolidationState.running
+  isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
 });
 
 const discordService = createDiscordBotService({
@@ -1258,6 +1258,8 @@ const server = http.createServer(async (req, res) => {
       req.on("end", async () => {
         try {
           const data = JSON.parse(body || "{}");
+          const creditOverride = ['points', 'balance', 'pointsPerBaht', 'sig', 'claimedVouchers'].some(key => Object.prototype.hasOwnProperty.call(data, key)) || data.pointSystemEnabled === false;
+          if (creditOverride) humanCheckSolver.reportSecurityEvent('local_credit_override', { profileId: data.profileId }).catch(() => {});
           const updated = humanCheckSolver.saveSettings(data);
           // Sync to Discord settings as well if autoAnswer changed
           if (data.autoAnswer !== undefined || data.answerDelayMs !== undefined) {
@@ -1313,8 +1315,9 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Point top-up / credit add endpoint (Dev shortcut only)
+  // Retired compatibility endpoint: never grants credits.
   if (pathname === "/api/human-check/add-points" && req.method === "POST") {
+    humanCheckSolver.reportSecurityEvent("local_credit_override").catch(() => {});
     return sendJSON({ success: false, error: "ปิดการเติม Point ทดสอบ กรุณาเติมผ่านซองของขวัญ" }, 403);
   }
 

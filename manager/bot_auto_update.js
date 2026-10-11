@@ -93,6 +93,8 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     clients: {}            // profileId -> { name, state, note, at }
   };
   let busyCycle = false;
+  // Only a refresh and its recovery block Manager restart. Waiting clients/CDN do not.
+  let refreshInFlight = false;
   let manualAt = 0;
 
   const persist = () => {
@@ -176,32 +178,41 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   }
 
   async function reloadClient(p, info) {
-    const wasRunning = info.running;
-    setClient(p, 'reloading', 'กำลังรีเฟรชหน้าเกม...');
-    // Fire and forget: the page unloads, so the eval never answers.
-    evalProfilePort(p.debugPort, `(() => { try { localStorage.setItem('pelican_bot_running', ${wasRunning ? "'true'" : "'false'"}); } catch (e) {} setTimeout(() => location.reload(), 150); return true; })()`, 2000);
-    await sleep(8000);
-
-    const started = Date.now();
-    let resumedAt = null;
-    while (Date.now() - started < CLIENT_BACK_TIMEOUT_MS) {
-      const now = await probe(p);
-      if (now && now.inGame && now.loadedAt > info.loadedAt) {
-        if (!wasRunning || now.running) {
-          setClient(p, 'done', wasRunning ? 'อัปเดตแล้ว บอททำงานต่อ' : 'อัปเดตแล้ว', now.version);
-          return;
-        }
-        resumedAt = resumedAt || Date.now();
-        if (Date.now() - resumedAt > RESUME_GRACE_MS) {
-          await evalProfilePort(p.debugPort, START_BOT_JS, 4000);
-          setClient(p, 'done', 'อัปเดตแล้ว (Manager สั่งเริ่มบอทให้)', now.version);
-          return;
-        }
-        setClient(p, 'resuming', 'รอบอทกลับมาทำงานต่อ...');
+    refreshInFlight = true;
+    try {
+      const wasRunning = info.running;
+      setClient(p, 'reloading', 'กำลังรีเฟรชหน้าเกม...');
+      // Wait for the dispatch to settle even when unload makes the eval time out.
+      try {
+        await evalProfilePort(p.debugPort, `(() => { try { localStorage.setItem('pelican_bot_running', ${wasRunning ? "'true'" : "'false'"}); } catch (e) {} setTimeout(() => location.reload(), 150); return true; })()`, 2000);
+      } catch (e) {
+        // A rejected eval may mean the page already unloaded. Keep protecting its recovery.
       }
-      await sleep(5000);
+      await sleep(8000);
+
+      const started = Date.now();
+      let resumedAt = null;
+      while (Date.now() - started < CLIENT_BACK_TIMEOUT_MS) {
+        const now = await probe(p);
+        if (now && now.inGame && now.loadedAt > info.loadedAt) {
+          if (!wasRunning || now.running) {
+            setClient(p, 'done', wasRunning ? 'อัปเดตแล้ว บอททำงานต่อ' : 'อัปเดตแล้ว', now.version);
+            return;
+          }
+          resumedAt = resumedAt || Date.now();
+          if (Date.now() - resumedAt > RESUME_GRACE_MS) {
+            await evalProfilePort(p.debugPort, START_BOT_JS, 4000);
+            setClient(p, 'done', 'อัปเดตแล้ว (Manager สั่งเริ่มบอทให้)', now.version);
+            return;
+          }
+          setClient(p, 'resuming', 'รอบอทกลับมาทำงานต่อ...');
+        }
+        await sleep(5000);
+      }
+      setClient(p, 'error', 'รีเฟรชแล้วแต่ตัวละครยังไม่กลับเข้าเกม — ตรวจสอบจอนี้');
+    } finally {
+      refreshInFlight = false;
     }
-    setClient(p, 'error', 'รีเฟรชแล้วแต่ตัวละครยังไม่กลับเข้าเกม — ตรวจสอบจอนี้');
   }
 
   async function updateCycle() {
@@ -251,7 +262,7 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   function start() {
     // First check after a minute so a freshly started Manager doesn't reload clients immediately.
     setTimeout(() => { checkNow(); setInterval(() => checkGitHub().then(waitForRaw), POLL_MS); }, 60 * 1000);
-    setInterval(() => { if (status.ready) updateCycle(); }, TICK_MS);
+    setInterval(() => { if (status.ready) return updateCycle(); }, TICK_MS);
   }
 
   async function handleRoute(req, res, pathname, sendJSON) {
@@ -281,7 +292,7 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     return false;
   }
 
-  return { start, handleRoute, status };
+  return { start, handleRoute, status, isBusy: () => refreshInFlight };
 }
 
 module.exports = { createBotAutoUpdater };

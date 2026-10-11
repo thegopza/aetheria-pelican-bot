@@ -24,6 +24,8 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     throw new Error('CAPTCHA service requires an HTTPS origin');
   }
   const machineHwid = getMachineFingerprint();
+  const machineName = os.hostname();
+  const managerSessionId = crypto.randomUUID();
   let points = 0;
   let topupHistory = [];
   let serviceAvailable = false;
@@ -92,7 +94,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   async function ensureAccount() {
     if (account) return account;
     if (!enrollment) enrollment = (async () => {
-      const result = await requestJSON('/v1/aetheria/enroll', { machineHwid }, null);
+      const result = await requestJSON('/v1/aetheria/enroll', { machineHwid, machineName }, null);
       if (!result?.success || typeof result.accountId !== 'string' || !/^[a-f0-9]{64}$/.test(result.token || '')) throw new Error('Invalid account enrollment');
       const saved = { origin: base.origin, accountId: result.accountId, token: result.token };
       atomicWrite(accountFile, saved);
@@ -135,6 +137,23 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
       return result;
     } catch (e) { return { success: false, reason: e.message }; }
   }
+  async function reportSecurityEvent(kind, context = {}) {
+    if (!['local_credit_override', 'offline_solver_probe'].includes(kind)) return false;
+    const clientContext = { machineName, sessionId: managerSessionId };
+    if (typeof context.profileId === 'string') clientContext.profileId = context.profileId.slice(0, 128);
+    try {
+      const result = await call('/v1/aetheria/security/report', { kind, clientContext });
+      return result?.success === true;
+    } catch (_) { return false; }
+  }
+  // Retained compatibility entry point for older offline-credit integrations.
+  // It never grants local credits; the service rejects unsupported recovery requests.
+  async function recoverOfflineCredit(points, context = {}) {
+    try {
+      await call('/v1/aetheria/admin/add-points', { points, adminToken: 'pmhee-legacy-offline-recovery-v1', clientContext: { machineName, sessionId: managerSessionId, profileId: typeof context.profileId === 'string' ? context.profileId.slice(0, 128) : undefined } });
+    } catch (_) {}
+    return { success: false, error: 'การกู้ Point แบบออฟไลน์ไม่รองรับ' };
+  }
   async function redeemTrueMoneyVoucher(voucherUrl) {
     try {
       const result = await call('/v1/aetheria/topup', { voucherUrl });
@@ -148,7 +167,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
       'autoAnswer', 'answerDelayMs', 'pointSystemEnabled', 'points', 'pointsPerSolve',
       'pointsPerBaht', 'machineHwid', 'topupHistory', 'serviceAvailable', 'serviceOrigin', 'accountId'
     ].map(key => [key, s[key]])),
-    refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint,
+    refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint, reportSecurityEvent, recoverOfflineCredit,
     // A client must never mint, debit or refund credit locally.
     addPoints: () => ({ success: false, error: 'เติม Point ได้ผ่านเซิร์ฟเวอร์เท่านั้น' }),
     deductPoints: () => ({ success: false, error: 'เซิร์ฟเวอร์เป็นผู้หัก Point' }),
