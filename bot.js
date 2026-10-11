@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.31.0
+// @version      4.31.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.31.0';
+    const PELICAN_BOT_VERSION = '4.31.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8458,11 +8458,50 @@
     // registerDone / username changes are read back by the Manager (manager/auth_sync.js).
     const saveAuth = () => { try { localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig)); } catch (e) {} };
     const randomId = () => 'pm' + Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x');
-    function randomCharName() {
-        const syl = ['ka', 'ri', 'to', 'mi', 'sa', 'ne', 'lo', 'va', 'zu', 'ra', 'ko', 'ya', 'hi', 'no', 'me', 'ru', 'ta', 'shi', 'ren', 'dai', 'el', 'an', 'is', 'or'];
-        let n = '';
-        for (let i = 0; i < 3; i++) n += syl[Math.floor(Math.random() * syl.length)];
-        return n.charAt(0).toUpperCase() + n.slice(1, 10) + Math.floor(10 + Math.random() * 90);
+    // Character names that look like players picked them: gamer words, FiveM-style lowercase tags, Thai nicknames
+    // and short Thai words, mixed in several patterns. Game rule: English, Thai, digits and _ only, min..max
+    // characters (read from the create form), unique — a taken name is simply re-rolled on the next try.
+    const NAME_WORDS = {
+        prefix: ['lnw', 'Pro', 'God', 'King', 'Baby', 'Master', 'Lord', 'Boss', 'Dark', 'Shadow', 'Ghost', 'Blood', 'Demon', 'Chaos', 'Void',
+            'Phantom', 'Cyber', 'Neon', 'Apex', 'Viper', 'Silent', 'Lucky', 'Mini', 'Big', 'Little', 'Sweet', 'Crazy', 'Wild'],
+        tag: ['cxllme', 'teary', 'lost', 'saddest', 'deadly', 'zodiac', 'mafia', 'gang', 'nightmare', 'lonely', 'sleepy', 'broken', 'silent',
+            'hxrt', 'nxbody', 'cold', 'lazy', 'tired', 'sxdboy', 'midnight', 'blue', 'mxrning', 'xoxo', 'sxul', 'velvet'],
+        core: ['Dragon', 'Tiger', 'Phoenix', 'Wolf', 'Hawk', 'Snake', 'Lion', 'Panther', 'Raven', 'Thunder', 'Frost', 'Flame', 'Sniper',
+            'Gamer', 'Player', 'Glitch', 'Assassin', 'Knight', 'Samurai', 'Ninja', 'Warrior', 'Guardian', 'Reaper', 'Stalker', 'Slayer',
+            'Archer', 'Bard', 'Hunter', 'Ranger', 'Arrow', 'Storm', 'Moon', 'Star', 'Sky', 'Rain', 'Fox', 'Bear', 'Cat'],
+        thai: ['ศูนย์', 'หมอก', 'นิ่ง', 'ฝน', 'เงา', 'เกือบตึง', 'บังเอิญ', 'แจกแต้ม', 'ง่วง', 'ขี้เกียจ', 'หิวข้าว', 'เด็กดี', 'คนเดิม',
+            'ตัวตึง', 'สายฟ้า', 'จันทร์', 'ดาว', 'ลมหนาว', 'ทะเล', 'ภูเขา', 'นักธนู', 'ไม่ไหว'],
+        nick: ['Tee', 'Bank', 'Boom', 'Non', 'Zen', 'Beam', 'Win', 'First', 'Nut', 'Gun', 'Phu', 'Pond', 'Dome', 'Earth', 'Mix', 'Mind',
+            'Ice', 'Mild', 'Nam', 'Fon', 'Pleng', 'Cream', 'View', 'Ton', 'Pete', 'Fluke', 'Mark', 'Top', 'Off', 'Ohm', 'Fiat', 'Tar', 'Arm',
+            'Bas', 'Jay', 'Kao', 'Mew', 'Nine', 'Pang', 'Plai', 'Ploy', 'Praew', 'Toey', 'June', 'Fah', 'Ning', 'Kwan', 'Mook', 'Bow', 'Gift'],
+        suffix: ['Za', '007', '99', 'VIP', 'Gaming', 'GG', 'TH', 'BKK', '777', '888', '999', 'Z', 'X', 'THX', 'Jr', 'Kung', 'Nakub', 'Ja']
+    };
+    function randomCharName(minLen = 4, maxLen = 12) {
+        const pick = a => a[Math.floor(Math.random() * a.length)];
+        const num = () => String(Math.random() < 0.5 ? Math.floor(Math.random() * 90) + 10 : Math.floor(Math.random() * 900) + 100);
+        const W = NAME_WORDS;
+        const patterns = [
+            () => pick(W.tag) + pick(W.nick),                         // cxllmeBank
+            () => pick(W.tag) + '_' + pick(W.core),                   // teary_Wolf
+            () => pick(W.prefix) + pick(W.core),                      // DarkDragon
+            () => pick(W.prefix) + pick(W.core) + pick(W.suffix),     // DarkDragonZa
+            () => pick(W.nick) + num(),                               // Tee404
+            () => pick(W.tag) + num(),                                // lost999
+            () => pick(W.core) + pick(W.suffix),                      // WolfTH
+            () => pick(W.thai) + pick(W.suffix),                      // หมอกTH
+            () => pick(W.thai) + pick(W.nick),                        // ฝนBeam
+            () => pick(W.nick) + pick(W.core),                        // BankWolf
+            () => pick(W.nick) + '_' + pick(W.suffix),                // Beam_TH
+            () => pick(W.prefix) + pick(W.nick),                      // LuckyMild
+            () => pick(W.thai) + num(),                               // เงา88
+        ];
+        for (let i = 0; i < 60; i++) {
+            let n = pick(patterns)();
+            // FiveM-style names are often all lowercase
+            if (/^[a-z]/.test(n) || Math.random() < 0.15) n = n.replace(/[A-Z]/g, c => c.toLowerCase());
+            if (n.length >= minLen && n.length <= maxLen && /^[A-Za-z0-9_฀-๿]+$/.test(n)) return n;
+        }
+        return (pick(W.nick) + num()).slice(0, Math.max(minLen, maxLen));
     }
     let registerSubmittedAt = 0;
     let registerTries = 0;
@@ -8546,7 +8585,11 @@
         const input = form.querySelector('input');
         const btn = form.querySelector('button');
         if (!input || !btn) return true;
-        charCreateName = randomCharName();
+        // name length allowed by the server: the input's maxLength and the "{min}–{max} ตัว" hint under it
+        const hint = ((form.querySelector('small') || {}).innerText || '').match(/(d+)s*[–-]s*(d+)/);
+        const maxLen = Number(input.maxLength) > 0 ? Number(input.maxLength) : (hint ? Number(hint[2]) : 12);
+        const minLen = hint ? Number(hint[1]) : 3;
+        charCreateName = randomCharName(Math.max(3, minLen), Math.min(maxLen, 14));
         console.log(`%c[PmheeAether Auth] 🧝 สร้างตัวละครใหม่ชื่อ "${charCreateName}"...`, 'color: #a855f7; font-weight: bold;');
         setNativeInputValue(input, charCreateName);
         charCreateAt = now;
