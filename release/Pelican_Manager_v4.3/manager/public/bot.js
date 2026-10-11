@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.1
+// @version      4.35.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.1';
+    const PELICAN_BOT_VERSION = '4.35.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5982,7 +5982,8 @@
         window.__goHomeWingAt = 0;
         window.__goHomeWingFails = 0;
         console.log(`%c[PmheeAether] 🗺️ ${why ? why + ' -> ' : ''}${wings > 0 ? 'ใช้ Butterfly Wing ไม่ได้' : 'ไม่มี Butterfly Wing'} -> เปิดแผนที่แล้วเดินกลับเมืองหลวง (ไม่เสียค่าวาร์ป)`, 'color: #f59e0b; font-weight: bold;');
-        window.walkToTargetMap(CAPITAL_MAP, true, { walkOnly: true, allowDuringConsolidation: !!opts.allowDuringConsolidation });
+        // money consolidation must get home even while the "unexpected town return" pause blocks farm walks
+        window.walkToTargetMap(CAPITAL_MAP, true, { walkOnly: true, allowDuringConsolidation: !!opts.allowDuringConsolidation, skipWait: !!opts.allowDuringConsolidation });
         return 'walk';
     };
     // The target map stuck on the capital although nothing needs town any more (a trip cut by STOP, a page
