@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.24.0
+// @version      4.25.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.24.0';
+    const PELICAN_BOT_VERSION = '4.25.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5910,8 +5910,28 @@
             return false;
         }
 
+        // The game's item category of a bag item (same rule as its bag / shop tabs)
+        function itemShopCategory(it) {
+            if (!it) return null;
+            const t = it.type, e = it.equipType;
+            if (t === 'Card') return 'การ์ด';
+            if (t === 'Equipment') return (e === 'Weapon' || e === 'Ammo') ? 'อาวุธ' : (e === 'Acc' || e === 'Gem') ? 'ประดับ/เจม' : 'ชุดเกราะ';
+            if (t === 'Consumable') return 'ใช้ได้';
+            if (t === 'Enchantment') return 'แร่/ตีบวก';
+            if (t === 'Miscellaneous') return 'วัตถุดิบ';
+            return 'อื่นๆ';
+        }
+
         function findCategoryTab(catName) {
-            const shopModal = document.querySelector('.shop-window, [class*="shop"], .modal-body, .window') || document.body;
+            // The bag window has the very same tabs ("อาวุธ 2" ...): clicking those left the shop list unchanged and
+            // the bot judged the rows of another tab with this tab's rules. Look inside the shop window only.
+            const shopWin = document.querySelector('.shop-window');
+            if (shopWin) {
+                const chip = Array.from(shopWin.querySelectorAll('.inv-tabs button, [role="tab"]'))
+                    .find(b => (b.innerText || '').trim().startsWith(catName));
+                if (chip) return chip;
+            }
+            const shopModal = shopWin || document.querySelector('.shop-window, [class*="shop"], .modal-body, .window') || document.body;
             const candidates = Array.from(shopModal.querySelectorAll('button, [role="tab"], [class*="tab"], li, div, span, a')).filter(el => {
                 if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
                 if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
@@ -6058,16 +6078,23 @@
             }
 
             const tabTitle = (catBtn.innerText || catBtn.textContent || '').trim();
+            if (catBtn.disabled) {
+                console.log(`[PmheeAether Shop] ℹ️ แท็บ "${tabTitle}" ไม่มีของ -> ข้าม`);
+                onDone();
+                return;
+            }
             console.log(`%c[PmheeAether Shop] 🎯 พบคลิกแท็บหมวดหมู่: "${tabTitle}"`, 'color: #38bdf8; font-weight: bold;');
-            triggerClick(catBtn);
-            catBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-            catBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-            catBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            if (typeof catBtn.click === 'function') catBtn.click();
+            catBtn.click();
 
             // รอ 600ms ให้หน้าร้านค้าเปลี่ยนรายการตามแท็บที่เลือก
             setTimeout(() => {
-                const shopModal = document.querySelector('.shop-window, [class*="shop"]') || document.body;
+                const shopModal = document.querySelector('.shop-window') || document.querySelector('[class*="shop"]') || document.body;
+                const shownTab = shopModal.querySelector('.inv-tabs button.active, .inv-tabs [aria-selected="true"]');
+                if (shownTab && !(shownTab.innerText || '').trim().startsWith(catName)) {
+                    console.warn(`[PmheeAether Shop] 🛑 ร้านยังแสดงแท็บ "${(shownTab.innerText || '').trim()}" ไม่ใช่ "${catName}" -> ข้ามหมวดนี้ (กันขายผิดหมวด)`);
+                    onDone();
+                    return;
+                }
 
                 // กฎเหล็ก: ป้องกันการขายมั่วในขณะที่หน้าร้านค้าเปิดค้างที่แท็บ 'การ์ด' หรือ 'ทั้งหมด'
                 const activeTab = shopModal.querySelector('[class*="active"], [class*="selected"], [aria-selected="true"], .tab.active, button.active');
@@ -6169,6 +6196,15 @@
 
                         const titleEl = row.querySelector('[class*="name"], [class*="title"], h3, h4, h5, b, strong, .item-label') || 
                                         Array.from(row.querySelectorAll('*')).find(el => (el.innerText || '').trim() === itemName) || row;
+
+                        // The row's real item (bag slot = React key of the row) must belong to this tab
+                        const rowSlot = getShopRowSlot(btn);
+                        const rowItem = rowSlot === null ? null : ((typeof window.getBagItems === 'function' ? window.getBagItems() : []).find(x => Number(x.slot) === rowSlot) || null);
+                        const rowCat = rowItem ? itemShopCategory(rowItem.raw || rowItem) : null;
+                        if (rowCat && rowCat !== catName) {
+                            console.warn(`[PmheeAether Shop] 🛑 "${itemName}" เป็นหมวด "${rowCat}" ไม่ใช่ "${catName}" -> ข้าม`);
+                            return;
+                        }
 
                         // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
@@ -6706,35 +6742,6 @@
         });
     };
 
-    // HP potions for the game's AUTO (it drinks them under its HP %). The town trip never bought any: characters
-    // with VIT 1 and no potions died again and again. Level-based potion (Red < 15, Orange < 40, else White) or
-    // shopConfig.hpPotionId; tops up to shopConfig.hpPotionQty (30), never spends more than half the zeny.
-    const HEAL_POTIONS = { 90301: 'Red Potion', 90302: 'Orange Potion', 90303: 'White Potion' };
-    function buyHealingPotions() {
-        const pcfg = window.__shopConfig || {};
-        if (pcfg.autoBuyPotion === false) return;
-        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
-        const lvl = Number(ch.baseLevel) || 1;
-        const potId = Number(pcfg.hpPotionId) || (lvl >= 40 ? 90303 : lvl >= 15 ? 90302 : 90301);
-        const target = Math.max(0, Number(pcfg.hpPotionQty) || 30);
-        const have = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(potId) : 0;
-        const need = target - have;
-        const name = HEAL_POTIONS[potId] || ('#' + potId);
-        if (need <= 0) return;
-        const shop = document.querySelector('.shop-window');
-        const row = shop && Array.from(shop.querySelectorAll('.shop-row')).find(r => {
-            const fk = Object.keys(r).find(k => k.startsWith('__reactFiber'));
-            return fk && r[fk] && String(r[fk].key) === String(potId);
-        });
-        if (!row) { console.warn(`[PmheeAether Shop] 🧪 ร้านนี้ไม่มี ${name} ขาย`); return; }
-        const price = parseInt(((row.querySelector('.shop-price') || {}).innerText || '').replace(/[^0-9]/g, ''), 10) || 0;
-        const zeny = Number(ch.zeny) || 0;
-        const n = price > 0 ? Math.min(need, Math.floor((zeny * 0.5) / price)) : need;
-        if (n <= 0) { console.warn(`[PmheeAether Shop] 🧪 เงินไม่พอซื้อ ${name} (ราคา ${price.toLocaleString()} z / มี ${zeny.toLocaleString()} z)`); return; }
-        console.log(`%c[PmheeAether Shop] 🧪 ซื้อยาฟื้นเลือด ${name} x${n} (มี ${have} / ตั้งเป้า ${target})`, 'color: #ec4899; font-weight: bold;');
-        window.sendShopBuy(potId, n);
-    }
-
     function executeSellAndBuyActions(onComplete) {
         if (!window.__isBotRunning && !window.__isManualSelling) return;
         console.log('%c[PmheeAether Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
@@ -6773,7 +6780,6 @@
             // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้ (Smart Restock: คำนวณส่วนต่างให้ครบ targetQty)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
-                buyHealingPotions();
                 if (cfg.useBwing) {
                     const bwingId = parseInt(cfg.bwingItemId) || 0x000160c7;
                     const targetBwing = parseInt(cfg.bwingBuyQty) || 5;
@@ -7201,16 +7207,35 @@
         return zeny !== null && zeny < min;
     };
 
-    // Death loop: 3 deaths within 10 minutes on the same farm map -> farm the plan's previous (easier) map for
-    // 30 minutes, then try again. Without a plan there is no "easier map" to pick: it only warns.
+    // Death loop: 3 deaths within 10 minutes on the same farm map -> farm the plan's previous (easier) map and stay
+    // there (kept per character across reloads) until the user changes the plan or picks a farm map himself.
+    // Without a plan there is no "easier map" to pick: it only warns.
     window.__deathLog = window.__deathLog || [];
+    const safeMapKey = () => 'pelican_safe_map_' + ((typeof window.getCharacterName === 'function' && window.getCharacterName()) || 'default');
+    const loadSafeMap = () => { try { return JSON.parse(localStorage.getItem(safeMapKey()) || 'null'); } catch (e) { return null; } };
+    window.__safeMap = window.__safeMap || null;
+    const planSig = () => {
+        const p = window.__currentScriptPlan;
+        if (!p) return '';
+        const t = JSON.stringify(p.triggers || []);
+        let h = 0;
+        for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+        return (p.id || '') + ':' + h;
+    };
+    window.clearSafeMap = function (why) {
+        if (!window.__safeMap && !loadSafeMap()) return;
+        window.__safeMap = null;
+        try { localStorage.removeItem(safeMapKey()); } catch (e) {}
+        console.log(`%c[PmheeAether] ☠️ ยกเลิกการย้ายแมพเพราะตายบ่อย (${why || 'ผู้ใช้เปลี่ยนเอง'})`, 'color: #94a3b8;');
+    };
     window.noteDeathForMap = function () {
         const map = window.__targetFarmMap || '';
         const now = Date.now();
         window.__deathLog = window.__deathLog.filter(d => now - d.at < 10 * 60 * 1000);
         window.__deathLog.push({ at: now, map });
         const n = window.__deathLog.filter(d => d.map === map).length;
-        if (n < 3 || (window.__safeMap && window.__safeMap.from === map && now < window.__safeMap.until)) return;
+        const cur = window.__safeMap || loadSafeMap();
+        if (n < 3 || (cur && cur.from === map)) return;
         let easier = null;
         const plan = window.__planScriptEnabled && window.__currentScriptPlan;
         if (plan && Array.isArray(plan.triggers)) {
@@ -7224,8 +7249,9 @@
             console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" — แมพนี้อาจยากเกินไป (ลองเพิ่ม VIT / ซื้อยา / เปลี่ยนแมพ)`);
             return;
         }
-        window.__safeMap = { from: map, to: easier, until: now + 30 * 60 * 1000 };
-        console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" -> ย้ายไปฟาร์ม "${easier}" ชั่วคราว 30 นาที แล้วค่อยกลับไปลองใหม่`);
+        window.__safeMap = { from: map, to: easier, at: now, plan: planSig() };
+        try { localStorage.setItem(safeMapKey(), JSON.stringify(window.__safeMap)); } catch (e) {}
+        console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" -> ย้ายไปฟาร์ม "${easier}" (แมพก่อนหน้าในแผน) และฟาร์มที่นี่ต่อไปจนกว่าจะแก้แผน/เลือกแมพเอง`);
     };
 
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
@@ -7241,9 +7267,11 @@
                 mapName = planMap;
             }
         }
-        const safe = window.__safeMap;
-        if (safe && Date.now() < safe.until && mapName === safe.from) {
-            console.log(`%c[PmheeAether] ☠️ ตายบ่อยที่ "${safe.from}" -> ไปฟาร์ม "${safe.to}" ก่อน (อีก ${Math.ceil((safe.until - Date.now()) / 60000)} นาที)`, 'color: #f59e0b; font-weight: bold;');
+        let safe = window.__safeMap || loadSafeMap();
+        if (safe && safe.plan && safe.plan !== planSig()) { window.clearSafeMap('แผนถูกแก้'); safe = null; }
+        if (safe && mapName === safe.from) {
+            window.__safeMap = safe;
+            console.log(`%c[PmheeAether] ☠️ เคยตายบ่อยที่ "${safe.from}" -> ฟาร์ม "${safe.to}" แทน (แก้แผนหรือเลือกแมพเองเพื่อยกเลิก)`, 'color: #f59e0b; font-weight: bold;');
             mapName = safe.to;
         }
 
@@ -11310,6 +11338,7 @@
             selectEl.onchange = (e) => {
                 window.__targetFarmMap = e.target.value;
                 localStorage.setItem('pelican_farm_map', window.__targetFarmMap);
+                if (typeof window.clearSafeMap === 'function') window.clearSafeMap('เลือกแมพเองใน HUD');
             };
         }
 
@@ -14257,7 +14286,7 @@
         const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || window.__gameRoom;
         if (!room) return { success: false, error: 'No room connection' };
         console.log(`%c[PmheeAether Stat] 📈 อัปค่าสถานะ ${statKey} +${count}`, 'color: #22c55e; font-weight: bold;');
-        room.send('stat_up', { stat: String(statKey).toLowerCase(), n: Number(count) || 1 });
+        room.send('stat_up', { stat: String(statKey).toUpperCase(), n: Number(count) || 1 });   // the game uses STR/AGI/... (lower case was ignored)
         return { success: true };
     };
 

@@ -1830,6 +1830,7 @@ public class PmFocus {
         if (payload.type === 'set-farm-map') {
           codeToRun = `(() => {
             const map = ${JSON.stringify(payload.map)};
+            if (typeof window.clearSafeMap === 'function') window.clearSafeMap('เลือกแมพจาก Manager');
             window.__targetFarmMap = map;
             try { localStorage.setItem('pelican_farm_map', map); } catch(e){}
             const mapSelect = document.getElementById('p-target-map-select');
