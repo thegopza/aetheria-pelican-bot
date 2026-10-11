@@ -729,7 +729,9 @@ async function runWeightCheck(btn) {
       if (r.skip === "no-plan") { lines.push(`➖ ${r.name}: ไม่ได้ใช้ Plan — ข้าม`); continue; }
       if (r.error) { lines.push(`⚠️ ${r.name}: ${r.error}`); continue; }
       const lim = `${r.limit.toLocaleString()} / ${WEIGHT_TARGET.toLocaleString()}`;
-      if (!r.need) { lines.push(`✅ ${r.name}: ${lim} ครบแล้ว`); continue; }
+      const extra = r.scrolls ? ` · มี Scroll เหลือในกระเป๋า ${r.scrolls} อัน (ใช้ไม่ได้แล้ว ขาย NPC ได้)` : "";
+      if (!r.need && r.used === 10 && r.limit < WEIGHT_TARGET) { lines.push(`🔒 ${r.name}: ${lim} — ใช้ Scroll ครบ 10 ครั้งแล้ว เพิ่มอีกไม่ได้${extra}`); continue; }
+      if (!r.need) { lines.push(`✅ ${r.name}: ${lim} ครบแล้ว${r.used === 10 && r.scrolls ? extra : ""}`); continue; }
       if (!r.supported) { lines.push(`⚠️ ${r.name}: ${lim} — บอทในจอนี้ยังเป็นเวอร์ชันเก่า (รอ Auto-update / รีเฟรชจอ)`); continue; }
       const buy = Math.max(0, r.need - (r.scrolls || 0));
       const cost = buy * WEIGHT_SCROLL_PRICE;
@@ -3152,6 +3154,11 @@ function renderPlanProfilesList() {
                 📊 Stat Build
               </span>
             ` : ''}
+            ${(plan.gearPlan?.steps?.length > 0) ? `
+              <span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.35); font-size: 10px; padding: 1px 6px;">
+                🛡️ เซ็ต ${plan.gearPlan.steps.length} รายการ
+              </span>
+            ` : ''}
             ${isAssigned ? `
               <span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 10px; padding: 1px 6px; border-radius: 4px;">
                 ⚡ กำลังใช้งานกับจอนี้
@@ -3171,6 +3178,9 @@ function renderPlanProfilesList() {
           </button>
           <button type="button" class="btn ${isAssigned ? 'btn-secondary' : 'btn-success'} btn-sm" onclick="openPlanAssignPicker('${plan.id}')" title="เลือกจอเกมที่จะใช้แผนนี้">
             <span>⚡</span> ${isAssigned ? 'ซิงค์ซ้ำ' : 'ใช้งาน'}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm btn-icon" onclick="exportPlanProfiles(['${plan.id}'])" title="ส่งออกแผนนี้เป็นไฟล์ (Export)">
+            <span>📤</span>
           </button>
           <button type="button" class="btn btn-secondary btn-sm btn-icon" onclick="duplicatePlanProfile('${plan.id}')" title="ทำสำเนาแผนนี้">
             <span>📋</span>
@@ -3251,11 +3261,7 @@ async function duplicatePlanProfile(planId) {
     const res = await fetch(`${API_BASE}/api/plan-profiles`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: plan.name + " (Copy)",
-        description: plan.description || "",
-        triggers: plan.triggers || []
-      })
+      body: JSON.stringify(Object.assign(JSON.parse(JSON.stringify(plan)), { id: undefined, name: plan.name + " (Copy)", autoJobChange: planAutoJobChangeOf(plan) }))
     });
     const result = await res.json();
     if (result.success) {
@@ -4145,30 +4151,81 @@ function handleImportPlansClick() {
   }
 }
 
+// Export the chosen plans to a .json file (the import reads { profiles: [...] })
+function exportPlanProfiles(planIds) {
+  const list = currentPlanProfiles.filter(p => planIds.includes(p.id));
+  if (!list.length) return;
+  const assignments = {};
+  Object.entries(currentPlanAssignments || {}).forEach(([cid, pid]) => { if (planIds.includes(pid)) assignments[cid] = pid; });
+  const text = JSON.stringify({ exportedAt: new Date().toISOString(), profiles: list, assignments }, null, 2);
+  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safe = s => String(s || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+  a.download = list.length === 1 ? `plan_${safe(list[0].name)}_${Date.now()}.json` : `aetheria_plan_scripts_${list.length}_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(`📤 ส่งออก ${list.length === 1 ? 'แผน "' + list[0].name + '"' : list.length + ' แผน'} แล้ว`, 'success');
+}
+
+// "ส่งออก (Export)": tick the plans to put in the file
 function handleExportPlansClick() {
   if (currentPlanProfiles.length === 0) {
     alert("ไม่มี Plan Profile ในระบบให้ส่งออก");
     return;
   }
-
-  const exportData = {
-    exportedAt: new Date().toISOString(),
-    profiles: currentPlanProfiles,
-    assignments: currentPlanAssignments
+  let modal = document.getElementById('plan-export-picker');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'plan-export-picker';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '1200';
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('active'); });
+  }
+  modal.innerHTML = `
+    <div class="modal-card" style="width: min(460px, 92vw);">
+      <div class="modal-header">
+        <h3 style="margin: 0;">📤 เลือกแผนที่จะส่งออก</h3>
+        <button class="modal-close" data-x="close">&times;</button>
+      </div>
+      <label style="display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; font-size: 12.5px; cursor: pointer;">
+        <input type="checkbox" class="pe-exp-all"> เลือกทั้งหมด (${currentPlanProfiles.length} แผน)
+      </label>
+      <div style="max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px 0;">
+        ${currentPlanProfiles.map(p => `
+          <label style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 6px; cursor: pointer; font-size: 12.5px;">
+            <input type="checkbox" class="pe-exp-cb" value="${escapeHTML(p.id)}">
+            <span style="flex: 1; color: #f1f5f9;">${escapeHTML(p.name)}</span>
+            <small style="color: #94a3b8;">${escapeHTML(p.class1Target || '')} ➔ ${escapeHTML(p.class2Target || '')}${p.gearPlan?.steps?.length ? ' · 🛡️' + p.gearPlan.steps.length : ''}</small>
+          </label>`).join('')}
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;">
+        <button type="button" class="btn btn-secondary" data-x="close">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" data-x="go" disabled>📤 ส่งออก (0 แผน)</button>
+      </div>
+    </div>`;
+  const cbs = [...modal.querySelectorAll('.pe-exp-cb')];
+  const all = modal.querySelector('.pe-exp-all');
+  const go = modal.querySelector('[data-x="go"]');
+  const refresh = () => {
+    const n = cbs.filter(c => c.checked).length;
+    go.disabled = !n;
+    go.textContent = `📤 ส่งออก (${n} แผน)`;
+    all.checked = n === cbs.length;
+    all.indeterminate = n > 0 && n < cbs.length;
   };
-
-  const text = JSON.stringify(exportData, null, 2);
-  const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `aetheria_plan_scripts_${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  alert(`📤 ส่งออก Plan Profiles ทั้งหมด (${currentPlanProfiles.length} รายการ) เรียบร้อยแล้ว!`);
+  cbs.forEach(c => c.onchange = refresh);
+  all.onchange = () => { cbs.forEach(c => c.checked = all.checked); refresh(); };
+  modal.querySelectorAll('[data-x="close"]').forEach(b => b.onclick = () => modal.classList.remove('active'));
+  go.onclick = () => {
+    exportPlanProfiles(cbs.filter(c => c.checked).map(c => c.value));
+    modal.classList.remove('active');
+  };
+  modal.classList.add('active');
 }
 
 // Setup Event Listeners for Plan Modal

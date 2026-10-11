@@ -88,6 +88,19 @@
 
 - **อ่านข้อความจาก HTTP ต้อง `setEncoding('utf8')` ก่อน `+= chunk` เสมอ** (หรือเก็บ Buffer แล้ว `Buffer.concat`) — ตัวอักษรไทย 3 ไบต์ที่ถูกตัดคร่อม chunk จะกลายเป็น U+FFFD (เคยทำให้ bot.js ที่โหลดจาก GitHub เพี้ยน ~200 ตัวอักษร); server.js ตั้ง `req.setEncoding` ไว้ต้น handler แล้ว
 
+## 👥 ทีม Agent ของโปรเจกต์ (`.claude/agents/`)
+
+| Agent | หน้าที่ |
+|---|---|
+| `aetheria-bot-dev` | แก้/เพิ่มโค้ดใน bot.js (แผน, ขาย/ซื้อ, เดินทาง, ตีบวก) |
+| `aetheria-manager-dev` | แก้/เพิ่ม Manager (server.js และหน้าเว็บ) |
+| `aetheria-game-probe` | อ่านข้อมูลจากจอเกมจริงแบบอ่านอย่างเดียว เพื่อหาสาเหตุปัญหา |
+| `aetheria-tester` | เขียน/รันเทสต์ (harness จาก bot.js, Manager ทดสอบพอร์ต 3899 + ภาพหน้าจอ) |
+| `aetheria-reviewer` | ตรวจบัค การทำซ้ำ/ซื้อซ้ำ และการทับซ้อนกับระบบอื่น ก่อน commit (ไม่แก้ไฟล์) |
+| `aetheria-release` | ซิงค์ไฟล์ทุกจุด, zip, commit เฉพาะไฟล์ของงาน, push |
+
+ลำดับงานปกติ: (probe ถ้าเป็นบัคจากจอจริง) → dev → tester → reviewer → แก้ตามรีวิว → release
+
 ## 🧪 5. การทดสอบอย่างปลอดภัย
 
 - ผู้ใช้มักเปิดเกมอยู่หลายจอ (debug port 49876–49880) และ Manager จริงรันที่พอร์ต 3888 — **ห้ามปิด/รีสตาร์ท PelicanManager.exe หรือ Manager จริงเอง** (จะปิดจอเกมที่เปิดผ่าน Manager)
@@ -112,6 +125,8 @@
    - **Trigger แบบ "ข้ามผ่านเลเวล"**: ทำเมื่อ `lastLevel < target <= currentLevel` (ไม่ใช่เลเวลตรงเป๊ะ) และเก็บสถานะแยกต่อ ตัวละคร+แผน ใน `pelican_plan_state_<char>_<planId>` (`done`/`pending`) — Action ที่ยังไม่สำเร็จจะลองใหม่ทุก 60 วิ (ใส่ของยอมแพ้หลัง 30 นาที)
    - Action `sell_trip` (🛒 กลับไปขายของ 1 รอบ): เรียก `executeAutoShopRoutine()` ครั้งเดียว (ถ้าถูกปฏิเสธเพราะ cooldown/กำลังเดิน จะลองใหม่ทุก 4 วิ) เสร็จเมื่อ `__isShopping` กลับเป็น false
    - Action `weight_scroll` (📦 Weight Limit Scroll itemId 90309, ใช้ได้ 10 ครั้ง/ตัวละคร): ใช้ของในกระเป๋าก่อน (เกมมีคูลดาวน์ ~3 วิระหว่างใช้ → เว้น 3.5 วิ) นับครั้งที่จำนวนในกระเป๋าลด หรือ `inventory.weightLimit` เพิ่ม (+500/ครั้ง) ใน `pelican_weight_scroll_v2_<char>`; ถือว่าครบโควตาเมื่อเกมปฏิเสธ 3 ครั้งติดกันที่เว้นเกินคูลดาวน์เท่านั้น; ไม่พอ → กลับเมือง → `planBuyFromNpcShop` เปิดร้าน NPC ทีละร้าน (ร้านลูกธนูก่อน) หาแถวที่ React key = itemId แล้ว `shop_buy_many {lines:[{itemId, qty}]}` (เช็คราคา × จำนวน กับเงินก่อน)
+   - **จำนวน Weight Limit Scroll ที่ใช้ไปแล้ว ดูจากเกมเอง** (`window.getWeightScrollsUsed()`): น้ำหนักสูงสุด = 2000 + 30 × (STR + bonus STR) + 500 × ครั้งที่ใช้ (ตรงทุกตัวที่ตรวจ) — ห้ามเชื่อตัวนับใน localStorage อย่างเดียว (หายเมื่อย้ายไปโหมดเบราว์เซอร์ → เคยซื้อซ้ำ 10 อันที่ใช้ไม่ได้); ถ้าคำนวณไม่ได้ (เช่น Merchant มีสกิล Pack Mule `enlarge-weight`) ให้ซื้อทีละ 1 อันเป็นตัวทดสอบ
+   - **เซ็ตอุปกรณ์ของแผน** (`plan.gearPlan = {startClass, steps}`, หน้าเว็บ `manager/public/gear_builder.js`, ข้อมูลไอเทมจาก `GET /api/game-items` = `/wiki-data` ของเกม): บอท (`window.runGearPlanStep`) ทำทีละรายการตามลำดับ เมื่อเงิน ≥ ที่ตั้ง และอาชีพอยู่ในสายของ `startClass`; สถานะ "เสร็จ" เช็คจากของที่สวมจริงทุกครั้ง (ชื่อ + ออปชั่นสุ่ม / ระดับตีบวก); equip = กระเป๋า → ตลาด (ราคาไม่เกินเงินที่ตั้ง, จำการซื้อไว้ 30 นาทีกันจ่ายซ้ำ, รออาชีพที่ใส่ได้จาก `step.jobs`); refine = คุยกับ NPC ชื่อ Blacksmith → ตัวเลือก "ตีบวก" → ข้อความ `refine` {items:[{source,to,onFail,material,zeny}]} → `room.send('refine',{source, blessing})` → `refine_result`; ขั้นที่อาจแตกจะไม่ตีถ้าไม่มี Blessing (เว้นแต่ผู้เล่นเอาติ๊ก Blessing ออก); ทุกทางที่ล้มเหลวต้องเว้นระยะ + กลับแมพฟาร์ม (`pelican_gear_trip` อยู่ใน localStorage เผื่อรีเฟรชระหว่างทาง); `__isGearRefining` อยู่ใน `planBusyReason` และ `CLIENT_PROBE_JS`
    - **ขั้นตอนในตัวทุกแผน: รับสัตว์เลี้ยง Event** (`runEventPetStep`, `plan.eventPet` ค่าเริ่มต้นเปิด): Base ≥ 15 → กลับเมือง (จำแมพฟาร์มไว้คืน) → `npc_talk` Event Lily (หาจากชื่อ ตอนนี้ n10) → ตัวเลือกที่มีคำว่า "รับ" → `inv_use` Orc Cub Egg (itemId 90334) — ครั้งเดียวต่อตัวละคร (`pelican_event_pet_<char>`) ข้ามถาวรถ้ารับไปแล้วหรือไม่มี NPC
    - **เจม**: ชื่อบอกระดับเป็น % (`Mana Gem (Skill) 3%` < `5%`) ใส่ในช่อง `gem-1..4` — ใส่ลงช่องที่ต้องการด้วย `equip {slot, to: 'gem-N'}` (ทดสอบกับเกมจริงแล้ว ของเดิมกลับเข้ากระเป๋า); `autoUpgradeGems` (ค่าเริ่มต้นเปิด) และ action สวมใส่เจมจะไม่เปลี่ยนกลับไปเป็น % ที่ต่ำกว่า
    - **คุยกับ NPC ในแมพเดียวกันไม่ต้องเดินเอง**: ส่ง `npc_talk` จากตรงไหนก็ได้ เซิร์ฟเวอร์จะเดินตัวละครไปหา NPC แล้วเปิดบทสนทนาให้ (เกมเองก็ทำแบบนี้ใน route) — `move_to` ระยะไกลอาจค้างเมื่อทางอ้อมแม่น้ำ/สะพาน

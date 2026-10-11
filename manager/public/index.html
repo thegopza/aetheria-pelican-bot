@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=42510">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=42100">
+  <link rel="stylesheet" href="plan_editor.css?v=42600">
 </head>
 <body>
   <div class="app-container">
@@ -462,7 +462,7 @@
             </button>
             <input type="file" id="plan-import-file-input" accept=".json" style="display: none;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-export-plans" style="font-size: 11.5px; padding: 6px 12px;">
-              <span>📤</span> ส่งออกทั้งหมด (Export)
+              <span>📤</span> ส่งออก (Export)
             </button>
           </div>
         </div>
@@ -549,6 +549,10 @@
               <button type="button" class="btn btn-secondary btn-sm" id="btn-open-stat-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.12); color: #7dd3fc;">
                 <span>📊</span> จัดการสเตตัส (Stat Build)
                 <span id="plan-stat-summary-badge" class="badge" style="background: rgba(56, 189, 248, 0.3); color: #fff; font-size: 10px; margin-left: 4px;">Default</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-open-gear-builder" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.12); color: #86efac;" title="เซ็ตอุปกรณ์ที่บอทจะซื้อ / สวม / ตีบวกตามลำดับเมื่อเงินถึง">
+                <span>🛡️</span> เซ็ตอุปกรณ์ (Gear)
+                <span id="plan-gear-count-badge" class="badge" style="background: rgba(34, 197, 94, 0.18); color: #fff; font-size: 10px; margin-left: 4px;">0 รายการ</span>
               </button>
             </div>
           </div>
@@ -1056,9 +1060,10 @@
     </div>
   </div>
 
-  <script src="app.js?v=42520"></script>
+  <script src="app.js?v=42600"></script>
   <script src="patcher_module.js?v=41700"></script>
-  <script src="builder_module.js?v=42100"></script>
+  <script src="builder_module.js?v=42600"></script>
+  <script src="gear_builder.js?v=42600"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=41920"></script>
   <script src="config_copy.js?v=4400"></script>

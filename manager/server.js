@@ -415,6 +415,49 @@ async function ensureUsableDebugPort(profileId) {
   return p;
 }
 
+// ---------- game item data for the gear set editor (GET /api/game-items) ----------
+const GAME_SITE = "https://www.aetheria-online.in.th";
+const GAME_ITEMS_CACHE = path.join(__dirname, "data", "game_items_cache.json");
+let gameItemsMem = null, gameItemsLoading = null;
+function getUrlJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { "User-Agent": "PmheeAether-Manager" }, timeout: 20000 }, res => {
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      let d = "";
+      res.setEncoding("utf8");
+      res.on("data", c => d += c);
+      res.on("end", () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
+    }).on("error", reject).on("timeout", function () { this.destroy(new Error("timeout")); });
+  });
+}
+async function getGameItems() {
+  const fresh = x => x && Date.now() - (x.retryAt || x.fetchedAt + 6 * 3600 * 1000) < 0;
+  if (fresh(gameItemsMem)) return gameItemsMem;
+  if (!gameItemsLoading) gameItemsLoading = fetchGameItems().finally(() => { gameItemsLoading = null; });
+  return gameItemsLoading;
+}
+async function fetchGameItems() {
+  try {
+    const [wiki, icons] = await Promise.all([getUrlJson(`${GAME_SITE}/wiki-data`), getUrlJson(`${GAME_SITE}/art/icons/manifest.json`).catch(() => ({}))]);
+    const iconOf = id => { const p = icons && icons.items && icons.items[id]; return p ? `${GAME_SITE}/art/icons/${p}` : null; };
+    const items = (wiki.items || []).filter(i => i.type === "Equipment" && i.equipmentType && i.equipmentType !== "Gem" && i.equipmentType !== "Ammo" && !/^Costume/.test(i.equipmentType))
+      .map(i => ({
+        id: i.id, name: i.name, slotType: i.equipmentType, weaponType: i.weaponType, level: i.equipLevelMin || 0,
+        rarity: i.rarity, refineable: !!i.refineable, slots: i.slots || 0, weaponLevel: i.weaponLevel || 0,
+        jobs: i.jobs || [], attributes: (i.attributes || []).slice(0, 4).map(a => ({ type: a.type, value: a.value, perRefine: a.perRefine || 0 })),
+        specials: (i.specials || []).slice(0, 2), soldBy: (i.soldBy || []).map(x => x.shop).slice(0, 1), icon: iconOf(i.id)
+      }));
+    const classes = (wiki.classes || []).map(c => ({ id: c.id, name: c.name, tier: c.tier }));
+    gameItemsMem = { fetchedAt: Date.now(), items, classes };
+    try { fs.mkdirSync(path.dirname(GAME_ITEMS_CACHE), { recursive: true }); fs.writeFileSync(GAME_ITEMS_CACHE, JSON.stringify(gameItemsMem)); } catch (e) {}
+    return gameItemsMem;
+  } catch (e) {
+    if (!gameItemsMem) { try { gameItemsMem = JSON.parse(fs.readFileSync(GAME_ITEMS_CACHE, "utf8")); } catch (e2) {} }
+    if (gameItemsMem) { gameItemsMem.retryAt = Date.now() + 30 * 60 * 1000; return gameItemsMem; }
+    throw new Error("โหลดรายการไอเทมจากเว็บเกมไม่สำเร็จ: " + e.message);
+  }
+}
+
 function evalProfilePort(port, code, timeoutMs = 8000) {
   return new Promise((resolve) => {
     if (!port) return resolve({ success: false, error: 'No debug port' });
@@ -1496,12 +1539,18 @@ const server = http.createServer(async (req, res) => {
       const limit = Number((window.__latestInventory || {}).weightLimit) || 0;
       if (!limit) return { error: 'ยังไม่มีข้อมูลกระเป๋า (ยังไม่เข้าเกม?)' };
       const ch = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
-      const need = Math.max(0, Math.min(10, Math.ceil((${target} - limit) / 500)));
+      // scrolls already used, from max weight = 2000 + 30 × STR (base + bonus) + 500 × used (the game allows 10)
+      let used = null;
+      if (ch.stats && typeof ch.stats.STR === 'number' && !(Number((ch.skills || {})['enlarge-weight']) > 0)) {
+        const x = (limit - 2000 - 30 * ((Number(ch.stats.STR) || 0) + (Number(ch.bonusStats && ch.bonusStats.STR) || 0))) / 500;
+        if (Math.abs(x - Math.round(x)) < 0.01 && Math.round(x) >= 0 && Math.round(x) <= 10) used = Math.round(x);
+      }
+      const need = Math.max(0, Math.min(10 - (used || 0), Math.ceil((${target} - limit) / 500)));
       const supported = typeof window.requestWeightTopUp === 'function';
       const scrolls = ((window.__latestInventory || {}).items || []).filter(it => it && Number(it.itemId) === 90309).reduce((a, it) => a + (it.qty || 1), 0);
       let requested = false;
       if (${apply} && need > 0 && supported) requested = window.requestWeightTopUp(${target});
-      return { limit, need, scrolls, zeny: Number(ch.zeny) || 0, bot: !!window.__isBotRunning, supported, requested,
+      return { limit, need, used, scrolls, zeny: Number(ch.zeny) || 0, bot: !!window.__isBotRunning, supported, requested,
                pending: !!(typeof window.getWeightTopUpState === 'function' && window.getWeightTopUpState()) };
     })()`;
     const profiles = loadProfiles().filter(p => p.debugPort && (!only.length || only.includes(p.id)));
@@ -2172,6 +2221,17 @@ public class PmFocus {
   }
 
     // GET /api/plan-profiles (List all plan profiles & assignments)
+  // GET /api/game-items — the game's equipment (its /wiki-data, the same data as the in-game wiki) with icon
+  // URLs, for the plan's gear set editor. Cached 6 h in memory and on disk (works offline from the last copy).
+  if (req.method === "GET" && pathname === "/api/game-items") {
+    try {
+      sendJSON({ success: true, ...(await getGameItems()) });
+    } catch (e) {
+      sendJSON({ success: false, error: e.message }, 502);
+    }
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/api/plan-profiles") {
     const plansData = loadPlans();
     return sendJSON({
@@ -2203,6 +2263,7 @@ public class PmFocus {
           class2JobLevel: planJobLevel(payload.class2JobLevel, 50),
           skillBuild: payload.skillBuild || null,
           statBuild: payload.statBuild || null,
+          gearPlan: payload.gearPlan || null,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : [],
           createdAt: Date.now(),
           updatedAt: Date.now()
@@ -2242,6 +2303,7 @@ public class PmFocus {
           class2JobLevel: planJobLevel(payload.class2JobLevel !== undefined ? payload.class2JobLevel : plansData.profiles[idx].class2JobLevel, 50),
           skillBuild: payload.skillBuild !== undefined ? payload.skillBuild : plansData.profiles[idx].skillBuild,
           statBuild: payload.statBuild !== undefined ? payload.statBuild : plansData.profiles[idx].statBuild,
+          gearPlan: payload.gearPlan !== undefined ? payload.gearPlan : plansData.profiles[idx].gearPlan,
           triggers: Array.isArray(payload.triggers) ? payload.triggers : plansData.profiles[idx].triggers,
           updatedAt: Date.now()
         };
@@ -2370,6 +2432,7 @@ public class PmFocus {
               class2JobLevel: planJobLevel(p.class2JobLevel, 50),
               skillBuild: p.skillBuild || null,
               statBuild: p.statBuild || null,
+              gearPlan: p.gearPlan || null,
               triggers: Array.isArray(p.triggers) ? p.triggers : [],
               createdAt: Date.now(),
               updatedAt: Date.now()

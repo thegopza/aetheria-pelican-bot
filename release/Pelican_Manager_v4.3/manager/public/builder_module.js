@@ -446,6 +446,7 @@ function updateClassDropdownsInEditor() {
 // 2. Update Plan Editor Badges (Skill count and Stat summary)
 function updatePlanEditorBadges() {
   if (!activeEditingPlan) return;
+  if (typeof window.updateGearBadge === 'function') window.updateGearBadge();
   const skillBadge = document.getElementById("plan-skill-count-badge");
   const statBadge = document.getElementById("plan-stat-summary-badge");
 

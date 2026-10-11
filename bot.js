@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.25.1
+// @version      4.26.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.25.1';
+    const PELICAN_BOT_VERSION = '4.26.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -6858,6 +6858,10 @@
     }, 30000);
 
     window.executeAutoShopRoutine = function() {
+        if (window.__isGearRefining) {
+            console.warn('[PmheeAether Shop] ⏳ กำลังตีบวกตามเซ็ตอุปกรณ์อยู่ — เลื่อนการซื้อขายไปก่อน');
+            return;
+        }
         if (window.__isShopping) {
             console.warn('[PmheeAether Shop] ⚠️ กำลังดำเนินการซื้อขายอยู่แล้ว');
             return;
@@ -12356,6 +12360,7 @@
         if (window.__isRecovering) return 'กำลังชุบชีวิต';
         if (window.__isConsolidating || window.__consolidationReceiverMode) return 'กำลังรวมเงิน/เทรด';
         if (window.__isChangingJob) return 'กำลังเปลี่ยนอาชีพ';
+        if (window.__isGearRefining) return 'กำลังตีบวก (เซ็ตอุปกรณ์)';
         if (window.__isManualSelling || window.__isAutoSellingNow) return 'กำลังขายของ';
         return null;
     }
@@ -12601,6 +12606,20 @@
     // this character has used `qty` (the game allows 10 per character). Uses are counted per character in
     // pelican_weight_scroll_<char>, so a character never buys them again once done.
     const WEIGHT_SCROLL_ID = 90309;
+    // How many scrolls this character has used, from the game's own numbers: max weight = 2000 + 30 × STR
+    // (base + bonus) + 500 × scrolls used (exact on all 15 characters checked). The count kept in localStorage
+    // is lost when the storage changes (Electron -> browser mode, a new profile id) — that made characters
+    // that had used all 10 buy 10 more, which the game then refused to use. null = the formula doesn't fit.
+    window.getWeightScrollsUsed = function () {
+        const limit = Number((window.__latestInventory || {}).weightLimit) || 0;
+        const ch = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+        if (!limit || !ch.stats || typeof ch.stats.STR !== 'number') return null;
+        if (Number((ch.skills || {})['enlarge-weight']) > 0) return null;   // Pack Mule adds weight too: unknown
+        const str = (Number(ch.stats.STR) || 0) + (Number(ch.bonusStats && ch.bonusStats.STR) || 0);
+        const x = (limit - 2000 - 30 * str) / 500;
+        const n = Math.round(x);
+        return (Math.abs(x - n) < 0.01 && n >= 0 && n <= 10) ? n : null;
+    };
     let weightScrollBusy = false;
     let weightShopTriedAt = 0;
     // No NPC sells the scroll, or not enough zeny: go back to farming and try again much later. Before, the
@@ -12675,12 +12694,16 @@
         const key = 'pelican_weight_scroll_v2_' + charName;   // v1 counted cooldown refusals as "quota full"
         const target = Math.max(1, Math.min(10, Number(act.qty) || 10));
         let used = Number(localStorage.getItem(key)) || 0;
+        const counterKnown = localStorage.getItem(key) !== null;
         const finish = msg => {
             console.log(`%c[PmheeAether Plan] 📦 Weight Limit Scroll: ${msg}`, 'color: #22c55e; font-weight: bold;');
             window.__planJobChangeHoldUntil = 0;
             if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
             return 'done';
         };
+        const real = window.getWeightScrollsUsed();
+        if (real !== null && real > used) { used = real; try { localStorage.setItem(key, String(used)); } catch (e) {} }
+        if (real !== null && real >= 10) return finish(`น้ำหนักสูงสุดบอกว่าตัวละครนี้ใช้ครบ 10 ครั้งแล้ว — ไม่ซื้อเพิ่ม`);
         if (used >= target) return finish(`ตัวละครนี้ใช้ครบ ${used} ครั้งแล้ว`);
         if (weightScrollBusy) return 'pending';
         weightScrollBusy = true;
@@ -12737,7 +12760,10 @@
             if (Date.now() - weightShopTriedAt < 60000) return 'pending';
             weightShopTriedAt = Date.now();
             window.__planJobChangeHoldUntil = Date.now() + 60000;
-            const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, target - used, Number(act.maxPrice) || 0);
+            // Uses unknown (no counter here and max weight can't tell, e.g. Pack Mule): buy 1 first — if the game
+            // refuses it the quota is full and only that one scroll was spent
+            const buyQty = (real === null && !counterKnown) ? 1 : target - used;
+            const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, buyQty, Number(act.maxPrice) || 0);
             if (r === 'not-sold' || r === 'no-money') weightShopGiveUp(r);
             return 'pending';   // next round uses what was bought
         } finally {
@@ -12780,6 +12806,11 @@
             return false;
         };
         if (limit >= req.target) return done(`น้ำหนักสูงสุด ${limit.toLocaleString()} ถึงเป้า ${req.target.toLocaleString()} แล้ว`);
+        const realUsed = window.getWeightScrollsUsed();
+        if (realUsed !== null && realUsed >= 10) {
+            if (usedKey) { try { localStorage.setItem(usedKey, '10'); } catch (e) {} }
+            return done(`ตัวละครนี้ใช้ Weight Limit Scroll ครบ 10 ครั้งแล้ว (น้ำหนักสูงสุด ${limit.toLocaleString()}) — เพิ่มอีกไม่ได้ ไม่ซื้อ`);
+        }
         if (weightScrollBusy) return true;
         weightScrollBusy = true;
         try {
@@ -12816,7 +12847,12 @@
             if (planWeightLimit() >= req.target) return done(`น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} ถึงเป้าแล้ว`);
 
             // 2. Buy the missing amount in the capital (not more than the zeny allows — waits for zeny otherwise)
-            const need = Math.min(10, Math.ceil((req.target - planWeightLimit()) / WEIGHT_PER_SCROLL));
+            const usedNow = window.getWeightScrollsUsed();
+            let need = Math.min(10 - (usedNow || 0), Math.ceil((req.target - planWeightLimit()) / WEIGHT_PER_SCROLL));
+            let counterKnown = false;
+            try { counterKnown = !!usedKey && localStorage.getItem(usedKey) !== null; } catch (e) {}
+            if (usedNow === null && !counterKnown) need = Math.min(need, 1);   // unknown quota: 1 scroll as a probe
+            if (need <= 0) return done(`ตัวละครนี้ใช้ Weight Limit Scroll ครบโควตาแล้ว — ไม่ซื้อ`);
             if (Date.now() - weightTopUpNoMoneyAt < 5 * 60000 || Date.now() < weightShopBackoffUntil) return false;
             if (!inCapital()) {
                 if (window.__isNavigating || window.__isWalkingToMap) return true;
@@ -12842,6 +12878,332 @@
             return true;   // next round uses what was bought
         } finally {
             weightScrollBusy = false;
+        }
+    };
+
+    // ---------- 🛡️ Gear set of the plan (plan.gearPlan, made in the Manager's "เซ็ตอุปกรณ์") ----------
+    // Steps run strictly in order, one at a time: a step starts only when every step before it is done and
+    // the zeny has reached its amount. Done = checked on the character every time (wearing the item with the
+    // required random options / refined to the level), so a broken or replaced item is bought again.
+    //   { kind: 'equip',  slot, itemName, options, zeny, jobs }  -> bag / market (price up to zeny), then equip
+    //   { kind: 'refine', slot, itemName, toLevel, zeny, blessing } -> Blacksmith Enok (capital), buys the ore
+    const GEAR_ACC = ['accessory-left', 'accessory-right'];
+    const GEAR_TRIP_KEY = 'pelican_gear_trip';   // kept in localStorage: an Auto-update refresh mid-trip must still go back
+    let gearBusy = false, gearNextTry = 0, gearWaitLog = '', gearWaitLogAt = 0, gearSmithBackoffUntil = 0;
+    const gearEquipTries = {};
+    const gearName = it => String((it && it.name) || '').trim().toLowerCase();
+    const gearChar = () => (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+    const gearKey = suffix => {
+        const plan = window.__currentScriptPlan || {};
+        const ch = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        return `pelican_gear_${suffix}_${ch}_${plan.id || plan.name || 'plan'}`;
+    };
+    const gearGet = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } };
+    const gearSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+    const gearLog = (msg, color = '#f59e0b') => console.log(`%c[PmheeAether Gear] ${msg}`, `color: ${color}; font-weight: bold;`);
+    const gearWait = msg => {   // the same "waiting" line at most every 10 min
+        if (msg !== gearWaitLog || Date.now() - gearWaitLogAt > 600000) { gearWaitLog = msg; gearWaitLogAt = Date.now(); console.log(`[PmheeAether Gear] ⏳ ${msg}`); }
+    };
+    // Steps given up on for this character + plan (refine maxed / not in the refine list / broke twice)
+    const gearSkipped = () => gearGet(gearKey('skip'), {});
+    const gearIsSkipped = (sk, step) => { const e = sk[step.id]; return !!e && (!e.until || e.until > Date.now()); };
+    const gearSkip = (step, why, mins) => {
+        const sk = gearSkipped();
+        sk[step.id] = { why, until: mins ? Date.now() + mins * 60000 : 0 };
+        gearSet(gearKey('skip'), sk);
+        gearLog(`⏭️ ข้ามรายการ "${step.kind === 'refine' ? `ตีบวก ${step.itemName} +${step.toLevel}` : step.itemName}" — ${why}${mins ? ` (ลองใหม่ใน ${mins} นาที)` : ''}`, '#94a3b8');
+    };
+    const gearJobId = n => String(n || '').trim().toLowerCase().replace(/\s+/g, '-');
+
+    // The item a step is about, as worn now. Accessories: the other side counts too, unless the plan also wants
+    // this same item on the other side (two of the same ring)
+    function gearWorn(step, equipment, steps) {
+        const want = String(step.itemName || '').trim().toLowerCase();
+        const terms = step.kind === 'equip' ? parsePlanOptionFilter(step.options) : [];
+        const ok = it => it && gearName(it) === want && itemPassesPlanOptions(it, terms);
+        if (ok(equipment[step.slot])) return equipment[step.slot];
+        if (GEAR_ACC.includes(step.slot)) {
+            const o = GEAR_ACC.find(k => k !== step.slot);
+            const otherPlanned = (steps || []).some(x => x && x.kind === 'equip' && x.slot === o && gearName({ name: x.itemName }) === want);
+            if (!otherPlanned && ok(equipment[o])) return equipment[o];
+        }
+        return null;
+    }
+    function gearStepDone(step, equipment, steps) {
+        const w = gearWorn(step, equipment, steps);
+        if (!w) return false;
+        return step.kind !== 'refine' || (Number(w.refine) || 0) >= (Number(step.toLevel) || 0);
+    }
+    // First step that still has work. Also done: a step whose slot moved on to a later item of the plan (the
+    // starter bow after the better bow is worn). A refine step with no equip step of its item before it can
+    // never run (moved above it / its equip step deleted): skipped so it never blocks the set.
+    window.getGearPlanStatus = function () {
+        const plan = window.__currentScriptPlan || {};
+        const gp = plan.gearPlan;
+        const steps = (gp && Array.isArray(gp.steps)) ? gp.steps : [];
+        const equipment = gearChar().equipment || {};
+        const sk = gearSkipped();
+        for (let i = 0; i < steps.length; i++) {
+            const st = steps[i];
+            if (!st || !st.slot || !st.itemName || gearIsSkipped(sk, st)) continue;
+            if (gearStepDone(st, equipment, steps)) { delete gearEquipTries[st.id]; continue; }
+            const superseded = steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== gearName({ name: st.itemName }) && gearWorn(x, equipment, steps));
+            if (superseded) continue;
+            if (st.kind === 'refine' && !steps.slice(0, i).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) === gearName({ name: st.itemName }))) continue;
+            return { index: i, step: st, total: steps.length, steps };
+        }
+        return { index: -1, step: null, total: steps.length, steps };
+    };
+
+    const gearGoTown = why => {
+        if (window.__isNavigating || window.__isWalkingToMap) return;
+        const farm = window.__targetFarmMap || '';
+        if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
+        window.__planJobChangeHoldUntil = Date.now() + 120000;
+        try { localStorage.setItem(GEAR_TRIP_KEY, String(Date.now())); } catch (e) {}
+        gearLog(`🏙️ ${why} -> กลับเมืองหลวงไปหา Blacksmith`);
+        window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+    };
+    // Back to the farm map after a town trip of the gear set (also after a page refresh during the trip)
+    const gearBackToFarm = () => {
+        let trip = null;
+        try { trip = localStorage.getItem(GEAR_TRIP_KEY); } catch (e) {}
+        if (!trip) return;
+        try { localStorage.removeItem(GEAR_TRIP_KEY); } catch (e) {}
+        window.__planJobChangeHoldUntil = 0;
+        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+    };
+    const gearCloseNpc = () => {
+        const x = document.querySelector('.refine-window .win-close, .shop-window .win-close, .npc-dialog .win-close');
+        if (x) x.click();
+    };
+    function gearSmithKey(room) {
+        let key = null;
+        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((n, k) => { if (!key && n && /Blacksmith/i.test(n.name || '')) key = k; });
+        }
+        return key;
+    }
+    // Talk to the Blacksmith and pick the dialog option whose text passes `pick`
+    async function gearSmithOption(room, key, pick, waitFor) {
+        const got = waitFor ? new Promise(resolve => {
+            let unsub;
+            const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 12000);
+            unsub = room.onMessage(waitFor, msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); resolve(msg); });
+        }) : null;
+        room.send('npc_talk', { npcKey: key });
+        let dlg = null;
+        for (let i = 0; i < 75 && !dlg; i++) { await planSleep(200); dlg = document.querySelector('.npc-dialog'); if (dlg && !dlg.querySelector('.npc-options button')) dlg = null; }
+        if (!dlg) { gearCloseNpc(); return { error: 'ไม่มีหน้าต่างคุยกับ Blacksmith' }; }
+        const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
+        const idx = opts.findIndex(pick);
+        if (idx < 0) { gearCloseNpc(); return { error: 'ไม่มีตัวเลือกที่ต้องการ (' + opts.join(' / ') + ')' }; }
+        room.send('npc_option', { index: idx });
+        return { msg: got ? await got : null };
+    }
+
+    // Ore: Blacksmith's shop first (Phracon / Rough Elunium), else the cheapest market listing in the budget
+    async function gearBuyOre(room, key, mat, budget) {
+        const r = await gearSmithOption(room, key, o => /ซื้อ/.test(o));
+        if (!r.error) {
+            let shop = null;
+            for (let i = 0; i < 30 && !shop; i++) { await planSleep(200); shop = document.querySelector('.shop-window'); }
+            const row = shop && Array.from(shop.querySelectorAll('.shop-row')).find(rw => {
+                const fk = Object.keys(rw).find(k => k.startsWith('__reactFiber'));
+                return fk && rw[fk] && String(rw[fk].key) === String(mat.itemId);
+            });
+            if (row) {
+                const price = parseInt(((row.querySelector('.shop-price') || {}).innerText || '').replace(/[^0-9]/g, ''), 10) || 0;
+                const zeny = Number(gearChar().zeny) || 0;
+                if (price && price > Math.min(zeny, budget)) { gearCloseNpc(); return 'no-money'; }
+                gearLog(`🛒 ซื้อ ${mat.name} x1 (${price.toLocaleString()} z) จาก Blacksmith`, '#10b981');
+                room.send('shop_buy_many', { lines: [{ itemId: Number(mat.itemId), qty: 1 }] });
+                let got = false;
+                for (let i = 0; i < 16 && !got; i++) { await planSleep(250); got = planBag().some(it => Number(it.itemId) === Number(mat.itemId)); }
+                gearCloseNpc();
+                if (!got) gearSmithBackoffUntil = Date.now() + 2 * 60000;   // never buy again right away
+                return 'bought';
+            }
+            gearCloseNpc();
+            await planSleep(400);
+        }
+        if (window.__planMarketBuyInFlight) return 'wait';
+        window.__planMarketBuyInFlight = true;
+        try {
+            const now = Date.now();
+            const listings = await planMarketSearch(room, mat.name);
+            const zeny = Number(gearChar().zeny) || 0;
+            const best = listings
+                .filter(l => l && !l.mine && l.item && (Number(l.item.itemId) === Number(mat.itemId) || gearName(l.item) === gearName(mat)))
+                .filter(l => !(l.auctionEndsAt && l.auctionEndsAt > now))
+                .filter(l => Number(l.price) > 0 && Number(l.price) <= Math.min(zeny, budget) && Number(l.qty || 1) <= 10)
+                .sort((a, b) => Number(a.price) / Number(a.qty || 1) - Number(b.price) / Number(b.qty || 1))[0];
+            if (!best) return 'none';
+            gearLog(`🛒 ซื้อ ${mat.name} x${best.qty || 1} ราคา ${Number(best.price).toLocaleString()} z จากตลาด (${best.sellerName || '?'})`, '#10b981');
+            room.send('market', { op: 'buy', listingId: Number(best.listingId), price: Number(best.price) });
+            await planSleep(1200);
+            room.send('market', { op: 'collect_all' });   // purchases wait in the market "รับของ" tab
+            for (let i = 0; i < 24; i++) { await planSleep(250); if (planBag().some(it => Number(it.itemId) === Number(mat.itemId))) return 'bought'; }
+            gearSmithBackoffUntil = Date.now() + 5 * 60000;   // not in the bag (yet): never buy again right away
+            return 'bought';
+        } finally {
+            window.__planMarketBuyInFlight = false;
+        }
+    }
+
+    async function gearRefineStep(step, worn, zeny, steps) {
+        const room = getPlanRoom();
+        if (!room) return true;
+        // Every way out that is not "refined just now" waits a while AND goes back to farming
+        const giveUp = (mins, msg) => {
+            gearSmithBackoffUntil = Date.now() + mins * 60000;
+            if (msg) gearLog(msg, '#ef4444');
+            gearCloseNpc();
+            gearBackToFarm();
+            return false;
+        };
+        if (Date.now() < gearSmithBackoffUntil) { gearBackToFarm(); return false; }
+        const npcs = room.state && room.state.npcs;
+        const npcCount = npcs && typeof npcs.size === 'number' ? npcs.size : 0;
+        const key = gearSmithKey(room);
+        if (!key) {
+            if (!inCapital()) { gearGoTown(`ตีบวก ${step.itemName} → +${step.toLevel}`); return true; }
+            if (!npcCount) return true;   // capital NPCs not loaded yet
+            return giveUp(10, '⚠️ ไม่พบ NPC Blacksmith ในเมืองหลวง -> กลับไปฟาร์มก่อน ลองใหม่ใน 10 นาที');
+        }
+        window.__isGearRefining = true;
+        window.__planJobChangeHoldUntil = Date.now() + 60000;
+        try {
+            // 1. Open the refine window and find this item (the server sends the list with rates and costs)
+            const r = await gearSmithOption(room, key, o => /ตีบวก/.test(o) && !/ซื้อ|วิธี|เสริมพลัง|สุ่ม/.test(o), 'refine');
+            if (r.error || !r.msg || !Array.isArray(r.msg.items)) return giveUp(5, `⚠️ เปิดหน้าต่างตีบวกไม่สำเร็จ: ${r.error || 'ไม่มีข้อมูลจากเซิร์ฟเวอร์'} — ลองใหม่ใน 5 นาที`);
+            const win = r.msg;
+            const want = gearName({ name: step.itemName });
+            const f = win.items.find(x => x && x.source && x.source.kind === 'equip' && String(x.source.slot) === String(step.slot) && gearName(x.item) === want)
+                || win.items.find(x => x && x.source && x.source.kind === 'equip' && gearName(x.item) === want);
+            if (!f) { gearSkip(step, 'ไม่พบไอเทมที่สวมอยู่ในรายการตีบวก (ตีบวกไม่ได้?)', 60); return giveUp(0); }
+            if (f.maxed) { gearSkip(step, 'ตีบวกสูงสุดแล้ว'); return giveUp(0); }
+            // 2. Ore
+            if (!f.material || f.material.have < 1) {
+                gearCloseNpc();
+                await planSleep(500);
+                const budget = Math.max(0, zeny - (Number(f.zeny) || 0));
+                const b = await gearBuyOre(room, key, f.material || {}, budget);
+                if (b === 'bought') return true;
+                gearWait(`ยังหาซื้อ ${(f.material || {}).name || 'แร่'} ไม่ได้ (${b === 'no-money' ? 'เงินไม่พอ' : 'ไม่มีขายในราคาที่จ่ายได้'}) — ลองใหม่ใน 5 นาที`);
+                return giveUp(5);
+            }
+            if ((Number(win.zeny) || 0) < (Number(f.zeny) || 0)) {
+                gearWait(`เงินไม่พอค่าตีบวก ${step.itemName} (${Number(f.zeny).toLocaleString()} z) — ลองใหม่ใน 5 นาที`);
+                return giveUp(5);
+            }
+            // 3. A level that can break the item: only with a Blessing when the step asks for one
+            const blessHave = (win.blessing && win.blessing.have) || 0;
+            const bless = step.blessing !== false && f.onFail !== 'no-change' && blessHave > 0;
+            const canBreak = f.onFail === 'destroy' || !!f.destroyChance;
+            if (canBreak && !bless && step.blessing !== false) {
+                gearWait(`ตีบวก ${step.itemName} +${f.to} อาจทำให้แตก — รอให้มี Blacksmith Blessing ก่อน (เอาติ๊ก Blessing ออกถ้าจะเสี่ยงตีเลย)`);
+                return giveUp(10);
+            }
+            // 4. Refine once
+            const before = Number(worn.refine) || 0;
+            gearLog(`🔨 ตีบวก ${step.itemName} +${before} → +${f.to} (สำเร็จ ${f.success}%${f.onFail && f.onFail !== 'no-change' ? ', พลาด = ' + f.onFail : ''}${bless ? ', ใช้ Blessing' : ''}) ค่าตีบวก ${Number(f.zeny).toLocaleString()} z`, '#a855f7');
+            const res = await new Promise(resolve => {
+                let unsub;
+                const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 8000);
+                unsub = room.onMessage('refine_result', msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); resolve(msg); });
+                room.send('refine', { source: f.source, blessing: bless });
+            });
+            await planSleep(800);
+            const nowWorn = gearWorn(step, gearChar().equipment || {}, steps);
+            const after = nowWorn ? (Number(nowWorn.refine) || 0) : null;
+            if (after === null) {
+                const brk = gearGet(gearKey('breaks'), {});
+                brk[step.id] = (brk[step.id] || 0) + 1;
+                gearSet(gearKey('breaks'), brk);
+                gearLog(`💥 ${step.itemName} หายไปจากตัว (แตก?) ครั้งที่ ${brk[step.id]} — รายการซื้อของชิ้นนี้จะทำงานอีกครั้ง`, '#ef4444');
+                if (brk[step.id] >= 2) gearSkip(step, 'ของแตกไปแล้ว 2 ครั้ง');
+            } else if (after > before) gearLog(`✨ ตีบวกสำเร็จ! ${step.itemName} +${after}`, '#22c55e');
+            else gearLog(`❌ ตีบวกไม่สำเร็จ (${step.itemName} +${after})${res ? '' : ' — ไม่ได้รับผลจากเซิร์ฟเวอร์'}`, '#f97316');
+            gearCloseNpc();
+            gearNextTry = Date.now() + 2500;
+            return true;
+        } finally {
+            window.__isGearRefining = false;
+        }
+    }
+
+    // true = working on the gear set this round (other plan work waits), false = nothing to do / waiting
+    window.runGearPlanStep = async function () {
+        const plan = window.__currentScriptPlan;
+        const gp = plan && plan.gearPlan;
+        if (!gp || !Array.isArray(gp.steps) || !gp.steps.length) { gearBackToFarm(); return false; }
+        if (gearBusy || Date.now() < gearNextTry) return false;
+        const lv = readPlanLevels();
+        if (!lv || !lv.cls) return false;
+        const lineage = planClassLineage(lv.cls);
+        const start = String(gp.startClass || 'novice').toLowerCase();
+        if (!lineage.includes(start)) { gearWait(`เซ็ตอุปกรณ์เริ่มเมื่อเป็น ${start} (ตอนนี้ ${lv.cls})`); gearBackToFarm(); return false; }
+        const { index, step, total, steps } = window.getGearPlanStatus();
+        if (!step) { gearBackToFarm(); return false; }
+        const ch = gearChar();
+        const zeny = Number(ch.zeny) || 0;
+        const need = Number(step.zeny) || 0;
+        const label = `รายการ ${index + 1}/${total}: ${step.kind === 'refine' ? `ตีบวก ${step.itemName} +${step.toLevel}` : `สวม ${step.itemName}${step.options ? ' [' + step.options + ']' : ''}`}`;
+        if (zeny < need) { gearWait(`${label} — รอเงินถึง ${need.toLocaleString()} z (มี ${zeny.toLocaleString()} z)`); gearBackToFarm(); return false; }
+        gearBusy = true;
+        try {
+            if (step.kind === 'refine') {
+                const worn = gearWorn(step, ch.equipment || {}, steps);
+                if (!worn) { gearWait(`${label} — ยังไม่ได้สวม ${step.itemName}`); gearBackToFarm(); return false; }
+                return await gearRefineStep(step, worn, zeny, steps);
+            }
+            gearBackToFarm();
+            // The class must be able to wear it (wiki "jobs" stored with the step; a later class of the line counts)
+            const jobs = Array.isArray(step.jobs) ? step.jobs.map(gearJobId).filter(Boolean) : [];
+            if (jobs.length && !lineage.some(c => jobs.includes(c))) {
+                gearWait(`${label} — อาชีพตอนนี้ (${lv.cls}) ยังใส่ไม่ได้ (ต้องเป็น ${step.jobs.join('/')}) รอเปลี่ยนอาชีพก่อน`);
+                return false;
+            }
+            const room = getPlanRoom();
+            if (room) room.send('market', { op: 'collect_all' });   // anything bought earlier waits in "รับของ"
+            // equip: from the bag, else buy on the market for up to the step's amount
+            const terms = parsePlanOptionFilter(step.options);
+            const want = gearName({ name: step.itemName });
+            const inBag = planBag().filter(it => gearName(it) === want && itemPassesPlanOptions(it, terms) && (!it.levelReq || it.levelReq <= lv.base))
+                .sort((a, b) => (Number(b.refine) || 0) - (Number(a.refine) || 0))[0];
+            if (inBag && room) {
+                const tries = gearEquipTries[step.id] = (gearEquipTries[step.id] || 0) + 1;
+                if (tries > 6) {
+                    gearEquipTries[step.id] = 0;
+                    gearNextTry = Date.now() + 10 * 60000;
+                    gearLog(`⚠️ ${label} — สวมไม่ติด 6 ครั้ง (อาชีพนี้ใส่ไม่ได้ / เลเวลไม่ถึง?) รอ 10 นาทีแล้วลองใหม่`, '#ef4444');
+                    return false;
+                }
+                gearLog(`🎒 ${label} — สวมจากกระเป๋า (ช่อง ${inBag.slot})`, '#22c55e');
+                // accessories: ask for the planned side (every other try without it, in case the game ignores "to")
+                room.send('equip', GEAR_ACC.includes(step.slot) && tries % 2 === 1 ? { slot: inBag.slot, to: step.slot } : { slot: inBag.slot });
+                gearNextTry = Date.now() + 5000;
+                return true;
+            }
+            // Paid for it already (not delivered yet: bag full / refresh between buy and collect)? Never pay twice.
+            const boughtKey = gearKey('bought_' + step.id);
+            if (Date.now() - (Number(gearGet(boughtKey, 0)) || 0) < 30 * 60000) {
+                gearWait(`${label} — ซื้อไปแล้ว รอรับของจากตลาด (ไม่ซื้อซ้ำภายใน 30 นาที)`);
+                gearNextTry = Date.now() + 60000;
+                return false;
+            }
+            gearLog(`🛒 ${label} — เงินถึง ${need.toLocaleString()} z แล้ว หาซื้อในตลาด (ราคาไม่เกิน ${(need || zeny).toLocaleString()} z)`, '#38bdf8');
+            const r = await window.findAndEquipItemByName(step.itemName, true, need || zeny, step.options || '');
+            if ((Number(gearChar().zeny) || 0) < zeny) gearSet(boughtKey, Date.now());
+            gearNextTry = Date.now() + (r === 'done' ? 5000 : 60000);
+            return r === 'done';
+        } catch (e) {
+            console.warn('[PmheeAether Gear] error:', e);
+            gearNextTry = Date.now() + 60000;
+            return false;
+        } finally {
+            gearBusy = false;
         }
     };
 
@@ -13650,6 +14012,7 @@
             if (planBusyReason() === null && await window.autoUpgradeGems()) return;
             if (planBusyReason() === null && await window.runEventPetStep()) return;
             if (planBusyReason() === null && await window.runWeightTopUpStep()) return;
+            if (planBusyReason() === null && await window.runGearPlanStep()) return;
             await window.checkAndExecutePlanTriggers();
         } catch (e) {
             console.warn('[PmheeAether Plan] loop error:', e);
