@@ -312,14 +312,14 @@
           const s = res.settings;
           if (hcGlobalAutoAnswer) hcGlobalAutoAnswer.checked = s.autoAnswer !== false;
           if (hcGlobalAnswerDelay) hcGlobalAnswerDelay.value = s.answerDelayMs || 1800;
-          if (hcPointSystemToggle) hcPointSystemToggle.checked = !!s.pointSystemEnabled;
+          if (hcPointSystemToggle) { hcPointSystemToggle.checked = true; hcPointSystemToggle.disabled = true; }
           if (hcPointsVal) hcPointsVal.innerText = s.points || 0;
-          if (hcPointsPerSolve) hcPointsPerSolve.value = s.pointsPerSolve || 1;
+          if (hcPointsPerSolve) { hcPointsPerSolve.value = 1; hcPointsPerSolve.disabled = true; }
           if (typeof window.updateAutoAnswerToolbarBtn === 'function') {
             window.updateAutoAnswerToolbarBtn(s.autoAnswer !== false);
           }
           if (typeof window.updatePointDisplays === 'function') {
-            window.updatePointDisplays(s.points, s.pointsPerSolve);
+            window.updatePointDisplays(s.points, s.pointsPerSolve, s.serviceAvailable);
           }
         }
       } catch (e) {

@@ -8,6 +8,7 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { createHumanCheckSolver } = require('./human_check_solver.js');
 
 function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver }) {
@@ -64,6 +65,28 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
   // Active checks tracker: profileId -> { checkId, prompt, notifiedAt, messageId, options }
   const activeChecks = new Map();
+  const requestStateFile = path.join(dataDir, 'aetheria_request_state.json');
+  function questionFingerprint(check) {
+    return crypto.createHash('sha256').update(JSON.stringify([
+      check.id ?? null, check.prompt, check.options || [], check.items || null
+    ])).digest('hex');
+  }
+  function durableRequestId(profileId, check) {
+    const fingerprint = questionFingerprint(check);
+    let records = {};
+    try { records = JSON.parse(fs.readFileSync(requestStateFile, 'utf8')); }
+    catch (e) { if (e.code !== 'ENOENT') throw e; }
+    const previous = records[profileId];
+    const now = Date.now();
+    const same = previous?.fingerprint === fingerprint &&
+      (check.id != null || now - previous.seenAt < 90000);
+    const requestId = same ? previous.requestId : crypto.randomUUID();
+    records[profileId] = { fingerprint, requestId, seenAt: now };
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(requestStateFile + '.tmp', JSON.stringify(records), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(requestStateFile + '.tmp', requestStateFile);
+    return requestId;
+  }
 
   // Gateway connection state
   let gatewayWs = null;
@@ -136,42 +159,55 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
   }
 
   // Answer human check in the game window
-  async function answerCheckInGame(profileId, pickIndex, matchedName = '') {
+  async function answerCheckInGame(profileId, pickIndex, matchedName = '', expectedCheck = null) {
+    if (!Number.isInteger(pickIndex) || pickIndex < 0 || pickIndex > 5 || typeof profileId !== 'string') {
+      return { success: false, error: 'ตัวเลือกหรือโปรไฟล์ไม่ถูกต้อง' };
+    }
     const profiles = loadProfiles();
     const profile = profiles.find(p => p.id === profileId);
     if (!profile || !profile.debugPort) {
       return { success: false, error: `ไม่พบโปรไฟล์ ${profileId} หรือโปรไฟล์ออฟไลน์อยู่` };
     }
 
-    const cleanName = String(matchedName || '').replace(/['"\\]/g, '');
+    const cleanName = String(matchedName || '');
     const evalCode = `(() => {
+      let clickAttempted = false;
       try {
         const hc = document.querySelector('.human-check');
         if (!hc) return { success: false, error: 'ไม่พบหน้าต่างเช็คผู้เล่น (อาจปิดหรือตอบไปแล้ว)' };
+        const expected = ${JSON.stringify(expectedCheck)};
+        if (expected) {
+          const prompt = (hc.querySelector('.human-check-prompt')?.innerText || '').trim();
+          const packet = window.__latestHumanCheck;
+          if (prompt !== expected.prompt || (expected.id != null && packet?.id != null && String(packet.id) !== String(expected.id))) {
+            return { success: false, error: 'คำถามนี้หมดอายุหรือเปลี่ยนไปแล้ว' };
+          }
+        }
         const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
         const targetBtn = btns[${Number(pickIndex)}];
         if (!targetBtn) return { success: false, error: 'ไม่พบปุ่มตัวเลือกที่ ${pickIndex + 1}' };
         if (targetBtn.disabled) return { success: false, error: 'ปุ่มนี้ถูกกดไปแล้วหรือถูกปิดใช้งาน' };
+        clickAttempted = true;
         targetBtn.click();
         window.__lastHumanCheckSolved = {
           pickIndex: ${Number(pickIndex)},
-          matchedName: '${cleanName}',
+          matchedName: ${JSON.stringify(cleanName)},
           timestamp: Date.now()
         };
         if (window.showHudToast) {
-          window.showHudToast('🤖 ตอบเช็คผู้เล่น: ${cleanName || ("ข้อ " + (Number(pickIndex) + 1))} (หัก 1 Point)', 'success', 5000);
+          window.showHudToast(${JSON.stringify('🤖 ตอบเช็คผู้เล่น: ' + (cleanName || ('ข้อ ' + (pickIndex + 1))))}, 'success', 5000);
         }
         return { success: true, picked: ${pickIndex} };
       } catch (err) {
-        return { success: false, error: err.message };
+        return { success: false, uncertain: clickAttempted, error: err.message };
       }
     })()`;
 
     try {
       const res = await evalProfilePort(profile.debugPort, evalCode, 6000);
-      return res?.result || { success: false, error: 'ไม่ได้รับการตอบรับจากจอเกม' };
+      return res?.result || { success: false, uncertain: true, error: 'ไม่ได้รับการตอบรับจากจอเกม' };
     } catch (e) {
-      return { success: false, error: e.message };
+      return { success: false, uncertain: true, error: e.message };
     }
   }
 
@@ -286,22 +322,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     if (interaction.type !== 3) return;
 
     const customId = interaction.data?.custom_id || '';
-    // Format: hc:<profileId>:<action> (new) or hc_<profileId>_<action> (legacy)
-    if (!customId.startsWith('hc:') && !customId.startsWith('hc_')) return;
-
-    let profileId = null;
-    let action = null;
-    if (customId.startsWith('hc:')) {
-      const parts = customId.split(':');
-      profileId = parts[1];
-      action = parts[2];
-    } else {
-      const lastUnderscore = customId.lastIndexOf('_');
-      action = customId.slice(lastUnderscore + 1);
-      profileId = customId.slice(3, lastUnderscore);
-    }
-
-    if (!profileId || !action) return;
+    // Every button is tied to one active question and the original alert message.
+    const cfg = loadSettings();
+    if (!cfg.enabled || !cfg.channelId || interaction.channel_id !== cfg.channelId) return;
+    const parts = customId.split(':');
+    if (parts.length !== 4 || parts[0] !== 'hc') return;
+    const [, profileId, action, nonce] = parts;
+    const active = activeChecks.get(profileId);
+    if (!active || active.nonce !== nonce || active.messageId !== interaction.message?.id || Date.now() - active.notifiedAt > 90000) return;
 
     const interactionId = interaction.id;
     const interactionToken = interaction.token;
@@ -328,14 +356,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return;
     }
 
-    const pickIndex = parseInt(action, 10);
+    const pickIndex = /^[0-5]$/.test(action) ? Number(action) : NaN;
     if (isNaN(pickIndex)) {
       await respondInteraction(`❌ คำสั่งไม่ถูกต้อง: ${action}`);
       return;
     }
 
     // Answer in game
-    const result = await answerCheckInGame(profileId, pickIndex);
+    const result = await answerCheckInGame(profileId, pickIndex, '', { id: active.checkId, prompt: active.prompt });
     if (result.success) {
       await respondInteraction(`✅ **ตอบตัวเลือกที่ ${pickIndex + 1}** ให้จอ [${profileId}] เรียบร้อยแล้ว! กำลังตรวจสอบผลลัพธ์...`);
     } else {
@@ -348,7 +376,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     if (msg.author?.bot) return;
 
     const cfg = loadSettings();
-    if (cfg.channelId && msg.channel_id !== cfg.channelId) return;
+    if (!cfg.enabled || !cfg.channelId || msg.channel_id !== cfg.channelId) return;
 
     const text = (msg.content || '').trim();
     // Match "1", "2", "3", "4" or "!ans 1"
@@ -362,7 +390,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     let targetProfileId = null;
     let newestTime = 0;
     for (const [pId, info] of activeChecks.entries()) {
-      if (info.notifiedAt > newestTime) {
+      if (info.messageId === msg.message_reference?.message_id && Date.now() - info.notifiedAt <= 90000 && info.notifiedAt > newestTime) {
         newestTime = info.notifiedAt;
         targetProfileId = pId;
       }
@@ -373,7 +401,8 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return;
     }
 
-    const result = await answerCheckInGame(targetProfileId, pickIndex);
+    const active = activeChecks.get(targetProfileId);
+    const result = await answerCheckInGame(targetProfileId, pickIndex, '', { id: active.checkId, prompt: active.prompt });
     const replyText = result.success
       ? `✅ [ตอบผ่านแชท] เลือกตัวเลือกที่ **${pickNum}** ให้จอ **${targetProfileId}** เรียบร้อยแล้ว!`
       : `⚠️ [ตอบผ่านแชท] สั่งตอบไม่สำเร็จ: ${result.error}`;
@@ -392,9 +421,12 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
   // Notify Discord about an active human check & execute Auto-Answer if enabled
   async function notifyHumanCheck({ profile, check }) {
     const cfg = loadSettings();
-    const hcSettings = (solver && typeof solver.loadSettings === 'function')
-      ? solver.loadSettings()
-      : { autoAnswer: cfg.autoAnswer !== false, pointSystemEnabled: false, points: 0, pointsPerSolve: 1 };
+    let hcSettings = { autoAnswer: false, pointSystemEnabled: true, points: 0, pointsPerSolve: 1 };
+    try {
+      if (solver && typeof solver.loadSettings === 'function') hcSettings = solver.loadSettings() || hcSettings;
+    } catch (err) {
+      console.warn('[HumanCheckSolver] Cannot verify point balance; auto-answer disabled.');
+    }
 
     // If both Discord alert and Auto-Answer are disabled, nothing to do
     if (!cfg.enabled && !hcSettings.autoAnswer) return;
@@ -404,7 +436,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
     // Avoid duplicate alerts for the exact same check prompt within 90 seconds
     const existing = activeChecks.get(profileId);
-    if (existing && existing.prompt === check.prompt && (now - existing.notifiedAt < 90000)) {
+    if (existing && existing.fingerprint === questionFingerprint(check) && (now - existing.notifiedAt < 90000)) {
       return;
     }
 
@@ -426,71 +458,64 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       }
     }
 
-    // Solve question using humanCheckSolver
-    const solution = (solver && typeof solver.solveHumanCheck === 'function')
-      ? solver.solveHumanCheck(check.prompt, check.options, check.items)
-      : { success: false };
+    // Manual alerts use only option positions; item matching stays on the paid service.
+    const resolvedOptions = (check.options || []).map((o, i) => ({
+      index: o.index != null ? o.index : i,
+      label: `ตัวเลือกที่ ${i + 1}`,
+      itemName: `ตัวเลือกที่ ${i + 1}`
+    }));
 
-    const resolvedOptions = (solution && solution.resolvedOptions && solution.resolvedOptions.length > 0)
-      ? solution.resolvedOptions
-      : (check.options || []).map((o, i) => ({
-          index: o.index != null ? o.index : i,
-          label: o.label || `ตัวเลือกที่ ${i + 1}`,
-          itemName: o.label || `ตัวเลือกที่ ${i + 1}`,
-          isMatch: false
-        }));
 
     activeChecks.set(profileId, {
-      checkId: check.id || now,
+      checkId: check.id ?? null,
+      fingerprint: questionFingerprint(check),
+      nonce: crypto.randomBytes(12).toString('hex'),
+      requestId: null,
       prompt: check.prompt,
       notifiedAt: now,
-      options: resolvedOptions,
-      solution
+      options: resolvedOptions
     });
 
+    const trackedCheck = activeChecks.get(profileId);
     const charName = profile.liveState?.charName || profile.lastCharName || profile.name;
     const promptText = check.prompt || '(ไม่มีข้อความโจทย์)';
     const metaText = check.meta || '';
     const optionsCount = resolvedOptions.length || 4;
 
-    // Point system validation
-    let pointBlocked = false;
     let pointMessage = '';
-    if (hcSettings.pointSystemEnabled) {
-      const cost = hcSettings.pointsPerSolve || 1;
-      if (hcSettings.points < cost) {
-        pointBlocked = true;
-        pointMessage = `⚠️ Point ไม่เพียงพอสำหรับการตอบอัตโนมัติ (คงเหลือ ${hcSettings.points} P, ต้องการ ${cost} P)`;
-        console.warn(`[HumanCheckSolver] Point blocked for ${profile.name}: has ${hcSettings.points} P, requires ${cost} P`);
-      }
-    }
-
-    // Check if Auto-Answer is enabled AND solver found a confident match
-    const isAutoAnswerAllowed = hcSettings.autoAnswer && (cfg.autoAnswer !== false) && !pointBlocked;
-    const shouldAutoAnswer = isAutoAnswerAllowed && solution.success && solution.pickIndex != null;
-
+    // Cached points are display data. Only the remote service authorizes and charges a solve.
+    const shouldAutoAnswer = hcSettings.autoAnswer && cfg.autoAnswer !== false && solver?.isRemoteService === true;
     if (shouldAutoAnswer) {
       const baseDelay = parseInt(hcSettings.answerDelayMs || cfg.answerDelayMs, 10) || 1800;
-      // Add natural randomized jitter (-250ms to +350ms)
       const jitter = Math.floor(Math.random() * 600) - 250;
       const delayMs = Math.max(800, baseDelay + jitter);
-
-      console.log(`[Discord Bot] 🤖 Auto-answering Human Check for [${profile.name}] (${charName}): pick #${solution.pickIndex + 1} (${solution.matchedName}) in ${delayMs}ms...`);
-
-      // Wait delay to simulate human reaction
       await new Promise(r => setTimeout(r, delayMs));
 
-      // Execute answer in game
-      const ansRes = await answerCheckInGame(profileId, solution.pickIndex, solution.matchedName);
+      let solution = { success: false };
+      let ansRes = { success: false, error: 'ไม่สามารถยืนยันสิทธิ์ตอบอัตโนมัติได้' };
+      try {
+        const latestSettings = solver.loadSettings();
+        if (activeChecks.get(profileId) === trackedCheck && latestSettings?.autoAnswer && loadSettings().autoAnswer !== false && typeof solver.solveHumanCheck === 'function') {
+          trackedCheck.requestId = durableRequestId(profileId, check);
+          solution = await solver.solveHumanCheck(check.prompt, check.options, check.items, trackedCheck.requestId);
+          // The service bills for analysis. Game transport errors never refund that analysis.
+          const authorized = solution?.success === true && solution.charged === 1 && solution.requestId === trackedCheck.requestId && Number.isInteger(solution.pickIndex) && solution.pickIndex >= 0 && solution.pickIndex < optionsCount;
+          if (activeChecks.get(profileId) !== trackedCheck) return;
+          const stillEnabled = solver.loadSettings()?.autoAnswer && loadSettings().autoAnswer !== false;
+          if (authorized && stillEnabled) {
+            ansRes = await answerCheckInGame(profileId, solution.pickIndex, solution.matchedName, { id: trackedCheck.checkId, prompt: trackedCheck.prompt });
+          } else {
+            pointMessage = '⚠️ บริการส่วนกลางไม่อนุมัติการตอบอัตโนมัติ กรุณาตรวจสอบ Point หรือการเชื่อมต่อ';
+            ansRes = { success: false, error: 'บริการส่วนกลางไม่อนุมัติคำตอบ หรือปิดการตอบอัตโนมัติแล้ว' };
+          }
+        }
+      } catch (err) {
+        pointMessage = '⚠️ ไม่สามารถยืนยันคำตอบจากบริการส่วนกลางได้ กรุณาตอบด้วยตนเอง';
+        console.warn('[HumanCheckSolver] Remote authorization unavailable; auto-answer disabled.');
+      }
 
       if (ansRes && ansRes.success) {
         console.log(`[Discord Bot] ✅ Auto-answer succeeded for [${profile.name}]! Picked #${solution.pickIndex + 1} (${solution.matchedName})`);
-
-        // Deduct point if point system is active
-        let deductInfo = null;
-        if (solver && typeof solver.deductPoints === 'function' && hcSettings.pointSystemEnabled) {
-          deductInfo = solver.deductPoints();
-        }
 
         // Send Success Notification to Discord
         const optionsList = resolvedOptions.map((opt, i) => {
@@ -500,13 +525,13 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           return `${icon} ${highlight}`;
         }).join('\n');
 
-        const pointDeductText = (deductInfo && deductInfo.deducted > 0)
-          ? `\n🪙 **แต้มคงเหลือ:** หัก ${deductInfo.deducted} Point ต่อ 1 Captcha (คงเหลือ: **${deductInfo.remaining}** P)`
+        const pointDeductText = (solution.charged === 1)
+          ? `\n🪙 **แต้มคงเหลือ:** หัก 1 Point ต่อการวิเคราะห์คำตอบสำเร็จ (คงเหลือ: **${solution.remaining}** P)`
           : '';
 
         const embed = {
           title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,
-          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ความแม่นยำ 100%)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
+          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ยืนยันจากบริการส่วนกลาง)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
           color: 0x10B981, // Emerald Green
           fields: [
             {
@@ -542,6 +567,8 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       }
     }
 
+    if (activeChecks.get(profileId) !== trackedCheck) return;
+
     // Fallback or Manual Mode: Send Urgent Alert with Interactive Buttons & Real Item Names & Card Image
     if (cfg.autoBringToFront && typeof focusProfileWindow === 'function') {
       try { focusProfileWindow(profileId); } catch (e) {}
@@ -550,8 +577,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     const embed = {
       title: `🚨 ตรวจพบเช็คผู้เล่น (Human Check)!`,
       description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}` +
-        (pointMessage ? `\n\n${pointMessage}` : '') +
-        (solution.matchedName ? `\n\n💡 *ระบบวิเคราะห์ว่าเป็น:* **ข้อ ${solution.pickIndex + 1}: ${solution.matchedName}**` : ''),
+        (pointMessage ? `\n\n${pointMessage}` : '') + '\n\nตอบผ่านแชทด้วยการ Reply ข้อความแจ้งเตือนนี้แล้วพิมพ์เลขตัวเลือก',
       color: 0xEF4444, // Red
       fields: [],
       footer: { text: `Aetheria Online · PmheeAether Manager · จอ #${profile.name}` },
@@ -562,12 +588,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       embed.image = { url: 'attachment://human_check.png' };
     }
 
-    const optionDescriptions = resolvedOptions.map((opt, i) => {
-      const isChosen = (solution.success && opt.index === solution.pickIndex);
-      const suggest = isChosen ? ' ⭐ **(แนะนำ)**' : '';
-      const name = opt.itemName || opt.label || `ตัวเลือกที่ ${i + 1}`;
-      return `**${i + 1}️⃣** ${name}${suggest}`;
-    }).join('\n');
+    const optionDescriptions = resolvedOptions.map((opt, i) => `**${i + 1}️⃣** ตัวเลือกที่ ${i + 1}`).join('\n');
 
     if (optionDescriptions) {
       embed.fields.push({
@@ -583,14 +604,12 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       const buttons = [];
       for (let i = 0; i < optionsCount; i++) {
         const opt = resolvedOptions[i] || {};
-        const isSuggested = solution.success && opt.index === solution.pickIndex;
-        const name = opt.itemName || `ข้อ ${i + 1}`;
-        const labelText = `${i + 1}. ${name}${isSuggested ? ' ⭐' : ''}`.slice(0, 80);
+        const labelText = `ตัวเลือกที่ ${i + 1}`;
         buttons.push({
           type: 2, // Button
-          style: isSuggested ? 3 : 1, // Green (Success) if suggested, else Blurple (Primary)
+          style: 1, // Manual choices do not reveal the paid solver result
           label: labelText,
-          custom_id: `hc:${profileId}:${opt.index != null ? opt.index : i}`
+          custom_id: `hc:${profileId}:${opt.index != null ? opt.index : i}:${trackedCheck.nonce}`
         });
       }
 
@@ -606,7 +625,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
             type: 2,
             style: 4, // Danger (Red)
             label: '🖥️ ดึงจอเกมขึ้นหน้าสุด',
-            custom_id: `hc:${profileId}:focus`
+            custom_id: `hc:${profileId}:focus:${trackedCheck.nonce}`
           }
         ]
       });
@@ -623,7 +642,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         const res = await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken, fileAttachment);
         if (res.success && res.data?.id) {
           const info = activeChecks.get(profileId);
-          if (info) info.messageId = res.data.id;
+          if (info === trackedCheck) info.messageId = res.data.id;
         }
       } else if (cfg.webhookUrl) {
         const payload = {

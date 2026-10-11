@@ -1,572 +1,158 @@
-// manager/human_check_solver.js — Anti-Bot Human Check Auto-Solver for PmheeAether
-// Automatically matches questions (e.g. "กดรูป Red Potion" or "Press the picture of Red Potion")
-// with the correct item choices from Colyseus packet items or DOM button icon images.
-
+// PmheeAether CAPTCHA client. Wallet, redemption and matching live on the server.
+// Never accept a local balance/signature as payment authorization.
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { execSync } = require('child_process');
 
 function getMachineFingerprint() {
+  let identity = os.hostname().toUpperCase();
   try {
-    const stdout = execSync('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid', { encoding: 'utf8' });
-    const match = stdout.match(/MachineGuid\s+REG_SZ\s+([a-f0-9-]+)/i);
-    if (match) {
-      const guid = match[1].trim().toUpperCase();
-      const canonical = 'PMhee.MachineFingerprint.v1|' + guid;
-      return crypto.createHash('sha256').update(canonical, 'utf8').digest('hex').toUpperCase();
-    }
-  } catch (e) {}
-  const fallback = 'PMhee.MachineFingerprint.v1|' + require('os').hostname().toUpperCase();
-  return crypto.createHash('sha256').update(fallback, 'utf8').digest('hex').toUpperCase();
+    const output = execSync('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid', { encoding: 'utf8', windowsHide: true });
+    identity = output.match(/MachineGuid\s+REG_SZ\s+([a-f0-9-]+)/i)?.[1]?.toUpperCase() || identity;
+  } catch (_) {}
+  return crypto.createHash('sha256').update('PMhee.MachineFingerprint.v1|' + identity).digest('hex').toUpperCase();
 }
-
-function extractVoucherHash(input) {
-  if (!input) return null;
-  const raw = String(input).trim();
-  const match = raw.match(/(?:\?v=|campaign\/|\/vouchers\/|^)([a-zA-Z0-9]{15,45})/);
-  return match ? match[1] : null;
-}
-
-// Obfuscated Receiver Phone Decoder (Protects phone from plain text grep/decompilation)
-const _P_KEY = Buffer.from('PMhee_Aether_Key_v2');
-const _ENC_PHONE = Buffer.from([0x60, 0x74, 0x5f, 0x55, 0x53, 0x68, 0x75, 0x50, 0x4c, 0x5c]);
-function getReceiverPhone() {
-  const out = Buffer.alloc(_ENC_PHONE.length);
-  for (let i = 0; i < _ENC_PHONE.length; i++) {
-    out[i] = _ENC_PHONE[i] ^ _P_KEY[i % _P_KEY.length];
+function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl: testServiceUrl } = {}) {
+  const settingsFile = path.join(dataDir, 'human_check_settings.json');
+  const accountFile = path.join(dataDir, 'aetheria_service_account.json');
+  fs.mkdirSync(dataDir, { recursive: true });
+  const base = new URL(testServiceUrl || process.env.PMHEE_AETHERIA_API_URL || 'https://api.noggunsshop.xyz');
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/') {
+    throw new Error('CAPTCHA service requires an HTTPS origin');
   }
-  return out.toString('ascii');
-}
-
-// Cryptographic HMAC Signature to prevent users from manually editing points in JSON
-function computePointSignature(hwid, points, historyCount) {
-  const salt = 'PMhee.Aether.Security.Points.v2|' + hwid;
-  return crypto.createHmac('sha256', salt).update(`${hwid}:${points}:${historyCount}`).digest('hex');
-}
-
-function createHumanCheckSolver({ dataDir }) {
-  const CATALOG_FILE = path.join(dataDir, 'item_catalog.json');
-  const SETTINGS_FILE = path.join(dataDir, 'human_check_settings.json');
-
-  // Load / Save Human Check Solver Settings (Auto-answer, delay, point system, HWID)
+  const machineHwid = getMachineFingerprint();
+  let points = 0;
+  let topupHistory = [];
+  let serviceAvailable = false;
+  let account = null;
+  let enrollment = null;
+  try {
+    const saved = JSON.parse(fs.readFileSync(accountFile, 'utf8'));
+    if (saved.origin === base.origin && /^[a-f0-9]{64}$/.test(saved.token || '') && typeof saved.accountId === 'string') account = saved;
+  } catch (_) {}
+  function atomicWrite(file, data) {
+    fs.writeFileSync(file + '.tmp', JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(file + '.tmp', file);
+  }
   function loadSettings() {
-    const hwid = getMachineFingerprint();
-    try {
-      if (fs.existsSync(SETTINGS_FILE)) {
-        const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
-        const s = JSON.parse(raw);
-        let points = Math.max(0, parseInt(s.points, 10) || 0);
-        const historyCount = Array.isArray(s.topupHistory) ? s.topupHistory.length : 0;
-        const expectedSig = computePointSignature(hwid, points, historyCount);
-
-        // Anti-tamper verification: if signature does not match HWID and point value, reset points
-        if (points > 0 && s.sig !== expectedSig) {
-          console.warn(`[Security] ⚠️ ตรวจพบการแก้ไข Point ในไฟล์โดยไม่ได้รับอนุญาตบนเครื่อง ${hwid}! ทำการรีเซ็ตแต้มเป็น 0`);
-          points = 0;
-          s.points = 0;
-          s.sig = computePointSignature(hwid, 0, historyCount);
-          try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf8'); } catch (e) {}
-        }
-
-        return {
-          autoAnswer: s.autoAnswer !== false,
-          answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
-          pointSystemEnabled: s.pointSystemEnabled !== undefined ? !!s.pointSystemEnabled : true,
-          points,
-          pointsPerSolve: 1, // 1 point ต่อ 1 captcha
-          pointsPerBaht: Math.max(1, parseInt(s.pointsPerBaht, 10) || 1),
-          machineHwid: s.machineHwid || hwid,
-          claimedVouchers: Array.isArray(s.claimedVouchers) ? s.claimedVouchers : [],
-          topupHistory: Array.isArray(s.topupHistory) ? s.topupHistory : [],
-          sig: s.sig || expectedSig,
-          apiUrl: s.apiUrl || '',
-          apiKey: s.apiKey || ''
-        };
-      }
-    } catch (e) {}
-    const defaultHwid = hwid;
+    let s = {};
+    try { s = JSON.parse(fs.readFileSync(settingsFile, 'utf8')); } catch (_) {}
     return {
-      autoAnswer: true,
-      answerDelayMs: 1800,
-      pointSystemEnabled: true,
-      points: 0,
-      pointsPerSolve: 1,
-      pointsPerBaht: 1,
-      machineHwid: defaultHwid,
-      claimedVouchers: [],
-      topupHistory: [],
-      sig: computePointSignature(defaultHwid, 0, 0),
-      apiUrl: '',
-      apiKey: ''
+      autoAnswer: s.autoAnswer !== false,
+      answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
+      pointSystemEnabled: true, points, pointsPerSolve: 1, pointsPerBaht: 1,
+      machineHwid, topupHistory, serviceAvailable, serviceOrigin: base.origin,
+      accountId: account?.accountId || null
     };
   }
-
-  function saveSettings(settings, allowInternalPointUpdate = false) {
-    try {
-      const current = loadSettings();
-      // SECURITY: Points, history, and claimed vouchers can only be modified via internal methods (top-up / solve deduction)
-      const points = (allowInternalPointUpdate && settings.points !== undefined)
-        ? Math.max(0, parseInt(settings.points, 10) || 0)
-        : current.points;
-      const history = (allowInternalPointUpdate && Array.isArray(settings.topupHistory))
-        ? settings.topupHistory
-        : current.topupHistory;
-      const claimed = (allowInternalPointUpdate && Array.isArray(settings.claimedVouchers))
-        ? settings.claimedVouchers
-        : current.claimedVouchers;
-      const hwid = current.machineHwid;
-
-      const updated = {
-        ...current,
-        ...settings,
-        autoAnswer: settings.autoAnswer !== undefined ? (settings.autoAnswer !== false) : current.autoAnswer,
-        answerDelayMs: settings.answerDelayMs !== undefined ? Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800)) : current.answerDelayMs,
-        pointSystemEnabled: settings.pointSystemEnabled !== undefined ? !!settings.pointSystemEnabled : current.pointSystemEnabled,
-        points,
-        pointsPerSolve: 1, // 1 point ต่อ 1 captcha
-        pointsPerBaht: settings.pointsPerBaht !== undefined ? Math.max(1, parseInt(settings.pointsPerBaht, 10) || 1) : current.pointsPerBaht,
-        machineHwid: hwid,
-        claimedVouchers: claimed,
-        topupHistory: history,
-        sig: computePointSignature(hwid, points, history.length),
-        apiUrl: String(settings.apiUrl || current.apiUrl || '').trim(),
-        apiKey: String(settings.apiKey || current.apiKey || '').trim()
-      };
-      delete updated.receiverPhone; // Never save receiver phone to disk in settings JSON!
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
-      return updated;
-    } catch (e) {
-      console.error('[HumanCheckSolver] Failed to save settings:', e);
-      return null;
-    }
-  }
-
-  // Redeem TrueMoney Gift Voucher (ซองอั่งเปา TrueMoney Wallet)
-  async function redeemTrueMoneyVoucher(rawInput, receiverPhoneOverride = null) {
-    const voucherHash = extractVoucherHash(rawInput);
-    if (!voucherHash) {
-      return { success: false, message: 'กรุณากรอกลิงก์ซองของขวัญ TrueMoney Wallet ให้ถูกต้อง (เช่น https://gift.truemoney.com/campaign/?v=...)' };
-    }
-
-    const s = loadSettings();
-    const receiverPhone = String(receiverPhoneOverride || getReceiverPhone()).replace(/\D/g, '');
-    if (!receiverPhone || receiverPhone.length !== 10) {
-      return { success: false, message: 'ระบบขัดข้อง: เบอร์โทรศัพท์ผู้รับเงินไม่ถูกต้อง' };
-    }
-    if (!receiverPhone || receiverPhone.length !== 10) {
-      return { success: false, message: 'เบอร์โทรศัพท์ผู้รับเงิน TrueMoney ไม่ถูกต้อง (ต้องมี 10 หลัก)' };
-    }
-
-    // Replay protection (Receipt Hash)
-    const receiptId = crypto.createHash('sha256').update('truemoney:' + voucherHash.toUpperCase()).digest('hex');
-    const alreadyClaimed = (s.claimedVouchers || []).some(v => v.receiptId === receiptId || v.voucherHash === voucherHash);
-    if (alreadyClaimed) {
-      return { success: false, message: 'ซองของขวัญนี้ถูกใช้งานในระบบไปแล้ว ไม่สามารถใช้ซ้ำได้' };
-    }
-
-    // Call Autozy Gateway API (proven Cloudflare bypass for TrueMoney voucher redeem)
-    try {
-      const gatewayRes = await new Promise((resolve, reject) => {
-        const url = `https://gateway.autozy.app/api/giftvoucher/${voucherHash}/${receiverPhone}/`;
-        https.get(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          },
-          timeout: 15000
-        }, r => {
-          let body = '';
-          r.setEncoding('utf8');
-          r.on('data', chunk => body += chunk);
-          r.on('end', () => {
-            try {
-              resolve({ statusCode: r.statusCode, data: JSON.parse(body) });
-            } catch (e) {
-              resolve({ statusCode: r.statusCode, raw: body });
-            }
-          });
-        }).on('error', reject).on('timeout', function() { this.destroy(new Error('เชื่อมต่อ Gateway หมดเวลา (Timeout)')); });
-      });
-
-      const resData = gatewayRes.data;
-      if (resData && (resData.status === 'success' || resData.code === 200) && resData.data) {
-        let amountBaht = 0.0;
-        if (typeof resData.data.amount === 'number') amountBaht = resData.data.amount;
-        else if (typeof resData.data.amount === 'string') amountBaht = parseFloat(resData.data.amount) || 0;
-
-        if (amountBaht <= 0) {
-          return { success: false, message: 'ยอดเงินในซองของขวัญไม่ถูกต้อง (0 บาท)' };
-        }
-
-        const pointsPerBaht = s.pointsPerBaht || 1;
-        const pointsAdded = Math.round(amountBaht * pointsPerBaht);
-        s.points = (s.points || 0) + pointsAdded;
-        s.pointSystemEnabled = true; // Auto-enable point system once user tops up!
-
-        const claimRecord = {
-          receiptId,
-          voucherHash: voucherHash.slice(0, 6) + '...' + voucherHash.slice(-4),
-          amountBaht,
-          pointsAdded,
-          claimedAt: Date.now(),
-          ownerName: resData.data.owner_name || ''
-        };
-        s.claimedVouchers = [claimRecord, ...(s.claimedVouchers || [])].slice(0, 50);
-
-        const historyRecord = {
-          id: receiptId.slice(0, 8),
-          date: new Date().toISOString(),
-          type: 'truemoney_voucher',
-          amountBaht,
-          pointsAdded,
-          balance: s.points,
-          note: `ซองของขวัญ ${amountBaht.toFixed(2)} บ. (${resData.data.owner_name || 'ผู้ส่ง'})`
-        };
-        s.topupHistory = [historyRecord, ...(s.topupHistory || [])].slice(0, 50);
-
-        saveSettings(s, true);
-
-        return {
-          success: true,
-          amount: amountBaht,
-          pointsAdded,
-          totalPoints: s.points,
-          ownerName: resData.data.owner_name || '',
-          message: `🎉 แลกซองอั่งเปาสำเร็จ! ได้รับ ${amountBaht.toFixed(2)} บาท (+${pointsAdded.toLocaleString()} Points)`
-        };
-      }
-
-      // Handle gateway error responses
-      let errMsg = 'ไม่สามารถแลกซองของขวัญนี้ได้';
-      if (resData && resData.message) errMsg = resData.message;
-      if (resData && resData.message_en === 'VOUCHER_OUT_OF_STOCK') {
-        errMsg = 'ซองของขวัญนี้ถูกใช้งานหรือมีผู้รับเงินไปแล้ว';
-      } else if (resData && resData.message_en === 'VOUCHER_NOT_FOUND') {
-        errMsg = 'ไม่พบซองของขวัญนี้ กรุณาตรวจสอบลิงก์ซองของขวัญอีกครั้ง';
-      } else if (resData && resData.message_en === 'VOUCHER_EXPIRED') {
-        errMsg = 'ซองของขวัญนี้หมดอายุแล้ว (อายุเกิน 72 ชั่วโมง)';
-      } else if (resData && resData.message_en === 'CANNOT_GET_OWN_VOUCHER') {
-        errMsg = 'เบอร์ผู้รับเป็นผู้สร้างซองนี้ ไม่สามารถรับเงินของตนเองได้';
-      }
-
-      return { success: false, message: errMsg, code: resData?.code || resData?.message_en };
-    } catch (err) {
-      return { success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message };
-    }
-  }
-
-  // Deduct points after a successful auto-solve (if point system is active)
-  function deductPoints(amount = null) {
-    const s = loadSettings();
-    if (!s.pointSystemEnabled) return { success: true, remaining: s.points, deducted: 0 };
-    const cost = amount != null ? amount : (s.pointsPerSolve || 1);
-    if (s.points < cost) {
-      return { success: false, error: 'Point ไม่เพียงพอสำหรับการตอบคำถาม', remaining: s.points };
-    }
-    s.points -= cost;
-    saveSettings(s, true);
-    return { success: true, remaining: s.points, deducted: cost };
-  }
-
-  // Add / top up points
-  function addPoints(amount) {
-    const add = parseInt(amount, 10);
-    if (isNaN(add) || add <= 0) return { success: false, error: 'จำนวน Point ไม่ถูกต้อง' };
-    const s = loadSettings();
-    s.points = (s.points || 0) + add;
-    saveSettings(s, true);
-    return { success: true, points: s.points, added: add };
-  }
-
-  // In-memory lookup tables
-  let idToName = new Map();
-  let iconToNames = new Map();
-  let isReady = false;
-  let isUpdating = false;
-
-  // Helper: Fetch JSON via HTTPS
-  function fetchJSON(url) {
-    return new Promise((resolve, reject) => {
-      https.get(url, { timeout: 12000 }, (res) => {
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(new Error(`Failed to parse JSON from ${url}: ${e.message}`));
-          }
-        });
-      }).on('error', reject).on('timeout', () => reject(new Error(`Timeout fetching ${url}`)));
+  function saveSettings(s) {
+    const current = loadSettings();
+    // Preserve old local records for support; their balances never authorize a solve.
+    let prior = {};
+    try { prior = JSON.parse(fs.readFileSync(settingsFile, 'utf8')); } catch (_) {}
+    atomicWrite(settingsFile, {
+      ...prior,
+      autoAnswer: typeof s.autoAnswer === 'boolean' ? s.autoAnswer : current.autoAnswer,
+      answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs ?? current.answerDelayMs, 10) || 1800))
     });
+    return loadSettings();
   }
-
-  // Clean icon path to relative key (e.g. "items/red-potion.webp")
-  function cleanIconPath(icon) {
-    if (!icon || typeof icon !== 'string') return '';
-    return icon
-      .replace(/^https?:\/\/[^\/]+/, '')
-      .replace(/^\/?art\/icons\//, '')
-      .replace(/^\//, '')
-      .split('?')[0]
-      .trim();
-  }
-
-  // Build in-memory lookup maps from catalog data
-  function buildIndex(catalog) {
-    idToName.clear();
-    iconToNames.clear();
-
-    if (Array.isArray(catalog.items)) {
-      for (const it of catalog.items) {
-        if (it && it.id != null && it.name) {
-          idToName.set(Number(it.id), String(it.name).trim());
-        }
-      }
-    }
-
-    if (catalog.manifest && typeof catalog.manifest === 'object') {
-      const manifestItems = catalog.manifest.items || catalog.manifest;
-      for (const [idStr, iconPath] of Object.entries(manifestItems)) {
-        const id = Number(idStr);
-        const name = idToName.get(id);
-        const clean = cleanIconPath(iconPath);
-        if (clean) {
-          if (!iconToNames.has(clean)) {
-            iconToNames.set(clean, new Set());
-          }
-          if (name) {
-            iconToNames.get(clean).add(name);
-          }
-        }
-      }
-    }
-
-    isReady = idToName.size > 0;
-    console.log(`[HumanCheckSolver] Catalog indexed: ${idToName.size} items, ${iconToNames.size} unique icons.`);
-  }
-
-  // Load from disk or download
-  async function init() {
-    try {
-      if (fs.existsSync(CATALOG_FILE)) {
-        const stats = fs.statSync(CATALOG_FILE);
-        const ageHours = (Date.now() - stats.mtimeMs) / (1000 * 3600);
-        const content = fs.readFileSync(CATALOG_FILE, 'utf8');
-        const parsed = JSON.parse(content);
-        if (parsed && parsed.items && parsed.manifest) {
-          buildIndex(parsed);
-          // If older than 7 days, refresh in background
-          if (ageHours > 168) {
-            refreshCatalog().catch(() => {});
-          }
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('[HumanCheckSolver] Failed to read cached catalog from disk:', e.message);
-    }
-
-    // Otherwise download fresh
-    await refreshCatalog();
-  }
-
-  // Download fresh catalog from Aetheria Online
-  async function refreshCatalog() {
-    if (isUpdating) return;
-    isUpdating = true;
-    try {
-      console.log('[HumanCheckSolver] Downloading item catalog from Aetheria Online...');
-      const [wiki, manifest] = await Promise.all([
-        fetchJSON('https://www.aetheria-online.in.th/wiki-data'),
-        fetchJSON('https://www.aetheria-online.in.th/art/icons/manifest.json')
-      ]);
-
-      const catalogData = {
-        updatedAt: new Date().toISOString(),
-        items: wiki.items || [],
-        manifest: manifest.items || manifest
-      };
-
-      try {
-        fs.writeFileSync(CATALOG_FILE, JSON.stringify(catalogData), 'utf8');
-      } catch (err) {
-        console.warn('[HumanCheckSolver] Could not write catalog to disk:', err.message);
-      }
-
-      buildIndex(catalogData);
-    } catch (err) {
-      console.error('[HumanCheckSolver] Failed to download catalog:', err.message);
-    } finally {
-      isUpdating = false;
-    }
-  }
-
-  // Clean prompt to extract item name
-  // Handles:
-  // "กดรูป Red Potion" -> "Red Potion"
-  // "กรุณากดรูป Red Potion ภายในเวลา" -> "Red Potion"
-  // "Press the picture of Wedding Veil" -> "Wedding Veil"
-  // "เลือกรูปภาพของ Guard" -> "Guard"
-  function cleanPromptText(prompt) {
-    if (!prompt || typeof prompt !== 'string') return '';
-    let p = prompt.trim();
-    // Strip Thai prefixes
-    p = p.replace(/^(?:กรุณา)?\s*(?:คลิก|กด|เลือก)\s*(?:ที่)?\s*(?:รูป|ภาพ|รูปภาพ)?\s*(?:ของ)?\s*/i, '');
-    // Strip English prefixes
-    p = p.replace(/^(?:please\s+)?(?:press|click|select|choose)\s+(?:the\s+)?(?:picture|image|icon)\s+(?:of\s+)?/i, '');
-    // Strip suffix reminders
-    p = p.replace(/\s*(?:ภายในเวลา|ด่วน|ก่อนหมดเวลา).*$/i, '');
-    return p.trim();
-  }
-
-  // Solve human check question
-  // prompt: string (e.g. "กดรูป Red Potion")
-  // options: array of { index, label, icon, itemId? }
-  // packetItems: optional array of numbers [2101, 90301, ...]
-  function solveHumanCheck(prompt, options = [], packetItems = null) {
-    if (!prompt) return { success: false, reason: 'ไม่มีข้อความโจทย์' };
-
-    const rawPromptLower = String(prompt).trim().toLowerCase();
-    const cleanTarget = cleanPromptText(prompt);
-    const cleanTargetLower = cleanTarget.toLowerCase();
-
-    const resolvedOptions = [];
-    const candidates = [];
-
-    const count = Math.max(options.length, (packetItems && packetItems.length) || 0);
-
-    for (let i = 0; i < count; i++) {
-      const opt = options[i] || { index: i };
-      const index = opt.index != null ? opt.index : i;
-      const itemId = (packetItems && packetItems[i]) || opt.itemId;
-      const icon = cleanIconPath(opt.icon);
-
-      const candidateNames = new Set();
-
-      // 1. From exact item ID
-      if (itemId != null) {
-        const n = idToName.get(Number(itemId));
-        if (n) candidateNames.add(n);
-      }
-
-      // 2. From icon path in manifest
-      if (icon) {
-        const names = iconToNames.get(icon);
-        if (names) {
-          names.forEach(n => candidateNames.add(n));
-        }
-      }
-
-      const namesArr = Array.from(candidateNames);
-      const displayItemName = namesArr[0] || opt.label || `ตัวเลือกที่ ${index + 1}`;
-
-      resolvedOptions.push({
-        index,
-        label: opt.label || `ตัวเลือกที่ ${index + 1}`,
-        icon: opt.icon || '',
-        itemId: itemId || null,
-        itemName: displayItemName,
-        allNames: namesArr
+  const requestJSON = testRequest || ((route, payload, token) => new Promise((resolve, reject) => {
+    const data = payload == null ? null : JSON.stringify(payload);
+    const headers = { 'Accept': 'application/json' };
+    if (token) headers.Authorization = 'Bearer ' + token;
+    if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+    const req = https.request(new URL(route, base), { method: data ? 'POST' : 'GET', headers, timeout: 15000 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('error', reject);
+      res.on('data', c => {
+        body += c;
+        if (Buffer.byteLength(body) > 131072) res.destroy(new Error('Service response too large'));
       });
-
-      // Score matching against prompt
-      for (const name of namesArr) {
-        const nameLower = name.toLowerCase();
-        let score = 0;
-
-        // Exact match with cleaned prompt target: highest priority
-        if (cleanTargetLower === nameLower) {
-          score = 1000 + nameLower.length;
-        } else if (cleanTargetLower.includes(nameLower)) {
-          // Clean target contains item name (e.g. prompt had slight extra word)
-          score = 800 + nameLower.length;
-        } else if (rawPromptLower.includes(nameLower)) {
-          // Raw prompt contains item name (e.g. "กดรูป Red Potion")
-          score = 600 + nameLower.length;
-        } else {
-          // Normalize spaces and dashes (e.g. "two-hand sword" vs "two hand sword")
-          const normPrompt = rawPromptLower.replace(/[^a-z0-9]/g, '');
-          const normName = nameLower.replace(/[^a-z0-9]/g, '');
-          if (normPrompt.includes(normName) && normName.length >= 3) {
-            score = 500 + normName.length;
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(body);
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const error = new Error(typeof result.message === 'string' ? result.message : 'CAPTCHA service rejected request');
+            error.status = res.statusCode;
+            return reject(error);
           }
-        }
-
-        if (score > 0) {
-          candidates.push({
-            index,
-            matchedName: name,
-            score
-          });
-        }
-      }
-    }
-
-    // Sort candidates by score descending
-    candidates.sort((a, b) => b.score - a.score);
-
-    if (candidates.length > 0) {
-      const best = candidates[0];
-      // Mark chosen in resolvedOptions
-      resolvedOptions.forEach(o => {
-        o.isMatch = (o.index === best.index);
+          resolve(result);
+        } catch (_) { reject(new Error('Invalid CAPTCHA service response')); }
       });
-
-      return {
-        success: true,
-        pickIndex: best.index,
-        matchedName: best.matchedName,
-        confidence: Math.min(100, Math.round(best.score / 10)),
-        cleanTarget,
-        resolvedOptions
-      };
-    }
-
-    return {
-      success: false,
-      reason: 'ไม่พบชื่อไอเทมที่ตรงกับโจทย์',
-      cleanTarget,
-      resolvedOptions
-    };
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('CAPTCHA service timeout')));
+    req.end(data || undefined);
+  }));
+  async function ensureAccount() {
+    if (account) return account;
+    if (!enrollment) enrollment = (async () => {
+      const result = await requestJSON('/v1/aetheria/enroll', { machineHwid }, null);
+      if (!result?.success || typeof result.accountId !== 'string' || !/^[a-f0-9]{64}$/.test(result.token || '')) throw new Error('Invalid account enrollment');
+      const saved = { origin: base.origin, accountId: result.accountId, token: result.token };
+      atomicWrite(accountFile, saved);
+      account = saved;
+      return account;
+    })().finally(() => { enrollment = null; });
+    return enrollment;
   }
-
-  // Get item name by ID
-  function getItemName(id) {
-    return idToName.get(Number(id)) || null;
+  async function call(route, payload) {
+    const credential = await ensureAccount();
+    try {
+      const result = await requestJSON(route, payload, credential.token);
+      serviceAvailable = true;
+      return result;
+    } catch (e) { serviceAvailable = false; throw e; }
   }
-
-  // Get item names by icon path
-  function getItemNamesByIcon(icon) {
-    const clean = cleanIconPath(icon);
-    const set = iconToNames.get(clean);
-    return set ? Array.from(set) : [];
+  function updateBalance(result) {
+    const balance = result.points ?? result.remaining ?? result.totalPoints;
+    if (Number.isSafeInteger(balance) && balance >= 0) points = balance;
+    if (Array.isArray(result.topupHistory)) topupHistory = result.topupHistory;
   }
-
-  // Kick off initialization
-  init().catch(err => {
-    console.warn('[HumanCheckSolver] Init deferred/error:', err.message);
-  });
-
+  async function refreshBalance() {
+    try {
+      const result = await call('/v1/aetheria/balance');
+      if (!result?.success || !Number.isSafeInteger(result.points) || result.points < 0) throw new Error('Invalid balance');
+      updateBalance(result);
+    } catch (_) { serviceAvailable = false; }
+    return loadSettings();
+  }
+  async function solveHumanCheck(prompt, options = [], items = null, requestId = crypto.randomUUID()) {
+    try {
+      const result = await call('/v1/aetheria/solve', { requestId, prompt, options, items });
+      if (!result?.success || result.charged !== 1 || result.requestId !== requestId ||
+          !Number.isInteger(result.pickIndex) || result.pickIndex < 0 || result.pickIndex > 5 ||
+          result.pickIndex >= Math.max(options.length, items?.length || 0) ||
+          !Number.isSafeInteger(result.remaining) || result.remaining < 0) {
+        return { success: false, reason: 'ไม่สามารถยืนยันคำตอบและการหัก Point จากเซิร์ฟเวอร์' };
+      }
+      updateBalance(result);
+      return result;
+    } catch (e) { return { success: false, reason: e.message }; }
+  }
+  async function redeemTrueMoneyVoucher(voucherUrl) {
+    try {
+      const result = await call('/v1/aetheria/topup', { voucherUrl });
+      if (result?.success) { updateBalance(result); await refreshBalance(); }
+      return result;
+    } catch (e) { return { success: false, message: e.message }; }
+  }
   return {
-    init,
-    refreshCatalog,
-    solveHumanCheck,
-    getItemName,
-    getItemNamesByIcon,
-    cleanIconPath,
-    cleanPromptText,
-    loadSettings,
-    saveSettings,
-    deductPoints,
-    addPoints,
-    redeemTrueMoneyVoucher,
-    extractVoucherHash,
-    getMachineFingerprint,
-    isReady: () => isReady
+    isRemoteService: true, loadSettings, saveSettings,
+    publicSettings: (s = loadSettings()) => Object.fromEntries([
+      'autoAnswer', 'answerDelayMs', 'pointSystemEnabled', 'points', 'pointsPerSolve',
+      'pointsPerBaht', 'machineHwid', 'topupHistory', 'serviceAvailable', 'serviceOrigin', 'accountId'
+    ].map(key => [key, s[key]])),
+    refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint,
+    // A client must never mint, debit or refund credit locally.
+    addPoints: () => ({ success: false, error: 'เติม Point ได้ผ่านเซิร์ฟเวอร์เท่านั้น' }),
+    deductPoints: () => ({ success: false, error: 'เซิร์ฟเวอร์เป็นผู้หัก Point' }),
+    isReady: () => serviceAvailable
   };
 }
-
 module.exports = { createHumanCheckSolver };

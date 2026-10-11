@@ -14,3 +14,10 @@ manager/data/item_catalog.json
 manager/data/human_check_settings.json
 release/Pelican_Manager_v4.3/manager/data/
 .codex/
+
+manager/data/point_integrity_key
+manager/data/human_check_settings.json.tmp
+manager/data/aetheria_service_account.json
+manager/data/aetheria_service_account.json.tmp
+manager/data/aetheria_request_state.json
+manager/data/aetheria_request_state.json.tmp

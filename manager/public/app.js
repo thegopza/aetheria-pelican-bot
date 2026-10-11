@@ -857,7 +857,7 @@ if (btnToggleAutoAnswer) {
   btnToggleAutoAnswer.onclick = async () => {
     btnToggleAutoAnswer.disabled = true;
     try {
-      const res = await fetch(`${API_BASE}/api/human-check/toggle`, { method: "POST" }).then(r => r.json());
+      const res = await fetch(`${API_BASE}/api/human-check/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then(r => r.json());
       if (res && res.success) {
         updateAutoAnswerToolbarBtn(res.autoAnswer);
         showToast(res.autoAnswer ? "🤖 เปิด Auto ตอบคำถามเช็คผู้เล่นแล้ว" : "⏸️ ปิด Auto ตอบคำถามเช็คผู้เล่นแล้ว", res.autoAnswer ? "success" : "warning");
@@ -879,7 +879,7 @@ if (btnToggleAutoAnswer) {
 // ==========================================
 // AUTO CAPTCHA POINT TOP-UP MODAL CONTROLLER
 // ==========================================
-function updatePointDisplays(points, pointsPerSolve) {
+function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
   const p = points != null ? Number(points) : 0;
   const topupBadge = document.getElementById("topup-point-badge");
   const topupPointsVal = document.getElementById("topup-modal-points");
@@ -891,7 +891,10 @@ function updatePointDisplays(points, pointsPerSolve) {
   if (topupPointsVal) topupPointsVal.innerText = p.toLocaleString();
   if (hcPoints) hcPoints.innerText = p;
   if (topupStatusBadge) {
-    if (p > 0) {
+    if (serviceAvailable === false) {
+      topupStatusBadge.innerText = "● ติดต่อเซิร์ฟเวอร์ไม่ได้";
+      topupStatusBadge.style.color = "#f87171";
+    } else if (p > 0) {
       topupStatusBadge.style.background = "rgba(16, 185, 129, 0.2)";
       topupStatusBadge.style.color = "#34d399";
       topupStatusBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
@@ -904,7 +907,7 @@ function updatePointDisplays(points, pointsPerSolve) {
     }
   }
   if (pointsPerSolve && topupRate) {
-    topupRate.innerText = `หัก ${pointsPerSolve} Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง`;
+    topupRate.innerText = `หัก ${pointsPerSolve} Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง`;
   }
 }
 window.updatePointDisplays = updatePointDisplays;
@@ -954,7 +957,7 @@ function initTopupCaptchaModal() {
       } catch (e) {
         dateStr = item.date || "";
       }
-      const points = (item.pointsAdded || 0).toLocaleString();
+      const points = (Number(item.pointsAdded) || 0).toLocaleString();
       const amount = item.amountBaht != null ? `${Number(item.amountBaht).toFixed(2)} ฿` : `${points} P`;
       return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
         <div>
@@ -972,7 +975,7 @@ function initTopupCaptchaModal() {
       const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
       if (res && res.success && res.settings) {
         const s = res.settings;
-        updatePointDisplays(s.points, s.pointsPerSolve);
+        updatePointDisplays(s.points, s.pointsPerSolve, s.serviceAvailable);
 
         // Show dev-only shortcuts ONLY if running in dev/git mode
         const isDev = !!res.isDev;
@@ -987,6 +990,8 @@ function initTopupCaptchaModal() {
             hwidShort.title = `Full HWID: ${s.machineHwid}`;
           }
         }
+        const accountEl = document.getElementById("topup-service-account");
+        if (accountEl) accountEl.innerText = s.accountId || "ยังไม่ได้เชื่อมต่อบริการ";
         renderHistory(s.topupHistory);
       }
     } catch (e) {}
@@ -1105,7 +1110,7 @@ function initTopupCaptchaModal() {
     const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
     if (res && res.success && res.settings) {
       updateAutoAnswerToolbarBtn(res.settings.autoAnswer !== false);
-      updatePointDisplays(res.settings.points, res.settings.pointsPerSolve);
+      updatePointDisplays(res.settings.points, res.settings.pointsPerSolve, res.settings.serviceAvailable);
       const isDev = !!res.isDev;
       document.querySelectorAll(".dev-only-feature").forEach(el => {
         el.style.display = isDev ? "" : "none";

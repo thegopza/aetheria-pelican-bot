@@ -75,6 +75,7 @@ const { createAuthSync } = require("./auth_sync");
 const credentials = require("./credentials");
 const { createBrowserMode } = require("./browser_mode");
 const { createDiscordBotService } = require("./discord_bot");
+const { allowLocalRequest } = require("./local_request_security");
 const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
 function loadPresets() {
@@ -427,11 +428,12 @@ const LIVE_STATE_EVAL = `(() => {
 
       s.humanCheck = {
         active: true,
+        id: window.__latestHumanCheck?.id ?? null,
         prompt: promptEl ? (promptEl.innerText || '').trim() : '',
         meta: metaEl ? (metaEl.innerText || '').trim() : '',
         autoSolved: !!window.__lastHumanCheckSolved && (Date.now() - window.__lastHumanCheckSolved.timestamp < 15000),
         lastSolved: window.__lastHumanCheckSolved || null,
-        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : options.map(o => o.itemId).filter(id => id != null),
+        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : null,
         options,
         imageDataUrl
       };
@@ -1147,11 +1149,13 @@ setInterval(async () => {
 
 const server = http.createServer(async (req, res) => {
   req.setEncoding('utf8');   // request bodies are built with += (Thai split across chunks -> U+FFFD)
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
+  if (!allowLocalRequest(req, PORT)) {
+    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+    return res.end(JSON.stringify({ success: false, error: "Forbidden request origin or host" }));
+  }
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     return res.end();
@@ -1165,6 +1169,15 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(data));
   };
+
+  if (pathname.startsWith('/api/human-check/') && req.method === 'POST') {
+    if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) {
+      return sendJSON({ success: false, error: 'JSON body required' }, 415);
+    }
+    if (Number(req.headers['content-length']) > 16384) {
+      return sendJSON({ success: false, error: 'Body too large' }, 413);
+    }
+  }
 
   // ==========================================
   // API ROUTING
@@ -1214,7 +1227,10 @@ const server = http.createServer(async (req, res) => {
   // Answer human check from Manager UI or remote link
   if (pathname === "/api/human-check/answer" && req.method === "POST") {
     let body = "";
-    req.on("data", c => body += c);
+    req.on("data", c => {
+        body += c;
+        if (Buffer.byteLength(body, "utf8") > 16384) req.destroy();
+      });
     req.on("end", async () => {
       try {
         const { profileId, pick } = JSON.parse(body || "{}");
@@ -1230,15 +1246,15 @@ const server = http.createServer(async (req, res) => {
   // Human Check Auto-Answer & Point System Endpoints
   if (pathname === "/api/human-check/settings") {
     if (req.method === "GET") {
-      const s = humanCheckSolver.loadSettings();
-      const isDev = fs.existsSync(path.join(__dirname, "..", ".git"));
-      const publicSettings = { ...s };
-      delete publicSettings.receiverPhone; // Keep recipient phone number confidential
-      return sendJSON({ success: true, settings: publicSettings, isDev });
+      const s = await humanCheckSolver.refreshBalance();
+      return sendJSON({ success: true, settings: humanCheckSolver.publicSettings(s), isDev: false });
     }
     if (req.method === "POST") {
       let body = "";
-      req.on("data", c => body += c);
+      req.on("data", c => {
+        body += c;
+        if (Buffer.byteLength(body, "utf8") > 16384) req.destroy();
+      });
       req.on("end", async () => {
         try {
           const data = JSON.parse(body || "{}");
@@ -1262,8 +1278,7 @@ const server = http.createServer(async (req, res) => {
               })()`).catch(() => {});
             }
           }
-          const publicUpdated = { ...updated };
-          delete publicUpdated.receiverPhone;
+          const publicUpdated = humanCheckSolver.publicSettings(updated);
           sendJSON({ success: true, settings: publicUpdated });
         } catch (e) {
           sendJSON({ success: false, error: e.message }, 400);
@@ -1292,7 +1307,7 @@ const server = http.createServer(async (req, res) => {
           })()`).catch(() => {});
         }
       }
-      return sendJSON({ success: true, autoAnswer: newAutoAnswer, settings: updated });
+      return sendJSON({ success: true, autoAnswer: newAutoAnswer, settings: humanCheckSolver.publicSettings(updated) });
     } catch (e) {
       return sendJSON({ success: false, error: e.message }, 500);
     }
@@ -1300,28 +1315,16 @@ const server = http.createServer(async (req, res) => {
 
   // Point top-up / credit add endpoint (Dev shortcut only)
   if (pathname === "/api/human-check/add-points" && req.method === "POST") {
-    const isDev = fs.existsSync(path.join(__dirname, "..", ".git"));
-    if (!isDev) {
-      return sendJSON({ success: false, error: "ฟังก์ชันนี้สงวนสิทธิ์สำหรับโหมดผู้พัฒนา (Dev Mode) เท่านั้น" }, 403);
-    }
-    let body = "";
-    req.on("data", c => body += c);
-    req.on("end", () => {
-      try {
-        const { amount } = JSON.parse(body || "{}");
-        const res = humanCheckSolver.addPoints(amount);
-        sendJSON(res);
-      } catch (e) {
-        sendJSON({ success: false, error: e.message }, 400);
-      }
-    });
-    return;
+    return sendJSON({ success: false, error: "ปิดการเติม Point ทดสอบ กรุณาเติมผ่านซองของขวัญ" }, 403);
   }
 
   // TrueMoney Gift Voucher Top-up (ซองของขวัญ / อั่งเปา TrueMoney Wallet)
   if (pathname === "/api/human-check/topup-voucher" && req.method === "POST") {
     let body = "";
-    req.on("data", c => body += c);
+    req.on("data", c => {
+        body += c;
+        if (Buffer.byteLength(body, "utf8") > 16384) req.destroy();
+      });
     req.on("end", async () => {
       try {
         const { voucherUrl } = JSON.parse(body || "{}");
@@ -3132,6 +3135,7 @@ public class PmFocus {
   // STATIC FILE SERVING
   // ==========================================
   let filePath = path.join(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname);
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) return sendJSON({ success: false }, 403);
   const ext = path.extname(filePath).toLowerCase();
 
   fs.stat(filePath, (err, stats) => {

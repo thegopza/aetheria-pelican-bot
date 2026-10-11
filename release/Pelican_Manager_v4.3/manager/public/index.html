@@ -1018,8 +1018,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=42730"></script>
-  <script src="patcher_module.js?v=41740"></script>
+  <script src="app.js?v=42731"></script>
+  <script src="patcher_module.js?v=41741"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
   <script src="inventory_market.js?v=4360"></script>
@@ -1275,14 +1275,14 @@
               <span style="font-size: 13.5px; font-weight: normal; color: #94a3b8;">Points</span>
             </div>
             <div id="topup-modal-rate" style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
-              หัก 1 Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง (1 บาท = 1 Point)
+              หัก 1 Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง (1 บาท = 1 Point)
             </div>
           </div>
           <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
             <span id="topup-modal-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;">
               ● พร้อมใช้งาน
             </span>
-            <div style="font-size: 10px; color: #64748b; font-family: monospace; display: flex; align-items: center; gap: 4px;" title="Hardware Fingerprint สำหรับผูกยอด Point กับเครื่องนี้">
+            <div style="font-size: 10px; color: #64748b; font-family: monospace; display: flex; align-items: center; gap: 4px;" title="ข้อมูลเครื่องสำหรับติดต่อฝ่ายดูแล">
               <span>HWID:</span>
               <span id="topup-hwid-short" style="color: #94a3b8; font-weight: 600;">กำลังโหลด...</span>
               <button type="button" id="btn-copy-hwid" style="background: transparent; border: none; color: #38bdf8; cursor: pointer; padding: 0 2px; font-size: 10.5px;" title="คัดลอก HWID">📋</button>
@@ -1290,6 +1290,8 @@
           </div>
         </div>
       </div>
+
+      <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px;">บัญชีบริการ: <span id="topup-service-account">กำลังเชื่อมต่อ...</span><br>ยอด Point ยืนยันจากเซิร์ฟเวอร์ เก็บไฟล์บัญชีบริการไว้เพื่อรักษาสิทธิ์เข้าถึงยอดเดิม</div>
 
       <!-- TrueMoney Gift Voucher Redemption Box -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1.5px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">

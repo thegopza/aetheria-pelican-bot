@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.3
+// @version      4.35.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.3';
+    const PELICAN_BOT_VERSION = '4.35.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -393,136 +393,6 @@
         } catch (e) {}
     }
 
-    let inGameCatalog = null;
-    let inGameCatalogPromise = null;
-
-    function getInGameCatalog() {
-        if (inGameCatalog) return Promise.resolve(inGameCatalog);
-        if (inGameCatalogPromise) return inGameCatalogPromise;
-
-        inGameCatalogPromise = (async () => {
-            try {
-                const cached = localStorage.getItem('pelican_item_catalog');
-                if (cached) {
-                    const parsed = JSON.parse(cached);
-                    if (parsed && parsed.items && parsed.manifest) {
-                        inGameCatalog = buildInGameCatalogIndex(parsed);
-                        return inGameCatalog;
-                    }
-                }
-            } catch (e) {}
-
-            try {
-                const [wikiRes, manifestRes] = await Promise.all([
-                    fetch('/wiki-data', { cache: 'no-cache' }),
-                    fetch('/art/icons/manifest.json', { cache: 'no-cache' })
-                ]);
-                const wiki = await wikiRes.json();
-                const manifest = await manifestRes.json();
-                const raw = {
-                    items: wiki.items || [],
-                    manifest: manifest.items || manifest
-                };
-                try {
-                    localStorage.setItem('pelican_item_catalog', JSON.stringify(raw));
-                } catch (e) {}
-                inGameCatalog = buildInGameCatalogIndex(raw);
-                return inGameCatalog;
-            } catch (err) {
-                console.warn('[PmheeAether Anti-Bot] Failed to load catalog:', err);
-                return null;
-            }
-        })();
-        return inGameCatalogPromise;
-    }
-
-    // Preload item catalog in background so it is instantly available for Human Check
-    setTimeout(() => {
-        getInGameCatalog().catch(() => {});
-    }, 3500);
-
-    function buildInGameCatalogIndex(raw) {
-        const idToName = new Map();
-        const iconToNames = new Map();
-
-        (raw.items || []).forEach(it => {
-            if (it && it.id != null && it.name) {
-                idToName.set(Number(it.id), String(it.name).trim());
-            }
-        });
-
-        const mItems = raw.manifest?.items || raw.manifest || {};
-        for (const [idStr, iconPath] of Object.entries(mItems)) {
-            const id = Number(idStr);
-            const name = idToName.get(id);
-            const clean = String(iconPath || '').replace(/^https?:\/\/[^\/]+/, '').replace(/^\/?art\/icons\//, '').replace(/^\//, '').split('?')[0].trim();
-            if (clean) {
-                if (!iconToNames.has(clean)) iconToNames.set(clean, new Set());
-                if (name) iconToNames.get(clean).add(name);
-            }
-        }
-        return { idToName, iconToNames };
-    }
-
-    function cleanPromptItemTarget(prompt) {
-        if (!prompt || typeof prompt !== 'string') return '';
-        let p = prompt.trim();
-        p = p.replace(/^(?:กรุณา)?\s*(?:คลิก|กด|เลือก)\s*(?:ที่)?\s*(?:รูป|ภาพ|รูปภาพ)?\s*(?:ของ)?\s*/i, '');
-        p = p.replace(/^(?:please\s+)?(?:press|click|select|choose)\s+(?:the\s+)?(?:picture|image|icon)\s+(?:of\s+)?/i, '');
-        p = p.replace(/\s*(?:ภายในเวลา|ด่วน|ก่อนหมดเวลา).*$/i, '');
-        return p.trim();
-    }
-
-    function solveInGameHumanCheck(prompt, buttons, packetItems, catalog) {
-        if (!prompt || !catalog) return null;
-        const { idToName, iconToNames } = catalog;
-        const cleanTarget = cleanPromptItemTarget(prompt);
-        const cleanTargetLower = cleanTarget.toLowerCase();
-        const rawPromptLower = prompt.toLowerCase();
-
-        const count = buttons.length || (packetItems && packetItems.length) || 0;
-        const candidates = [];
-
-        for (let i = 0; i < count; i++) {
-            const btn = buttons[i];
-            const img = btn ? btn.querySelector('img') : null;
-            const imgSrc = img ? (img.getAttribute('src') || img.src || '') : '';
-            const cleanIcon = imgSrc.replace(/^https?:\/\/[^\/]+/, '').replace(/^\/?art\/icons\//, '').replace(/^\//, '').split('?')[0].trim();
-            const itemId = (packetItems && packetItems[i]) || null;
-
-            const names = new Set();
-            if (itemId != null) {
-                const n = idToName.get(Number(itemId));
-                if (n) names.add(n);
-            }
-            if (cleanIcon) {
-                const iconNames = iconToNames.get(cleanIcon);
-                if (iconNames) iconNames.forEach(n => names.add(n));
-            }
-
-            for (const name of names) {
-                const nameLower = name.toLowerCase();
-                let score = 0;
-                if (cleanTargetLower === nameLower) score = 1000 + nameLower.length;
-                else if (cleanTargetLower.includes(nameLower)) score = 800 + nameLower.length;
-                else if (rawPromptLower.includes(nameLower)) score = 600 + nameLower.length;
-                else {
-                    const normPrompt = rawPromptLower.replace(/[^a-z0-9]/g, '');
-                    const normName = nameLower.replace(/[^a-z0-9]/g, '');
-                    if (normPrompt.includes(normName) && normName.length >= 3) {
-                        score = 500 + normName.length;
-                    }
-                }
-                if (score > 0) {
-                    candidates.push({ index: i, name, score });
-                }
-            }
-        }
-
-        candidates.sort((a, b) => b.score - a.score);
-        return candidates[0] || null;
-    }
-
     let hasNotifiedHumanCheck = false;
     function checkHumanCheckStatus() {
         const hc = document.querySelector('.human-check');
@@ -543,9 +413,6 @@
 
     // Attach periodic watcher for human check detection
     setInterval(checkHumanCheckStatus, 1000);
-
-    // Also preload catalog on idle
-    setTimeout(() => { getInGameCatalog(); }, 4000);
 
     // ==========================================
     // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
