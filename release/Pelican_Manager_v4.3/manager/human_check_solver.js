@@ -27,6 +27,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   const machineName = os.hostname();
   const managerSessionId = crypto.randomUUID();
   let points = 0;
+  let pointsPerSolve = 1;
   let topupHistory = [];
   let serviceAvailable = false;
   let account = null;
@@ -45,7 +46,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     return {
       autoAnswer: s.autoAnswer !== false,
       answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
-      pointSystemEnabled: true, points, pointsPerSolve: 1, pointsPerBaht: 1,
+      pointSystemEnabled: true, points, pointsPerSolve, pointsPerBaht: 1,
       machineHwid, topupHistory, serviceAvailable, serviceOrigin: base.origin,
       accountId: account?.accountId || null
     };
@@ -114,6 +115,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   function updateBalance(result) {
     const balance = result.points ?? result.remaining ?? result.totalPoints;
     if (Number.isSafeInteger(balance) && balance >= 0) points = balance;
+    if (result.pointsPerSolve === 0 || result.pointsPerSolve === 1) pointsPerSolve = result.pointsPerSolve;
     if (Array.isArray(result.topupHistory)) topupHistory = result.topupHistory;
   }
   async function refreshBalance() {
@@ -127,7 +129,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   async function solveHumanCheck(prompt, options = [], items = null, requestId = crypto.randomUUID()) {
     try {
       const result = await call('/v1/aetheria/solve', { requestId, prompt, options, items });
-      if (!result?.success || result.charged !== 1 || result.requestId !== requestId ||
+      if (!result?.success || ![0, 1].includes(result.charged) || result.requestId !== requestId ||
           !Number.isInteger(result.pickIndex) || result.pickIndex < 0 || result.pickIndex > 5 ||
           result.pickIndex >= Math.max(options.length, items?.length || 0) ||
           !Number.isSafeInteger(result.remaining) || result.remaining < 0) {

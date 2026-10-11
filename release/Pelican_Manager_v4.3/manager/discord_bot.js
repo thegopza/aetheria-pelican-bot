@@ -499,7 +499,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           trackedCheck.requestId = durableRequestId(profileId, check);
           solution = await solver.solveHumanCheck(check.prompt, check.options, check.items, trackedCheck.requestId);
           // The service bills for analysis. Game transport errors never refund that analysis.
-          const authorized = solution?.success === true && solution.charged === 1 && solution.requestId === trackedCheck.requestId && Number.isInteger(solution.pickIndex) && solution.pickIndex >= 0 && solution.pickIndex < optionsCount;
+          const authorized = solution?.success === true && [0, 1].includes(solution.charged) && solution.requestId === trackedCheck.requestId && Number.isInteger(solution.pickIndex) && solution.pickIndex >= 0 && solution.pickIndex < optionsCount;
           if (activeChecks.get(profileId) !== trackedCheck) return;
           const stillEnabled = solver.loadSettings()?.autoAnswer && loadSettings().autoAnswer !== false;
           if (authorized && stillEnabled) {
@@ -527,7 +527,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
         const pointDeductText = (solution.charged === 1)
           ? `\n🪙 **แต้มคงเหลือ:** หัก 1 Point ต่อการวิเคราะห์คำตอบสำเร็จ (คงเหลือ: **${solution.remaining}** P)`
-          : '';
+          : '\n🪙 **ใช้ฟรีชั่วคราว:** ไม่หัก Point สำหรับการวิเคราะห์คำตอบครั้งนี้';
 
         const embed = {
           title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,

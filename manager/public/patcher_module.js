@@ -314,7 +314,7 @@
           if (hcGlobalAnswerDelay) hcGlobalAnswerDelay.value = s.answerDelayMs || 1800;
           if (hcPointSystemToggle) { hcPointSystemToggle.checked = true; hcPointSystemToggle.disabled = true; }
           if (hcPointsVal) hcPointsVal.innerText = s.points || 0;
-          if (hcPointsPerSolve) { hcPointsPerSolve.value = 1; hcPointsPerSolve.disabled = true; }
+          if (hcPointsPerSolve) { hcPointsPerSolve.value = s.pointsPerSolve ?? 1; hcPointsPerSolve.disabled = true; }
           if (typeof window.updateAutoAnswerToolbarBtn === 'function') {
             window.updateAutoAnswerToolbarBtn(s.autoAnswer !== false);
           }
@@ -336,8 +336,7 @@
           const payload = {
             autoAnswer: hcGlobalAutoAnswer ? hcGlobalAutoAnswer.checked : true,
             answerDelayMs: hcGlobalAnswerDelay ? Math.max(800, parseInt(hcGlobalAnswerDelay.value, 10) || 1800) : 1800,
-            pointSystemEnabled: hcPointSystemToggle ? hcPointSystemToggle.checked : false,
-            pointsPerSolve: hcPointsPerSolve ? Math.max(1, parseInt(hcPointsPerSolve.value, 10) || 1) : 1
+            pointSystemEnabled: true
           };
           const res = await fetch('/api/human-check/settings', {
             method: 'POST',

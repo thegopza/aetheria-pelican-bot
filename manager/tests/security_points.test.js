@@ -59,8 +59,8 @@ test('edited local points/HMAC/rates cannot authorize payment or mint credit', a
   assert.equal(f.calls.filter(c => c.route.endsWith('/solve')).length, 1);
 });
 
-test('solver rejects unpaid, mismatched request, invalid index or invalid balance replies', async t => {
-  for (const override of [{ success: false }, { charged: 0 }, { charged: '1' }, { requestId: 'different' }, { pickIndex: -1 }, { pickIndex: 1.5 }, { pickIndex: 2 }, { pickIndex: 6 }, { remaining: -1 }, { remaining: NaN }, { remaining: '5' }]) {
+test('solver rejects unapproved, mismatched request, invalid index or invalid balance replies', async t => {
+  for (const override of [{ success: false }, { charged: -1 }, { charged: '1' }, { requestId: 'different' }, { pickIndex: -1 }, { pickIndex: 1.5 }, { pickIndex: 2 }, { pickIndex: 6 }, { remaining: -1 }, { remaining: NaN }, { remaining: '5' }]) {
     const f = fixture(t, async (route, payload) => route.endsWith('/enroll') ? { success: true, accountId: 'test', token: TOKEN } : { success: true, charged: 1, requestId: payload.requestId, pickIndex: 0, remaining: 5, ...override });
     assert.equal((await f.create().solveHumanCheck('question', options, null, 'request-2')).success, false, JSON.stringify(override));
   }
@@ -141,7 +141,7 @@ test('voucher submits to backend with token, never gateway; refresh follows topu
 });
 
 test('Discord cached zero balance requests remote solve; invalid authorization never sends game eval', async t => {
-  for (const reply of [{ paid: true }, { charged: 0 }, { requestId: 'wrong' }, { pickIndex: 5 }, { providerError: true }]) {
+  for (const reply of [{ paid: true }, { charged: -1 }, { requestId: 'wrong' }, { pickIndex: 5 }, { providerError: true }]) {
     const f = fixture(t); let solves = 0; const gameCalls = [];
     const solver = { isRemoteService: true, loadSettings: () => ({ autoAnswer: true, points: 0, answerDelayMs: 800 }), async solveHumanCheck(prompt, opts, items, requestId) {
       solves++;
@@ -214,4 +214,24 @@ test('failed security reporting does not spend or erase cached points', async t 
   assert.equal(await client.reportSecurityEvent('offline_solver_probe'), false);
   assert.equal(client.loadSettings().points, 7);
   assert.equal(f.calls.some(c => c.route.endsWith('/solve') || c.route.endsWith('/topup')), false);
+});
+
+
+test('server-authorized free analysis works with zero balance and exposes zero cost', async t => {
+  const f = fixture(t, async (route, payload) => {
+    if (route.endsWith('/enroll')) return { success: true, accountId: 'test', token: TOKEN };
+    if (route.endsWith('/balance')) return { success: true, points: 0, pointsPerSolve: 0 };
+    if (route.endsWith('/solve')) return { success: true, requestId: payload.requestId, charged: 0, pickIndex: 0, remaining: 0 };
+    throw new Error('UNEXPECTED_ROUTE');
+  });
+  const client = f.create();
+  await client.refreshBalance();
+  assert.equal(client.loadSettings().pointsPerSolve, 0);
+  client.saveSettings({ pointsPerSolve: 1, pointSystemEnabled: false, points: 999999 });
+  assert.equal(client.loadSettings().pointsPerSolve, 0);
+  assert.equal(client.loadSettings().points, 0);
+  const result = await client.solveHumanCheck('question', options, [], 'free-request');
+  assert.equal(result.success, true);
+  assert.equal(result.charged, 0);
+  assert.equal(client.loadSettings().points, 0);
 });

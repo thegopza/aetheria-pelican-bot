@@ -879,7 +879,9 @@ if (btnToggleAutoAnswer) {
 // ==========================================
 // AUTO CAPTCHA POINT TOP-UP MODAL CONTROLLER
 // ==========================================
+let lastKnownPointsPerSolve = 1;
 function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
+  if (pointsPerSolve != null) lastKnownPointsPerSolve = pointsPerSolve;
   const p = points != null ? Number(points) : 0;
   const topupBadge = document.getElementById("topup-point-badge");
   const topupPointsVal = document.getElementById("topup-modal-points");
@@ -887,18 +889,30 @@ function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
   const topupStatusBadge = document.getElementById("topup-modal-status-badge");
   const topupRate = document.getElementById("topup-modal-rate");
 
-  if (topupBadge) topupBadge.innerText = `${p.toLocaleString()} P`;
+  if (topupBadge) {
+    if (lastKnownPointsPerSolve === 0) {
+      topupBadge.innerText = `${p.toLocaleString()} P (ใช้ฟรี)`;
+      topupBadge.style.background = "rgba(16, 185, 129, 0.25)";
+      topupBadge.style.color = "#a7f3d0";
+      topupBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    } else {
+      topupBadge.innerText = `${p.toLocaleString()} P`;
+      topupBadge.style.background = "rgba(250, 204, 21, 0.25)";
+      topupBadge.style.color = "#fef08a";
+      topupBadge.style.borderColor = "rgba(250, 204, 21, 0.4)";
+    }
+  }
   if (topupPointsVal) topupPointsVal.innerText = p.toLocaleString();
   if (hcPoints) hcPoints.innerText = p;
   if (topupStatusBadge) {
     if (serviceAvailable === false) {
       topupStatusBadge.innerText = "● ติดต่อเซิร์ฟเวอร์ไม่ได้";
       topupStatusBadge.style.color = "#f87171";
-    } else if (p > 0) {
+    } else if (lastKnownPointsPerSolve === 0 || p > 0) {
       topupStatusBadge.style.background = "rgba(16, 185, 129, 0.2)";
       topupStatusBadge.style.color = "#34d399";
       topupStatusBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
-      topupStatusBadge.innerText = "● พร้อมใช้งาน";
+      topupStatusBadge.innerText = lastKnownPointsPerSolve === 0 ? "● ใช้ฟรีชั่วคราว" : "● พร้อมใช้งาน";
     } else {
       topupStatusBadge.style.background = "rgba(239, 68, 68, 0.2)";
       topupStatusBadge.style.color = "#f87171";
@@ -906,8 +920,10 @@ function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
       topupStatusBadge.innerText = "● Point หมด";
     }
   }
-  if (pointsPerSolve && topupRate) {
-    topupRate.innerText = `หัก ${pointsPerSolve} Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง`;
+  if (topupRate) {
+    topupRate.innerText = lastKnownPointsPerSolve === 0
+      ? "ใช้ฟรีชั่วคราว — ไม่หัก Point (0 Point / ข้อ)"
+      : `หัก ${lastKnownPointsPerSolve} Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง (1 บาท = 1 Point)`;
   }
 }
 window.updatePointDisplays = updatePointDisplays;
