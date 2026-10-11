@@ -1019,7 +1019,7 @@
   </div>
 
   <script src="app.js?v=42730"></script>
-  <script src="patcher_module.js?v=41730"></script>
+  <script src="patcher_module.js?v=41740"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
   <script src="inventory_market.js?v=4360"></script>
@@ -1029,18 +1029,21 @@
   <div id="web-huds-container"></div>
 
   <!-- GAME PATCHER & SCRIPT INSTALLER MODAL -->
-  <div id="modal-game-patcher" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px);">
-    <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; width: 680px; max-width: 95vw; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8); color: #f8fafc; padding: 20px; font-family: inherit;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 16px;">
+  <div id="modal-game-patcher" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px); padding: 16px;">
+    <div class="modal-content" style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; width: 700px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8); color: #f8fafc; font-family: inherit; overflow: hidden;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 14px 20px; background: #0f172a; flex-shrink: 0;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-size: 24px;">⚡</span>
           <div>
-            <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: #f8fafc;">Game Patcher & Script Installer</h3>
-            <span style="font-size: 12px; color: #94a3b8;">ระบบติดตั้งและอัปเดตสคริปต์ PmheeAether ลงในเกม Aetheria Online อัตโนมัติ</span>
+            <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #f8fafc;">Game Patcher & Script Installer</h3>
+            <span style="font-size: 11.5px; color: #94a3b8;">ระบบติดตั้งและอัปเดตสคริปต์ PmheeAether ลงในเกม Aetheria Online อัตโนมัติ</span>
           </div>
         </div>
         <button type="button" class="modal-close" id="btn-patcher-close" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer;">&times;</button>
       </div>
+
+      <!-- Scrollable Modal Body -->
+      <div class="modal-body" style="padding: 16px 20px; overflow-y: auto; flex: 1; min-height: 0; scrollbar-width: thin; scrollbar-color: rgba(56, 189, 248, 0.3) rgba(15, 23, 42, 0.5);">
 
       <!-- Launch mode: Electron app per client, or windows of one real browser -->
       <div class="lm-card">
@@ -1228,8 +1231,10 @@
         <span id="patcher-github-date" style="color: #64748b;">-</span>
       </div>
 
+      </div> <!-- End Scrollable Modal Body -->
+
       <!-- Modal Footer Actions -->
-      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding: 12px 20px; background: #0f172a; flex-shrink: 0;">
         <button type="button" id="btn-patcher-restore" class="btn btn-secondary btn-sm" style="font-size: 11.5px; padding: 6px 12px; color: #f87171; border-color: rgba(248, 113, 113, 0.3);">
           🔄 กู้คืนไฟล์เกมเดิม (Restore)
         </button>
