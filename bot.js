@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.31.2
+// @version      4.31.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.31.2';
+    const PELICAN_BOT_VERSION = '4.31.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5109,7 +5109,8 @@
                 return;
             }
 
-            // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check)
+            // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check) — a target stuck on the capital is fixed first
+            if (typeof window.recoverFarmTarget === 'function') window.recoverFarmTarget('START BOT');
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             console.log(`%c[PmheeAether Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
@@ -5917,6 +5918,32 @@
         window.walkToTargetMap(CAPITAL_MAP, true, { walkOnly: true, allowDuringConsolidation: !!opts.allowDuringConsolidation });
         return 'walk';
     };
+    // The target map stuck on the capital although nothing needs town any more (a trip cut by STOP, a page
+    // reload...): START BOT then "arrived" in town and tried AUTO there forever. Put a real farm map back — the
+    // map a plan trip remembered, the plan's map, the HUD's farm map, or the last farm map used.
+    window.rememberFarmMap = function (m) {
+        if (m && !isCityMapName(m)) { try { localStorage.setItem('pelican_last_farm_map', m); } catch (e) {} }
+    };
+    window.recoverFarmTarget = function (why = '') {
+        if (!isCityMapName(window.__targetFarmMap)) return null;
+        if (window.__isShopping || window.__isStoring || window.__isConsolidating || window.__isNavigating || window.__isWalkingToMap
+            || window.__isGearRefining || window.__isChangingJob || window.__isRecovering) return null;
+        if ((window.__planJobChangeHoldUntil || 0) > Date.now() || window.otherTownNeeds('').length) return null;
+        let map = null;
+        try { map = localStorage.getItem('pelican_job_return_map'); } catch (e) {}
+        if ((!map || isCityMapName(map)) && window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') map = window.planMapForNow();
+        const sel = document.getElementById('p-target-map-select');
+        if ((!map || isCityMapName(map)) && sel && sel.value) map = sel.value;
+        if (!map || isCityMapName(map)) { try { map = localStorage.getItem('pelican_last_farm_map'); } catch (e) {} }
+        if (!map || isCityMapName(map)) return null;
+        try { localStorage.removeItem('pelican_job_return_map'); } catch (e) {}
+        window.__targetFarmMap = map;
+        try { localStorage.setItem('pelican_farm_map', map); } catch (e) {}
+        if (sel) sel.value = map;
+        console.log(`%c[PmheeAether] 🗺️ แมพเป้าหมายค้างเป็นเมืองหลวง (ไม่มีงานในเมืองแล้ว${why ? ' · ' + why : ''}) -> คืนแมพฟาร์ม "${map}"`, 'color: #f59e0b; font-weight: bold;');
+        return map;
+    };
+
     // Plan systems (job change, weight scrolls, event pet, gear set): the capital becomes the target map for the
     // stay (so nothing walks the character out) and the farm map is remembered for restoreFarmMapAfterJobChange
     window.planTripToCapital = function (who) {
@@ -7797,6 +7824,7 @@
         window.__isNavigating = true;
         window.__targetFarmMap = mapName;
         localStorage.setItem('pelican_farm_map', mapName);
+        if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(mapName);
         const navSeq = window.__navSeq = (window.__navSeq || 0) + 1;
         const navLive = () => window.__navSeq === navSeq;
         let navClicked = false;   // a world-map walk/warp button was pressed for this trip
@@ -8045,7 +8073,7 @@
     let lastAutoActivateAttempt = 0;
     let autoActivateFailCount = 0;
     let lastPeriodicWeightRefresh = 0;
-    let lastCityToFarmAttempt = 0, lastTownSweepAt = 0;
+    let lastCityToFarmAttempt = 0, lastTownSweepAt = 0, cityTargetSince = 0;
     let navStaleSince = 0;
 
     setInterval(() => {
@@ -8212,12 +8240,14 @@
 
         // 5.9 Town stay of a plan system that is gone (plan switched off / changed, need expired): the farm map
         //     the trip remembered comes back once no system needs town any more
-        if (inCity && Date.now() - lastTownSweepAt > 30000 && !window.__isShopping && !window.__isNavigating && !window.__isConsolidating
-            && !window.__isGearRefining && !((window.__planJobChangeHoldUntil || 0) > Date.now()) && /เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) {
-            lastTownSweepAt = Date.now();
-            let ret = null;
-            try { ret = localStorage.getItem('pelican_job_return_map'); } catch (e) {}
-            if (ret && !window.otherTownNeeds('').length) restoreFarmMapAfterJobChange('sweep');
+        //     (or any capital target nobody needs: after 20 s in town with nothing to do there)
+        if (!/เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) cityTargetSince = 0;
+        else if (inCity) {
+            if (!cityTargetSince) cityTargetSince = Date.now();
+            else if (Date.now() - cityTargetSince > 20000 && Date.now() - lastTownSweepAt > 10000) {
+                lastTownSweepAt = Date.now();
+                if (window.recoverFarmTarget('watchdog')) cityTargetSince = 0;
+            }
         }
 
         // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
