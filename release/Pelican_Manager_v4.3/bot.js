@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.26.0
+// @version      4.27.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.26.0';
+    const PELICAN_BOT_VERSION = '4.27.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -6388,6 +6388,10 @@
                     const b = slot !== null ? bySlot[slot] : null;
                     const raw = b ? (b.raw || b) : null;
                     if (!raw || !types.includes(raw.type)) return;
+                    if (Array.isArray(window.__gearKeepItemIds) && window.__gearKeepItemIds.includes(Number(raw.itemId))) {
+                        console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}"`);
+                        return;
+                    }
                     if ((raw.refine || 0) > 0 || (Array.isArray(raw.affixes) && raw.affixes.length) || (raw.cards && raw.cards.some(Boolean))) return;
                     if (isWhitelisted(raw.name)) {
                         console.log(`[PmheeAether Shop] 🔒 [Whitelist] เก็บ: "${raw.name}"`);
@@ -9722,7 +9726,8 @@
                 if (remainingSlots <= 0) break;
 
                 const norm = rule.itemName.trim().toLowerCase();
-                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm);
+                const gearKeep = Array.isArray(window.__gearKeepItemIds) ? window.__gearKeepItemIds : [];
+                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKeep.includes(Number(it.id ?? it.itemId)));
                 if (matchingItems.length === 0) continue;
 
                 let totalQty = 0;
@@ -12415,13 +12420,13 @@
 
     // Market search for plan purchases. The bot's own sniper/auto-buy is paused meanwhile so these
     // results can never trigger an unrelated automatic purchase.
-    async function planMarketSearch(room, q, term) {
+    async function planMarketSearch(room, q, term, page = 0) {
         const cfg = window.__marketFilterConfig || {};
         const saved = { autoBuy: cfg.autoBuy, sniperAlert: cfg.sniperAlert };
         cfg.autoBuy = false;
         cfg.sniperAlert = false;
         try {
-            const filters = { q, sort: 'price_asc', page: 0 };
+            const filters = { q, sort: 'price_asc', page };
             if (term) { filters.affix = term.type; if (term.min) filters.affixMin = term.min; }
             const res = await new Promise(resolve => {
                 let unsub;
@@ -13002,53 +13007,125 @@
         return { msg: got ? await got : null };
     }
 
-    // Ore: Blacksmith's shop first (Phracon / Rough Elunium), else the cheapest market listing in the budget
+    // Refine ores (game wiki): weapons Phracon +1-4 / Emveretarcon +5-7 / Oridecon +8-10, everything else
+    // Rough Elunium / Elunium / Enriched Elunium. Only the +1-4 ores are sold by Blacksmith Enok (200 z).
+    const GEAR_ORES = {
+        weapon: [{ id: 90201, name: 'Phracon', npcPrice: 200 }, { id: 90202, name: 'Emveretarcon' }, { id: 90203, name: 'Oridecon' }],
+        armor: [{ id: 90204, name: 'Rough Elunium', npcPrice: 200 }, { id: 90205, name: 'Elunium' }, { id: 90206, name: 'Enriched Elunium' }]
+    };
+    const GEAR_ORE_PER_TRIP = 5;   // at most 5 ores bought per round
+    const gearOreFor = (slot, to) => GEAR_ORES[slot === 'main-hand' ? 'weapon' : 'armor'][to <= 4 ? 0 : to <= 7 ? 1 : 2];
+    const gearOreById = id => [...GEAR_ORES.weapon, ...GEAR_ORES.armor].find(o => o.id === Number(id)) || null;
+    const gearOreCount = id => planBag().filter(it => Number(it.itemId) === Number(id)).reduce((a, it) => a + (Number(it.qty) || 1), 0);
+    const gearOreMarketTried = {};
+
+    // Ores from the market: cheapest per ore first, again and again until `maxQty` (≤ 5) ores were bought this
+    // round. Never above the Blacksmith's price (+1-4 ores), never more than twice the first (cheapest) price,
+    // never a listing that would go past maxQty, never more than the budget. Looks at up to 5 result pages
+    // ("Elunium" also finds the cheap Rough Elunium). Returns how many arrived.
+    async function gearBuyOreMarket(room, ore, budget, maxQty = GEAR_ORE_PER_TRIP) {
+        if (!room || !ore || window.__planMarketBuyInFlight) return 0;
+        gearOreMarketTried[ore.id] = Date.now();
+        const cap = Math.max(1, Math.min(GEAR_ORE_PER_TRIP, maxQty));
+        // Paid earlier but it never reached the bag (bag full / overweight / refresh): collect, never pay again
+        const paidKey = gearKey('ore_paid_' + ore.id);
+        if (gearOreCount(ore.id) > 0) { try { localStorage.removeItem(paidKey); } catch (e) {} }
+        else if (Date.now() - (Number(gearGet(paidKey, 0)) || 0) < 30 * 60000) {
+            room.send('market', { op: 'collect_all' });
+            gearWait(`ซื้อ ${ore.name} ไปแล้วแต่ยังไม่เข้ากระเป๋า — รับของจากตลาดก่อน ไม่ซื้อซ้ำภายใน 30 นาที`);
+            return 0;
+        }
+        window.__planMarketBuyInFlight = true;
+        let bought = 0, spent = 0, firstUnit = 0;
+        try {
+            // whatever was bought earlier lands first, so it is never counted as this round's purchase
+            const startCount = gearOreCount(ore.id);
+            room.send('market', { op: 'collect_all' });
+            await planSleep(1500);
+            if (gearOreCount(ore.id) > startCount) { gearLog(`📦 รับ ${ore.name} ที่ซื้อไว้ก่อนหน้าจากตลาดแล้ว`, '#22c55e'); return gearOreCount(ore.id) - startCount; }
+            const nameLc = ore.name.toLowerCase();
+            for (let round = 0; round < cap && bought < cap; round++) {
+                const left = cap - bought;
+                const zenyNow = Number(gearChar().zeny) || 0;
+                const canPay = Math.min(zenyNow, budget - spent);
+                let best = null;
+                for (let page = 0; page < 5 && !best; page++) {
+                    const now = Date.now();
+                    const listings = await planMarketSearch(room, ore.name, null, page);
+                    best = listings
+                        .filter(l => l && !l.mine && l.item && (Number(l.item.itemId) === ore.id || gearName(l.item) === nameLc))
+                        .filter(l => !(l.auctionEndsAt && l.auctionEndsAt > now))
+                        .map(l => ({ l, qty: Math.max(1, Number(l.qty) || 1), price: Number(l.price) || 0 }))
+                        .filter(c => c.price > 0 && c.qty <= left && c.price <= canPay)
+                        .filter(c => !ore.npcPrice || c.price / c.qty <= ore.npcPrice)
+                        .filter(c => !firstUnit || c.price / c.qty <= firstUnit * 2)
+                        .sort((x, y) => x.price / x.qty - y.price / y.qty)[0] || null;
+                    // last page, or every listing on it already costs more than we can pay (sorted cheapest first)
+                    if (listings.length < 20 || listings.every(l => Number(l.price) > canPay)) break;
+                }
+                if (!best) break;
+                if (!firstUnit) firstUnit = best.price / best.qty;
+                const before = gearOreCount(ore.id);
+                const zenyBefore = Number(gearChar().zeny) || 0;
+                gearLog(`🛒 ซื้อ ${ore.name} x${best.qty} ราคา ${best.price.toLocaleString()} z (${Math.round(best.price / best.qty).toLocaleString()} z/ก้อน) จากตลาด — ${best.l.sellerName || '?'}`, '#10b981');
+                room.send('market', { op: 'buy', listingId: Number(best.l.listingId), price: best.price });
+                await planSleep(1200);
+                room.send('market', { op: 'collect_all' });   // purchases wait in the market "รับของ" tab
+                let got = 0;
+                for (let i = 0; i < 24 && got <= 0; i++) { await planSleep(250); got = gearOreCount(ore.id) - before; }
+                if (got <= 0) {
+                    // paid (zeny went down) but not delivered: remember it; not paid (someone bought it first): just stop
+                    if ((Number(gearChar().zeny) || 0) < zenyBefore) {
+                        gearSet(paidKey, Date.now());
+                        gearLog(`⚠️ ซื้อ ${ore.name} แล้วแต่ยังไม่เข้ากระเป๋า — หยุดซื้อรอบนี้ (กระเป๋าเต็ม/น้ำหนักเกิน?)`, '#ef4444');
+                    } else gearLog(`ℹ️ ซื้อ ${ore.name} รายการนี้ไม่สำเร็จ (มีคนซื้อตัดหน้า?) — ลองใหม่รอบหน้า`, '#94a3b8');
+                    break;
+                }
+                bought += got;
+                spent += best.price;
+                await planSleep(600);
+            }
+        } catch (e) {
+            console.warn('[PmheeAether Gear] ore market error:', e);
+        } finally {
+            window.__planMarketBuyInFlight = false;
+        }
+        if (bought) gearLog(`💎 ได้ ${ore.name} จากตลาด ${bought} ก้อน (${spent.toLocaleString()} z) — มีทั้งหมด ${gearOreCount(ore.id)} ก้อน`, '#22c55e');
+        return bought;
+    }
+
+    // At the Blacksmith without the ore the refine window asks for: market first, then Enok's shop (+1-4 ores)
     async function gearBuyOre(room, key, mat, budget) {
+        const ore = gearOreById(mat.itemId) || { id: Number(mat.itemId), name: mat.name };
+        if (Date.now() - (gearOreMarketTried[ore.id] || 0) > 2 * 60000) {
+            const got = await gearBuyOreMarket(room, ore, budget);
+            if (got > 0) return 'bought';
+        }
         const r = await gearSmithOption(room, key, o => /ซื้อ/.test(o));
         if (!r.error) {
             let shop = null;
             for (let i = 0; i < 30 && !shop; i++) { await planSleep(200); shop = document.querySelector('.shop-window'); }
             const row = shop && Array.from(shop.querySelectorAll('.shop-row')).find(rw => {
                 const fk = Object.keys(rw).find(k => k.startsWith('__reactFiber'));
-                return fk && rw[fk] && String(rw[fk].key) === String(mat.itemId);
+                return fk && rw[fk] && String(rw[fk].key) === String(ore.id);
             });
             if (row) {
                 const price = parseInt(((row.querySelector('.shop-price') || {}).innerText || '').replace(/[^0-9]/g, ''), 10) || 0;
                 const zeny = Number(gearChar().zeny) || 0;
-                if (price && price > Math.min(zeny, budget)) { gearCloseNpc(); return 'no-money'; }
-                gearLog(`🛒 ซื้อ ${mat.name} x1 (${price.toLocaleString()} z) จาก Blacksmith`, '#10b981');
-                room.send('shop_buy_many', { lines: [{ itemId: Number(mat.itemId), qty: 1 }] });
+                const qty = price ? Math.min(GEAR_ORE_PER_TRIP - Math.min(GEAR_ORE_PER_TRIP, gearOreCount(ore.id)), Math.floor(Math.min(zeny, budget) / price)) : 1;
+                if (qty < 1) { gearCloseNpc(); return 'no-money'; }
+                const before = gearOreCount(ore.id);
+                gearLog(`🛒 ซื้อ ${ore.name} x${qty} (${(price * qty).toLocaleString()} z) จาก Blacksmith`, '#10b981');
+                room.send('shop_buy_many', { lines: [{ itemId: ore.id, qty }] });
                 let got = false;
-                for (let i = 0; i < 16 && !got; i++) { await planSleep(250); got = planBag().some(it => Number(it.itemId) === Number(mat.itemId)); }
+                for (let i = 0; i < 16 && !got; i++) { await planSleep(250); got = gearOreCount(ore.id) > before; }
                 gearCloseNpc();
                 if (!got) gearSmithBackoffUntil = Date.now() + 2 * 60000;   // never buy again right away
                 return 'bought';
             }
             gearCloseNpc();
-            await planSleep(400);
         }
-        if (window.__planMarketBuyInFlight) return 'wait';
-        window.__planMarketBuyInFlight = true;
-        try {
-            const now = Date.now();
-            const listings = await planMarketSearch(room, mat.name);
-            const zeny = Number(gearChar().zeny) || 0;
-            const best = listings
-                .filter(l => l && !l.mine && l.item && (Number(l.item.itemId) === Number(mat.itemId) || gearName(l.item) === gearName(mat)))
-                .filter(l => !(l.auctionEndsAt && l.auctionEndsAt > now))
-                .filter(l => Number(l.price) > 0 && Number(l.price) <= Math.min(zeny, budget) && Number(l.qty || 1) <= 10)
-                .sort((a, b) => Number(a.price) / Number(a.qty || 1) - Number(b.price) / Number(b.qty || 1))[0];
-            if (!best) return 'none';
-            gearLog(`🛒 ซื้อ ${mat.name} x${best.qty || 1} ราคา ${Number(best.price).toLocaleString()} z จากตลาด (${best.sellerName || '?'})`, '#10b981');
-            room.send('market', { op: 'buy', listingId: Number(best.listingId), price: Number(best.price) });
-            await planSleep(1200);
-            room.send('market', { op: 'collect_all' });   // purchases wait in the market "รับของ" tab
-            for (let i = 0; i < 24; i++) { await planSleep(250); if (planBag().some(it => Number(it.itemId) === Number(mat.itemId))) return 'bought'; }
-            gearSmithBackoffUntil = Date.now() + 5 * 60000;   // not in the bag (yet): never buy again right away
-            return 'bought';
-        } finally {
-            window.__planMarketBuyInFlight = false;
-        }
+        return 'none';
     }
 
     async function gearRefineStep(step, worn, zeny, steps) {
@@ -13063,6 +13140,30 @@
             return false;
         };
         if (Date.now() < gearSmithBackoffUntil) { gearBackToFarm(); return false; }
+        // Ore for the next level first, from the market (works anywhere: no town trip just to buy it). The ore and
+        // fee the refine window showed for this slot + level are remembered and win over the built-in table.
+        const cur = Number(worn.refine) || 0;
+        const seen = gearGet(gearKey('refine_seen'), {})[`${step.slot}:${cur + 1}`] || null;
+        const ore = (seen && seen.ore && (gearOreById(seen.ore) || (seen.oreName ? { id: Number(seen.ore), name: seen.oreName } : null))) || gearOreFor(step.slot, cur + 1);
+        const fee = (seen && Number(seen.fee)) || 0;
+        if (fee && zeny < fee) {
+            gearWait(`เงินยังไม่พอค่าตีบวก ${step.itemName} +${cur + 1} (${fee.toLocaleString()} z) — ฟาร์มต่อก่อน`);
+            return giveUp(5);
+        }
+        if (gearOreCount(ore.id) < 1 && Date.now() - (gearOreMarketTried[ore.id] || 0) > 2 * 60000) {
+            // as many ores as the levels left in this ore's range (x2 for failures), at most 5
+            const target = Math.max(...steps.filter(x => x && x.kind === 'refine' && x.slot === step.slot && gearName({ name: x.itemName }) === gearName({ name: step.itemName })).map(x => Number(x.toLevel) || 0), Number(step.toLevel) || 0);
+            const tierEnd = cur + 1 <= 4 ? 4 : cur + 1 <= 7 ? 7 : 10;
+            const maxQty = Math.min(GEAR_ORE_PER_TRIP, Math.max(1, 2 * (Math.min(target, tierEnd) - cur)));
+            const reserve = Math.max(5000, Math.round(zeny * 0.1), fee);   // keep zeny for the refine fee
+            const got = await gearBuyOreMarket(room, ore, Math.max(0, zeny - reserve), maxQty);
+            if (got > 0) return true;
+            if (!ore.npcPrice) {
+                gearWait(`ยังไม่มี ${ore.name} ขายในตลาดในราคาที่จ่ายได้ — ลองใหม่ใน 5 นาที`);
+                return giveUp(5);
+            }
+            // +1-4 ores: Blacksmith Enok sells them for 200 z (bought there when the refine window asks)
+        }
         const npcs = room.state && room.state.npcs;
         const npcCount = npcs && typeof npcs.size === 'number' ? npcs.size : 0;
         const key = gearSmithKey(room);
@@ -13083,6 +13184,11 @@
                 || win.items.find(x => x && x.source && x.source.kind === 'equip' && gearName(x.item) === want);
             if (!f) { gearSkip(step, 'ไม่พบไอเทมที่สวมอยู่ในรายการตีบวก (ตีบวกไม่ได้?)', 60); return giveUp(0); }
             if (f.maxed) { gearSkip(step, 'ตีบวกสูงสุดแล้ว'); return giveUp(0); }
+            {   // remember the real ore + fee of this slot + level for the next rounds (market pre-buy, zeny check)
+                const all = gearGet(gearKey('refine_seen'), {});
+                all[`${step.slot}:${f.to}`] = { ore: f.material && f.material.itemId, oreName: f.material && f.material.name, fee: Number(f.zeny) || 0 };
+                gearSet(gearKey('refine_seen'), all);
+            }
             // 2. Ore
             if (!f.material || f.material.have < 1) {
                 gearCloseNpc();
@@ -13090,7 +13196,7 @@
                 const budget = Math.max(0, zeny - (Number(f.zeny) || 0));
                 const b = await gearBuyOre(room, key, f.material || {}, budget);
                 if (b === 'bought') return true;
-                gearWait(`ยังหาซื้อ ${(f.material || {}).name || 'แร่'} ไม่ได้ (${b === 'no-money' ? 'เงินไม่พอ' : 'ไม่มีขายในราคาที่จ่ายได้'}) — ลองใหม่ใน 5 นาที`);
+                gearWait(`ยังหาซื้อ ${(f.material || {}).name || 'แร่'} ไม่ได้ (${b === 'no-money' ? 'เงินไม่พอ' : 'ไม่มีขายในตลาด/ร้านในราคาที่จ่ายได้'}) — ลองใหม่ใน 5 นาที`);
                 return giveUp(5);
             }
             if ((Number(win.zeny) || 0) < (Number(f.zeny) || 0)) {
@@ -13137,7 +13243,7 @@
     window.runGearPlanStep = async function () {
         const plan = window.__currentScriptPlan;
         const gp = plan && plan.gearPlan;
-        if (!gp || !Array.isArray(gp.steps) || !gp.steps.length) { gearBackToFarm(); return false; }
+        if (!gp || !Array.isArray(gp.steps) || !gp.steps.length) { window.__gearKeepItemIds = []; gearBackToFarm(); return false; }
         if (gearBusy || Date.now() < gearNextTry) return false;
         const lv = readPlanLevels();
         if (!lv || !lv.cls) return false;
@@ -13145,6 +13251,18 @@
         const start = String(gp.startClass || 'novice').toLowerCase();
         if (!lineage.includes(start)) { gearWait(`เซ็ตอุปกรณ์เริ่มเมื่อเป็น ${start} (ตอนนี้ ${lv.cls})`); gearBackToFarm(); return false; }
         const { index, step, total, steps } = window.getGearPlanStatus();
+        {
+            const keep = new Set();
+            const eq = gearChar().equipment || {};
+            const sk = gearSkipped();
+            if (index >= 0) steps.slice(index).forEach(x => {
+                if (!x || x.kind !== 'refine' || gearIsSkipped(sk, x)) return;
+                const w = gearWorn(x, eq, steps);
+                for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) keep.add(gearOreFor(x.slot, to).id);
+                if (x.blessing !== false) keep.add(90208);   // Blacksmith Blessing
+            });
+            window.__gearKeepItemIds = [...keep];
+        }
         if (!step) { gearBackToFarm(); return false; }
         const ch = gearChar();
         const zeny = Number(ch.zeny) || 0;
