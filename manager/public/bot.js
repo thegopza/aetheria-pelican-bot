@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.0
+// @version      4.35.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.0';
+    const PELICAN_BOT_VERSION = '4.35.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -25,8 +25,9 @@
         const P = 'pelican_', NS = 'pelican_' + String(pid) + '__';
         const proto = Storage.prototype;
         const get = proto.getItem, set = proto.setItem, del = proto.removeItem;
-        // Same for every window -> one shared copy (it was stored once per window: 16 x 128 KB)
-        const SHARED = new Set(['pelican_icon_manifest']);
+        // Same for every window -> one shared copy (it was stored once per window: 16 x 128 KB; the 1.3 MB item
+        // catalog x 6 windows filled the browser's 10 MB and config saves failed with "exceeded the quota")
+        const SHARED = new Set(['pelican_icon_manifest', 'pelican_item_catalog']);
         const map = (st, k) => (st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) ? NS + k.slice(P.length) : k;
         // One site = one storage quota (~5-10 MB) for ALL windows. The game keeps 100 chat lines per channel per
         // character (webgame.chat.<name>, ~270 KB each): 16 characters filled it and saving a bot config failed
@@ -51,7 +52,7 @@
             const keys = [];
             for (let i = 0; i < ls.length; i++) keys.push(ls.key(i));
             keys.forEach(k => {
-                if (/^pelican_profile_[A-Za-z0-9]+__icon_manifest$/.test(k)) { del.call(ls, k); return; }
+                if (/^pelican_profile_[A-Za-z0-9]+__(icon_manifest|item_catalog)$/.test(k)) { del.call(ls, k); return; }
                 if (k.startsWith(CHAT)) {
                     const v = get.call(ls, k);
                     const t = v ? trimChat(v) : v;
