@@ -1857,7 +1857,7 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                             <div class="p-row">
                                 <span style="font-size: 10px; color: #cbd5e1;">รหัสผ่าน (PS):</span>
                                 <div style="display: flex; align-items: center; gap: 3px;">
-                                    <input type="password" id="p-auth-pass" value="${escapeHTML(auth.password || "")}" placeholder="รหัสผ่าน" style="width: 105px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
+                                    <input type="password" id="p-auth-pass" value="" placeholder="${auth.hasPassword ? '•••••• (มีแล้ว)' : 'รหัสผ่าน'}" autocomplete="new-password" style="width: 105px; background: #0f172a; border: 1px solid rgba(192, 132, 252, 0.5); color: #fff; border-radius: 4px; font-size: 10.5px; padding: 2px 6px;">
                                     <button type="button" id="p-auth-toggle-pass" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #64748b; color: #94a3b8; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
                                 </div>
                             </div>
@@ -2094,9 +2094,11 @@ async function openWebBotHUD(profileId) {
       useBwing: hudEl.querySelector('#p-archer-bwing')?.checked,
       bwingBuyQty: parseInt(hudEl.querySelector('#p-archer-bwing-qty')?.value || '2')
     };
+    const autoEq = hudEl.querySelector('#p-archer-auto-equip');
+    if (autoEq) cfg.autoEquipArrow = autoEq.checked;
     sendWebHudAction(profileId, { type: 'update-archer', config: cfg });
   };
-  ['#p-archer-req', '#p-archer-type', '#p-archer-qty', '#p-archer-threshold', '#p-archer-bwing', '#p-archer-bwing-qty'].forEach(sel => {
+  ['#p-archer-req', '#p-archer-type', '#p-archer-qty', '#p-archer-threshold', '#p-archer-bwing', '#p-archer-bwing-qty', '#p-archer-auto-equip'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveArcher;
   });
@@ -2273,15 +2275,19 @@ async function openWebBotHUD(profileId) {
     currentStatsFilter.minOptions = Math.max(1, parseInt(hudEl.querySelector('#p-statfilter-min-opts')?.value) || 2);
 
     const cfg = {
-      enabled: hudEl.querySelector('#p-sell-trash')?.checked,
-      weightThreshold: parseInt(hudEl.querySelector('#p-sell-weight')?.value || '80'),
       keepRefined: hudEl.querySelector('#p-sell-keep-refined')?.checked,
       keepSpecial: hudEl.querySelector('#p-sell-keep-special')?.checked,
       keepSockets: hudEl.querySelector('#p-sell-keep-sockets')?.checked,
       whitelist: hudEl.querySelector('#p-sell-whitelist')?.value || '',
       statsFilter: currentStatsFilter
     };
-    // Only send what is actually on the page (a missing select must never fall back to a "sell more" default)
+    // Only send what is actually on the page (a missing field must never fall back to a default)
+    const sellEn = hudEl.querySelector('#p-sell-enabled');
+    if (sellEn) cfg.enabled = sellEn.checked;
+    const wChk = hudEl.querySelector('#p-weight-check-enabled');
+    if (wChk) cfg.weightCheckEnabled = wChk.checked;
+    const wPct = parseInt(hudEl.querySelector('#p-weight-threshold')?.value, 10);
+    if (wPct >= 10 && wPct <= 95) cfg.weightThreshold = wPct;
     const pick = id => hudEl.querySelector(id)?.value;
     if (pick('#p-sell-rarity-weap')) cfg.weaponRarity = pick('#p-sell-rarity-weap');
     if (pick('#p-sell-rarity-armor')) cfg.armorRarity = pick('#p-sell-rarity-armor');
@@ -2293,7 +2299,7 @@ async function openWebBotHUD(profileId) {
     sendWebHudAction(profileId, { type: 'update-sell', config: cfg });
   };
 
-  ['#p-sell-trash', '#p-sell-weight', '#p-sell-rarity-weap', '#p-sell-rarity-armor', '#p-sell-rarity-acc', '#p-sell-rarity-mat', '#p-sell-refine-ores', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
+  ['#p-sell-enabled', '#p-weight-check-enabled', '#p-weight-threshold', '#p-sell-rarity-weap', '#p-sell-rarity-armor', '#p-sell-rarity-acc', '#p-sell-rarity-mat', '#p-sell-refine-ores', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveSell;
   });
@@ -2338,15 +2344,74 @@ async function openWebBotHUD(profileId) {
   const testSellBtn = hudEl.querySelector('#p-btn-test-sell-only');
   if (testSellBtn) testSellBtn.onclick = () => sendWebHudAction(profileId, { type: 'test-sell' });
 
+  // Shop (NPC trip) settings
+  const saveShop = () => {
+    const shopCfg = { enabled: !!hudEl.querySelector('#p-shop-enabled')?.checked };
+    const key = (hudEl.querySelector('#p-shop-npckey')?.value || '').trim();
+    if (key) shopCfg.npcKey = key;
+    sendWebHudAction(profileId, { type: 'eval', code: `(() => {
+      window.__shopConfig = Object.assign(window.__shopConfig || {}, ${JSON.stringify(shopCfg)});
+      try { localStorage.setItem('pelican_shop_cfg', JSON.stringify(window.__shopConfig)); } catch (e) {}
+      const a = document.getElementById('p-shop-enabled'); if (a) a.checked = !!window.__shopConfig.enabled;
+      const b = document.getElementById('p-shop-npckey'); if (b) b.value = window.__shopConfig.npcKey || '';
+      return { success: true };
+    })()` });
+  };
+  ['#p-shop-enabled', '#p-shop-npckey'].forEach(sel => { const el = hudEl.querySelector(sel); if (el) el.onchange = saveShop; });
+
+  // Market sniper filter (pelican_market_filter_cfg)
+  const MK_FIELDS = [['#p-mk-search-query', 'q', 'text'], ['#p-mk-cat-select', 'category', 'text'], ['#p-mk-kind-select', 'kind', 'text'],
+    ['#p-mk-min-refine', 'minRefine', 'int'], ['#p-mk-max-price', 'maxPrice', 'int'], ['#p-mk-stat1-type', 'statType1', 'text'],
+    ['#p-mk-stat1-min', 'statMinVal1', 'int1'], ['#p-mk-stat2-type', 'statType2', 'text'], ['#p-mk-stat2-min', 'statMinVal2', 'int1'],
+    ['#p-mk-stat-mode', 'statMatchMode', 'text'], ['#p-mk-sniper-alert', 'sniperAlert', 'bool'], ['#p-mk-auto-buy', 'autoBuy', 'bool']];
+  const saveMarketFilter = () => {
+    const mk = {};
+    MK_FIELDS.forEach(([sel, key, kind]) => {
+      const el = hudEl.querySelector(sel);
+      if (!el) return;
+      mk[key] = kind === 'bool' ? el.checked : kind === 'int' ? (parseInt(el.value, 10) || 0) : kind === 'int1' ? (parseInt(el.value, 10) || 1) : el.value;
+    });
+    sendWebHudAction(profileId, { type: 'eval', code: `(() => {
+      window.__marketFilterConfig = Object.assign(window.__marketFilterConfig || {}, ${JSON.stringify(mk)});
+      try { localStorage.setItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig)); } catch (e) {}
+      if (typeof window.applyMarketFilters === 'function') { try { window.applyMarketFilters(); } catch (e) {} }
+      return { success: true };
+    })()` });
+  };
+  MK_FIELDS.forEach(([sel]) => { const el = hudEl.querySelector(sel); if (el) el.onchange = saveMarketFilter; });
+
+  // Buttons that called functions which only exist inside the game window
+  const gameCall = (sel, code, confirmText) => {
+    const btn = hudEl.querySelector(sel);
+    if (!btn) return;
+    btn.onclick = async () => {
+      if (confirmText && !confirm(confirmText)) return;
+      const r = await sendWebHudAction(profileId, { type: 'eval', code });
+      showToast(r && r.success !== false ? '✅ ส่งคำสั่งเข้าจอเกมแล้ว' : '❌ สั่งงานจอเกมไม่สำเร็จ', r && r.success !== false ? 'success' : 'error');
+    };
+  };
+  gameCall('#p-btn-equip-bow-arrow', `(typeof window.equipArrowAndBow === 'function' && window.equipArrowAndBow(), true)`);
+  gameCall('#p-btn-refresh-weight', `(typeof window.refreshInventoryAndWeight === 'function' && window.refreshInventoryAndWeight(), true)`);
+  gameCall('#p-btn-test-login', `(typeof window.executeAutoLogin === 'function' && window.executeAutoLogin(true), true)`);
+  gameCall('#p-btn-mk-scan', `(window.__isMarketScanning ? (typeof window.stopMarketScan === 'function' && window.stopMarketScan()) : (typeof window.startMarketMultiPageScan === 'function' && window.startMarketMultiPageScan('all')), true)`);
+  gameCall('#p-btn-test-shop', `(typeof window.executeAutoShopRoutine === 'function' && window.executeAutoShopRoutine(), true)`,
+    'ส่งตัวละครกลับเมืองไปขาย/ซื้อของตามตั้งค่าตอนนี้เลยใช่ไหม?');
+  ['#p-btn-sniff-equip', '#p-btn-mk-open-modal', '#p-btn-mk-copy-json', '#p-btn-dump-map', '#p-btn-dump-item', '#p-btn-dump-packets',
+    '#p-btn-dump-state', '#p-btn-dump-market', '#p-btn-dump-weight', '#p-btn-copy-out'].forEach(sel => {
+    const btn = hudEl.querySelector(sel);
+    if (btn) btn.onclick = () => showToast('ปุ่มนี้เป็นเครื่องมือดูข้อมูล ใช้ได้ในหน้าต่างเกมเท่านั้น', 'warning');
+  });
+
   // Auth event listeners
   const saveAuth = () => {
     const cfg = {
       enabled: hudEl.querySelector('#p-auth-enabled')?.checked,
       username: hudEl.querySelector('#p-auth-user')?.value || '',
-      password: hudEl.querySelector('#p-auth-pass')?.value || '',
       charName: hudEl.querySelector('#p-auth-char')?.value || '',
       autoResumeBot: hudEl.querySelector('#p-auth-resume')?.checked
     };
+    const typedPass = hudEl.querySelector('#p-auth-pass')?.value || '';
+    if (typedPass) cfg.password = typedPass;   // empty = keep the saved one (it is never shown here)
     sendWebHudAction(profileId, { type: 'update-auth', config: cfg });
   };
   ['#p-auth-enabled', '#p-auth-user', '#p-auth-pass', '#p-auth-char', '#p-auth-resume'].forEach(sel => {
@@ -2707,7 +2772,7 @@ function populateWebHudData(profileId, data) {
   if (authUs && document.activeElement !== authUs) authUs.value = auth.username || '';
 
   const authPs = hud.querySelector('#p-auth-pass');
-  if (authPs && document.activeElement !== authPs) authPs.value = auth.password || '';
+  if (authPs && document.activeElement !== authPs) authPs.placeholder = auth.hasPassword ? '•••••• (มีแล้ว)' : 'รหัสผ่าน';
 
   const authCh = hud.querySelector('#p-auth-char');
   if (authCh && document.activeElement !== authCh) authCh.value = auth.charName || '';

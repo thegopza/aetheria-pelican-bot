@@ -1692,7 +1692,7 @@ public class PmFocus {
         authConfig: {
           enabled: !!auth.enabled,
           username: auth.username || (document.getElementById('p-auth-user')?.value) || '',
-          password: auth.password || (document.getElementById('p-auth-pass')?.value) || '',
+          hasPassword: !!(auth.password || (document.getElementById('p-auth-pass')?.value)),   // never the password itself
           autoResumeBot: !!auth.autoResumeBot
         },
         serverWeight: window.__serverWeight || null,
