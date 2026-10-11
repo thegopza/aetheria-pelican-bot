@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.30.1
+// @version      4.31.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.30.1';
+    const PELICAN_BOT_VERSION = '4.31.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -179,7 +179,7 @@
         // Shown but the picture really doesn't come back (or the notice got through anyway): reload the page
         // when nothing important is going on — at most once per 10 minutes, the bot resumes after the reload.
         const busyNow = () => window.__isWalkingToMap || window.__isShopping || window.__isRecovering || window.__isConsolidating
-            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || window.__isGearRefining || window.__planMarketBuyInFlight || !!document.querySelector('.human-check');
+            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || window.__isGearRefining || window.__planMarketBuyInFlight || window.__isStoring || !!document.querySelector('.human-check');
         let brokenSince = 0;
         setInterval(() => {
             if (hidden()) { brokenSince = 0; return; }
@@ -7086,6 +7086,204 @@
         });
     };
 
+    // ---------- 📦 Auto storage deposit (after the sell trip, still in the capital) ----------
+    // What the sell trip kept — weapons, armor, accessories/gems, refine ores — goes to the account storage
+    // (shared by every character of the account). Never deposited: Whitelist items (they stay on the character),
+    // usables, arrows, locked items (switch), what the plan's gear set still needs. Settings in pelican_sell_cfg:
+    // storeEnabled, storeWeapon / storeArmor / storeAcc / storeRefine (default on), storeSkipLocked (default on).
+    const STORE_CAT_KEY = { weapon: 'storeWeapon', armor: 'storeArmor', accessory: 'storeAcc', refine: 'storeRefine' };
+    const STORE_CAT_TH = { weapon: 'อาวุธ', armor: 'ชุดเกราะ', accessory: 'ประดับ/เจม', refine: 'แร่ตีบวก' };
+    const STORAGE_NPC_KEY = 'pelican_storage_npc';
+    function storeCategoryOf(it) {
+        if (!it) return null;
+        if (it.type === 'Equipment') {
+            const e = it.equipType || '';
+            if (e === 'Ammo') return null;   // arrows stay
+            return e === 'Weapon' ? 'weapon' : (e === 'Acc' || e === 'Gem') ? 'accessory' : 'armor';
+        }
+        if (it.type === 'Enchantment') return 'refine';
+        return null;   // usables, cards, materials...: not touched
+    }
+    // The sell trip's Whitelist rule (same matching as isWhitelisted in triggerAutoSellTrash)
+    window.isSellWhitelisted = function (itemName) {
+        if (!itemName) return false;
+        const list = String((window.__sellConfig || {}).whitelist || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const base = String(itemName).replace(/^\+\s*\d+\s*/, '').replace(/\s*\[\s*\d+\s*\]\s*$/, '').trim().toLowerCase();
+        const full = String(itemName).toLowerCase();
+        return list.some(t => {
+            if (base === t || full === t) return true;
+            if (t === 'bow') return base === 'bow';
+            if (base.includes(t) || full.includes(t)) return true;
+            return (t.includes('angrelic') || t.includes('angelic')) && (base.includes('angelic') || base.includes('angrelic'));
+        });
+    };
+    // Items the plan is waiting to wear: an "สวมใส่" action's item not worn yet (bought, level too low), or a gem
+    // that is a better % of a worn gem (the gem auto-upgrade waits for its level) — depositing them made the plan
+    // buy them again
+    function planStillNeeds(it) {
+        const lc = s => String(s || '').trim().toLowerCase();
+        const name = lc(it.name);
+        const worn = Object.values(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).equipment || {}).filter(Boolean);
+        const plan = window.__currentScriptPlan;
+        if (plan && Array.isArray(plan.triggers) && !worn.some(w => lc(w.name) === name)
+            && plan.triggers.some(t => (t.actions || []).some(a => a && a.type === 'equip_item' && lc(a.itemName) === name))) return true;
+        const tier = n => { const m = String(n || '').trim().match(/^(.*\S)\s+(\d+(?:\.\d+)?)\s*%$/); return m ? { fam: m[1].toLowerCase(), pct: parseFloat(m[2]) } : null; };
+        const g = it.equipType === 'Gem' ? tier(it.name) : null;
+        return !!g && worn.some(w => { const t = w.equipType === 'Gem' ? tier(w.name) : null; return t && t.fam === g.fam && t.pct < g.pct; });
+    }
+    const STORE_STATE_KEY = 'pelican_storage_state';
+    const storeState = () => { try { return JSON.parse(localStorage.getItem(STORE_STATE_KEY) || '{}') || {}; } catch (e) { return {}; } };
+    const saveStoreState = st => { try { localStorage.setItem(STORE_STATE_KEY, JSON.stringify(st)); } catch (e) {} };
+    function storeEligible(it, cfg, refused) {
+        const cat = storeCategoryOf(it);
+        if (!cat || cfg[STORE_CAT_KEY[cat]] === false) return false;
+        if (it.locked && cfg.storeSkipLocked !== false) return false;
+        if (window.isSellWhitelisted(it.name)) return false;
+        if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
+        if (planStillNeeds(it)) return false;
+        if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
+        return true;
+    }
+    window.getStorageDepositList = function (cfg = window.__sellConfig || {}) {
+        const bag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
+        const refused = storeState().refused || {};
+        return bag.filter(it => storeEligible(it, cfg, refused));
+    };
+    // Open the storage: the NPC that worked last time first, then Alice Service / anything storage-like, then the
+    // other town NPCs; the dialog option with "คลัง" (never a guild storage) — remembered for next time
+    async function openStorageWindow(room, stopped = () => false) {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const all = [];
+        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') room.state.npcs.forEach((n, k) => all.push({ key: k, name: (n && n.name) || '' }));
+        let saved = null;
+        try { saved = localStorage.getItem(STORAGE_NPC_KEY); } catch (e) {}
+        const likely = /Alice|Kafra|Storage|Banker|คลัง/i, never = /Valkyrie|Event|Arena|Guild|Training|Auction|Blacksmith|Shopkeeper|Bag Merchant|Card|Auger/i;
+        const order = [...all.filter(n => n.name === saved), ...all.filter(n => n.name !== saved && likely.test(n.name)),
+            ...all.filter(n => n.name !== saved && !likely.test(n.name) && !never.test(n.name))].slice(0, 6);
+        const closeDlg = () => { const x = document.querySelector('.npc-dialog .win-close'); if (x) x.click(); };
+        for (const npc of order) {
+            if (stopped()) return null;
+            let got = null, unsub;
+            const wait = new Promise(resolve => {
+                const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 9000);
+                unsub = room.onMessage('storage', msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); got = msg; resolve(msg); });
+            });
+            room.send('npc_talk', { npcKey: npc.key });
+            let dlg = null;
+            for (let i = 0; i < 40 && !dlg && !got; i++) { await sleep(200); dlg = document.querySelector('.npc-dialog'); if (dlg && !dlg.querySelector('.npc-options button')) dlg = null; }
+            if (!got && dlg) {
+                const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
+                const idx = opts.findIndex(o => /คลัง|storage/i.test(o) && !/กิลด์|guild/i.test(o));
+                if (idx < 0) { closeDlg(); await sleep(400); if (typeof unsub === 'function') unsub(); continue; }
+                room.send('npc_option', { index: idx });
+            }
+            const msg = await wait;
+            if (msg && Array.isArray(msg.items)) {
+                try { localStorage.setItem(STORAGE_NPC_KEY, npc.name); } catch (e) {}
+                return msg;
+            }
+            closeDlg();
+            await sleep(400);
+        }
+        return null;
+    }
+    window.refreshStoreHud = function () {
+        const c = window.__sellConfig || {};
+        const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.checked = v; };
+        set('p-store-enabled', !!c.storeEnabled);
+        set('p-store-weapon', c.storeWeapon !== false);
+        set('p-store-armor', c.storeArmor !== false);
+        set('p-store-acc', c.storeAcc !== false);
+        set('p-store-refine', c.storeRefine !== false);
+        set('p-store-skip-locked', c.storeSkipLocked !== false);
+    };
+    window.runAutoStorageDeposit = async function (opts = {}) {
+        const cfg = window.__sellConfig || {};
+        if (!cfg.storeEnabled && !opts.manual) return { skipped: 'off' };
+        if (window.__isStoring) return { skipped: 'busy' };
+        if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
+            if (opts.manual) console.warn('[PmheeAether Storage] ⚠️ ต้องอยู่ในเมืองหลวงก่อนถึงจะฝากของเข้าคลังได้');
+            return { skipped: 'not-in-capital' };
+        }
+        const list = window.getStorageDepositList(cfg);
+        if (!list.length) { if (opts.manual) console.log('[PmheeAether Storage] ℹ️ ไม่มีของที่ต้องฝากเข้าคลัง'); return { done: 0 }; }
+        const state = storeState();
+        if (!opts.manual) {
+            if ((state.fullUntil || 0) > Date.now()) return { skipped: 'full' };               // storage was full: try again later
+            if ((state.noStorageUntil || 0) > Date.now()) return { skipped: 'no-storage' };   // no NPC offered storage
+            const z = Number(((window.getLiveCharacterData && window.getLiveCharacterData()) || {}).zeny) || 0;
+            if (state.lastFee && z < state.lastFee) return { skipped: 'zeny' };
+        }
+        const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null);
+        if (!room) return { error: 'no-room' };
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const bagAt = slot => ((window.__latestInventory && window.__latestInventory.items) || []).find(x => x && Number(x.slot) === Number(slot));
+        window.__isStoring = true;
+        try {
+            const zeny0 = Number(((window.getLiveCharacterData && window.getLiveCharacterData()) || {}).zeny) || 0;
+            console.log(`%c[PmheeAether Storage] 📦 ฝากของเข้าคลัง ${list.length} รายการ -> หา NPC คลัง...`, 'color: #38bdf8; font-weight: bold;');
+            const stopped = () => !opts.manual && !window.__isBotRunning;
+            const st = await openStorageWindow(room, stopped);
+            if (!st) {
+                if (stopped()) return { skipped: 'stopped' };
+                state.noStorageUntil = Date.now() + 3 * 3600 * 1000;
+                saveStoreState(state);
+                console.warn('[PmheeAether Storage] ⚠️ เปิดคลังไม่สำเร็จ (ไม่พบ NPC ที่มีตัวเลือก "คลัง") — เก็บของไว้ในกระเป๋าก่อน ลองใหม่ใน 3 ชั่วโมง');
+                return { error: 'no-storage' };
+            }
+            state.noStorageUntil = 0;
+            const fee = zeny0 - (Number(((window.getLiveCharacterData && window.getLiveCharacterData()) || {}).zeny) || 0);
+            if (fee > 0) state.lastFee = fee;
+            let free = (Number(st.slots) || 300) - (Array.isArray(st.items) ? st.items.length : 0);
+            state.refused = state.refused || {};
+            const done = {};
+            let put = 0;
+            for (const it of list) {
+                if (stopped()) break;
+                if (free <= 0) {
+                    state.fullUntil = Date.now() + 6 * 3600 * 1000;
+                    console.warn('[PmheeAether Storage] ⚠️ คลังเต็มแล้ว — ของที่เหลือเก็บไว้ในกระเป๋า (ไม่เปิดคลังอีก 6 ชั่วโมง)');
+                    break;
+                }
+                const cur = bagAt(it.slot);
+                // the slot changed (bag sorted...): never deposit something else — same item, still allowed to go
+                if (!cur || Number(cur.itemId) !== Number(it.itemId) || JSON.stringify(cur.affixes || []) !== JSON.stringify(it.affixes || [])
+                    || (Number(cur.refine) || 0) !== (Number(it.refine) || 0) || !storeEligible(cur, cfg, null)) continue;
+                room.send('storage_put', { slot: Number(it.slot), qty: Math.max(1, Number(cur.qty) || 1) });
+                let moved = false;
+                for (let i = 0; i < 10 && !moved; i++) { await sleep(200); const now = bagAt(it.slot); moved = !now || Number(now.itemId) !== Number(it.itemId); }
+                if (!moved) {
+                    state.refused[it.itemId] = Date.now();   // left out for a day (the game won't take it)
+                    console.warn(`[PmheeAether Storage] ⚠️ ฝาก "${it.name}" ไม่สำเร็จ — ข้าม (ไม่ลองฝากชิ้นนี้อีก 1 วัน)`);
+                    continue;
+                }
+                put++; free--;
+                const cat = STORE_CAT_TH[storeCategoryOf(it)] || '';
+                done[cat] = (done[cat] || 0) + 1;
+                await sleep(250);
+            }
+            if (free > 0) state.fullUntil = 0;
+            saveStoreState(state);
+            const x = document.querySelector('.storage-window .win-close');
+            if (x) x.click(); else if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            console.log(`%c[PmheeAether Storage] ✅ ฝากเข้าคลังแล้ว ${put} ชิ้น (${Object.keys(done).map(k => k + ' ' + done[k]).join(', ') || '-'})${fee > 0 ? ` · ค่าเปิดคลัง ${fee.toLocaleString()} z` : ''}`, 'color: #22c55e; font-weight: bold;');
+            return { done: put, fee };
+        } catch (e) {
+            console.warn('[PmheeAether Storage] error:', e);
+            return { error: e.message };
+        } finally {
+            window.__isStoring = false;
+        }
+    };
+    // The sell trip: sell + buy, then the storage deposit, then the trip goes on (back to the farm)
+    function sellThenStore(onComplete) {
+        executeSellAndBuyActions(() => {
+            if (!window.__isBotRunning || !(window.__sellConfig || {}).storeEnabled) return onComplete();
+            try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
+            setTimeout(() => { window.runAutoStorageDeposit().catch(() => {}).finally(onComplete); }, 800);
+        });
+    }
+
     function executeSellAndBuyActions(onComplete) {
         if (!window.__isBotRunning && !window.__isManualSelling) return;
         console.log('%c[PmheeAether Shop] 📦 กำลังดำเนินการซื้อ/ขายไอเทมตามตั้งค่า...', 'color: #00ffcc;');
@@ -7187,7 +7385,7 @@
         if (!window.__isShopping) return;
         if (!window.__shoppingSince) { window.__shoppingSince = Date.now(); return; }
         if (Date.now() - window.__shoppingSince < 6 * 60 * 1000 || document.querySelector('.shop-window')) return;
-        if (window.__isNavigating || window.__isWalkingToMap) { window.__shoppingSince = Date.now() - 4 * 60 * 1000; return; }
+        if (window.__isNavigating || window.__isWalkingToMap || window.__isStoring) { window.__shoppingSince = Date.now() - 4 * 60 * 1000; return; }
         console.warn('[PmheeAether Shop] ⚠️ สถานะ "กำลังซื้อขาย" ค้างเกิน 6 นาที -> ยกเลิกรอบนี้แล้วทำงานต่อ');
         if (window.__shopWarpInterval) clearInterval(window.__shopWarpInterval);
         if (window.__shopArrivalInterval) clearInterval(window.__shopArrivalInterval);
@@ -7307,7 +7505,7 @@
 
                         setTimeout(() => {
                             if (!window.__isBotRunning) return;
-                            executeSellAndBuyActions(() => {
+                            sellThenStore(() => {
                                 if (!window.__isBotRunning) return;
                                 window.sendNpcClose();
                                 if (typeof window.closeShopUI === 'function') {
@@ -8024,7 +8222,7 @@
 
         // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
         // เมื่อบอท START อยู่ แต่ตัวละครยืนค้างอยู่ในเมืองหลวง และไม่ได้อยู่ในลูปซื้อของ/เดินทาง/ฟื้นฟู
-        if (inCity && !window.__isShopping && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating && !((window.__planJobChangeHoldUntil || 0) > Date.now())) {
+        if (inCity && !window.__isShopping && !window.__isStoring && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating && !((window.__planJobChangeHoldUntil || 0) > Date.now())) {
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
             if (!isTargetCity) {
@@ -10365,6 +10563,7 @@
         if (sellSockets) sellSockets.checked = !!sell.keepSockets;
         const sellWhitelist = document.getElementById('p-sell-whitelist');
         if (sellWhitelist) sellWhitelist.value = sell.whitelist || '';
+        if (typeof window.refreshStoreHud === 'function') window.refreshStoreHud();
 
         // 4. Shop
         const shop = window.__shopConfig || {};
@@ -11343,6 +11542,26 @@
                         </div>
                     </div>
 
+                    <!-- Storage deposit Card -->
+                    <div class="p-card" id="p-store-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(15, 23, 42, 0.75); padding: 6px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                        <label class="p-check-box" style="color: #38bdf8; font-weight: bold; margin: 0;" title="หลังขายของในเมือง ฝากของที่ไม่ได้ขาย และไม่อยู่ใน Whitelist เข้าคลังเก็บของของบัญชี">
+                            <input type="checkbox" id="p-store-enabled" ${window.__sellConfig.storeEnabled ? 'checked' : ''}>
+                            <span>📦 ฝากของเข้าคลังหลังขาย (ที่ไม่อยู่ใน Whitelist)</span>
+                        </label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-weapon" ${window.__sellConfig.storeWeapon !== false ? 'checked' : ''}><span>⚔️ อาวุธ</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-armor" ${window.__sellConfig.storeArmor !== false ? 'checked' : ''}><span>🛡️ ชุดเกราะ</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-acc" ${window.__sellConfig.storeAcc !== false ? 'checked' : ''}><span>💍 ประดับ/เจม</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-refine" ${window.__sellConfig.storeRefine !== false ? 'checked' : ''}><span>💎 แร่ตีบวก</span></label>
+                        </div>
+                        <label class="p-check-box" style="font-size: 9.5px; color: #fbbf24; margin: 0;" title="ของที่กดล็อคในกระเป๋าไว้ จะเก็บติดตัวไว้ ไม่ฝาก">
+                            <input type="checkbox" id="p-store-skip-locked" ${window.__sellConfig.storeSkipLocked !== false ? 'checked' : ''}>
+                            <span>🔐 ไม่ฝากของที่ล็อคไว้</span>
+                        </label>
+                        <span class="p-hint" style="font-size: 8.5px; color: #94a3b8;">ไม่ฝาก: ของใช้, ลูกธนู, ของใน Whitelist, ของที่เซ็ตอุปกรณ์ยังต้องใช้ · คลังใช้ร่วมกันทั้งบัญชี · มีค่าเปิดคลังตามเกม</span>
+                        <button type="button" class="p-btn" id="p-btn-store-now" style="background: #0369a1; color: #fff; font-weight: bold;">📦 ฝากเข้าคลังตอนนี้ (ต้องอยู่ในเมืองหลวง)</button>
+                    </div>
+
                     <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
                 </div>
 
@@ -12001,6 +12220,15 @@
             window.__sellConfig.whitelist = e.target.value;
             saveSellConfig();
         };
+
+        // 📦 storage deposit settings
+        [['p-store-enabled', 'storeEnabled'], ['p-store-weapon', 'storeWeapon'], ['p-store-armor', 'storeArmor'], ['p-store-acc', 'storeAcc'],
+         ['p-store-refine', 'storeRefine'], ['p-store-skip-locked', 'storeSkipLocked']].forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (el) el.onchange = (e) => { window.__sellConfig[key] = e.target.checked; saveSellConfig(); };
+        });
+        const storeNowBtn = document.getElementById('p-btn-store-now');
+        if (storeNowBtn) storeNowBtn.onclick = () => { window.runAutoStorageDeposit({ manual: true }); };
 
         // ==========================================
         // SMART STAT FILTER UI RENDERING & EVENTS
@@ -12728,6 +12956,7 @@
         if (document.querySelector('.human-check')) return '🚨 กำลังรอตอบเช็คผู้เล่น (Human Check)';
         if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
         if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
+        if (window.__isStoring) return 'กำลังฝากของเข้าคลัง';
         if (window.__isRecovering) return 'กำลังชุบชีวิต';
         if (window.__isConsolidating || window.__consolidationReceiverMode) return 'กำลังรวมเงิน/เทรด';
         if (window.__isChangingJob) return 'กำลังเปลี่ยนอาชีพ';

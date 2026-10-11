@@ -36,6 +36,7 @@ const CLIENT_PROBE_JS = `(() => {
   if (window.__isConsolidating || window.__consolidationReceiverMode) busy.push('กำลังรวมเงิน/เทรด');
   if (window.__isChangingJob) busy.push('กำลังเปลี่ยนอาชีพ');
   if (window.__isGearRefining) busy.push('กำลังตีบวก (เซ็ตอุปกรณ์)');
+  if (window.__isStoring) busy.push('กำลังฝากของเข้าคลัง');
   if (window.__planMarketBuyInFlight) busy.push('กำลังซื้อของในตลาดตามแผน');
   if (window.__isManualSelling || window.__isAutoSellingNow) busy.push('กำลังขายของ');
   if (window.__isMarketScanning) busy.push('กำลังสแกนตลาด');

@@ -2087,6 +2087,7 @@ public class PmFocus {
             if (!window.__sellConfig) window.__sellConfig = {};
             Object.assign(window.__sellConfig, ${JSON.stringify(payload.config)});
             try { localStorage.setItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig)); } catch(e){}
+            if (typeof window.refreshStoreHud === 'function') window.refreshStoreHud();
             const trashEl = document.getElementById('p-sell-trash');
             if (trashEl && ${JSON.stringify(payload.config.enabled)} !== undefined) trashEl.checked = !!window.__sellConfig.enabled;
             const weightEl = document.getElementById('p-sell-weight');

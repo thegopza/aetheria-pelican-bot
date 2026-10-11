@@ -1742,6 +1742,26 @@ function getGitHubHudTemplate(profileId, clientData, profile) {
                         </div>
                     </div>
 
+                    <!-- Storage deposit Card -->
+                    <div class="p-card" id="p-store-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(15, 23, 42, 0.75); padding: 6px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                        <label class="p-check-box" style="color: #38bdf8; font-weight: bold; margin: 0;" title="หลังขายของในเมือง ฝากของที่ไม่ได้ขาย และไม่อยู่ใน Whitelist เข้าคลังเก็บของของบัญชี">
+                            <input type="checkbox" id="p-store-enabled" ${sell.storeEnabled ? 'checked' : ''}>
+                            <span>📦 ฝากของเข้าคลังหลังขาย (ที่ไม่อยู่ใน Whitelist)</span>
+                        </label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-weapon" ${sell.storeWeapon !== false ? 'checked' : ''}><span>⚔️ อาวุธ</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-armor" ${sell.storeArmor !== false ? 'checked' : ''}><span>🛡️ ชุดเกราะ</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-acc" ${sell.storeAcc !== false ? 'checked' : ''}><span>💍 ประดับ/เจม</span></label>
+                            <label class="p-check-box" style="font-size: 9.5px; margin: 0;"><input type="checkbox" id="p-store-refine" ${sell.storeRefine !== false ? 'checked' : ''}><span>💎 แร่ตีบวก</span></label>
+                        </div>
+                        <label class="p-check-box" style="font-size: 9.5px; color: #fbbf24; margin: 0;" title="ของที่กดล็อคในกระเป๋าไว้ จะเก็บติดตัวไว้ ไม่ฝาก">
+                            <input type="checkbox" id="p-store-skip-locked" ${sell.storeSkipLocked !== false ? 'checked' : ''}>
+                            <span>🔐 ไม่ฝากของที่ล็อคไว้</span>
+                        </label>
+                        <span class="p-hint" style="font-size: 8.5px; color: #94a3b8;">ไม่ฝาก: ของใช้, ลูกธนู, ของใน Whitelist, ของที่เซ็ตอุปกรณ์ยังต้องใช้ · คลังใช้ร่วมกันทั้งบัญชี · มีค่าเปิดคลังตามเกม</span>
+                        <button type="button" class="p-btn" id="p-btn-store-now" style="background: #0369a1; color: #fff; font-weight: bold;">📦 ฝากเข้าคลังตอนนี้ (ต้องอยู่ในเมืองหลวง)</button>
+                    </div>
+
                     <button class="p-btn" id="p-btn-test-sell-only" style="background: #ca8a04; color: #fff; font-weight: bold; margin-top: 2px;">🧺 ทดสอบขายของในร้านค้า (Sell Test)</button>
                 </div>
 
@@ -2372,10 +2392,16 @@ async function openWebBotHUD(profileId) {
     if (mat) { cfg.sellMaterials = mat !== 'none'; cfg.materialMode = mat === 'common' ? 'common' : 'all'; }
     const ores = pick('#p-sell-refine-ores');
     if (ores) cfg.sellRefineOres = ores === 'unlisted';
+    [['#p-store-enabled', 'storeEnabled'], ['#p-store-weapon', 'storeWeapon'], ['#p-store-armor', 'storeArmor'], ['#p-store-acc', 'storeAcc'],
+     ['#p-store-refine', 'storeRefine'], ['#p-store-skip-locked', 'storeSkipLocked']].forEach(([id, key]) => {
+      const el = hudEl.querySelector(id);
+      if (el) cfg[key] = el.checked;
+    });
     sendWebHudAction(profileId, { type: 'update-sell', config: cfg });
   };
 
-  ['#p-sell-enabled', '#p-weight-check-enabled', '#p-weight-threshold', '#p-sell-rarity-weap', '#p-sell-rarity-armor', '#p-sell-rarity-acc', '#p-sell-rarity-mat', '#p-sell-refine-ores', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist'].forEach(sel => {
+  ['#p-sell-enabled', '#p-weight-check-enabled', '#p-weight-threshold', '#p-sell-rarity-weap', '#p-sell-rarity-armor', '#p-sell-rarity-acc', '#p-sell-rarity-mat', '#p-sell-refine-ores', '#p-sell-keep-refined', '#p-sell-keep-special', '#p-sell-keep-sockets', '#p-sell-whitelist',
+    '#p-store-enabled', '#p-store-weapon', '#p-store-armor', '#p-store-acc', '#p-store-refine', '#p-store-skip-locked'].forEach(sel => {
     const el = hudEl.querySelector(sel);
     if (el) el.onchange = saveSell;
   });
@@ -2470,6 +2496,7 @@ async function openWebBotHUD(profileId) {
   gameCall('#p-btn-refresh-weight', `(typeof window.refreshInventoryAndWeight === 'function' && window.refreshInventoryAndWeight(), true)`);
   gameCall('#p-btn-test-login', `(typeof window.executeAutoLogin === 'function' && window.executeAutoLogin(true), true)`);
   gameCall('#p-btn-mk-scan', `(window.__isMarketScanning ? (typeof window.stopMarketScan === 'function' && window.stopMarketScan()) : (typeof window.startMarketMultiPageScan === 'function' && window.startMarketMultiPageScan('all')), true)`);
+  gameCall('#p-btn-store-now', `(typeof window.runAutoStorageDeposit === 'function' && window.runAutoStorageDeposit({ manual: true }), true)`);
   gameCall('#p-btn-test-shop', `(typeof window.executeAutoShopRoutine === 'function' && window.executeAutoShopRoutine(), true)`,
     'ส่งตัวละครกลับเมืองไปขาย/ซื้อของตามตั้งค่าตอนนี้เลยใช่ไหม?');
   ['#p-btn-sniff-equip', '#p-btn-mk-open-modal', '#p-btn-mk-copy-json', '#p-btn-dump-map', '#p-btn-dump-item', '#p-btn-dump-packets',
@@ -2827,6 +2854,11 @@ function populateWebHudData(profileId, data) {
 
   const sellWl = hud.querySelector('#p-sell-whitelist');
   if (sellWl && document.activeElement !== sellWl) sellWl.value = sell.whitelist || '';
+  [['#p-store-enabled', !!sell.storeEnabled], ['#p-store-weapon', sell.storeWeapon !== false], ['#p-store-armor', sell.storeArmor !== false],
+   ['#p-store-acc', sell.storeAcc !== false], ['#p-store-refine', sell.storeRefine !== false], ['#p-store-skip-locked', sell.storeSkipLocked !== false]].forEach(([id, v]) => {
+    const el = hud.querySelector(id);
+    if (el && document.activeElement !== el) el.checked = v;
+  });
 
   // Stat Filter sync
   const activeHud = activeWebHuds[profileId];
