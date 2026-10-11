@@ -1018,7 +1018,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42720"></script>
+  <script src="app.js?v=42730"></script>
   <script src="patcher_module.js?v=41730"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1244,91 +1244,101 @@
   </div>
 
   <!-- TOPUP POINT AUTO CAPTCHA MODAL -->
-  <div id="modal-topup-captcha" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px);">
-    <div class="modal-content" style="background: #0f172a; border: 1.5px solid rgba(250, 204, 21, 0.35); border-radius: 14px; width: 560px; max-width: 95vw; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(234, 179, 8, 0.15); color: #f8fafc; padding: 22px; font-family: inherit;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 16px;">
+  <div id="modal-topup-captcha" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78); z-index: 99999; backdrop-filter: blur(5px);">
+    <div class="modal-content" style="background: #0b1329; border: 1.5px solid rgba(250, 204, 21, 0.4); border-radius: 14px; width: 620px; max-width: 95vw; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.95), 0 0 35px rgba(234, 179, 8, 0.2); color: #f8fafc; padding: 22px; font-family: inherit; max-height: 92vh; overflow-y: auto;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 14px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 24px;">🪙</span>
+          <span style="font-size: 26px;">🧧</span>
           <div>
-            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #facc15;">เติม Point ระบบ Auto Captcha</h3>
-            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Human Check Solver Credit & Point Top-up</div>
+            <h3 style="margin: 0; font-size: 16.5px; font-weight: 700; color: #facc15; display: flex; align-items: center; gap: 8px;">
+              <span>เติม Point Auto Captcha</span>
+              <span style="font-size: 11px; background: rgba(234, 179, 8, 0.2); color: #fde047; padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(250, 204, 21, 0.4); font-weight: 600;">TrueMoney Wallet</span>
+            </h3>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">ระบบเติม Point ตอบเช็คผู้เล่นอัตโนมัติ (Human Check Solver)</div>
           </div>
         </div>
         <button type="button" id="btn-topup-close" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
       </div>
 
-      <!-- Point Balance Card -->
-      <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.15), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">ยอด Point คงเหลือปัจจุบัน:</div>
-          <div style="font-size: 26px; font-weight: 800; color: #facc15; display: flex; align-items: baseline; gap: 6px; margin-top: 2px;">
-            <span id="topup-modal-points">0</span>
-            <span style="font-size: 14px; font-weight: normal; color: #94a3b8;">Points</span>
+      <!-- Point Balance & Machine HWID Card -->
+      <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.14), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(250, 204, 21, 0.35); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <div style="font-size: 11px; color: #cbd5e1; font-weight: 600;">ยอด Point คงเหลือของเครื่องนี้:</div>
+            <div style="font-size: 28px; font-weight: 800; color: #facc15; display: flex; align-items: baseline; gap: 6px; margin-top: 1px;">
+              <span id="topup-modal-points">0</span>
+              <span style="font-size: 13.5px; font-weight: normal; color: #94a3b8;">Points</span>
+            </div>
+            <div id="topup-modal-rate" style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
+              หัก 1 Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง (1 บาท = 1 Point)
+            </div>
           </div>
-          <div id="topup-modal-rate" style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
-            หัก 1 Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง
+          <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+            <span id="topup-modal-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;">
+              ● พร้อมใช้งาน
+            </span>
+            <div style="font-size: 10px; color: #64748b; font-family: monospace; display: flex; align-items: center; gap: 4px;" title="Hardware Fingerprint สำหรับผูกยอด Point กับเครื่องนี้">
+              <span>HWID:</span>
+              <span id="topup-hwid-short" style="color: #94a3b8; font-weight: 600;">กำลังโหลด...</span>
+              <button type="button" id="btn-copy-hwid" style="background: transparent; border: none; color: #38bdf8; cursor: pointer; padding: 0 2px; font-size: 10.5px;" title="คัดลอก HWID">📋</button>
+            </div>
           </div>
         </div>
-        <div style="text-align: right;">
-          <span id="topup-modal-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;">
-            ● พร้อมใช้งาน
-          </span>
+      </div>
+
+      <!-- TrueMoney Gift Voucher Redemption Box -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1.5px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="font-size: 12.5px; font-weight: 700; color: #f87171; display: flex; align-items: center; gap: 6px;">
+            <span>🧧 เติมเงินด้วยซองของขวัญ / อั่งเปา TrueMoney Wallet</span>
+          </div>
+          <div style="font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 4px;">
+            📱 เบอร์ผู้รับ: <b id="topup-receiver-phone">0970674584</b>
+          </div>
+        </div>
+
+        <div style="font-size: 11px; color: #94a3b8; line-height: 1.45; margin-bottom: 10px;">
+          เปิดแอป TrueMoney > เลือก <b>"โอนเงิน"</b> > <b>"ส่งของขวัญ / ซองอั่งเปา"</b> > กรอกจำนวนเงินที่ต้องการ (เลือก 1 คน) แล้วคัดลอกลิงก์ซองมาวางในช่องด้านล่างนี้ ระบบจะตัดยอดเงินเข้าเบอร์ <span style="color: #facc15; font-weight: 700;">097-067-4584</span> และเพิ่ม Point ให้อัตโนมัติทันที
+        </div>
+
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="topup-voucher-input" class="form-input" style="flex: 1; padding: 8px 12px; font-size: 12px; background: rgba(11, 19, 41, 0.95); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; color: #fff; font-family: monospace;" placeholder="https://gift.truemoney.com/campaign/?v=...">
+          <button type="button" id="btn-topup-voucher" class="btn btn-primary" style="padding: 8px 16px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, #ea580c, #dc2626); border-color: #f97316; white-space: nowrap;">
+            ⚡ แลกซองเข้า Point
+          </button>
+        </div>
+
+        <div id="topup-voucher-msg" style="display: none; font-size: 11.5px; padding: 6px 10px; border-radius: 6px; margin-top: 10px;"></div>
+      </div>
+
+      <!-- Quick Test Top-up Section (Dev Mode / Shortcut) -->
+      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #cbd5e1;">🛠️ เติม Point ด่วนสำหรับทดสอบระบบ (Dev Shortcuts):</span>
+          <span style="font-size: 10.5px; color: #64748b;">(ทดสอบหัก Point ในเกม)</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 6px; font-size: 11.5px; text-align: center;">+50 P</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="200" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(250, 204, 21, 0.3); background: rgba(234, 179, 8, 0.08); color: #facc15;">+200 P</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="500" style="padding: 6px; font-size: 11.5px; text-align: center;">+500 P</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="1000" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); color: #34d399;">+1,000 P</button>
         </div>
       </div>
 
-      <!-- Notice: Ready for User's System -->
-      <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 11.5px; color: #94a3b8; line-height: 1.5;">
-        <span style="color: #facc15; font-weight: 600;">💡 ช่องทางชำระเงิน / เติมเงินอัตโนมัติ:</span><br/>
-        ระบบเตรียมพร้อมเชื่อมต่อกับระบบเติมเงินที่คุณจะกำหนดในอนาคต (เช่น สแกน QR PromptPay, TrueMoney หรือระบบสมาชิก) ขณะนี้คุณสามารถทดสอบกดเติม Point เข้าสู่ระบบได้ทันทีด้านล่างนี้
-      </div>
-
-      <!-- Quick Top-up Packages -->
-      <div style="margin-bottom: 16px;">
-        <div style="font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">📦 เลือกแพ็กเกจเติม Point:</div>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(255,255,255,0.15);">
-            <div>
-              <div style="font-weight: 700; color: #f8fafc; font-size: 13px;">+50 Points</div>
-              <div style="font-size: 10.5px; color: #94a3b8;">ตอบได้ 50 ครั้ง</div>
-            </div>
-            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
-          </button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="200" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(250, 204, 21, 0.3); background: rgba(234, 179, 8, 0.08);">
-            <div>
-              <div style="font-weight: 700; color: #facc15; font-size: 13px;">+200 Points <span style="font-size: 9.5px; background: #eab308; color: #000; padding: 1px 4px; border-radius: 3px; font-weight: 800;">นิยม</span></div>
-              <div style="font-size: 10.5px; color: #cbd5e1;">ตอบได้ 200 ครั้ง</div>
-            </div>
-            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
-          </button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="500" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(255,255,255,0.15);">
-            <div>
-              <div style="font-weight: 700; color: #f8fafc; font-size: 13px;">+500 Points</div>
-              <div style="font-size: 10.5px; color: #94a3b8;">ตอบได้ 500 ครั้ง</div>
-            </div>
-            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
-          </button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="1000" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08);">
-            <div>
-              <div style="font-weight: 700; color: #34d399; font-size: 13px;">+1,000 Points <span style="font-size: 9.5px; background: #10b981; color: #000; padding: 1px 4px; border-radius: 3px; font-weight: 800;">คุ้มสุด</span></div>
-              <div style="font-size: 10.5px; color: #cbd5e1;">ตอบได้ 1,000 ครั้ง</div>
-            </div>
-            <span style="color: #34d399; font-weight: 800; font-size: 13px;">เติม</span>
-          </button>
+      <!-- Recent Transaction History -->
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 11.5px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; display: flex; justify-content: space-between;">
+          <span>📜 ประวัติการเติมเงินล่าสุด:</span>
+          <span id="topup-history-count" style="color: #64748b; font-size: 10.5px;">0 รายการ</span>
+        </div>
+        <div id="topup-history-container" style="max-height: 120px; overflow-y: auto; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; padding: 6px 10px; font-size: 11px;">
+          <div style="color: #64748b; text-align: center; padding: 12px 0;">ยังไม่มีประวัติการเติมเงิน</div>
         </div>
       </div>
 
-      <!-- Custom Amount Input -->
-      <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: center;">
-        <span style="font-size: 11.5px; color: #cbd5e1; white-space: nowrap;">ระบุ Point เอง:</span>
-        <input type="number" id="topup-custom-amount" class="form-input" style="flex: 1; padding: 6px 10px; font-size: 12px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;" placeholder="จำนวน Point (เช่น 100)" min="1" max="100000">
-        <button type="button" id="btn-topup-custom" class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; background: #d97706; border-color: #f59e0b;">➕ เติม Point</button>
-      </div>
-
-      <div id="topup-modal-msg" style="display: none; font-size: 11.5px; padding: 6px 10px; border-radius: 6px; margin-bottom: 14px;"></div>
-
-      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px;">
         <button type="button" id="btn-topup-goto-settings" class="btn btn-ghost btn-sm" style="font-size: 11.5px; color: #38bdf8;">
-          ⚙️ ไปที่การตั้งค่าตอบคำถาม
+          ⚙️ ไปที่การตั้งค่าระบบตอบคำถาม
         </button>
         <button type="button" id="btn-topup-cancel" class="btn btn-secondary" style="font-size: 12px; padding: 6px 16px;">
           ปิด

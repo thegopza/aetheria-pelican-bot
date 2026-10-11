@@ -491,9 +491,13 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           return `${icon} ${highlight}`;
         }).join('\n');
 
+        const pointDeductText = (deductInfo && deductInfo.deducted > 0)
+          ? `\n🪙 **แต้มคงเหลือ:** หัก ${deductInfo.deducted} Point ต่อ 1 Captcha (คงเหลือ: **${deductInfo.remaining}** P)`
+          : '';
+
         const embed = {
           title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,
-          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ความแม่นยำ 100%)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)`,
+          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ความแม่นยำ 100%)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
           color: 0x10B981, // Emerald Green
           fields: [
             {

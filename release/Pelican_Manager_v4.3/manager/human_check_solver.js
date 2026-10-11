@@ -5,13 +5,37 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { execSync } = require('child_process');
+
+function getMachineFingerprint() {
+  try {
+    const stdout = execSync('reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid', { encoding: 'utf8' });
+    const match = stdout.match(/MachineGuid\s+REG_SZ\s+([a-f0-9-]+)/i);
+    if (match) {
+      const guid = match[1].trim().toUpperCase();
+      const canonical = 'PMhee.MachineFingerprint.v1|' + guid;
+      return crypto.createHash('sha256').update(canonical, 'utf8').digest('hex').toUpperCase();
+    }
+  } catch (e) {}
+  const fallback = 'PMhee.MachineFingerprint.v1|' + require('os').hostname().toUpperCase();
+  return crypto.createHash('sha256').update(fallback, 'utf8').digest('hex').toUpperCase();
+}
+
+function extractVoucherHash(input) {
+  if (!input) return null;
+  const raw = String(input).trim();
+  const match = raw.match(/(?:\?v=|campaign\/|\/vouchers\/|^)([a-zA-Z0-9]{15,45})/);
+  return match ? match[1] : null;
+}
 
 function createHumanCheckSolver({ dataDir }) {
   const CATALOG_FILE = path.join(dataDir, 'item_catalog.json');
   const SETTINGS_FILE = path.join(dataDir, 'human_check_settings.json');
 
-  // Load / Save Human Check Solver Settings (Auto-answer, delay, point system)
+  // Load / Save Human Check Solver Settings (Auto-answer, delay, point system, HWID)
   function loadSettings() {
+    const hwid = getMachineFingerprint();
     try {
       if (fs.existsSync(SETTINGS_FILE)) {
         const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
@@ -19,9 +43,14 @@ function createHumanCheckSolver({ dataDir }) {
         return {
           autoAnswer: s.autoAnswer !== false,
           answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
-          pointSystemEnabled: !!s.pointSystemEnabled,
+          pointSystemEnabled: s.pointSystemEnabled !== undefined ? !!s.pointSystemEnabled : true,
           points: Math.max(0, parseInt(s.points, 10) || 0),
-          pointsPerSolve: Math.max(1, parseInt(s.pointsPerSolve, 10) || 1),
+          pointsPerSolve: 1, // 1 point ต่อ 1 captcha
+          pointsPerBaht: Math.max(1, parseInt(s.pointsPerBaht, 10) || 1),
+          receiverPhone: String(s.receiverPhone || '0970674584').replace(/\D/g, ''),
+          machineHwid: s.machineHwid || hwid,
+          claimedVouchers: Array.isArray(s.claimedVouchers) ? s.claimedVouchers : [],
+          topupHistory: Array.isArray(s.topupHistory) ? s.topupHistory : [],
           apiUrl: s.apiUrl || '',
           apiKey: s.apiKey || ''
         };
@@ -30,9 +59,14 @@ function createHumanCheckSolver({ dataDir }) {
     return {
       autoAnswer: true,
       answerDelayMs: 1800,
-      pointSystemEnabled: false,
+      pointSystemEnabled: true,
       points: 0,
       pointsPerSolve: 1,
+      pointsPerBaht: 1,
+      receiverPhone: '0970674584',
+      machineHwid: hwid,
+      claimedVouchers: [],
+      topupHistory: [],
       apiUrl: '',
       apiKey: ''
     };
@@ -44,11 +78,16 @@ function createHumanCheckSolver({ dataDir }) {
       const updated = {
         ...current,
         ...settings,
-        autoAnswer: settings.autoAnswer !== false,
-        answerDelayMs: Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800)),
-        pointSystemEnabled: !!settings.pointSystemEnabled,
-        points: Math.max(0, parseInt(settings.points, 10) || 0),
-        pointsPerSolve: Math.max(1, parseInt(settings.pointsPerSolve, 10) || 1),
+        autoAnswer: settings.autoAnswer !== undefined ? (settings.autoAnswer !== false) : current.autoAnswer,
+        answerDelayMs: settings.answerDelayMs !== undefined ? Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800)) : current.answerDelayMs,
+        pointSystemEnabled: settings.pointSystemEnabled !== undefined ? !!settings.pointSystemEnabled : current.pointSystemEnabled,
+        points: settings.points !== undefined ? Math.max(0, parseInt(settings.points, 10) || 0) : current.points,
+        pointsPerSolve: 1, // 1 point ต่อ 1 captcha
+        pointsPerBaht: settings.pointsPerBaht !== undefined ? Math.max(1, parseInt(settings.pointsPerBaht, 10) || 1) : current.pointsPerBaht,
+        receiverPhone: String(settings.receiverPhone || current.receiverPhone || '0970674584').replace(/\D/g, ''),
+        machineHwid: current.machineHwid,
+        claimedVouchers: Array.isArray(settings.claimedVouchers) ? settings.claimedVouchers : current.claimedVouchers,
+        topupHistory: Array.isArray(settings.topupHistory) ? settings.topupHistory : current.topupHistory,
         apiUrl: String(settings.apiUrl || current.apiUrl || '').trim(),
         apiKey: String(settings.apiKey || current.apiKey || '').trim()
       };
@@ -57,6 +96,116 @@ function createHumanCheckSolver({ dataDir }) {
     } catch (e) {
       console.error('[HumanCheckSolver] Failed to save settings:', e);
       return null;
+    }
+  }
+
+  // Redeem TrueMoney Gift Voucher (ซองอั่งเปา TrueMoney Wallet)
+  async function redeemTrueMoneyVoucher(rawInput, receiverPhoneOverride = null) {
+    const voucherHash = extractVoucherHash(rawInput);
+    if (!voucherHash) {
+      return { success: false, message: 'กรุณากรอกลิงก์ซองของขวัญ TrueMoney Wallet ให้ถูกต้อง (เช่น https://gift.truemoney.com/campaign/?v=...)' };
+    }
+
+    const s = loadSettings();
+    const receiverPhone = String(receiverPhoneOverride || s.receiverPhone || '0970674584').replace(/\D/g, '');
+    if (!receiverPhone || receiverPhone.length !== 10) {
+      return { success: false, message: 'เบอร์โทรศัพท์ผู้รับเงิน TrueMoney ไม่ถูกต้อง (ต้องมี 10 หลัก)' };
+    }
+
+    // Replay protection (Receipt Hash)
+    const receiptId = crypto.createHash('sha256').update('truemoney:' + voucherHash.toUpperCase()).digest('hex');
+    const alreadyClaimed = (s.claimedVouchers || []).some(v => v.receiptId === receiptId || v.voucherHash === voucherHash);
+    if (alreadyClaimed) {
+      return { success: false, message: 'ซองของขวัญนี้ถูกใช้งานในระบบไปแล้ว ไม่สามารถใช้ซ้ำได้' };
+    }
+
+    // Call Autozy Gateway API (proven Cloudflare bypass for TrueMoney voucher redeem)
+    try {
+      const gatewayRes = await new Promise((resolve, reject) => {
+        const url = `https://gateway.autozy.app/api/giftvoucher/${voucherHash}/${receiverPhone}/`;
+        https.get(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          },
+          timeout: 15000
+        }, r => {
+          let body = '';
+          r.setEncoding('utf8');
+          r.on('data', chunk => body += chunk);
+          r.on('end', () => {
+            try {
+              resolve({ statusCode: r.statusCode, data: JSON.parse(body) });
+            } catch (e) {
+              resolve({ statusCode: r.statusCode, raw: body });
+            }
+          });
+        }).on('error', reject).on('timeout', function() { this.destroy(new Error('เชื่อมต่อ Gateway หมดเวลา (Timeout)')); });
+      });
+
+      const resData = gatewayRes.data;
+      if (resData && (resData.status === 'success' || resData.code === 200) && resData.data) {
+        let amountBaht = 0.0;
+        if (typeof resData.data.amount === 'number') amountBaht = resData.data.amount;
+        else if (typeof resData.data.amount === 'string') amountBaht = parseFloat(resData.data.amount) || 0;
+
+        if (amountBaht <= 0) {
+          return { success: false, message: 'ยอดเงินในซองของขวัญไม่ถูกต้อง (0 บาท)' };
+        }
+
+        const pointsPerBaht = s.pointsPerBaht || 1;
+        const pointsAdded = Math.round(amountBaht * pointsPerBaht);
+        s.points = (s.points || 0) + pointsAdded;
+        s.pointSystemEnabled = true; // Auto-enable point system once user tops up!
+
+        const claimRecord = {
+          receiptId,
+          voucherHash: voucherHash.slice(0, 6) + '...' + voucherHash.slice(-4),
+          amountBaht,
+          pointsAdded,
+          claimedAt: Date.now(),
+          ownerName: resData.data.owner_name || ''
+        };
+        s.claimedVouchers = [claimRecord, ...(s.claimedVouchers || [])].slice(0, 50);
+
+        const historyRecord = {
+          id: receiptId.slice(0, 8),
+          date: new Date().toISOString(),
+          type: 'truemoney_voucher',
+          amountBaht,
+          pointsAdded,
+          balance: s.points,
+          note: `ซองของขวัญ ${amountBaht.toFixed(2)} บ. (${resData.data.owner_name || 'ผู้ส่ง'})`
+        };
+        s.topupHistory = [historyRecord, ...(s.topupHistory || [])].slice(0, 50);
+
+        saveSettings(s);
+
+        return {
+          success: true,
+          amount: amountBaht,
+          pointsAdded,
+          totalPoints: s.points,
+          ownerName: resData.data.owner_name || '',
+          message: `🎉 แลกซองอั่งเปาสำเร็จ! ได้รับ ${amountBaht.toFixed(2)} บาท (+${pointsAdded.toLocaleString()} Points)`
+        };
+      }
+
+      // Handle gateway error responses
+      let errMsg = 'ไม่สามารถแลกซองของขวัญนี้ได้';
+      if (resData && resData.message) errMsg = resData.message;
+      if (resData && resData.message_en === 'VOUCHER_OUT_OF_STOCK') {
+        errMsg = 'ซองของขวัญนี้ถูกใช้งานหรือมีผู้รับเงินไปแล้ว';
+      } else if (resData && resData.message_en === 'VOUCHER_NOT_FOUND') {
+        errMsg = 'ไม่พบซองของขวัญนี้ กรุณาตรวจสอบลิงก์ซองของขวัญอีกครั้ง';
+      } else if (resData && resData.message_en === 'VOUCHER_EXPIRED') {
+        errMsg = 'ซองของขวัญนี้หมดอายุแล้ว (อายุเกิน 72 ชั่วโมง)';
+      } else if (resData && resData.message_en === 'CANNOT_GET_OWN_VOUCHER') {
+        errMsg = 'เบอร์ผู้รับเป็นผู้สร้างซองนี้ ไม่สามารถรับเงินของตนเองได้';
+      }
+
+      return { success: false, message: errMsg, code: resData?.code || resData?.message_en };
+    } catch (err) {
+      return { success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message };
     }
   }
 
@@ -366,6 +515,9 @@ function createHumanCheckSolver({ dataDir }) {
     saveSettings,
     deductPoints,
     addPoints,
+    redeemTrueMoneyVoucher,
+    extractVoucherHash,
+    getMachineFingerprint,
     isReady: () => isReady
   };
 }

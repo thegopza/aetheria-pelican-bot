@@ -1308,6 +1308,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // TrueMoney Gift Voucher Top-up (ซองของขวัญ / อั่งเปา TrueMoney Wallet)
+  if (pathname === "/api/human-check/topup-voucher" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const { voucherUrl } = JSON.parse(body || "{}");
+        const result = await humanCheckSolver.redeemTrueMoneyVoucher(voucherUrl);
+        sendJSON(result, result.success ? 200 : 400);
+      } catch (e) {
+        sendJSON({ success: false, message: "เกิดข้อผิดพลาดในการประมวลผล: " + e.message }, 500);
+      }
+    });
+    return;
+  }
+
   // 1. GET /api/profiles
   if (req.method === "GET" && pathname === "/api/profiles") {
     const profiles = loadProfiles();

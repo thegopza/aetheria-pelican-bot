@@ -914,35 +914,118 @@ function initTopupCaptchaModal() {
   const modal = document.getElementById("modal-topup-captcha");
   const btnClose = document.getElementById("btn-topup-close");
   const btnCancel = document.getElementById("btn-topup-cancel");
-  const topupMsg = document.getElementById("topup-modal-msg");
-  const customInput = document.getElementById("topup-custom-amount");
-  const btnCustom = document.getElementById("btn-topup-custom");
+  const voucherInput = document.getElementById("topup-voucher-input");
+  const btnVoucher = document.getElementById("btn-topup-voucher");
+  const voucherMsg = document.getElementById("topup-voucher-msg");
+  const hwidShort = document.getElementById("topup-hwid-short");
+  const btnCopyHwid = document.getElementById("btn-copy-hwid");
+  const receiverPhoneEl = document.getElementById("topup-receiver-phone");
+  const historyContainer = document.getElementById("topup-history-container");
+  const historyCountEl = document.getElementById("topup-history-count");
   const btnGotoSettings = document.getElementById("btn-topup-goto-settings");
+
+  let cachedFullHwid = "";
 
   if (!btnTopup || !modal) return;
 
-  function showTopupMsg(text, isError = false) {
-    if (!topupMsg) return;
-    topupMsg.style.display = "block";
-    topupMsg.style.background = isError ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)";
-    topupMsg.style.color = isError ? "#f87171" : "#34d399";
-    topupMsg.style.border = isError ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)";
-    topupMsg.innerText = text;
-    setTimeout(() => { if (topupMsg) topupMsg.style.display = "none"; }, 5000);
+  function showVoucherMsg(text, isError = false) {
+    if (!voucherMsg) return;
+    voucherMsg.style.display = "block";
+    voucherMsg.style.background = isError ? "rgba(239, 68, 68, 0.18)" : "rgba(16, 185, 129, 0.18)";
+    voucherMsg.style.color = isError ? "#f87171" : "#34d399";
+    voucherMsg.style.border = isError ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid rgba(16, 185, 129, 0.35)";
+    voucherMsg.innerText = text;
+    setTimeout(() => { if (voucherMsg) voucherMsg.style.display = "none"; }, 8000);
+  }
+
+  function renderHistory(history) {
+    if (!historyContainer) return;
+    const list = Array.isArray(history) ? history : [];
+    if (historyCountEl) historyCountEl.innerText = `${list.length} รายการ`;
+    if (list.length === 0) {
+      historyContainer.innerHTML = '<div style="color: #64748b; text-align: center; padding: 12px 0;">ยังไม่มีประวัติการเติมเงิน</div>';
+      return;
+    }
+    historyContainer.innerHTML = list.map(item => {
+      let dateStr = "";
+      try {
+        const d = new Date(item.date);
+        dateStr = d.toLocaleDateString("th-TH", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {
+        dateStr = item.date || "";
+      }
+      const points = (item.pointsAdded || 0).toLocaleString();
+      const amount = item.amountBaht != null ? `${Number(item.amountBaht).toFixed(2)} ฿` : `${points} P`;
+      return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+        <div>
+          <span style="font-weight: 700; color: #34d399; font-size: 11.5px;">+${amount}</span>
+          <span style="color: #facc15; font-size: 11px; margin-left: 4px;">(+${points} P)</span>
+          <div style="color: #94a3b8; font-size: 10px; margin-top: 1px;">${escapeHTML(item.note || 'เติมเงิน')}</div>
+        </div>
+        <div style="font-size: 10px; color: #64748b; font-family: monospace;">${escapeHTML(dateStr)}</div>
+      </div>`;
+    }).join("");
   }
 
   async function refreshTopupData() {
     try {
       const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
       if (res && res.success && res.settings) {
-        updatePointDisplays(res.settings.points, res.settings.pointsPerSolve);
+        const s = res.settings;
+        updatePointDisplays(s.points, s.pointsPerSolve);
+        if (s.receiverPhone && receiverPhoneEl) {
+          receiverPhoneEl.innerText = s.receiverPhone;
+        }
+        if (s.machineHwid) {
+          cachedFullHwid = s.machineHwid;
+          if (hwidShort) {
+            hwidShort.innerText = `${s.machineHwid.slice(0, 8)}...${s.machineHwid.slice(-6)}`;
+            hwidShort.title = `Full HWID: ${s.machineHwid}`;
+          }
+        }
+        renderHistory(s.topupHistory);
       }
     } catch (e) {}
   }
 
+  async function executeRedeemVoucher() {
+    if (!voucherInput) return;
+    const url = (voucherInput.value || "").trim();
+    if (!url) {
+      return showVoucherMsg("กรุณาวางลิงก์ซองของขวัญ TrueMoney เช่น https://gift.truemoney.com/campaign/?v=...", true);
+    }
+    if (btnVoucher) {
+      btnVoucher.disabled = true;
+      btnVoucher.innerText = "⏳ กำลังแลกซอง...";
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/human-check/topup-voucher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voucherUrl: url })
+      }).then(r => r.json());
+
+      if (res && res.success) {
+        voucherInput.value = "";
+        showVoucherMsg(res.message || `🎉 แลกซองสำเร็จ! ได้รับ ${res.amount} บาท (+${res.pointsAdded} Points)`);
+        showToast(`🧧 เติมเงินสำเร็จ: +${res.amount} บ. (+${res.pointsAdded} Points)`, "success");
+        await refreshTopupData();
+      } else {
+        showVoucherMsg("❌ " + (res.message || res.error || "แลกซองไม่สำเร็จ"), true);
+      }
+    } catch (e) {
+      showVoucherMsg("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: " + e.message, true);
+    } finally {
+      if (btnVoucher) {
+        btnVoucher.disabled = false;
+        btnVoucher.innerText = "⚡ แลกซองเข้า Point";
+      }
+    }
+  }
+
   async function executeAddPoints(amount) {
     const val = parseInt(amount, 10);
-    if (!val || val <= 0) return showTopupMsg("กรุณาระบุจำนวน Point ให้ถูกต้อง", true);
+    if (!val || val <= 0) return showVoucherMsg("กรุณาระบุจำนวน Point ให้ถูกต้อง", true);
     try {
       const res = await fetch(`${API_BASE}/api/human-check/add-points`, {
         method: "POST",
@@ -952,13 +1035,14 @@ function initTopupCaptchaModal() {
 
       if (res && res.success) {
         updatePointDisplays(res.points);
-        showTopupMsg(`🎉 เติม Point สำเร็จ: +${val.toLocaleString()} P (คงเหลือ ${res.points.toLocaleString()} P)`);
+        showVoucherMsg(`🎉 เติม Point ด่วนสำเร็จ: +${val.toLocaleString()} P (คงเหลือ ${res.points.toLocaleString()} P)`);
         showToast(`🪙 เติม Point สำเร็จ: +${val.toLocaleString()} P`, "success");
+        await refreshTopupData();
       } else {
-        showTopupMsg("❌ เติมไม่สำเร็จ: " + (res.error || "Unknown error"), true);
+        showVoucherMsg("❌ เติมไม่สำเร็จ: " + (res.error || "Unknown error"), true);
       }
     } catch (e) {
-      showTopupMsg("❌ เกิดข้อผิดพลาด: " + e.message, true);
+      showVoucherMsg("❌ เกิดข้อผิดพลาด: " + e.message, true);
     }
   }
 
@@ -972,19 +1056,34 @@ function initTopupCaptchaModal() {
   if (btnCancel) btnCancel.addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 
+  if (btnVoucher) btnVoucher.addEventListener("click", executeRedeemVoucher);
+  if (voucherInput) {
+    voucherInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        executeRedeemVoucher();
+      }
+    });
+  }
+
+  if (btnCopyHwid) {
+    btnCopyHwid.addEventListener("click", async () => {
+      if (!cachedFullHwid) return;
+      try {
+        await navigator.clipboard.writeText(cachedFullHwid);
+        showToast("📋 คัดลอก HWID เครื่องเรียบร้อยแล้ว", "info");
+      } catch (err) {
+        prompt("HWID ของเครื่องนี้คือ:", cachedFullHwid);
+      }
+    });
+  }
+
   document.querySelectorAll(".btn-modal-point").forEach(btn => {
     btn.addEventListener("click", () => {
       const amt = btn.dataset.amount;
       executeAddPoints(amt);
     });
   });
-
-  if (btnCustom && customInput) {
-    btnCustom.addEventListener("click", () => {
-      executeAddPoints(customInput.value);
-      customInput.value = "";
-    });
-  }
 
   if (btnGotoSettings) {
     btnGotoSettings.addEventListener("click", () => {
