@@ -74,6 +74,7 @@ const { createPlanSync } = require("./plan_sync");
 const { createAuthSync } = require("./auth_sync");
 const credentials = require("./credentials");
 const { createBrowserMode } = require("./browser_mode");
+const { createDiscordBotService } = require("./discord_bot");
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -322,6 +323,25 @@ const LIVE_STATE_EVAL = `(() => {
         if (t.includes('สถานะ')) s.statPoints = num(t);
         else if (t.includes('สกิล')) s.skillPoints = num(t);
       });
+    }
+  } catch (e) {}
+  try {
+    const hc = document.querySelector('.human-check');
+    if (hc) {
+      const promptEl = hc.querySelector('.human-check-prompt');
+      const metaEl = hc.querySelector('.human-check-meta');
+      const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
+      s.humanCheck = {
+        active: true,
+        prompt: promptEl ? (promptEl.innerText || '').trim() : '',
+        meta: metaEl ? (metaEl.innerText || '').trim() : '',
+        options: btns.map((b, i) => ({
+          index: i,
+          label: b.getAttribute('aria-label') || ('ตัวเลือกที่ ' + (i + 1))
+        }))
+      };
+    } else {
+      s.humanCheck = null;
     }
   } catch (e) {}
   return s;
@@ -931,6 +951,34 @@ const managerUpdater = createManagerSelfUpdater({
   isBusy: () => botAutoUpdater.status.phase !== "idle" || consolidationState.running
 });
 
+const discordService = createDiscordBotService({
+  dataDir: path.join(__dirname, "data"),
+  loadProfiles,
+  evalProfilePort,
+  focusProfileWindow: (profileId) => {
+    const profile = loadProfiles().find(p => p.id === profileId);
+    if (profile && profile.debugPort) {
+      http.get(`http://127.0.0.1:${profile.debugPort}/api/window?action=top`, () => {}).on('error', () => {});
+    }
+  }
+});
+
+// Background monitor for Human Check (alerts Discord even if Manager UI is closed/idle)
+setInterval(async () => {
+  try {
+    const profiles = loadProfiles();
+    for (const p of profiles) {
+      if (!p.debugPort) continue;
+      const state = await queryClientState(p.debugPort);
+      if (state && state.humanCheck && state.humanCheck.active) {
+        discordService.notifyHumanCheck({ profile: p, check: state.humanCheck });
+      } else if (state) {
+        discordService.clearHumanCheck(p.id);
+      }
+    }
+  } catch (e) {}
+}, 2500);
+
 const server = http.createServer(async (req, res) => {
   req.setEncoding('utf8');   // request bodies are built with += (Thai split across chunks -> U+FFFD)
   // CORS
@@ -970,6 +1018,48 @@ const server = http.createServer(async (req, res) => {
 
   // Bag (inventory) & market endpoints — see inventory_market_api.js
   if (await handleInventoryMarketRoute(req, res, pathname, { loadProfiles, evalProfilePort, sendJSON })) return;
+
+  // Discord Bot & Webhook Settings & Controls
+  if (pathname === "/api/discord/settings") {
+    if (req.method === "GET") {
+      return sendJSON({ success: true, settings: discordService.loadSettings() });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const ok = discordService.saveSettings(data);
+          sendJSON({ success: ok, settings: discordService.loadSettings() });
+        } catch (e) {
+          sendJSON({ success: false, error: e.message }, 400);
+        }
+      });
+      return;
+    }
+  }
+
+  if (pathname === "/api/discord/test" && req.method === "POST") {
+    const testResult = await discordService.testNotification();
+    return sendJSON(testResult || { success: true });
+  }
+
+  // Answer human check from Manager UI or remote link
+  if (pathname === "/api/human-check/answer" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const { profileId, pick } = JSON.parse(body || "{}");
+        const res = await discordService.answerCheckInGame(profileId, pick);
+        sendJSON(res);
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
 
   // 1. GET /api/profiles
   if (req.method === "GET" && pathname === "/api/profiles") {

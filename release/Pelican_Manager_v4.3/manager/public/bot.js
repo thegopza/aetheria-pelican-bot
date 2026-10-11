@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.28.0
+// @version      4.28.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.28.0';
+    const PELICAN_BOT_VERSION = '4.28.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -179,7 +179,7 @@
         // Shown but the picture really doesn't come back (or the notice got through anyway): reload the page
         // when nothing important is going on — at most once per 10 minutes, the bot resumes after the reload.
         const busyNow = () => window.__isWalkingToMap || window.__isShopping || window.__isRecovering || window.__isConsolidating
-            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow;
+            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || !!document.querySelector('.human-check');
         let brokenSince = 0;
         setInterval(() => {
             if (hidden()) { brokenSince = 0; return; }
@@ -12360,6 +12360,7 @@
 
     // States during which plan actions must wait (AGENTS.md: never interrupt the Alice walk)
     function planBusyReason() {
+        if (document.querySelector('.human-check')) return '🚨 กำลังรอตอบเช็คผู้เล่น (Human Check)';
         if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
         if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
         if (window.__isRecovering) return 'กำลังชุบชีวิต';

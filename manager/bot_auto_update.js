@@ -39,6 +39,7 @@ const CLIENT_PROBE_JS = `(() => {
   if (window.__planMarketBuyInFlight) busy.push('กำลังซื้อของในตลาดตามแผน');
   if (window.__isManualSelling || window.__isAutoSellingNow) busy.push('กำลังขายของ');
   if (window.__isMarketScanning) busy.push('กำลังสแกนตลาด');
+  if (document.querySelector('.human-check')) busy.push('กำลังรอตอบเช็คผู้เล่น (Human Check)');
   const nameEl = document.querySelector('.hud-name');
   let map = '';
   try { map = (typeof window.__getClientLiveState === 'function' && window.__getClientLiveState().map) || ''; } catch (e) {}

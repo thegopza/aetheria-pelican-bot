@@ -1053,6 +1053,53 @@
         <div class="lm-hint">เปลี่ยนโหมดแล้ว ให้ปิดจอเกมเดิมแล้วกดเปิดใหม่ · เบราว์เซอร์ที่ Manager เปิดใช้โปรไฟล์แยก ไม่ปนกับเบราว์เซอร์ส่วนตัว</div>
       </div>
 
+      <!-- Discord Bot & Webhook Alert Integration -->
+      <div class="lm-card" style="margin-bottom: 16px; border-color: rgba(99, 102, 241, 0.3); background: rgba(30, 27, 75, 0.35);">
+        <div class="lm-title" style="color: #a5b4fc; display: flex; justify-content: space-between; align-items: center;">
+          <span>🤖 ระบบแจ้งเตือน & ควบคุมผ่าน Discord (Anti-Bot Human Check)</span>
+          <label style="font-size: 11.5px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #cbd5e1;">
+            <input type="checkbox" id="discord-enabled-toggle" style="cursor: pointer;">
+            <span>เปิดใช้งาน Discord</span>
+          </label>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+          <div>
+            <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">📢 Discord Webhook URL (สำหรับส่งแจ้งเตือนเข้าห้อง):</label>
+            <input type="text" id="discord-webhook-url" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 12px; padding: 6px 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #fff;" placeholder="https://discord.com/api/webhooks/...">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">🤖 Discord Bot Token (ตัวเลือกเสริมสำหรับกดปุ่มตอบในห้องแชทได้ทันที):</label>
+              <input type="password" id="discord-bot-token" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 12px; padding: 6px 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #fff;" placeholder="MTE... (เว้นว่างไว้ได้หากใช้แค่ Webhook)">
+            </div>
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">💬 Channel ID:</label>
+              <input type="text" id="discord-channel-id" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 12px; padding: 6px 10px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #fff;" placeholder="1234567890...">
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; gap: 14px; font-size: 11.5px; color: #cbd5e1;">
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" id="discord-auto-bring-to-front" checked style="cursor: pointer;">
+                <span>🖥️ ดึงจอเกมขึ้นหน้าสุดอัตโนมัติ</span>
+              </label>
+              <label style="cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" id="discord-sound-alert" checked style="cursor: pointer;">
+                <span>🔊 เล่นเสียงเตือนในคอม</span>
+              </label>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" id="btn-discord-test" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 10px;">🧪 ทดสอบส่ง</button>
+              <button type="button" id="btn-discord-save" class="btn btn-primary btn-sm" style="font-size: 11px; padding: 4px 12px; background: #6366f1; border-color: #4f46e5;">💾 บันทึก Discord</button>
+            </div>
+          </div>
+          <div id="discord-status-msg" style="display: none; font-size: 11.5px; padding: 4px 8px; border-radius: 4px; margin-top: 2px;"></div>
+        </div>
+      </div>
+
       <!-- Game Path Selection Bar -->
       <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">

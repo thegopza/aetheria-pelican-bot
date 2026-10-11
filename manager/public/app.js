@@ -204,11 +204,58 @@ async function fetchProfiles() {
       if (typeof updateZenyConsolidationView === 'function') {
         updateZenyConsolidationView();
       }
+
+      // Play alert chime if any card has humanCheck active
+      if (currentProfiles.some(p => p.liveState && p.liveState.humanCheck && p.liveState.humanCheck.active)) {
+        playHumanCheckAlert();
+      }
     }
   } catch (err) {
     console.error("Failed to fetch profiles:", err);
   }
 }
+
+let lastHumanCheckBeep = 0;
+function playHumanCheckAlert() {
+  const now = Date.now();
+  if (now - lastHumanCheckBeep < 8000) return;
+  lastHumanCheckBeep = now;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.55);
+  } catch (e) {}
+}
+
+window.answerHumanCheckQuick = async function(profileId, pick) {
+  if (!confirm(`ยืนยันการตอบตัวเลือกที่ ${pick + 1} ให้จอ [${profileId}] ใช่หรือไม่?`)) return;
+  try {
+    const res = await fetch('/api/human-check/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId, pick })
+    }).then(r => r.json());
+    if (res && res.success) {
+      alert(`✅ ตอบตัวเลือกที่ ${pick + 1} เรียบร้อยแล้ว!`);
+      fetchProfiles();
+    } else {
+      alert(`❌ สั่งตอบไม่สำเร็จ: ${res.error || 'Unknown error'}`);
+    }
+  } catch (e) {
+    alert(`❌ เกิดข้อผิดพลาด: ${e.message}`);
+  }
+};
 
 function updateMetrics() {
   const total = currentProfiles.length;
@@ -414,6 +461,24 @@ function buildProfileCard(p) {
             <span class="exp-val">${escapeHTML(state.jobExp || '--')}</span>
           </div>
         </div>` : ''}
+      </div>` : ''}
+
+      ${state?.humanCheck?.active ? `
+      <div class="human-check-alert-box" style="margin: 8px 12px; background: rgba(239, 68, 68, 0.2); border: 2px solid #ef4444; border-radius: 8px; padding: 10px; animation: pulse 1.5s infinite;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-weight: bold; color: #fca5a5; font-size: 13px;">🚨 เช็คผู้เล่น (Human Check)!</span>
+          <span style="font-size: 11px; color: #fecaca; background: #b91c1c; padding: 2px 6px; border-radius: 4px;">${escapeHTML(state.humanCheck.meta || 'ตอบด่วน')}</span>
+        </div>
+        <div style="font-size: 12px; color: #fff; margin-bottom: 8px; font-weight: 500;">
+          ❓ ${escapeHTML(state.humanCheck.prompt || 'กรุณาเลือกรูปภาพให้ถูกต้อง')}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(${Math.min(4, (state.humanCheck.options || []).length || 4)}, 1fr); gap: 6px;">
+          ${((state.humanCheck.options && state.humanCheck.options.length) ? state.humanCheck.options : [0, 1, 2, 3]).map((opt, i) => `
+            <button type="button" class="btn btn-sm" style="font-size: 11px; padding: 6px 4px; background: #dc2626; color: #fff; border: 1px solid #ef4444; border-radius: 6px; font-weight: bold; cursor: pointer;" onclick="answerHumanCheckQuick('${p.id}', ${typeof opt === 'object' ? opt.index : i})">
+              ข้อ ${i + 1}
+            </button>
+          `).join('')}
+        </div>
       </div>` : ''}
 
       <div class="card-status-row">
