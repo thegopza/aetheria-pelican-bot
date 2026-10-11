@@ -422,3 +422,16 @@
 .sb-empty { font-size: 11px; color: #64748b; font-style: italic; }
 .sb-queue-hint { font-size: 10px; color: #64748b; margin-top: 6px; }
 @media (max-width: 560px) { .sb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.gb-conds { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.gb-lv { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #86efac; white-space: nowrap; margin: 0; }
+.gb-lv input { width: 44px; background: #020617; border: 1px solid rgba(34, 197, 94, 0.45); border-radius: 6px; color: #bbf7d0; padding: 3px 6px; text-align: right; font-family: var(--font-mono, monospace); font-size: 11.5px; }
+
+.gb-gems { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 2px; }
+.gb-gems .gb-slot { border-color: rgba(168, 85, 247, 0.35); }
+.gb-gems .gb-slot.filled { border-color: rgba(168, 85, 247, 0.6); }
+@media (max-width: 860px) { .gb-gems { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.gb-done-map { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 18px; background: rgba(250, 204, 21, 0.05); border-top: 1px solid rgba(148, 163, 184, 0.12); }
+.gb-done-map label { font-weight: 700; font-size: 12.5px; color: #fde68a; }
+.gb-done-map select { background: #020617; color: #fff; border: 1px solid rgba(250, 204, 21, 0.45); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; max-width: 280px; }

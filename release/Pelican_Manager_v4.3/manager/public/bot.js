@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.32.0
-// @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
+// @version      4.33.0
+// @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
 // @grant        none
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.32.0';
+    const PELICAN_BOT_VERSION = '4.33.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1316,6 +1316,39 @@
         localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig));
     }
     window.saveAutoMarketSellConfig = saveAutoMarketSellConfig;
+
+    // Unexpected Town Return Watchdog & Cooldown State
+    window.__unexpectedTownGuardEnabled = localStorage.getItem('pelican_unexpected_town_guard') !== 'false';
+    window.__unexpectedTownWaiting = false;
+    window.__unexpectedTownWaitUntil = 0;
+    window.__unexpectedTownReason = '';
+    window.__unexpectedTownTicks = 0;
+    window.__lastKnownNonCityMap = '';
+    window.__lastIntentionalWarpAt = 0;
+    window.__lastBwingUsedAt = 0;
+    window.__lastTownTripAt = 0;
+    window.__lastRespawnAt = 0;
+    window.__botStartedAt = 0;
+
+    // Humanize (Human-like Random Tasks) Config
+    const defaultHumanizeConfig = {
+        enabled: true,
+        chance: 70, // 70% chance to run on return to town
+        buyBlacksmith: true, // Buy stones from Blacksmith & resell
+        buySundries: true,   // Buy potions/wings from Shopkeeper & resell
+        randomWalk: true,    // Walk random steps in town plaza
+        storeDeposit: true   // Deposit whitelisted items not on market list
+    };
+    try {
+        const storedHumanize = JSON.parse(localStorage.getItem('pelican_humanize_config') || '{}');
+        window.__humanizeConfig = Object.assign({}, defaultHumanizeConfig, storedHumanize);
+    } catch (e) {
+        window.__humanizeConfig = defaultHumanizeConfig;
+    }
+    function saveHumanizeConfig() {
+        localStorage.setItem('pelican_humanize_config', JSON.stringify(window.__humanizeConfig));
+    }
+    window.saveHumanizeConfig = saveHumanizeConfig;
 
     function updateAmmoHUD() {
         const threshold = (window.__archerConfig && window.__archerConfig.ammoThreshold) ? window.__archerConfig.ammoThreshold : 50;
@@ -4874,6 +4907,7 @@
     setInterval(window.scanForActiveSocket, 1000);
 
     window.sendRespawn = function() {
+        window.__lastRespawnAt = Date.now();
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (room && typeof room.send === 'function') {
             room.send('respawn', { to: 'save' });
@@ -5056,6 +5090,7 @@
     window.startMasterBot = function() {
         window.__isBotRunning = true;
         window.__autoLoopEnabled = true;
+        window.__botStartedAt = Date.now();
         localStorage.setItem('pelican_bot_running', 'true');
         localStorage.setItem('pelican_auto_loop', 'true');
 
@@ -5180,6 +5215,10 @@
         window.__isShopping = false;
         window.__isRecovering = false;
         window.__isWalkingToMap = false;
+        window.__isHumanizing = false;
+        window.__unexpectedTownWaiting = false;
+        window.__unexpectedTownWaitUntil = 0;
+        window.__unexpectedTownTicks = 0;
 
         // 5. ปิดเมนูและหน้าต่างที่อาจค้างอยู่
         if (typeof closeAnyOpenMenus === 'function') {
@@ -5900,6 +5939,8 @@
     const isCityMapName = m => /เมืองหลวง|โซลเฮเวน/.test(String(m || ''));
     window.isInCapital = () => isCityMapName(typeof getCurrentMapName === 'function' ? getCurrentMapName() : '');
     window.goToCapital = function (why = '', opts = {}) {
+        window.__lastIntentionalWarpAt = Date.now();
+        window.__lastTownTripAt = Date.now();
         if (window.isInCapital()) { window.__goHomeWingFails = 0; return 'here'; }
         const now = Date.now();
         if (window.__isNavigating && isCityMapName(window.__targetFarmMap)) return 'walking';
@@ -5987,6 +6028,7 @@
     };
 
     window.useButterflyWing = function() {
+        window.__lastBwingUsedAt = Date.now();
         console.log('%c[PmheeAether] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
         // 1. ค้นหาช่อง Butterfly Wing ในข้อมูล Packet เซิร์ฟเวอร์
@@ -7161,20 +7203,39 @@
     const STORE_STATE_KEY = 'pelican_storage_state';
     const storeState = () => { try { return JSON.parse(localStorage.getItem(STORE_STATE_KEY) || '{}') || {}; } catch (e) { return {}; } };
     const saveStoreState = st => { try { localStorage.setItem(STORE_STATE_KEY, JSON.stringify(st)); } catch (e) {} };
-    function storeEligible(it, cfg, refused) {
-        const cat = storeCategoryOf(it);
-        if (!cat || cfg[STORE_CAT_KEY[cat]] === false) return false;
+    function isItemOnMarketSellList(it) {
+        if (!it) return false;
+        const rules = (window.__autoMarketSellConfig && Array.isArray(window.__autoMarketSellConfig.rules)) ? window.__autoMarketSellConfig.rules : [];
+        const name = String(it.name || '').trim().toLowerCase();
+        const id = Number(it.itemId || it.id);
+        return rules.some(r => {
+            if (!r || !r.enabled) return false;
+            if (r.itemId && Number(r.itemId) === id) return true;
+            if (r.itemName && String(r.itemName).trim().toLowerCase() === name) return true;
+            return false;
+        });
+    }
+
+    function storeEligible(it, cfg, refused, opts = {}) {
+        if (isItemOnMarketSellList(it)) return false;
         if (it.locked && cfg.storeSkipLocked !== false) return false;
-        if (window.isSellWhitelisted(it.name)) return false;
         if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
         if (planStillNeeds(it)) return false;
         if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
+
+        // ไอเทมใน Whitelist: ฝากเข้าคลังได้ (เฉพาะที่ไม่ได้ตั้งขายตลาดกลาง)
+        if (window.isSellWhitelisted(it.name)) {
+            return (cfg.storeWhitelist !== false || (opts && opts.storeWhitelist));
+        }
+
+        const cat = storeCategoryOf(it);
+        if (!cat || cfg[STORE_CAT_KEY[cat]] === false) return false;
         return true;
     }
-    window.getStorageDepositList = function (cfg = window.__sellConfig || {}) {
+    window.getStorageDepositList = function (cfg = window.__sellConfig || {}, opts = {}) {
         const bag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
         const refused = storeState().refused || {};
-        return bag.filter(it => storeEligible(it, cfg, refused));
+        return bag.filter(it => storeEligible(it, cfg, refused, opts));
     };
     // Open the storage: the NPC that worked last time first, then Alice Service / anything storage-like, then the
     // other town NPCs; the dialog option with "คลัง" (never a guild storage) — remembered for next time
@@ -7226,14 +7287,14 @@
     };
     window.runAutoStorageDeposit = async function (opts = {}) {
         const cfg = window.__sellConfig || {};
-        if (!cfg.storeEnabled && !opts.manual) return { skipped: 'off' };
+        if (!cfg.storeEnabled && !opts.manual && !opts.humanize) return { skipped: 'off' };
         if (window.__consolidationPending && !opts.manual) return { skipped: 'consolidation' };
         if (window.__isStoring) return { skipped: 'busy' };
         if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
             if (opts.manual) console.warn('[PmheeAether Storage] ⚠️ ต้องอยู่ในเมืองหลวงก่อนถึงจะฝากของเข้าคลังได้');
             return { skipped: 'not-in-capital' };
         }
-        const list = window.getStorageDepositList(cfg);
+        const list = window.getStorageDepositList(cfg, opts);
         if (!list.length) { if (opts.manual) console.log('[PmheeAether Storage] ℹ️ ไม่มีของที่ต้องฝากเข้าคลัง'); return { done: 0 }; }
         const state = storeState();
         if (!opts.manual) {
@@ -7276,7 +7337,7 @@
                 const cur = bagAt(it.slot);
                 // the slot changed (bag sorted...): never deposit something else — same item, still allowed to go
                 if (!cur || Number(cur.itemId) !== Number(it.itemId) || JSON.stringify(cur.affixes || []) !== JSON.stringify(it.affixes || [])
-                    || (Number(cur.refine) || 0) !== (Number(it.refine) || 0) || !storeEligible(cur, cfg, null)) continue;
+                    || (Number(cur.refine) || 0) !== (Number(it.refine) || 0) || !storeEligible(cur, cfg, null, opts)) continue;
                 room.send('storage_put', { slot: Number(it.slot), qty: Math.max(1, Number(cur.qty) || 1) });
                 let moved = false;
                 for (let i = 0; i < 10 && !moved; i++) { await sleep(200); const now = bagAt(it.slot); moved = !now || Number(now.itemId) !== Number(it.itemId); }
@@ -7428,6 +7489,7 @@
     }, 30000);
 
     window.executeAutoShopRoutine = function() {
+        window.__lastTownTripAt = Date.now();
         if (window.__consolidationPending) return;   // money consolidation is about to start
         if (window.__isGearRefining) {
             console.warn('[PmheeAether Shop] ⏳ กำลังตีบวกตามเซ็ตอุปกรณ์อยู่ — เลื่อนการซื้อขายไปก่อน');
@@ -7556,7 +7618,14 @@
                                             if (!window.__isBotRunning) return;
                                             if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                             window.__isShopping = false;
-                                            window.walkToTargetMap(currentFarmMap);
+                                            if (typeof window.maybeRunHumanizeRoutine === 'function') {
+                                                window.maybeRunHumanizeRoutine(() => {
+                                                    if (!window.__isBotRunning) return;
+                                                    window.walkToTargetMap(currentFarmMap);
+                                                });
+                                            } else {
+                                                window.walkToTargetMap(currentFarmMap);
+                                            }
                                         }, 600);
                                     });
                                 } else {
@@ -7566,7 +7635,14 @@
                                         if (!window.__isBotRunning) return;
                                         if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                         window.__isShopping = false;
-                                        window.walkToTargetMap(currentFarmMap);
+                                        if (typeof window.maybeRunHumanizeRoutine === 'function') {
+                                            window.maybeRunHumanizeRoutine(() => {
+                                                if (!window.__isBotRunning) return;
+                                                window.walkToTargetMap(currentFarmMap);
+                                            });
+                                        } else {
+                                            window.walkToTargetMap(currentFarmMap);
+                                        }
                                     }, 800);
                                 }
                             });
@@ -7667,6 +7743,224 @@
             console.log(`%c[PmheeAether Shop] 🏛️ ตัวละครอยู่ที่เมืองหลวงอยู่แล้ว (${getCurrentMapName()}) -> เริ่มต้นเดินหา NPC ได้ทันที`, 'color: #22c55e;');
             startCityWalk();
         }
+    };
+
+    // ==========================================
+    // 3.6 HUMANIZE RANDOM TASKS ENGINE
+    // ==========================================
+    window.__isHumanizing = false;
+    window.__isManualTestingHumanize = false;
+
+    async function humanizeBlacksmithTask() {
+        console.log('%c[PmheeAether Humanize] 🔨 กิจกรรม: คุยกับ Blacksmith ซื้อหินมาขาย...', 'color: #38bdf8; font-weight: bold;');
+        const live = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const zeny = Number(live.zeny) || window.__currentZeny || 0;
+        if (zeny < 5000) {
+            console.log('[PmheeAether Humanize] 💰 เงินคงเหลือน้อยกว่า 5,000 z -> ข้ามกิจกรรม Blacksmith');
+            return;
+        }
+
+        const room = typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null;
+        let smithKey = 'n7';
+        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((n, k) => {
+                if (n && n.name && (n.name.includes('Blacksmith') || n.name.includes('Enok') || n.name.includes('ช่างตีเหล็ก'))) {
+                    smithKey = k;
+                }
+            });
+        }
+
+        window.sendRemoteNpcTalk(smithKey);
+        await new Promise(r => setTimeout(r, 1100 + Math.floor(Math.random() * 400)));
+
+        const dlg = document.querySelector('.npc-dialog');
+        if (dlg && !document.querySelector('.shop-window')) {
+            const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
+            const idx = opts.findIndex(o => /ซื้อ/.test(o) && !/แร่|ตีบวก/.test(o));
+            if (idx >= 0) {
+                window.sendRemoteNpcOption(idx);
+                await new Promise(r => setTimeout(r, 800));
+            }
+        }
+
+        const qty = Math.floor(Math.random() * 2) + 2;
+        if (room) {
+            room.send('shop_buy_many', { lines: [{ itemId: 90201, qty }] });
+            console.log(`[PmheeAether Humanize] 🛒 ซื้อ Phracon x${qty} จาก Blacksmith...`);
+        }
+
+        await new Promise(r => setTimeout(r, 1600 + Math.floor(Math.random() * 800)));
+
+        try {
+            const shopModal = document.querySelector('.shop-window') || document.body;
+            const rows = Array.from(shopModal.querySelectorAll('.shop-row'));
+            const phraconRow = rows.find(r => {
+                const txt = (r.innerText || '').toLowerCase();
+                return txt.includes('phracon') || txt.includes('ฟราคอน');
+            });
+            if (phraconRow) {
+                const addBtn = phraconRow.querySelector('button.cart-all') || phraconRow.querySelector('button.cart-add');
+                if (addBtn && !addBtn.disabled) {
+                    addBtn.click();
+                    await new Promise(r => setTimeout(r, 350));
+                    const confirmBtn = document.querySelector('button.cart-go');
+                    if (confirmBtn && !confirmBtn.disabled) {
+                        confirmBtn.click();
+                        await new Promise(r => setTimeout(r, 450));
+                        const finalBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim().includes('ยืนยันขาย'));
+                        if (finalBtn) finalBtn.click();
+                        console.log('[PmheeAether Humanize] 💵 ขาย Phracon คืนให้ NPC สำเร็จ');
+                    }
+                }
+            }
+        } catch (e) {}
+
+        await new Promise(r => setTimeout(r, 600));
+        if (typeof window.closeShopUI === 'function') window.closeShopUI();
+        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        const closeX = document.querySelector('.shop-window .win-close, .npc-dialog .win-close');
+        if (closeX) closeX.click();
+    }
+
+    async function humanizeSundriesTask() {
+        console.log('%c[PmheeAether Humanize] 🏪 กิจกรรม: คุยกับร้านพ่อค้าซื้อยา/บีวิงมาขาย...', 'color: #38bdf8; font-weight: bold;');
+        const live = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const zeny = Number(live.zeny) || window.__currentZeny || 0;
+        if (zeny < 5000) {
+            console.log('[PmheeAether Humanize] 💰 เงินคงเหลือน้อยกว่า 5,000 z -> ข้ามกิจกรรมร้านของชำ');
+            return;
+        }
+
+        const room = typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null;
+        const targetNpc = (window.__shopConfig && window.__shopConfig.npcKey) ? window.__shopConfig.npcKey : 'n2';
+
+        window.sendRemoteNpcTalk(targetNpc);
+        await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() * 400)));
+
+        const dlg = document.querySelector('.npc-dialog');
+        if (dlg && !document.querySelector('.shop-window')) {
+            window.sendRemoteNpcOption(0);
+            await new Promise(r => setTimeout(r, 800));
+        }
+
+        const isBwing = Math.random() < 0.5;
+        const itemToBuy = isBwing ? { id: 90311, name: 'Butterfly Wing', qty: 1 } : { id: 90301, name: 'Red Potion', qty: Math.floor(Math.random() * 2) + 1 };
+
+        if (room) {
+            room.send('shop_buy_many', { lines: [{ itemId: itemToBuy.id, qty: itemToBuy.qty }] });
+            console.log(`[PmheeAether Humanize] 🛒 ซื้อ ${itemToBuy.name} x${itemToBuy.qty} จากร้านของชำ...`);
+        }
+
+        await new Promise(r => setTimeout(r, 1500 + Math.floor(Math.random() * 800)));
+
+        try {
+            const shopModal = document.querySelector('.shop-window') || document.body;
+            const rows = Array.from(shopModal.querySelectorAll('.shop-row'));
+            const targetRow = rows.find(r => {
+                const txt = (r.innerText || '').toLowerCase();
+                return isBwing ? (txt.includes('butterfly') || txt.includes('วิง')) : (txt.includes('red potion') || txt.includes('เรด'));
+            });
+            if (targetRow) {
+                const addBtn = targetRow.querySelector('button.cart-all') || targetRow.querySelector('button.cart-add');
+                if (addBtn && !addBtn.disabled) {
+                    addBtn.click();
+                    await new Promise(r => setTimeout(r, 350));
+                    const confirmBtn = document.querySelector('button.cart-go');
+                    if (confirmBtn && !confirmBtn.disabled) {
+                        confirmBtn.click();
+                        await new Promise(r => setTimeout(r, 450));
+                        const finalBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim().includes('ยืนยันขาย'));
+                        if (finalBtn) finalBtn.click();
+                        console.log(`[PmheeAether Humanize] 💵 ขาย ${itemToBuy.name} คืนให้ร้านเรียบร้อย`);
+                    }
+                }
+            }
+        } catch (e) {}
+
+        await new Promise(r => setTimeout(r, 600));
+        if (typeof window.closeShopUI === 'function') window.closeShopUI();
+        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        const closeX = document.querySelector('.shop-window .win-close, .npc-dialog .win-close');
+        if (closeX) closeX.click();
+    }
+
+    async function humanizeWalkTask() {
+        console.log('%c[PmheeAether Humanize] 🚶 กิจกรรม: เดินสำรวจลานเมือง...', 'color: #38bdf8;');
+        const room = typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null;
+        if (!room) return;
+        const cur = window.__currentPos || { x: 1664, y: 960 };
+        const dx = (Math.random() < 0.5 ? -1 : 1) * (20 + Math.floor(Math.random() * 30));
+        const dy = (Math.random() < 0.5 ? -1 : 1) * (20 + Math.floor(Math.random() * 30));
+        room.send('move_to', { x: cur.x + dx, y: cur.y + dy });
+        await new Promise(r => setTimeout(r, 1800 + Math.floor(Math.random() * 600)));
+    }
+
+    async function humanizeStorageTask() {
+        console.log('%c[PmheeAether Humanize] 📦 กิจกรรม: ตรวจสอบและฝากของ Whitelist เข้าคลัง...', 'color: #38bdf8;');
+        if (typeof window.runAutoStorageDeposit === 'function') {
+            await window.runAutoStorageDeposit({ humanize: true, storeWhitelist: true });
+        }
+    }
+
+    window.runHumanizeRoutine = async function(onDone) {
+        if (!window.__isBotRunning && !window.__isManualTestingHumanize) {
+            if (onDone) onDone();
+            return;
+        }
+        if (window.__isHumanizing) {
+            if (onDone) onDone();
+            return;
+        }
+
+        window.__isHumanizing = true;
+        console.log('%c[PmheeAether Humanize] 🎭 เริ่มต้นพฤติกรรมเสมือนคน (Humanize Routine)...', 'color: #38bdf8; font-weight: bold;');
+
+        const cfg = window.__humanizeConfig || { enabled: true, buyBlacksmith: true, buySundries: true, randomWalk: true, storeDeposit: true };
+        const taskPool = [];
+        if (cfg.buyBlacksmith !== false) taskPool.push('blacksmith');
+        if (cfg.buySundries !== false) taskPool.push('sundries');
+        if (cfg.randomWalk !== false) taskPool.push('walk');
+        if (cfg.storeDeposit !== false) taskPool.push('storage');
+
+        const shuffled = taskPool.sort(() => Math.random() - 0.5);
+        const count = Math.min(shuffled.length, Math.floor(Math.random() * 2) + 1);
+        const selected = shuffled.slice(0, count);
+
+        console.log(`[PmheeAether Humanize] 🎲 สุ่มทำ ${selected.length} กิจกรรมในรอบนี้: [${selected.join(', ')}]`);
+
+        try {
+            for (const t of selected) {
+                if (!window.__isBotRunning && !window.__isManualTestingHumanize) break;
+                if (t === 'blacksmith') await humanizeBlacksmithTask();
+                else if (t === 'sundries') await humanizeSundriesTask();
+                else if (t === 'walk') await humanizeWalkTask();
+                else if (t === 'storage') await humanizeStorageTask();
+
+                await new Promise(r => setTimeout(r, 800 + Math.floor(Math.random() * 1000)));
+            }
+        } catch (e) {
+            console.warn('[PmheeAether Humanize] ⚠️ ขัดข้องระหว่างทำกิจกรรม:', e.message);
+        } finally {
+            window.__isHumanizing = false;
+            window.__isManualTestingHumanize = false;
+            console.log('%c[PmheeAether Humanize] ✅ กิจกรรมเสมือนคนในรอบนี้เสร็จสมบูรณ์', 'color: #22c55e; font-weight: bold;');
+            if (typeof onDone === 'function') onDone();
+        }
+    };
+
+    window.maybeRunHumanizeRoutine = function(onDone) {
+        const cfg = window.__humanizeConfig || { enabled: true, chance: 70 };
+        if (cfg.enabled === false) {
+            if (onDone) onDone();
+            return;
+        }
+        const roll = Math.random() * 100;
+        if (roll > (cfg.chance || 70)) {
+            console.log(`[PmheeAether Humanize] 🎲 ข้ามกิจกรรม Humanize ในรอบนี้ (Roll: ${Math.round(roll)} > ${cfg.chance || 70}%) -> เดินทางกลับไปฟาร์ม`);
+            if (onDone) onDone();
+            return;
+        }
+        window.runHumanizeRoutine(onDone);
     };
 
     // ==========================================
@@ -7797,7 +8091,25 @@
     } catch (e) {}
     window.__safeMap = null;
 
+    window.skipUnexpectedTownWait = function() {
+        if (!window.__unexpectedTownWaiting) return;
+        window.__unexpectedTownWaiting = false;
+        window.__unexpectedTownWaitUntil = 0;
+        window.__unexpectedTownTicks = 0;
+        const unexpBox = document.getElementById('p-unexpected-town-box');
+        if (unexpBox) unexpBox.style.display = 'none';
+        console.log('%c[PmheeAether Watchdog] ⏩ ผู้ใช้กดข้ามเวลารอนิรภัย -> เตรียมตัวเดินทางกลับไปฟาร์ม', 'color: #22c55e; font-weight: bold;');
+        const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+        if (typeof window.walkToTargetMap === 'function') {
+            window.walkToTargetMap(targetMap, true, { skipWait: true });
+        }
+    };
+
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false, opts = {}) {
+        if (window.__unexpectedTownWaiting && !(opts && opts.skipWait)) {
+            console.log('%c[PmheeAether] 🛑 อยู่ระหว่างการพักรอนิรภัยหลังกลับเมืองผิดปกติ ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
+            return;
+        }
         if (window.__isConsolidating && !(opts && opts.allowDuringConsolidation)) {
             console.log('%c[PmheeAether] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
             return;
@@ -8214,6 +8526,11 @@
         // 5. ตรวจสอบสถานะปุ่ม AUTO ในเกม (In-Game AUTO State Monitor)
         // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
         if (!inCity) {
+            const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+            if (curMap && !/เมืองหลวง|โซลเฮเวน/.test(curMap)) {
+                window.__lastKnownNonCityMap = curMap;
+            }
+            window.__unexpectedTownTicks = 0;
             const autoStatus = getInGameAutoStatus();
             if (autoStatus === 'on') {
                 // AUTO กำลังทำงานปกติ รีเซ็ตตัวนับความล้มเหลว
@@ -8240,6 +8557,33 @@
             }
         }
 
+        // 5.5 ระบบพักรอนิรภัย (Unexpected Town Return Cooldown Watcher)
+        const unexpBox = document.getElementById('p-unexpected-town-box');
+        const unexpCd = document.getElementById('p-unexpected-countdown');
+        if (window.__unexpectedTownWaiting) {
+            const remSec = Math.max(0, Math.ceil(((window.__unexpectedTownWaitUntil || 0) - Date.now()) / 1000));
+            if (unexpBox) unexpBox.style.display = 'block';
+            if (unexpCd) unexpCd.innerText = `${Math.floor(remSec / 60)}:${String(remSec % 60).padStart(2, '0')}`;
+
+            if (Date.now() >= (window.__unexpectedTownWaitUntil || 0)) {
+                window.__unexpectedTownWaiting = false;
+                window.__unexpectedTownWaitUntil = 0;
+                window.__unexpectedTownTicks = 0;
+                if (unexpBox) unexpBox.style.display = 'none';
+                console.log('%c[PmheeAether Watchdog] ⏰ สิ้นสุดระยะเวลาพักรอนิรภัยหลังกลับเมืองผิดปกติ -> บอทเตรียมตัวเดินทางกลับไปฟาร์ม', 'color: #22c55e; font-weight: bold;');
+                const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+                window.walkToTargetMap(targetMap, true, { skipWait: true });
+                return;
+            } else {
+                if (getInGameAutoStatus() === 'on') {
+                    window.deactivateInGameAuto();
+                }
+                return;
+            }
+        } else {
+            if (unexpBox && unexpBox.style.display !== 'none') unexpBox.style.display = 'none';
+        }
+
         // 5.9 Town stay of a plan system that is gone (plan switched off / changed, need expired): the farm map
         //     the trip remembered comes back once no system needs town any more
         //     (or any capital target nobody needs: after 20 s in town with nothing to do there)
@@ -8252,18 +8596,67 @@
             }
         }
 
-        // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
-        // เมื่อบอท START อยู่ แต่ตัวละครยืนค้างอยู่ในเมืองหลวง และไม่ได้อยู่ในลูปซื้อของ/เดินทาง/ฟื้นฟู
-        if (inCity && !window.__isShopping && !window.__isStoring && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating && !((window.__planJobChangeHoldUntil || 0) > Date.now())) {
+        // 6. ตรวจสอบสถานะในเมืองหลวง & ตรวจจับกลับเมืองโดยไม่ทราบสาเหตุ
+        if (inCity) {
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
-            if (!isTargetCity) {
-                const now = Date.now();
-                if (now - lastCityToFarmAttempt > 4000) {
-                    lastCityToFarmAttempt = now;
-                    console.log(`%c[PmheeAether Watchdog] 🏛️ ตัวละครตกค้างอยู่ในเมืองหลวง ("${getCurrentMapName()}") ขณะบอท START -> สั่งเดินทางไปยังแมพเป้าหมาย: "${targetMap}" ผ่าน NPC Alice ทันที!`, 'color: #38bdf8; font-weight: bold;');
-                    window.walkToTargetMap(targetMap, true);
+
+            const legitimateTownStay = 
+                isTargetCity ||
+                window.__isShopping ||
+                window.__isStoring ||
+                window.__isNavigating ||
+                window.__isWalkingToMap ||
+                window.__isRecovering ||
+                window.__isConsolidating ||
+                window.__isGearRefining ||
+                window.__isChangingJob ||
+                window.__isHumanizing ||
+                (window.__aliceWarpInterval != null) ||
+                ((window.__planJobChangeHoldUntil || 0) > Date.now()) ||
+                (Date.now() - (window.__lastRespawnAt || 0) < 60000) ||
+                (Date.now() - (window.__lastBwingUsedAt || 0) < 60000) ||
+                (Date.now() - (window.__goHomeWingAt || 0) < 60000) ||
+                (Date.now() - (window.__lastIntentionalWarpAt || 0) < 60000) ||
+                (Date.now() - (window.__lastTownTripAt || 0) < 60000) ||
+                (Date.now() - (lastAutoShopCompletionTime || 0) < 45000) ||
+                (Date.now() - (window.__botStartedAt || 0) < 15000) ||
+                !window.__lastKnownNonCityMap;
+
+            // 6.1 ตรวจจับกรณีกลับเมืองโดยไม่ทราบสาเหตุ (Unexpected Town Return)
+            if (!legitimateTownStay && window.__unexpectedTownGuardEnabled !== false) {
+                window.__unexpectedTownTicks = (window.__unexpectedTownTicks || 0) + 1;
+                if (window.__unexpectedTownTicks >= 8) {
+                    const waitMins = Math.floor(Math.random() * 11) + 5; // สุ่ม 5 ถึง 15 นาที
+                    const waitSecs = Math.floor(Math.random() * 60);
+                    const totalMs = (waitMins * 60 + waitSecs) * 1000;
+                    window.__unexpectedTownWaiting = true;
+                    window.__unexpectedTownMins = waitMins;
+                    window.__unexpectedTownWaitUntil = Date.now() + totalMs;
+                    window.__unexpectedTownReason = `ตรวจพบตัวละครกลับเมืองโดยไม่ทราบสาเหตุจาก "${window.__lastKnownNonCityMap}" (ตัวละครไม่ตาย, ไม่ได้กดบีวิง)`;
+                    window.__unexpectedTownTicks = 0;
+
+                    console.error(`%c[PmheeAether Watchdog] 🚨 ${window.__unexpectedTownReason}! สุ่มพักรอนิรภัย ${waitMins} นาที ${waitSecs} วินาที เพื่อความปลอดภัย...`, 'color: #ef4444; font-weight: bold; font-size: 13px;');
+                    window.deactivateInGameAuto();
+                    if (unexpBox) unexpBox.style.display = 'block';
+                    if (unexpCd) unexpCd.innerText = `${waitMins}:${String(waitSecs).padStart(2, '0')}`;
                     return;
+                }
+                return;
+            } else {
+                window.__unexpectedTownTicks = 0;
+            }
+
+            // 6.2 ตัวละครตกค้างอยู่ในเมืองหลวงตามปกติ (City-to-Farm Auto-Dispatch)
+            if (!window.__isShopping && !window.__isStoring && !window.__isNavigating && !window.__isRecovering && !window.__isConsolidating && !window.__isHumanizing && !((window.__planJobChangeHoldUntil || 0) > Date.now())) {
+                if (!isTargetCity) {
+                    const now = Date.now();
+                    if (now - lastCityToFarmAttempt > 4000) {
+                        lastCityToFarmAttempt = now;
+                        console.log(`%c[PmheeAether Watchdog] 🏛️ ตัวละครตกค้างอยู่ในเมืองหลวง ("${getCurrentMapName()}") ขณะบอท START -> สั่งเดินทางไปยังแมพเป้าหมาย: "${targetMap}" ผ่าน NPC Alice ทันที!`, 'color: #38bdf8; font-weight: bold;');
+                        window.walkToTargetMap(targetMap, true);
+                        return;
+                    }
                 }
             }
         }
@@ -8779,6 +9172,13 @@
             } else if (!window.__isBotRunning) {
                 stateEl.innerText = '⏸️ หยุดทำงาน';
                 stateEl.style.color = '#94a3b8';
+            } else if (window.__unexpectedTownWaiting) {
+                const remSec = Math.max(0, Math.ceil(((window.__unexpectedTownWaitUntil || 0) - Date.now()) / 1000));
+                stateEl.innerText = `🛡️ พักรอนิรภัย (${Math.floor(remSec / 60)}:${String(remSec % 60).padStart(2, '0')})`;
+                stateEl.style.color = '#f59e0b';
+            } else if (window.__isHumanizing) {
+                stateEl.innerText = '🎭 กิจกรรมเสมือนคน';
+                stateEl.style.color = '#38bdf8';
             } else if (window.__isShopping) {
                 stateEl.innerText = '🛒 กำลังซื้อขาย';
                 stateEl.style.color = '#f59e0b';
@@ -10580,6 +10980,8 @@
             marketFilterConfig: Object.assign({}, window.__marketFilterConfig || {}),
             buffPotionConfig: Object.assign({}, window.__buffPotionConfig || {}),
             travelConfig: Object.assign({}, window.__travelConfig || {}),
+            unexpectedTownGuard: window.__unexpectedTownGuardEnabled !== false,
+            humanizeConfig: Object.assign({}, window.__humanizeConfig || {}),
             authConfig: {
                 enabled: !!window.__authConfig?.enabled,
                 autoResumeBot: window.__authConfig?.autoResumeBot !== false
@@ -10683,6 +11085,23 @@
         const amsToggle = document.getElementById('p-autosell-toggle');
         if (amsToggle) amsToggle.checked = !!(window.__autoMarketSellConfig && window.__autoMarketSellConfig.enabled);
 
+        // 5.7 Unexpected Town Guard & Humanize
+        const utgCb = document.getElementById('p-unexpected-town-guard');
+        if (utgCb) utgCb.checked = window.__unexpectedTownGuardEnabled !== false;
+        const hm = window.__humanizeConfig || {};
+        const hmEn = document.getElementById('p-humanize-enabled');
+        if (hmEn) hmEn.checked = hm.enabled !== false;
+        const hmCh = document.getElementById('p-humanize-chance');
+        if (hmCh) hmCh.value = hm.chance !== undefined ? hm.chance : 70;
+        const hmBs = document.getElementById('p-humanize-blacksmith');
+        if (hmBs) hmBs.checked = hm.buyBlacksmith !== false;
+        const hmSd = document.getElementById('p-humanize-sundries');
+        if (hmSd) hmSd.checked = hm.buySundries !== false;
+        const hmWk = document.getElementById('p-humanize-walk');
+        if (hmWk) hmWk.checked = hm.randomWalk !== false;
+        const hmSt = document.getElementById('p-humanize-storage');
+        if (hmSt) hmSt.checked = hm.storeDeposit !== false;
+
         // 6. Market Rules HTML
         if (typeof window.renderAutoSellHudRulesHtml === 'function') {
             const hudContainer = document.getElementById('p-autosell-hud-rules-container');
@@ -10764,6 +11183,16 @@
             if (data.buffPotionConfig && typeof data.buffPotionConfig === 'object') {
                 window.__buffPotionConfig = Object.assign({}, window.__buffPotionConfig || {}, data.buffPotionConfig);
                 localStorage.setItem('pelican_buff_potion_config', JSON.stringify(window.__buffPotionConfig));
+            }
+
+            // 7.6 Unexpected Town Guard & Humanize Config
+            if (typeof data.unexpectedTownGuard === 'boolean') {
+                window.__unexpectedTownGuardEnabled = data.unexpectedTownGuard;
+                localStorage.setItem('pelican_unexpected_town_guard', String(data.unexpectedTownGuard));
+            }
+            if (data.humanizeConfig && typeof data.humanizeConfig === 'object') {
+                window.__humanizeConfig = Object.assign({}, window.__humanizeConfig || {}, data.humanizeConfig);
+                localStorage.setItem('pelican_humanize_config', JSON.stringify(window.__humanizeConfig));
             }
 
             // 8. Refresh HUD inputs to reflect imported values
@@ -11244,6 +11673,52 @@
                             <span style="font-size: 10px; color: #e2e8f0;">z ไม่วาร์ป เดินแทน</span>
                         </div>
                         <div class="p-hint" style="font-size: 9px; color: #94a3b8;">0 = วาร์ปตามปกติ · ถ้าเดินไปจากจุดนั้นไม่ได้ จะยังวาร์ปให้</div>
+                    </div>
+
+                    <!-- CARD: SECURITY & HUMANIZE -->
+                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.65);">
+                        <div class="p-card-title" style="color: #38bdf8;">🛡️ ความปลอดภัย & พฤติกรรมเสมือนคน (Humanize)</div>
+                        <label class="p-check-box">
+                            <input type="checkbox" id="p-unexpected-town-guard" ${window.__unexpectedTownGuardEnabled !== false ? 'checked' : ''}>
+                            <span class="p-check-text"><b style="color: #38bdf8;">ตรวจจับกลับเมืองผิดปกติ</b><small>ไม่ตาย ไม่กดวิง แต่ตกค้างในเมือง → สุ่มพักรอ 5-15 นาที</small></span>
+                        </label>
+                        <div id="p-unexpected-town-box" style="display: ${window.__unexpectedTownWaiting ? 'block' : 'none'}; margin-top: 6px; padding: 6px 8px; background: rgba(239, 68, 68, 0.15); border: 1px dashed #ef4444; border-radius: 6px;">
+                            <div style="font-size: 11px; color: #fca5a5; display: flex; justify-content: space-between; align-items: center;">
+                                <span>⏳ พักรอนิรภัย: <b id="p-unexpected-countdown" style="color: #fef08a;">--:--</b></span>
+                                <button id="p-btn-skip-unexpected-wait" style="background: #ef4444; color: #fff; border: none; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer; padding: 2px 7px;">⏩ ข้ามเวลารอ</button>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                            <label class="p-check-box">
+                                <input type="checkbox" id="p-humanize-enabled" ${window.__humanizeConfig?.enabled !== false ? 'checked' : ''}>
+                                <span class="p-check-text"><b style="color: #a78bfa;">🎭 จำลองพฤติกรรมคน (Humanize)</b><small>สุ่มทำกิจกรรมตอนกลับเมือง ก่อนกลับไปฟาร์ม</small></span>
+                            </label>
+                            <div class="p-row" style="margin-top: 5px; gap: 6px;">
+                                <span style="font-size: 10px; color: #cbd5e1;">🎲 โอกาสทำ:</span>
+                                <input type="number" id="p-humanize-chance" min="10" max="100" step="5" value="${window.__humanizeConfig?.chance || 70}" class="p-input" style="width: 55px; text-align: center;">
+                                <span style="font-size: 10px; color: #cbd5e1;">%</span>
+                                <button id="p-btn-test-humanize" style="margin-left: auto; background: #6366f1; color: #fff; border: none; border-radius: 4px; font-size: 9px; cursor: pointer; padding: 2px 6px;">🧪 ทดสอบ</button>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 6px;">
+                                <label class="p-check-box" style="margin: 0; font-size: 9.5px;">
+                                    <input type="checkbox" id="p-humanize-blacksmith" ${window.__humanizeConfig?.buyBlacksmith !== false ? 'checked' : ''}>
+                                    <span>⚒️ ซื้อหินแล้วขาย</span>
+                                </label>
+                                <label class="p-check-box" style="margin: 0; font-size: 9.5px;">
+                                    <input type="checkbox" id="p-humanize-sundries" ${window.__humanizeConfig?.buySundries !== false ? 'checked' : ''}>
+                                    <span>🧪 ซื้อยาแล้วขาย</span>
+                                </label>
+                                <label class="p-check-box" style="margin: 0; font-size: 9.5px;">
+                                    <input type="checkbox" id="p-humanize-walk" ${window.__humanizeConfig?.randomWalk !== false ? 'checked' : ''}>
+                                    <span>🚶 เดินสำรวจลาน</span>
+                                </label>
+                                <label class="p-check-box" style="margin: 0; font-size: 9.5px;">
+                                    <input type="checkbox" id="p-humanize-storage" ${window.__humanizeConfig?.storeDeposit !== false ? 'checked' : ''}>
+                                    <span>📦 เก็บ Whitelist</span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -11959,6 +12434,8 @@
             selectEl.onchange = (e) => {
                 window.__targetFarmMap = e.target.value;
                 localStorage.setItem('pelican_farm_map', window.__targetFarmMap);
+                if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(e.target.value);
+                if (window.__planScriptEnabled && typeof window.setPlanManualMap === 'function') window.setPlanManualMap(e.target.value);
             };
         }
 
@@ -11966,6 +12443,86 @@
             window.__autoLoopEnabled = e.target.checked;
             localStorage.setItem('pelican_auto_loop', window.__autoLoopEnabled);
         };
+
+        const utgCb = document.getElementById('p-unexpected-town-guard');
+        if (utgCb) {
+            utgCb.onchange = (e) => {
+                window.__unexpectedTownGuardEnabled = e.target.checked;
+                localStorage.setItem('pelican_unexpected_town_guard', String(e.target.checked));
+                console.log(`%c[PmheeAether Watchdog] 🛡️ ตรวจจับกลับเมืองผิดปกติ: ${e.target.checked ? 'เปิด' : 'ปิด'}`, 'color: #38bdf8;');
+            };
+        }
+
+        const skipBtn = document.getElementById('p-btn-skip-unexpected-wait');
+        if (skipBtn) {
+            skipBtn.onclick = () => {
+                if (typeof window.skipUnexpectedTownWait === 'function') {
+                    window.skipUnexpectedTownWait();
+                }
+            };
+        }
+
+        const humanizeCb = document.getElementById('p-humanize-enabled');
+        if (humanizeCb) {
+            humanizeCb.onchange = (e) => {
+                window.__humanizeConfig.enabled = e.target.checked;
+                saveHumanizeConfig();
+                console.log(`%c[PmheeAether Humanize] 🎭 จำลองพฤติกรรมคน: ${e.target.checked ? 'เปิด' : 'ปิด'}`, 'color: #a78bfa;');
+            };
+        }
+
+        const humanizeChance = document.getElementById('p-humanize-chance');
+        if (humanizeChance) {
+            humanizeChance.onchange = (e) => {
+                window.__humanizeConfig.chance = Math.max(10, Math.min(100, parseInt(e.target.value, 10) || 70));
+                e.target.value = window.__humanizeConfig.chance;
+                saveHumanizeConfig();
+            };
+        }
+
+        const humanizeBs = document.getElementById('p-humanize-blacksmith');
+        if (humanizeBs) {
+            humanizeBs.onchange = (e) => {
+                window.__humanizeConfig.buyBlacksmith = e.target.checked;
+                saveHumanizeConfig();
+            };
+        }
+
+        const humanizeSd = document.getElementById('p-humanize-sundries');
+        if (humanizeSd) {
+            humanizeSd.onchange = (e) => {
+                window.__humanizeConfig.buySundries = e.target.checked;
+                saveHumanizeConfig();
+            };
+        }
+
+        const humanizeWk = document.getElementById('p-humanize-walk');
+        if (humanizeWk) {
+            humanizeWk.onchange = (e) => {
+                window.__humanizeConfig.randomWalk = e.target.checked;
+                saveHumanizeConfig();
+            };
+        }
+
+        const humanizeSt = document.getElementById('p-humanize-storage');
+        if (humanizeSt) {
+            humanizeSt.onchange = (e) => {
+                window.__humanizeConfig.storeDeposit = e.target.checked;
+                saveHumanizeConfig();
+            };
+        }
+
+        const testHumanizeBtn = document.getElementById('p-btn-test-humanize');
+        if (testHumanizeBtn) {
+            testHumanizeBtn.onclick = () => {
+                window.__isManualTestingHumanize = true;
+                if (typeof window.runHumanizeRoutine === 'function') {
+                    window.runHumanizeRoutine(() => {
+                        console.log('%c[PmheeAether Humanize] 🧪 ทดสอบ Humanize Routine สำเร็จ', 'color: #10b981;');
+                    });
+                }
+            };
+        }
 
 
         
@@ -13030,6 +13587,8 @@
     // States during which plan actions must wait (AGENTS.md: never interrupt the Alice walk)
     function planBusyReason() {
         if (document.querySelector('.human-check')) return '🚨 กำลังรอตอบเช็คผู้เล่น (Human Check)';
+        if (window.__unexpectedTownWaiting) return '⏳ พักรอนิรภัยหลังกลับเมืองผิดปกติ';
+        if (window.__isHumanizing) return '🎭 กำลังทำกิจกรรมจำลองคน (Humanize)';
         if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
         if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
         if (window.__isStoring) return 'กำลังฝากของเข้าคลัง';
@@ -13579,6 +14138,7 @@
     // Steps run strictly in order, one at a time: a step starts only when every step before it is done and
     // the zeny has reached its amount. Done = checked on the character every time (wearing the item with the
     // required random options / refined to the level), so a broken or replaced item is bought again.
+    //   every step also waits for Base Lv. >= minLevel (0 = any)
     //   { kind: 'equip',  slot, itemName, options, zeny, jobs }  -> bag / market (price up to zeny), then equip
     //   { kind: 'refine', slot, itemName, toLevel, zeny, blessing } -> Blacksmith Enok (capital), buys the ore
     const GEAR_ACC = ['accessory-left', 'accessory-right'];
@@ -13615,6 +14175,14 @@
         const want = String(step.itemName || '').trim().toLowerCase();
         const terms = step.kind === 'equip' ? parsePlanOptionFilter(step.options) : [];
         const ok = it => it && gearName(it) === want && itemPassesPlanOptions(it, terms);
+        if (/^gem-/.test(step.slot)) {
+            // gems: one of each kind, in any gem slot — the same gem at a better % counts too (never swapped down)
+            const exact = GEM_SLOTS.map(k => equipment[k]).find(ok);
+            if (exact) return exact;
+            const t = gemTier({ name: step.itemName, equipType: 'Gem' });
+            if (step.kind === 'equip' && t) return GEM_SLOTS.map(k => equipment[k]).find(w => { const wt = gemTier(w); return wt && wt.family === t.family && wt.pct > t.pct; }) || null;
+            return null;
+        }
         if (ok(equipment[step.slot])) return equipment[step.slot];
         if (GEAR_ACC.includes(step.slot)) {
             const o = GEAR_ACC.find(k => k !== step.slot);
@@ -13981,12 +14549,31 @@
         const start = String(gp.startClass || 'novice').toLowerCase();
         if (!lineage.includes(start)) { gearWait(`เซ็ตอุปกรณ์เริ่มเมื่อเป็น ${start} (ตอนนี้ ${lv.cls})`); gearBackToFarm(); return false; }
         const { index, step, total, steps } = window.getGearPlanStatus();
-        if (!step) { gearBackToFarm(); return false; }
+        if (!step) {
+            gearBackToFarm();
+            // "เมื่อเซ็ตครบ -> เปลี่ยนแมพฟาร์ม": once per character + plan + map (a later manual / plan map change is
+            // never undone). Not while a step is only skipped for a while (it is not really done).
+            const map = String(gp.onCompleteMap || '').trim();
+            const sk = gearSkipped();
+            const waiting = steps.some(x => x && sk[x.id] && sk[x.id].until && sk[x.id].until > Date.now());
+            const doneKey = gearKey('complete_map_' + map);
+            let fired = null;
+            try { fired = localStorage.getItem(doneKey); } catch (e) {}
+            if (map && steps.length && !waiting && !fired) {
+                try { localStorage.setItem(doneKey, String(Date.now())); localStorage.setItem(planLastMapKey(), map); } catch (e) {}
+                gearLog(`🎉 เซ็ตอุปกรณ์ครบทุกรายการแล้ว -> เปลี่ยนแมพฟาร์มเป็น "${map}" (ครั้งเดียว)`, '#22c55e');
+                window.setTargetFarmMap(map, true);
+                return true;
+            }
+            return false;
+        }
         const ch = gearChar();
         const zeny = Number(ch.zeny) || 0;
         const need = Number(step.zeny) || 0;
         const label = `รายการ ${index + 1}/${total}: ${step.kind === 'refine' ? `ตีบวก ${step.itemName} +${step.toLevel}` : `สวม ${step.itemName}${step.options ? ' [' + step.options + ']' : ''}`}`;
         if (zeny < need) { gearWait(`${label} — รอเงินถึง ${need.toLocaleString()} z (มี ${zeny.toLocaleString()} z)`); gearBackToFarm(); return false; }
+        const needLv = Math.min(99, Number(step.minLevel) || 0);
+        if (needLv && lv.base < needLv) { gearWait(`${label} — รอ Base Lv. ถึง ${needLv} (ตอนนี้ ${lv.base})`); gearBackToFarm(); return false; }
         gearBusy = true;
         try {
             if (step.kind === 'refine') {
@@ -14027,6 +14614,14 @@
                     return false;
                 }
                 gearLog(`🎒 ${label} — สวมจากกระเป๋า (ช่อง ${inBag.slot})`, '#22c55e');
+                if (/^gem-/.test(step.slot)) {
+                    // gems: into the slot of the lower % of the same gem, else an empty gem slot
+                    const to = gemTargetSlot(ch.equipment || {}, inBag);
+                    if (!to) { gearSkip(step, 'ช่องเจมเต็มทั้ง 4 ช่อง (เจมชนิดอื่น)', 30); return false; }
+                    room.send('equip', { slot: inBag.slot, to });
+                    gearNextTry = Date.now() + 5000;
+                    return true;
+                }
                 // accessories: ask for the planned side (every other try without it, in case the game ignores "to")
                 room.send('equip', GEAR_ACC.includes(step.slot) && tries % 2 === 1 ? { slot: inBag.slot, to: step.slot } : { slot: inBag.slot });
                 gearNextTry = Date.now() + 5000;
@@ -14066,6 +14661,11 @@
         const name = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
         return `pelican_plan_lastmap_${name}_${plan.id || plan.name || 'plan'}`;
     };
+    // The player picked a farm map by hand while the plan runs: it stays until the plan's next map change
+    window.setPlanManualMap = function (map) {
+        if (!map || !window.__currentScriptPlan || /เมืองหลวง|โซลเฮเวน/.test(map)) return;
+        try { localStorage.setItem(planLastMapKey(), map); localStorage.setItem(planLastMapKey() + '_manual', map); } catch (e) {}
+    };
     window.planMapForNow = function() {
         const plan = window.__currentScriptPlan;
         const lv = readPlanLevels();
@@ -14074,7 +14674,10 @@
         // happened, e.g. a Novice Job 10 move stays valid after the class change
         let last = null;
         try { last = localStorage.getItem(planLastMapKey()); } catch (e) {}
-        if (last && plan.triggers.some(t => (t.actions || []).some(a => a.type === 'change_map' && a.targetMap === last))) return last;
+        let manual = null;
+        try { manual = localStorage.getItem(planLastMapKey() + '_manual'); } catch (e) {}
+        if (last && (plan.triggers.some(t => (t.actions || []).some(a => a.type === 'change_map' && a.targetMap === last))
+            || (plan.gearPlan && plan.gearPlan.onCompleteMap === last) || manual === last)) return last;
         let best = null;
         plan.triggers.forEach(t => {
             const map = ((t.actions || []).filter(a => a.type === 'change_map' && a.targetMap).pop() || {}).targetMap;
@@ -14095,7 +14698,7 @@
 
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
-            try { localStorage.setItem(planLastMapKey(), act.targetMap); } catch (e) {}
+            try { localStorage.setItem(planLastMapKey(), act.targetMap); localStorage.removeItem(planLastMapKey() + '_manual'); } catch (e) {}
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
             window.setTargetFarmMap(act.targetMap, true);
             return 'done';
@@ -15284,6 +15887,11 @@
         if (window.__isRecovering) activity = '⚠️ กำลังชุบชีวิต';
         else if (window.__isShopping) activity = '🛒 ซื้อ/ขายของที่ NPC';
         else if (window.__isNavigating) activity = '🚶 กำลังเดินทาง';
+        else if (window.__unexpectedTownWaiting) {
+            const remSec = Math.max(0, Math.ceil(((window.__unexpectedTownWaitUntil || 0) - Date.now()) / 1000));
+            activity = `🛡️ พักรอนิรภัย (${Math.floor(remSec / 60)}:${String(remSec % 60).padStart(2, '0')})`;
+        }
+        else if (window.__isHumanizing) activity = '🎭 กิจกรรมเสมือนคน';
         else if (window.__isBotRunning) activity = '⚔️ Auto-Farm ทำงาน';   // the 24h-loop switch alone is not running
         else if (hudState) activity = hudState;
 
@@ -15321,6 +15929,13 @@
             navigating: !!window.__isNavigating,
             recovering: !!window.__isRecovering,
             shopping: !!window.__isShopping,
+            unexpectedTown: window.__unexpectedTownWaiting ? {
+                waiting: true,
+                reason: window.__unexpectedTownReason || 'กลับเมืองโดยไม่ทราบสาเหตุ',
+                remainingSec: Math.max(0, Math.ceil(((window.__unexpectedTownWaitUntil || 0) - Date.now()) / 1000)),
+                waitUntil: window.__unexpectedTownWaitUntil || 0
+            } : null,
+            humanizing: !!window.__isHumanizing,
             autoLoop: !!window.__autoLoopEnabled,
             isBotRunning: !!window.__isBotRunning,
             hasSocket: !!window.__gameSocket,

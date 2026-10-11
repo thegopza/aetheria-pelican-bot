@@ -18,7 +18,11 @@
     { key: 'garment', label: 'ผ้าคลุม', types: ['Cape'], side: 'R' },
     { key: 'legs', label: 'กางเกง', types: ['Pants'], side: 'R' },
     { key: 'boots', label: 'รองเท้า', types: ['Boot'], side: 'R' },
-    { key: 'accessory-right', label: 'เครื่องประดับ 2', types: ['Acc'], side: 'R' }
+    { key: 'accessory-right', label: 'เครื่องประดับ 2', types: ['Acc'], side: 'R' },
+    { key: 'gem-1', label: 'เจม 1', types: ['Gem'], side: 'G' },
+    { key: 'gem-2', label: 'เจม 2', types: ['Gem'], side: 'G' },
+    { key: 'gem-3', label: 'เจม 3', types: ['Gem'], side: 'G' },
+    { key: 'gem-4', label: 'เจม 4', types: ['Gem'], side: 'G' }
   ];
   const OPTION_TYPES = ['DEX', 'AGI', 'STR', 'VIT', 'INT', 'LUK', 'ATK', 'ATK%', 'MATK', 'MATK%', 'ASPD', 'HIT', 'FLEE', 'CRIT', 'CRIT_DAMAGE', 'MAXHP', 'MAXSP', 'DEF', 'MDEF', 'MOVE_SPEED', 'RANGED_DAMAGE_PERCENT', 'MELEE_DAMAGE_PERCENT', 'MAGIC_DAMAGE_PERCENT', 'DAMAGE_REDUCTION', 'HEAL_POWER'];
   const RARITY = { common: '#cbd5e1', uncommon: '#4ade80', rare: '#38bdf8', epic: '#c084fc', legendary: '#fbbf24' };
@@ -42,7 +46,22 @@
     return ['novice', p.class1Target || 'archer', p.class2Target || ''].filter(Boolean);
   }
   const className = id => (classes.find(c => c.id === id) || {}).name || (id ? id[0].toUpperCase() + id.slice(1) : '');
+  const gemSkill = name => String(name || '').replace(/\s+Gem\b.*$/i, '').trim().toLowerCase();
+  function planSkillNames() {
+    const db = (typeof SKILLS_DATABASE !== 'undefined' && SKILLS_DATABASE) || {};
+    const mine = new Set(), all = new Set();
+    Object.keys(db).forEach(t => (db[t] || []).forEach(s => {
+      const n = String(s.name || '').toLowerCase();
+      all.add(n);
+      if (lineage().includes(t)) mine.add(n);
+    }));
+    return { mine, all };
+  }
   function wearableByPlan(it) {
+    if (it.slotType === 'Gem') {
+      const sk = gemSkill(it.name), names = planSkillNames();
+      return names.mine.has(sk) || !names.all.has(sk);
+    }
     if (!it.jobs || !it.jobs.length) return true;
     const names = lineage().map(className).map(n => n.toLowerCase());
     return it.jobs.some(j => names.includes(String(j).toLowerCase()));
@@ -72,7 +91,7 @@
         <header class="gb-head">
           <div>
             <h3>🛡️ เซ็ตอุปกรณ์ <span class="gb-plan-name"></span></h3>
-            <small>คลิกช่องสวมใส่ → เลือกไอเทม → ใส่เงินที่ต้องมีก่อนซื้อ · กด <b>+</b> ที่ช่องเพื่อเพิ่มขั้นตีบวก · บอททำทีละรายการตามลำดับ</small>
+            <small>คลิกช่องสวมใส่ / เจม → เลือกไอเทม → ใส่เงินและเลเวลที่ต้องถึงก่อน · กด <b>+</b> ที่ช่องเพื่อเพิ่มขั้นตีบวก · บอททำทีละรายการตามลำดับ · เจม % สูงกว่าที่ตั้งก็นับว่าผ่าน</small>
           </div>
           <button type="button" class="gb-x" data-gb="cancel" aria-label="ปิด">✕</button>
         </header>
@@ -86,6 +105,7 @@
             <div class="gb-col gb-col-L"></div>
             <div class="gb-figure"><img class="gb-figure-img" alt=""></div>
             <div class="gb-col gb-col-R"></div>
+            <div class="gb-gems gb-col-G"></div>
           </div>
           <div class="gb-picker">
             <div class="gb-picker-head"><b class="gb-picker-title"></b></div>
@@ -94,9 +114,14 @@
             <div class="gb-list"><div class="gb-empty">กำลังโหลดรายการไอเทมจากเกม...</div></div>
           </div>
         </div>
+        <div class="gb-done-map">
+          <label>🏁 เมื่อเซ็ตครบทุกรายการ → เปลี่ยนแมพฟาร์มเป็น</label>
+          <select class="gb-done-sel"></select>
+          <span class="gb-start-hint">ทำครั้งเดียวต่อตัวละคร · เปลี่ยนแมพเองภายหลังได้ ระบบจะไม่เปลี่ยนกลับ</span>
+        </div>
         <div class="gb-steps-head">
           <b>📋 ลำดับการทำงาน (<span class="gb-steps-count">0</span> รายการ)</b>
-          <small>รายการถัดไปจะเริ่มเมื่อรายการก่อนหน้าเสร็จแล้ว และเงินถึงตามที่ตั้ง</small>
+          <small>รายการถัดไปจะเริ่มเมื่อรายการก่อนหน้าเสร็จแล้ว และเงิน + เลเวลถึงตามที่ตั้ง</small>
         </div>
         <div class="gb-steps"></div>
         <footer class="gb-foot">
@@ -122,13 +147,19 @@
     if (!lineage().includes(gp().startClass)) gp().startClass = 'novice';
     sel.value = gp().startClass;
     m.querySelector('.gb-start-hint').textContent = `บอทจะเริ่มทำรายการแรกเมื่อตัวละครเป็น ${className(sel.value)} (หรืออาชีพถัดไปในสาย) แล้ว`;
+    // map after the whole set is done (once)
+    const dm = m.querySelector('.gb-done-sel');
+    const groups = (typeof PLAN_MAP_OPTIONS !== 'undefined' && Array.isArray(PLAN_MAP_OPTIONS)) ? PLAN_MAP_OPTIONS : [];
+    dm.innerHTML = '<option value="">— ไม่เปลี่ยนแมพ —</option>' + groups.map(g => `<optgroup label="${esc(g.group)}">${(g.maps || [])
+      .filter(x => !/เมืองหลวง|โซลเฮเวน/.test(x.value)).map(x => `<option value="${esc(x.value)}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
+    dm.value = gp().onCompleteMap || '';
     // figure
     const cls = lineage()[lineage().length - 1];
     const img = m.querySelector('.gb-figure-img');
     img.src = `https://www.aetheria-online.in.th/art/classes/${cls}.webp`;
     img.onerror = () => { img.style.visibility = 'hidden'; };
     // slots
-    ['L', 'R'].forEach(side => {
+    ['L', 'R', 'G'].forEach(side => {
       m.querySelector('.gb-col-' + side).innerHTML = SLOTS.filter(s => s.side === side).map(s => {
         const sp = slotPlan(s.key);
         const it = sp.equip && itemById(sp.equip.itemId);
@@ -203,7 +234,10 @@
           ${st.kind === 'refine' && st.toLevel > 4 ? `<small class="gb-warn-text">⚠️ เกิน +4 (ขั้นปลอดภัย) ตีพลาดอาจลดขั้น · +${st.toLevel >= 9 ? st.toLevel + ' อาจแตก ถ้าไม่มี Blessing' : '9 ขึ้นไปอาจแตก'}</small>` : ''}
           ${orphan ? '<small class="gb-warn-text">⚠️ ต้องมีรายการซื้อ/สวมไอเทมนี้อยู่ก่อนหน้า — ไม่งั้นบอทจะข้ามรายการนี้</small>' : ''}
         </div>
-        <label class="gb-zeny" title="บอทเริ่มรายการนี้เมื่อเงินถึงจำนวนนี้ · ซื้อไอเทมในราคาไม่เกินจำนวนนี้">เมื่อเงิน ≥ <input type="text" inputmode="numeric" data-gb="zeny" data-id="${esc(st.id)}" value="${num(st.zeny)}"> z</label>
+        <div class="gb-conds">
+          <label class="gb-zeny" title="บอทเริ่มรายการนี้เมื่อเงินถึงจำนวนนี้ · ซื้อไอเทมในราคาไม่เกินจำนวนนี้">เมื่อเงิน ≥ <input type="text" inputmode="numeric" data-gb="zeny" data-id="${esc(st.id)}" value="${num(st.zeny)}"> z</label>
+          <label class="gb-lv" title="และ Base Lv. ถึงค่านี้ (0 = ไม่กำหนด)">เลเวล ≥ <input type="text" inputmode="numeric" data-gb="lv" data-id="${esc(st.id)}" value="${Number(st.minLevel) || 0}"></label>
+        </div>
         <div class="gb-step-btns">
           <button type="button" data-gb="up" data-id="${esc(st.id)}" ${i === 0 ? 'disabled' : ''} title="ขึ้น">▲</button>
           <button type="button" data-gb="down" data-id="${esc(st.id)}" ${i === steps.length - 1 ? 'disabled' : ''} title="ลง">▼</button>
@@ -221,6 +255,7 @@
   // ---------- events ----------
   const stepById = id => gp().steps.find(s => s.id === id);
   const lastZeny = () => { const st = gp().steps; return st.length ? (Number(st[st.length - 1].zeny) || 0) : 0; };
+  const lastLevel = () => { const st = gp().steps; return st.length ? (Number(st[st.length - 1].minLevel) || 0) : 0; };
   function onClick(e) {
     const slotEl = e.target.closest('.gb-slot');
     const btn = e.target.closest('[data-gb]');
@@ -234,7 +269,7 @@
     if (act === 'pick') {
       const it = itemById(Number(id));
       if (!it) return;
-      const st = { id: newId(), kind: 'equip', slot: slotSel, itemId: it.id, itemName: it.name, jobs: (it.jobs || []).slice(), options: '', zeny: lastZeny() };
+      const st = { id: newId(), kind: 'equip', slot: slotSel, itemId: it.id, itemName: it.name, jobs: (it.jobs || []).slice(), options: '', zeny: lastZeny(), minLevel: Number(it.level) || 0 };
       steps.push(st);
       focusStepId = st.id;
       return render();
@@ -243,7 +278,7 @@
       const sp = slotPlan(btn.dataset.slot);
       if (!sp.equip) return;
       if (act === 'ref-plus') {
-        const st = { id: newId(), kind: 'refine', slot: btn.dataset.slot, itemName: sp.equip.itemName, toLevel: sp.refine + 1, zeny: lastZeny(), blessing: true };
+        const st = { id: newId(), kind: 'refine', slot: btn.dataset.slot, itemName: sp.equip.itemName, toLevel: sp.refine + 1, zeny: lastZeny(), minLevel: lastLevel(), blessing: true };
         steps.push(st);
         focusStepId = st.id;
       } else {
@@ -268,6 +303,7 @@
   function onChange(e) {
     const t = e.target;
     if (t.classList.contains('gb-start-sel')) { gp().startClass = t.value; render(); return; }
+    if (t.classList.contains('gb-done-sel')) { gp().onCompleteMap = t.value || ''; return; }
     if (t.classList.contains('gb-only-cb')) { onlyMine = t.checked; renderPicker(); return; }
     if (t.classList.contains('gb-opt-type') && t.value) {
       const st = stepById(t.dataset.id);
@@ -283,11 +319,13 @@
     }
     if (t.dataset.gb === 'bless') { const st = stepById(t.dataset.id); if (st) st.blessing = t.checked; return; }
     if (t.dataset.gb === 'zeny') { t.value = num(parseInt(String(t.value).replace(/[^0-9]/g, ''), 10) || 0); }
+    if (t.dataset.gb === 'lv') { t.value = Math.min(99, parseInt(String(t.value).replace(/[^0-9]/g, ''), 10) || 0); }
   }
   function onInput(e) {
     const t = e.target;
     if (t.classList.contains('gb-search')) { query = t.value; renderPicker(); return; }
     if (t.dataset.gb === 'zeny') { const st = stepById(t.dataset.id); if (st) st.zeny = parseInt(String(t.value).replace(/[^0-9]/g, ''), 10) || 0; }
+    if (t.dataset.gb === 'lv') { const st = stepById(t.dataset.id); if (st) st.minLevel = Math.min(99, parseInt(String(t.value).replace(/[^0-9]/g, ''), 10) || 0); }
   }
 
   async function loadItems() {

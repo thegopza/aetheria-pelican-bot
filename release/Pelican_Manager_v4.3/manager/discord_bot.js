@@ -582,6 +582,51 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     }
   }
 
+  const townAlertCooldowns = new Map();
+
+  async function notifyUnexpectedTown({ profile, unexpectedTown }) {
+    const cfg = loadSettings();
+    if (!cfg.enabled) return;
+
+    const profileId = profile.id;
+    const now = Date.now();
+    const lastNotified = townAlertCooldowns.get(profileId) || 0;
+    if (now - lastNotified < 5 * 60 * 1000) return; // at most once every 5 minutes per profile
+    townAlertCooldowns.set(profileId, now);
+
+    const remainingSec = Math.max(0, Math.ceil(((unexpectedTown.waitUntil || 0) - now) / 1000));
+    const mm = Math.floor(remainingSec / 60);
+    const ss = remainingSec % 60;
+    const timeText = `${mm}:${ss < 10 ? '0' : ''}${ss} นาที`;
+
+    const embed = {
+      title: '🚨 [เตือนภัยบอท] ตรวจพบตัวละครกลับเมืองโดยไม่ทราบสาเหตุ!',
+      description: `ตัวละคร **${profile.name}** กำลังอยู่ในเมืองหลวงโซลเฮเวนโดยตรวจไม่พบสาเหตุ\n(ไม่ได้เสียชีวิต / ไม่ได้กด Butterfly Wing / ไม่ได้กำลังเดินทางผ่านเมือง)\n\nระบบสั่งสุ่มพักรอนิรภัย **${timeText}** เพื่อความปลอดภัยสูงสุดของไอดี`,
+      color: 0xEF4444,
+      fields: [
+        { name: '👤 จอโปรไฟล์', value: profile.name, inline: true },
+        { name: '⏱️ ระยะเวลาพักรอ', value: timeText, inline: true },
+        { name: '🛡️ สถานะระบบ', value: 'ระงับการเดินและรอครบเวลา หรือกดปุ่ม [ข้าม] ในหน้าจอเกม', inline: false }
+      ],
+      footer: { text: 'PmheeAether Anti-Detection System · Discord Alert' },
+      timestamp: new Date().toISOString()
+    };
+
+    if (cfg.botToken && cfg.channelId) {
+      const payload = {
+        content: `🚨 **แจ้งเตือนความปลอดภัย:** ตรวจพบตัวละคร **${profile.name}** กลับเมืองโดยไม่ทราบสาเหตุ!`,
+        embeds: [embed]
+      };
+      return await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken);
+    } else if (cfg.webhookUrl) {
+      const payload = {
+        username: 'PmheeAether Safety Guard',
+        embeds: [embed]
+      };
+      return await discordRequest(cfg.webhookUrl, 'POST', payload);
+    }
+  }
+
   // Initialize gateway on startup
   syncGatewayConnection();
 
@@ -589,6 +634,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     loadSettings,
     saveSettings,
     notifyHumanCheck,
+    notifyUnexpectedTown,
     clearHumanCheck,
     answerCheckInGame,
     testNotification,

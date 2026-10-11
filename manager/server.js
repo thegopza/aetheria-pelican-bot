@@ -353,6 +353,17 @@ const LIVE_STATE_EVAL = `(() => {
       s.humanCheck = null;
     }
   } catch (e) {}
+  try {
+    if (window.__unexpectedTownWaiting) {
+      s.unexpectedTown = {
+        active: true,
+        waitUntil: window.__unexpectedTownWaitUntil || 0,
+        reason: window.__unexpectedTownReason || ''
+      };
+    } else {
+      s.unexpectedTown = null;
+    }
+  } catch (e) {}
   return s;
 })()`;
 
@@ -469,7 +480,7 @@ async function fetchGameItems() {
   try {
     const [wiki, icons] = await Promise.all([getUrlJson(`${GAME_SITE}/wiki-data`), getUrlJson(`${GAME_SITE}/art/icons/manifest.json`).catch(() => ({}))]);
     const iconOf = id => { const p = icons && icons.items && icons.items[id]; return p ? `${GAME_SITE}/art/icons/${p}` : null; };
-    const items = (wiki.items || []).filter(i => i.type === "Equipment" && i.equipmentType && i.equipmentType !== "Gem" && i.equipmentType !== "Ammo" && !/^Costume/.test(i.equipmentType))
+    const items = (wiki.items || []).filter(i => i.type === "Equipment" && i.equipmentType && i.equipmentType !== "Ammo" && !/^Costume/.test(i.equipmentType))
       .map(i => ({
         id: i.id, name: i.name, slotType: i.equipmentType, weaponType: i.weaponType, level: i.equipLevelMin || 0,
         rarity: i.rarity, refineable: !!i.refineable, slots: i.slots || 0, weaponLevel: i.weaponLevel || 0,
@@ -1036,6 +1047,9 @@ setInterval(async () => {
         discordService.notifyHumanCheck({ profile: p, check: state.humanCheck });
       } else if (state) {
         discordService.clearHumanCheck(p.id);
+      }
+      if (state && state.unexpectedTown && state.unexpectedTown.active) {
+        discordService.notifyUnexpectedTown({ profile: p, unexpectedTown: state.unexpectedTown });
       }
     }
   } catch (e) {}

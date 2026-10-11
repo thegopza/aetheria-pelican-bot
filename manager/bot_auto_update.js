@@ -41,6 +41,8 @@ const CLIENT_PROBE_JS = `(() => {
   if (window.__isManualSelling || window.__isAutoSellingNow) busy.push('กำลังขายของ');
   if (window.__isMarketScanning) busy.push('กำลังสแกนตลาด');
   if (document.querySelector('.human-check')) busy.push('กำลังรอตอบเช็คผู้เล่น (Human Check)');
+  if (window.__unexpectedTownWaiting) busy.push('กำลังพักรอนิรภัย (กลับเมืองผิดปกติ)');
+  if (window.__isHumanizing) busy.push('กำลังทำกิจกรรม Humanize ในเมือง');
   const nameEl = document.querySelector('.hud-name');
   let map = '';
   try { map = (typeof window.__getClientLiveState === 'function' && window.__getClientLiveState().map) || ''; } catch (e) {}
