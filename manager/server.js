@@ -579,6 +579,46 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
 
   try {
     // -------------------------------------------------------------
+    // STEP 0: งานสำคัญที่ทำค้างอยู่ (ขายของ / ฝากคลัง / ตีบวก / ซื้อของ / เปลี่ยนอาชีพ / Weight Scroll) ต้องเสร็จก่อน —
+    // ตั้ง __consolidationPending (ห้ามเริ่มงานใหม่) แล้วรอได้ถึง 3 นาที; จอที่ยังไม่เสร็จข้ามไปรอบนี้ (ไม่ตัดงานกลางคัน)
+    // -------------------------------------------------------------
+    consolidationState.step = 'รองานสำคัญของแต่ละจอให้เสร็จก่อน (ขายของ / ตีบวก / ซื้อของ...)';
+    const BUSY_JS = `(() => {
+      window.__consolidationPending = true;
+      const b = [];
+      if (window.__isShopping) b.push('ขาย/ซื้อของกับ NPC');
+      if (window.__isStoring) b.push('ฝากของเข้าคลัง');
+      if (window.__isGearRefining) b.push('ตีบวก (เซ็ตอุปกรณ์)');
+      if (window.__planMarketBuyInFlight) b.push('ซื้อของในตลาดตามแผน');
+      if (window.__isChangingJob) b.push('เปลี่ยนอาชีพ');
+      if (window.__isWeightScrollBusy) b.push('ซื้อ/ใช้ Weight Limit Scroll');
+      if (window.__isManualSelling || window.__isAutoSellingNow) b.push('ลงขายของ');
+      return b;
+    })()`;
+    const busyOf = async p => { const r = await evalProfilePort(p.debugPort, BUSY_JS, 5000); return (r && r.success && Array.isArray(r.result)) ? r.result : []; };
+    const stillBusy = new Map();
+    await Promise.all([receiverProfile, ...senderProfiles].map(async p => {
+      let busy = await busyOf(p);
+      if (busy.length) addConsolidationLog(`⏳ ${p.name}: รอ "${busy.join(', ')}" ให้เสร็จก่อน (ไม่ตัดงานกลางคัน)...`, 'info');
+      for (let i = 0; i < 90 && busy.length && !consolidationAborted; i++) { await new Promise(r => setTimeout(r, 2000)); busy = await busyOf(p); }
+      if (busy.length) stillBusy.set(p.id, busy);
+    }));
+    const clearPending = p => evalProfilePort(p.debugPort, `(() => { window.__consolidationPending = false; return true; })()`, 4000);
+    if (consolidationAborted) {
+      await Promise.all([receiverProfile, ...senderProfiles].map(clearPending));
+      throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
+    }
+    if (stillBusy.has(receiverProfile.id)) {
+      await Promise.all([receiverProfile, ...senderProfiles].map(clearPending));
+      throw new Error(`ตัวรับเงิน (${receiverProfile.name}) ยังทำ "${stillBusy.get(receiverProfile.id).join(', ')}" ไม่เสร็จใน 3 นาที — ลองรวมเงินใหม่อีกครั้งภายหลัง`);
+    }
+    for (const s of senderProfiles.filter(x => stillBusy.has(x.id))) {
+      addConsolidationLog(`⏭️ ${s.name}: ยังทำ "${stillBusy.get(s.id).join(', ')}" ไม่เสร็จใน 3 นาที -> ข้ามจอนี้ในรอบนี้ (ไม่ตัดงานกลางคัน)`, 'warning');
+      await clearPending(s);
+    }
+    for (let i = senderProfiles.length - 1; i >= 0; i--) if (stillBusy.has(senderProfiles[i].id)) senderProfiles.splice(i, 1);
+
+    // -------------------------------------------------------------
     // STEP 1: สั่ง Stop Bot ทุกจอที่เกี่ยวข้อง
     // -------------------------------------------------------------
     consolidationState.stepIndex = 1;
@@ -620,16 +660,6 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     consolidationState.step = 'วาร์ปกลับเมืองหลวง (โซลเฮเวน) ด้วย Butterfly Wing...';
     addConsolidationLog('🦋 ขั้นตอนที่ 2/5: ทยอยกด Butterfly Wing กลับเมืองหลวงโซลเฮเวน...', 'info');
 
-    // Gear set work in progress (refine at the Blacksmith / market buy): let it finish before the bot stops,
-    // otherwise zeny can still change while the trade amount is read
-    for (const p of involvedProfiles) {
-      for (let i = 0; i < 30; i++) {
-        const b = await evalProfilePort(p.debugPort, `!!(window.__isGearRefining || window.__planMarketBuyInFlight)`, 4000);
-        if (!(b && b.success && b.result === true)) break;
-        if (i === 0) addConsolidationLog(`⏳ ${p.name}: รอเซ็ตอุปกรณ์ซื้อ/ตีบวกให้เสร็จก่อน...`, 'info');
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
     for (const p of involvedProfiles) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
       addConsolidationLog(`🕊️ ${p.name}: กลับเมืองหลวง (Butterfly Wing / ถ้าไม่มีปีกจะเปิดแผนที่เดินกลับ)...`, 'info');
@@ -729,7 +759,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
       queue.push(s);
     }
     const startBotJs = `(() => {
-      window.__isConsolidating = false; window.__isWalkingToMap = false; window.__isNavigating = false;
+      window.__isConsolidating = false; window.__consolidationPending = false; window.__isWalkingToMap = false; window.__isNavigating = false;
       if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap();
       window.__autoLoopEnabled = true; window.__isBotRunning = true;
       try { localStorage.setItem('pelican_auto_loop', 'true'); localStorage.setItem('pelican_bot_running', 'true'); } catch(e){}
@@ -855,6 +885,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
       try {
         const startRes = await evalProfilePort(p.debugPort, `(() => {
           window.__isConsolidating = false;
+          window.__consolidationPending = false;
           window.__isWalkingToMap = false;
           window.__isNavigating = false;
           if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap();
@@ -896,7 +927,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const involvedProfiles = [receiverProfile, ...senderProfiles];
     for (const p of involvedProfiles) {
       try {
-        evalProfilePort(p.debugPort, `(() => { window.__isConsolidating = false; if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap(); })()`);
+        evalProfilePort(p.debugPort, `(() => { window.__isConsolidating = false; window.__consolidationPending = false; if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap(); })()`);
       } catch(e) {}
     }
   }

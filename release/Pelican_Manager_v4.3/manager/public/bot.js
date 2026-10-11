@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.31.3
+// @version      4.32.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.31.3';
+    const PELICAN_BOT_VERSION = '4.32.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7227,6 +7227,7 @@
     window.runAutoStorageDeposit = async function (opts = {}) {
         const cfg = window.__sellConfig || {};
         if (!cfg.storeEnabled && !opts.manual) return { skipped: 'off' };
+        if (window.__consolidationPending && !opts.manual) return { skipped: 'consolidation' };
         if (window.__isStoring) return { skipped: 'busy' };
         if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
             if (opts.manual) console.warn('[PmheeAether Storage] ⚠️ ต้องอยู่ในเมืองหลวงก่อนถึงจะฝากของเข้าคลังได้');
@@ -7427,6 +7428,7 @@
     }, 30000);
 
     window.executeAutoShopRoutine = function() {
+        if (window.__consolidationPending) return;   // money consolidation is about to start
         if (window.__isGearRefining) {
             console.warn('[PmheeAether Shop] ⏳ กำลังตีบวกตามเซ็ตอุปกรณ์อยู่ — เลื่อนการซื้อขายไปก่อน');
             return;
@@ -13031,6 +13033,7 @@
         if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
         if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
         if (window.__isStoring) return 'กำลังฝากของเข้าคลัง';
+        if (window.__consolidationPending) return 'รอรวมเงิน';
         if (window.__isRecovering) return 'กำลังชุบชีวิต';
         if (window.__isConsolidating || window.__consolidationReceiverMode) return 'กำลังรวมเงิน/เทรด';
         if (window.__isChangingJob) return 'กำลังเปลี่ยนอาชีพ';
@@ -13397,7 +13400,7 @@
         if (real !== null && real >= 10) return finish(`น้ำหนักสูงสุดบอกว่าตัวละครนี้ใช้ครบ 10 ครั้งแล้ว — ไม่ซื้อเพิ่ม`);
         if (used >= target) return finish(`ตัวละครนี้ใช้ครบ ${used} ครั้งแล้ว`);
         if (weightScrollBusy) return 'pending';
-        weightScrollBusy = true;
+        weightScrollBusy = true; window.__isWeightScrollBusy = true;
         try {
             const room = getPlanRoom();
             if (!room) return 'pending';
@@ -13458,7 +13461,7 @@
             if (r === 'not-sold' || r === 'no-money') weightShopGiveUp(r);
             return 'pending';   // next round uses what was bought
         } finally {
-            weightScrollBusy = false;
+            weightScrollBusy = false; window.__isWeightScrollBusy = false;
         }
     }
 
@@ -13503,7 +13506,7 @@
             return done(`ตัวละครนี้ใช้ Weight Limit Scroll ครบ 10 ครั้งแล้ว (น้ำหนักสูงสุด ${limit.toLocaleString()}) — เพิ่มอีกไม่ได้ ไม่ซื้อ`);
         }
         if (weightScrollBusy) return true;
-        weightScrollBusy = true;
+        weightScrollBusy = true; window.__isWeightScrollBusy = true;
         try {
             const room = getPlanRoom();
             if (!room) return false;
@@ -13568,7 +13571,7 @@
             if (r === 'not-sold') { weightShopGiveUp(r); return false; }
             return true;   // next round uses what was bought
         } finally {
-            weightScrollBusy = false;
+            weightScrollBusy = false; window.__isWeightScrollBusy = false;
         }
     };
 
@@ -14858,6 +14861,7 @@
         try {
             if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
             if (!window.__isBotRunning) return;
+            if (window.__consolidationPending) return;   // money consolidation is about to start: nothing new
             if (typeof window.autoConfigureCombat === 'function') await window.autoConfigureCombat();
             // Spend skill points of the current class before changing job
             if (await window.autoAllocateSkills()) return;
