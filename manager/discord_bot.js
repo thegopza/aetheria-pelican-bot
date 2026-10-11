@@ -8,15 +8,27 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { createHumanCheckSolver } = require('./human_check_solver.js');
 
-function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow }) {
+function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver }) {
   const SETTINGS_FILE = path.join(dataDir, 'discord_settings.json');
+  const solver = humanCheckSolver || createHumanCheckSolver({ dataDir });
 
   // Load / Save Settings
   function loadSettings() {
     try {
       if (fs.existsSync(SETTINGS_FILE)) {
-        return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        const s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        return {
+          enabled: !!s.enabled,
+          webhookUrl: s.webhookUrl || '',
+          botToken: s.botToken || '',
+          channelId: s.channelId || '',
+          autoBringToFront: s.autoBringToFront !== false,
+          soundAlert: s.soundAlert !== false,
+          autoAnswer: s.autoAnswer !== false,
+          answerDelayMs: parseInt(s.answerDelayMs, 10) || 1800
+        };
       }
     } catch (e) {}
     return {
@@ -25,13 +37,22 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       botToken: '',
       channelId: '',
       autoBringToFront: true,
-      soundAlert: true
+      soundAlert: true,
+      autoAnswer: true,
+      answerDelayMs: 1800
     };
   }
 
   function saveSettings(settings) {
     try {
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+      const current = loadSettings();
+      const updated = {
+        ...current,
+        ...settings,
+        autoAnswer: settings.autoAnswer !== false,
+        answerDelayMs: Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800))
+      };
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
       // If bot token changed or enabled state changed, reconnect gateway
       syncGatewayConnection();
       return true;
@@ -336,36 +357,113 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return;
     }
 
+    // Solve question using humanCheckSolver
+    const solution = (solver && typeof solver.solveHumanCheck === 'function')
+      ? solver.solveHumanCheck(check.prompt, check.options, check.items)
+      : { success: false };
+
+    const resolvedOptions = (solution && solution.resolvedOptions && solution.resolvedOptions.length > 0)
+      ? solution.resolvedOptions
+      : (check.options || []).map((o, i) => ({
+          index: o.index != null ? o.index : i,
+          label: o.label || `ตัวเลือกที่ ${i + 1}`,
+          itemName: o.label || `ตัวเลือกที่ ${i + 1}`,
+          isMatch: false
+        }));
+
     activeChecks.set(profileId, {
       checkId: check.id || now,
       prompt: check.prompt,
       notifiedAt: now,
-      options: check.options || []
+      options: resolvedOptions,
+      solution
     });
 
     const charName = profile.liveState?.charName || profile.lastCharName || profile.name;
     const promptText = check.prompt || '(ไม่มีข้อความโจทย์)';
     const metaText = check.meta || '';
-    const optionsCount = (check.options && check.options.length) || 4;
+    const optionsCount = resolvedOptions.length || 4;
 
-    // Auto-bring game window to front if enabled
+    // Check if Auto-Answer is enabled AND solver found a confident match
+    const shouldAutoAnswer = (cfg.autoAnswer !== false) && solution.success && solution.pickIndex != null;
+
+    if (shouldAutoAnswer) {
+      const baseDelay = parseInt(cfg.answerDelayMs, 10) || 1800;
+      // Add natural randomized jitter (-250ms to +350ms)
+      const jitter = Math.floor(Math.random() * 600) - 250;
+      const delayMs = Math.max(800, baseDelay + jitter);
+
+      console.log(`[Discord Bot] 🤖 Auto-answering Human Check for [${profile.name}] (${charName}): pick #${solution.pickIndex + 1} (${solution.matchedName}) in ${delayMs}ms...`);
+
+      // Wait delay to simulate human reaction
+      await new Promise(r => setTimeout(r, delayMs));
+
+      // Execute answer in game
+      const ansRes = await answerCheckInGame(profileId, solution.pickIndex);
+
+      if (ansRes && ansRes.success) {
+        console.log(`[Discord Bot] ✅ Auto-answer succeeded for [${profile.name}]! Picked #${solution.pickIndex + 1} (${solution.matchedName})`);
+
+        // Send Success Notification to Discord
+        const optionsList = resolvedOptions.map((opt, i) => {
+          const isChosen = (opt.index === solution.pickIndex);
+          const icon = isChosen ? '✅' : '⚪';
+          const highlight = isChosen ? `**ข้อ ${i + 1}: ${opt.itemName}** 👈 *(ระบบเลือกข้อนี้)*` : `ข้อ ${i + 1}: ${opt.itemName}`;
+          return `${icon} ${highlight}`;
+        }).join('\n');
+
+        const embed = {
+          title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,
+          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ความแม่นยำ 100%)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)`,
+          color: 0x10B981, // Emerald Green
+          fields: [
+            {
+              name: `📋 ตัวเลือกรูปภาพ (${optionsCount} ตัวเลือก):`,
+              value: optionsList || '(ไม่มีข้อมูล)',
+              inline: false
+            }
+          ],
+          footer: { text: `Aetheria Online · PmheeAether Auto-Solver · จอ #${profile.name}` },
+          timestamp: new Date().toISOString()
+        };
+
+        if (cfg.botToken && cfg.channelId) {
+          await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', {
+            content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) มีโจทย์เช็คผู้เล่น -> บอทจับคู่และตอบ **"${solution.matchedName}"** ให้อัตโนมัติเรียบร้อยแล้ว!`,
+            embeds: [embed]
+          }, cfg.botToken);
+        } else if (cfg.webhookUrl) {
+          await discordRequest(cfg.webhookUrl, 'POST', {
+            username: 'PmheeAether Anti-Bot Solver',
+            avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
+            content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) ตอบเช็คผู้เล่นอัตโนมัติสำเร็จ!`,
+            embeds: [embed]
+          });
+        }
+        return;
+      } else {
+        console.warn(`[Discord Bot] ⚠️ Auto-answer execution returned error: ${ansRes?.error}. Falling back to manual alert.`);
+      }
+    }
+
+    // Fallback or Manual Mode: Send Urgent Alert with Interactive Buttons & Real Item Names
     if (cfg.autoBringToFront && typeof focusProfileWindow === 'function') {
       try { focusProfileWindow(profileId); } catch (e) {}
     }
 
-    // 1. Build Embed
     const embed = {
       title: `🚨 ตรวจพบเช็คผู้เล่น (Human Check)!`,
-      description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}`,
+      description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}` +
+        (solution.matchedName ? `\n\n💡 *ระบบวิเคราะห์ว่าเป็น:* **ข้อ ${solution.pickIndex + 1}: ${solution.matchedName}**` : ''),
       color: 0xEF4444, // Red
       fields: [],
       footer: { text: `Aetheria Online · PmheeAether Manager · จอ #${profile.name}` },
       timestamp: new Date().toISOString()
     };
 
-    // Add choices field description
-    const optionDescriptions = (check.options || []).map((opt, i) => {
-      return `**${i + 1}️⃣** ตัวเลือกที่ ${i + 1}`;
+    const optionDescriptions = resolvedOptions.map((opt, i) => {
+      const suggest = (solution.matchedName && opt.index === solution.pickIndex) ? ' *(แนะนำ)*' : '';
+      return `**${i + 1}️⃣** ${opt.itemName}${suggest}`;
     }).join('\n');
 
     if (optionDescriptions) {
@@ -376,26 +474,27 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       });
     }
 
-    // 2. Build Interactive Buttons (if botToken is available)
+    // Build Interactive Buttons (with item names)
     let components = [];
     if (cfg.botToken && cfg.channelId) {
       const buttons = [];
       for (let i = 0; i < optionsCount; i++) {
+        const opt = resolvedOptions[i] || {};
+        const labelText = opt.itemName ? `${i + 1}. ${opt.itemName}`.slice(0, 80) : `ข้อ ${i + 1}`;
+        const isSuggested = solution.matchedName && opt.index === solution.pickIndex;
         buttons.push({
           type: 2, // Button
-          style: 1, // Primary (Blurple)
-          label: `ข้อ ${i + 1}`,
-          custom_id: `hc_${profileId}_${i}`
+          style: isSuggested ? 3 : 1, // Green (Success) if suggested, else Blurple (Primary)
+          label: labelText,
+          custom_id: `hc_${profileId}_${opt.index != null ? opt.index : i}`
         });
       }
 
-      // Action row for choice buttons
       components.push({
         type: 1, // Action Row
         components: buttons
       });
 
-      // Secondary row for Focus / Window Bring-to-Front
       components.push({
         type: 1,
         components: [
@@ -409,7 +508,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       });
     }
 
-    // 3. Send via Bot Token (to channel) or Webhook
+    // Send via Bot Token (to channel) or Webhook
     if (cfg.botToken && cfg.channelId) {
       const payload = {
         content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
@@ -450,8 +549,10 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       color: 0x10B981, // Emerald Green
       fields: [
         { name: '🖥️ โหมดการทำงาน', value: cfg.botToken ? '🤖 Discord Bot (รองรับปุ่มกดตอบโต้ในห้อง)' : '📢 Webhook (แจ้งเตือนข่าวสาร)', inline: true },
+        { name: '🤖 ตอบอัตโนมัติ (Auto-Answer)', value: cfg.autoAnswer !== false ? `เปิดใช้งาน (หน่วง ${cfg.answerDelayMs || 1800}ms)` : 'ปิดใช้งาน', inline: true },
         { name: '🔔 ดึงจออัตโนมัติ', value: cfg.autoBringToFront ? 'เปิดใช้งาน' : 'ปิดใช้งาน', inline: true },
-        { name: '🔊 เสียงเตือนในเครื่อง', value: cfg.soundAlert ? 'เปิดใช้งาน' : 'ปิดใช้งาน', inline: true }
+        { name: '🔊 เสียงเตือนในเครื่อง', value: cfg.soundAlert ? 'เปิดใช้งาน' : 'ปิดใช้งาน', inline: true },
+        { name: '📚 ฐานข้อมูลไอเทม', value: solver && solver.isReady() ? 'พร้อมใช้งาน (1,160 รายการ)' : 'กำลังเตรียมข้อมูล...', inline: true }
       ],
       footer: { text: 'PmheeAether Manager · Discord Integration' },
       timestamp: new Date().toISOString()

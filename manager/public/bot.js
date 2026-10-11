@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.28.1
-// @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
+// @version      4.30.0
+// @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
 // @grant        none
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.28.1';
+    const PELICAN_BOT_VERSION = '4.30.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -179,7 +179,7 @@
         // Shown but the picture really doesn't come back (or the notice got through anyway): reload the page
         // when nothing important is going on — at most once per 10 minutes, the bot resumes after the reload.
         const busyNow = () => window.__isWalkingToMap || window.__isShopping || window.__isRecovering || window.__isConsolidating
-            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || !!document.querySelector('.human-check');
+            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || window.__isGearRefining || window.__planMarketBuyInFlight || !!document.querySelector('.human-check');
         let brokenSince = 0;
         setInterval(() => {
             if (hidden()) { brokenSince = 0; return; }
@@ -352,15 +352,269 @@
             if (n.sibling) walk(n.sibling, depth + 1);
         }
         if (fiber) walk(fiber);
-        if (room && (!room.connection || room.connection.isOpen)) window.__colyseusRoom = room;
+        if (room && (!room.connection || room.connection.isOpen)) {
+            window.__colyseusRoom = room;
+            attachHumanCheckRoomListener(room);
+        }
         return room;
     };
+
+    // ==========================================
+    // AUTO HUMAN CHECK SOLVER ENGINE (ANTI-BOT)
+    // ==========================================
+    window.__autoHumanCheckEnabled = true;
+    window.__lastHumanCheckSolved = null;
+    window.__latestHumanCheck = null;
+
+    function attachHumanCheckRoomListener(room) {
+        if (!room || room.__humanCheckAttached) return;
+        room.__humanCheckAttached = true;
+        try {
+            if (typeof room.onMessage === 'function') {
+                room.onMessage('human_check', (payload) => {
+                    window.__latestHumanCheck = {
+                        id: payload.id,
+                        prompt: payload.prompt,
+                        items: payload.items,
+                        triesLeft: payload.triesLeft,
+                        timestamp: Date.now()
+                    };
+                    checkAndAutoAnswerHumanCheck();
+                });
+            }
+        } catch (e) {}
+    }
+
+    let inGameCatalog = null;
+    let inGameCatalogPromise = null;
+
+    function getInGameCatalog() {
+        if (inGameCatalog) return Promise.resolve(inGameCatalog);
+        if (inGameCatalogPromise) return inGameCatalogPromise;
+
+        inGameCatalogPromise = (async () => {
+            try {
+                const cached = localStorage.getItem('pelican_item_catalog');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (parsed && parsed.items && parsed.manifest) {
+                        inGameCatalog = buildInGameCatalogIndex(parsed);
+                        return inGameCatalog;
+                    }
+                }
+            } catch (e) {}
+
+            try {
+                const [wikiRes, manifestRes] = await Promise.all([
+                    fetch('/wiki-data', { cache: 'no-cache' }),
+                    fetch('/art/icons/manifest.json', { cache: 'no-cache' })
+                ]);
+                const wiki = await wikiRes.json();
+                const manifest = await manifestRes.json();
+                const raw = {
+                    items: wiki.items || [],
+                    manifest: manifest.items || manifest
+                };
+                try {
+                    localStorage.setItem('pelican_item_catalog', JSON.stringify(raw));
+                } catch (e) {}
+                inGameCatalog = buildInGameCatalogIndex(raw);
+                return inGameCatalog;
+            } catch (err) {
+                console.warn('[PmheeAether Anti-Bot] Failed to load catalog:', err);
+                return null;
+            }
+        })();
+        return inGameCatalogPromise;
+    }
+
+    function buildInGameCatalogIndex(raw) {
+        const idToName = new Map();
+        const iconToNames = new Map();
+
+        (raw.items || []).forEach(it => {
+            if (it && it.id != null && it.name) {
+                idToName.set(Number(it.id), String(it.name).trim());
+            }
+        });
+
+        const mItems = raw.manifest?.items || raw.manifest || {};
+        for (const [idStr, iconPath] of Object.entries(mItems)) {
+            const id = Number(idStr);
+            const name = idToName.get(id);
+            const clean = String(iconPath || '').replace(/^https?:\/\/[^\/]+/, '').replace(/^\/?art\/icons\//, '').replace(/^\//, '').split('?')[0].trim();
+            if (clean) {
+                if (!iconToNames.has(clean)) iconToNames.set(clean, new Set());
+                if (name) iconToNames.get(clean).add(name);
+            }
+        }
+        return { idToName, iconToNames };
+    }
+
+    function cleanPromptItemTarget(prompt) {
+        if (!prompt || typeof prompt !== 'string') return '';
+        let p = prompt.trim();
+        p = p.replace(/^(?:กรุณา)?\s*(?:คลิก|กด|เลือก)\s*(?:ที่)?\s*(?:รูป|ภาพ|รูปภาพ)?\s*(?:ของ)?\s*/i, '');
+        p = p.replace(/^(?:please\s+)?(?:press|click|select|choose)\s+(?:the\s+)?(?:picture|image|icon)\s+(?:of\s+)?/i, '');
+        p = p.replace(/\s*(?:ภายในเวลา|ด่วน|ก่อนหมดเวลา).*$/i, '');
+        return p.trim();
+    }
+
+    function solveInGameHumanCheck(prompt, buttons, packetItems, catalog) {
+        if (!prompt || !catalog) return null;
+        const { idToName, iconToNames } = catalog;
+        const cleanTarget = cleanPromptItemTarget(prompt);
+        const cleanTargetLower = cleanTarget.toLowerCase();
+        const rawPromptLower = prompt.toLowerCase();
+
+        const count = buttons.length || (packetItems && packetItems.length) || 0;
+        const candidates = [];
+
+        for (let i = 0; i < count; i++) {
+            const btn = buttons[i];
+            const img = btn ? btn.querySelector('img') : null;
+            const imgSrc = img ? (img.getAttribute('src') || '') : '';
+            const cleanIcon = imgSrc.replace(/^https?:\/\/[^\/]+/, '').replace(/^\/?art\/icons\//, '').replace(/^\//, '').split('?')[0].trim();
+            const itemId = (packetItems && packetItems[i]) || null;
+
+            const names = new Set();
+            if (itemId != null) {
+                const n = idToName.get(Number(itemId));
+                if (n) names.add(n);
+            }
+            if (cleanIcon) {
+                const iconNames = iconToNames.get(cleanIcon);
+                if (iconNames) iconNames.forEach(n => names.add(n));
+            }
+
+            for (const name of names) {
+                const nameLower = name.toLowerCase();
+                let score = 0;
+                if (cleanTargetLower === nameLower) score = 1000 + nameLower.length;
+                else if (cleanTargetLower.includes(nameLower)) score = 800 + nameLower.length;
+                else if (rawPromptLower.includes(nameLower)) score = 600 + nameLower.length;
+                else {
+                    const normPrompt = rawPromptLower.replace(/[^a-z0-9]/g, '');
+                    const normName = nameLower.replace(/[^a-z0-9]/g, '');
+                    if (normPrompt.includes(normName) && normName.length >= 3) {
+                        score = 500 + normName.length;
+                    }
+                }
+                if (score > 0) {
+                    candidates.push({ index: i, name, score });
+                }
+            }
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates[0] || null;
+    }
+
+    let isAutoAnsweringHumanCheck = false;
+    async function checkAndAutoAnswerHumanCheck() {
+        const hc = document.querySelector('.human-check');
+        if (!hc) {
+            isAutoAnsweringHumanCheck = false;
+            return;
+        }
+        if (isAutoAnsweringHumanCheck) return;
+
+        try {
+            const userPref = localStorage.getItem('pelican_auto_human_check');
+            if (userPref === 'false') return;
+        } catch (e) {}
+
+        const promptEl = hc.querySelector('.human-check-prompt');
+        const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
+        if (!promptEl || !btns.length) return;
+
+        const prompt = (promptEl.innerText || '').trim();
+        if (!prompt) return;
+
+        isAutoAnsweringHumanCheck = true;
+        const catalog = await getInGameCatalog();
+        if (!catalog) {
+            isAutoAnsweringHumanCheck = false;
+            return;
+        }
+
+        const packetItems = window.__latestHumanCheck ? window.__latestHumanCheck.items : null;
+        const solution = solveInGameHumanCheck(prompt, btns, packetItems, catalog);
+
+        if (!solution || solution.index == null) {
+            console.warn('[PmheeAether Anti-Bot] ⚠️ ไม่สามารถจับคู่คำถามเช็คผู้เล่น:', prompt);
+            isAutoAnsweringHumanCheck = false;
+            return;
+        }
+
+        // Add randomized delay (1,500ms - 2,400ms) to simulate natural player behavior
+        const delay = 1500 + Math.floor(Math.random() * 900);
+        console.log(`[PmheeAether Anti-Bot] 🤖 ตรวจพบเช็คผู้เล่น: "${prompt}" -> จับคู่ข้อ ${solution.index + 1} (${solution.name}) -> กำลังตอบใน ${delay}ms...`);
+
+        setTimeout(() => {
+            try {
+                const currentHc = document.querySelector('.human-check');
+                if (!currentHc) {
+                    isAutoAnsweringHumanCheck = false;
+                    return;
+                }
+                const currentBtns = Array.from(currentHc.querySelectorAll('.human-check-pick'));
+                const targetBtn = currentBtns[solution.index];
+                if (targetBtn && !targetBtn.disabled) {
+                    targetBtn.click();
+                    window.__lastHumanCheckSolved = {
+                        prompt,
+                        pickIndex: solution.index,
+                        matchedName: solution.name,
+                        timestamp: Date.now()
+                    };
+                    console.log(`[PmheeAether Anti-Bot] ✅ ตอบเช็คผู้เล่นสำเร็จ! เลือกข้อ ${solution.index + 1}: ${solution.name}`);
+                    if (window.showHudToast) {
+                        window.showHudToast(`🤖 ตอบเช็คผู้เล่น: ${solution.name} (ข้อ ${solution.index + 1})`, 'success');
+                    }
+                }
+            } catch (err) {
+                console.error('[PmheeAether Anti-Bot] Error clicking answer:', err);
+            } finally {
+                setTimeout(() => { isAutoAnsweringHumanCheck = false; }, 3000);
+            }
+        }, delay);
+    }
+
+    // Attach periodic watcher for human check
+    setInterval(checkAndAutoAnswerHumanCheck, 700);
+
+    // Also preload catalog on idle
+    setTimeout(() => { getInGameCatalog(); }, 4000);
 
     // ==========================================
     // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
     // ==========================================
     // Put back the farm map that the walk to Valkyrie replaced with the capital
-    function restoreFarmMapAfterJobChange() {
+    // Systems that need the character in the capital right now (job change, weight scrolls, event pet, gear
+    // set...). The farm map is put back only when the last of them is done — before, the first one to finish
+    // sent the character back to the farm while another was still at work in town.
+    const TOWN_NEEDS_KEY = 'pelican_town_needs';
+    const townNeeds = () => { try { return JSON.parse(localStorage.getItem(TOWN_NEEDS_KEY) || '{}') || {}; } catch (e) { return {}; } };
+    const saveTownNeeds = n => { try { localStorage.setItem(TOWN_NEEDS_KEY, JSON.stringify(n)); } catch (e) {} };
+    window.needTown = function (who, minutes = 15) {
+        const n = townNeeds();
+        n[who] = Date.now() + minutes * 60000;
+        saveTownNeeds(n);
+    };
+    window.otherTownNeeds = function (who) {
+        const n = townNeeds(), now = Date.now();
+        return Object.keys(n).filter(k => k !== who && n[k] > now);
+    };
+    function restoreFarmMapAfterJobChange(who = 'job') {
+        const n = townNeeds(), now = Date.now();
+        delete n[who];
+        Object.keys(n).forEach(k => { if (!(n[k] > now)) delete n[k]; });
+        saveTownNeeds(n);
+        if (Object.keys(n).length) {
+            console.log(`%c[PmheeAether Plan] 🏛️ ${who} เสร็จแล้ว แต่ยังมีงานในเมือง (${Object.keys(n).join(', ')}) -> ยังไม่กลับแมพฟาร์ม`, 'color: #94a3b8;');
+            return;
+        }
         let map = null;
         try { map = localStorage.getItem('pelican_job_return_map'); localStorage.removeItem('pelican_job_return_map'); } catch (e) {}
         if (!map || !/เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) return;
@@ -385,7 +639,7 @@
 
         // 1. Already this class (or a later class of the same line): nothing to do
         if (planClassLineage(curClass).includes(targetClean)) {
-            restoreFarmMapAfterJobChange();
+            restoreFarmMapAfterJobChange('job');
             return true;
         }
 
@@ -407,7 +661,7 @@
             return false;
         }
         // Job change under way: the farm watchdog must not walk the character out of the capital meanwhile
-        window.__planJobChangeHoldUntil = Date.now() + 30000;
+        window.__planJobChangeHoldUntil = Date.now() + 30000; if (typeof window.needTown === 'function') window.needTown('job');
 
         // 5. ตรวจสอบแมพ: ต้องอยู่ที่เมืองหลวงโซลเฮเวน
         const curMap = (typeof getCurrentMapName === 'function') ? getCurrentMapName() : (char.map || '');
@@ -419,7 +673,7 @@
                 if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) {
                     try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {}
                 }
-                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                window.planTripToCapital('job');
             }
             return false;
         }
@@ -484,7 +738,7 @@
 
         console.log(`%c[PmheeAether Plan] 💬 พูดคุยกับ NPC Valkyrie (${valk.key}, ห่าง ${dist}px — เซิร์ฟเวอร์เดินไปให้)...`, 'color: #a855f7; font-weight: bold;');
         room.send('npc_talk', { npcKey: valk.key });
-        window.__planJobChangeHoldUntil = Date.now() + 60000;
+        window.__planJobChangeHoldUntil = Date.now() + 60000; if (typeof window.needTown === 'function') window.needTown('job');
         let dl = await waitDialog('', 40000);   // includes the walk over (far side of the river takes a while)
         if (!dl) console.warn(`[PmheeAether Plan] ⚠️ คุยกับ Valkyrie แล้วหน้าต่างไม่ขึ้น (ห่าง ${dist}px)`);
 
@@ -519,7 +773,7 @@
                     if (readDialog()) closeDialog();
                     window.__jobChangeFails = 0;
                     window.__planJobChangeHoldUntil = 0;
-                    restoreFarmMapAfterJobChange();
+                    restoreFarmMapAfterJobChange('job');
                     return true;
                 }
             }
@@ -538,7 +792,7 @@
             window.__planJobChangeHoldUntil = Date.now() + (waitSec + 30) * 1000;
         } else {
             window.__planJobChangeHoldUntil = 0;
-            restoreFarmMapAfterJobChange();
+            restoreFarmMapAfterJobChange('job');
         }
         console.warn(`[PmheeAether Plan] ⚠️ เปลี่ยนอาชีพเป็น "${targetClass}" ยังไม่สำเร็จ (ครั้งที่ ${window.__jobChangeFails}) — จะลองใหม่ใน ${waitSec} วิ (ดูตัวเลือกของ Valkyrie ใน log ด้านบน)`);
         return false;
@@ -5623,6 +5877,73 @@
         console.log(`%c[PmheeAether] 🦋 ใช้วาร์ป Butterfly Wing (sendInvUse Slot: ${slot})!`, 'color: #38bdf8; font-weight: bold;');
     };
 
+    // Back to the capital for every system that needs town (shop trip, money consolidation, plan steps, gear set):
+    // a Butterfly Wing when the bag has one, else the world map's "เดินไปที่นี่" (a free walk, never a paid warp).
+    // Returns 'here' | 'wing' | 'wing-wait' | 'walk' | 'walking'.
+    const CAPITAL_MAP = 'เมืองหลวงโซลเฮเวน';
+    const isCityMapName = m => /เมืองหลวง|โซลเฮเวน/.test(String(m || ''));
+    window.isInCapital = () => isCityMapName(typeof getCurrentMapName === 'function' ? getCurrentMapName() : '');
+    window.goToCapital = function (why = '', opts = {}) {
+        if (window.isInCapital()) { window.__goHomeWingFails = 0; return 'here'; }
+        const now = Date.now();
+        if (window.__isNavigating && isCityMapName(window.__targetFarmMap)) return 'walking';
+        if (now - (window.__goHomeWingAt || 0) < 10000) return 'wing-wait';   // a wing was just used: let it land
+        if (window.__goHomeWingAt && now - window.__goHomeWingAt < 60000) window.__goHomeWingFails = (window.__goHomeWingFails || 0) + 1;
+        const wings = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(90311) : 0;
+        if (wings > 0 && !opts.noWing && (window.__goHomeWingFails || 0) < 2) {
+            window.__goHomeWingAt = now;
+            console.log(`%c[PmheeAether] 🦋 ${why ? why + ' -> ' : ''}กลับเมืองหลวงด้วย Butterfly Wing (มี ${wings} ใบ)`, 'color: #38bdf8; font-weight: bold;');
+            window.useButterflyWing();
+            return 'wing';
+        }
+        window.__goHomeWingAt = 0;
+        window.__goHomeWingFails = 0;
+        console.log(`%c[PmheeAether] 🗺️ ${why ? why + ' -> ' : ''}${wings > 0 ? 'ใช้ Butterfly Wing ไม่ได้' : 'ไม่มี Butterfly Wing'} -> เปิดแผนที่แล้วเดินกลับเมืองหลวง (ไม่เสียค่าวาร์ป)`, 'color: #f59e0b; font-weight: bold;');
+        window.walkToTargetMap(CAPITAL_MAP, true, { walkOnly: true, allowDuringConsolidation: !!opts.allowDuringConsolidation });
+        return 'walk';
+    };
+    // Plan systems (job change, weight scrolls, event pet, gear set): the capital becomes the target map for the
+    // stay (so nothing walks the character out) and the farm map is remembered for restoreFarmMapAfterJobChange
+    window.planTripToCapital = function (who) {
+        if (window.isInCapital()) return 'here';
+        const farm = window.__targetFarmMap || '';
+        if (farm && !isCityMapName(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
+        window.needTown(who || 'plan');
+        window.__planJobChangeHoldUntil = Math.max(window.__planJobChangeHoldUntil || 0, Date.now() + 120000);
+        if (!window.__isNavigating) {
+            window.__targetFarmMap = CAPITAL_MAP;
+            try { localStorage.setItem('pelican_farm_map', CAPITAL_MAP); } catch (e) {}
+        }
+        return window.goToCapital(who);
+    };
+    // Money consolidation: get to the capital however possible and wait for it (the farm map is kept)
+    const KEEP_FARM_KEY = 'pelican_gohome_keep_farm';
+    window.keepFarmMapForTrip = function () {
+        const farm = window.__targetFarmMap || '';
+        if (farm && !isCityMapName(farm)) { try { localStorage.setItem(KEEP_FARM_KEY, farm); } catch (e) {} }
+    };
+    window.restoreKeptFarmMap = function () {
+        let keep = null;
+        try { keep = localStorage.getItem(KEEP_FARM_KEY); localStorage.removeItem(KEEP_FARM_KEY); } catch (e) {}
+        if (keep && !isCityMapName(keep) && isCityMapName(window.__targetFarmMap)) {
+            window.__targetFarmMap = keep;
+            try { localStorage.setItem('pelican_farm_map', keep); } catch (e) {}
+        }
+    };
+    window.ensureInCapital = async function (timeoutMs = 360000) {
+        if (window.isInCapital()) return { success: true, already: true };
+        window.keepFarmMapForTrip();
+        const start = Date.now();
+        let how = window.goToCapital('รวมเงิน', { allowDuringConsolidation: true }), kickAt = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            await new Promise(r => setTimeout(r, 1000));
+            if (window.isInCapital()) return { success: true, how };
+            if (!window.__isConsolidating) return { success: false, error: 'ยกเลิกแล้ว (ไม่ได้รวมเงินอยู่)' };   // never pulls a released character back
+            if (Date.now() - kickAt > 12000 && !window.__isNavigating) { how = window.goToCapital('รวมเงิน', { allowDuringConsolidation: true }); kickAt = Date.now(); }
+        }
+        return { success: false, error: 'ไปไม่ถึงเมืองหลวง (หมดเวลารอ)' };
+    };
+
     window.useButterflyWing = function() {
         console.log('%c[PmheeAether] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
@@ -6205,6 +6526,10 @@
                             console.warn(`[PmheeAether Shop] 🛑 "${itemName}" เป็นหมวด "${rowCat}" ไม่ใช่ "${catName}" -> ข้าม`);
                             return;
                         }
+                        if (rowItem && typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(rowItem.raw || rowItem)) {
+                            console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ใส่ตามแผน: "${itemName}"`);
+                            return;
+                        }
 
                         // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
@@ -6388,7 +6713,7 @@
                     const b = slot !== null ? bySlot[slot] : null;
                     const raw = b ? (b.raw || b) : null;
                     if (!raw || !types.includes(raw.type)) return;
-                    if (Array.isArray(window.__gearKeepItemIds) && window.__gearKeepItemIds.includes(Number(raw.itemId))) {
+                    if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(raw)) {
                         console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}"`);
                         return;
                     }
@@ -7027,15 +7352,19 @@
                 return;
             }
 
-            console.log(`%c[PmheeAether Shop] ⚡ ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) -> กำลังใช้วาร์ป Butterfly Wing...`, 'color: #38bdf8; font-weight: bold;');
-            window.useButterflyWing();
+            const noWing = typeof window.getBagItemCount === 'function' && window.getBagItemCount(90311) < 1;
+            if (noWing) console.log(`%c[PmheeAether Shop] 🗺️ ไม่มี Butterfly Wing -> เปิดแผนที่แล้วเดินกลับเมืองหลวง`, 'color: #f59e0b; font-weight: bold;');
+            else {
+                console.log(`%c[PmheeAether Shop] ⚡ ตัวละครอยู่ที่ "${getCurrentMapName()}" (ไม่ใช่เมืองหลวง) -> กำลังใช้วาร์ป Butterfly Wing...`, 'color: #38bdf8; font-weight: bold;');
+                window.useButterflyWing();
+            }
 
             if (window.__shopWarpInterval) {
                 clearInterval(window.__shopWarpInterval);
                 window.__shopWarpInterval = null;
             }
 
-            let warpAttempts = 0;
+            let warpAttempts = noWing ? 3 : 0;
             let walkFallbackStarted = false;
             window.__shopWarpInterval = setInterval(() => {
                 if (!window.__isBotRunning) {
@@ -7078,13 +7407,17 @@
                     walkFallbackStarted = true;
                     console.log(`%c[PmheeAether Shop] 🚶 ใช้ Butterfly Wing ไม่ได้ (ไม่มีปีกในตัว?) -> เดินทางกลับเมืองหลวงแทน`, 'color: #f59e0b; font-weight: bold;');
                     window.__shoppingSince = Date.now();
-                    window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                    window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false, { walkOnly: true });
                 } else if (walkFallbackStarted && warpAttempts < 180) {
                     // walking: keep waiting for the capital (checked at the top of this loop) — up to 6 minutes
                 } else {
                     clearInterval(window.__shopWarpInterval);
                     window.__shopWarpInterval = null;
                     console.error(`%c[PmheeAether Shop Guard] ❌ วาร์ปกลับเมืองไม่สำเร็จหลังจากลอง 3 ครั้ง (แมพยังคงเป็น "${getCurrentMapName()}")! ยกเลิก Routine ร้านค้าทั้งหมด เพื่อป้องกันการซื้อของจนน้ำหนักเกินในแมพมอนสเตอร์`, 'color: #ef4444; font-weight: bold;');
+                    if (walkFallbackStarted && /เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '') && currentFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(currentFarmMap)) {
+                        window.__targetFarmMap = currentFarmMap;
+                        try { localStorage.setItem('pelican_farm_map', currentFarmMap); } catch (e) {}
+                    }
                     window.__isShopping = false;
                 }
             }, 2000);
@@ -7222,13 +7555,13 @@
     } catch (e) {}
     window.__safeMap = null;
 
-    window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
-        if (window.__isConsolidating) {
+    window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false, opts = {}) {
+        if (window.__isConsolidating && !(opts && opts.allowDuringConsolidation)) {
             console.log('%c[PmheeAether] 🚫 อยู่ระหว่างขั้นตอนรวมเงิน (Consolidation) ระงับการเดินไปแมพฟาร์ม', 'color: #f59e0b;');
             return;
         }
         if (!mapName) mapName = window.__targetFarmMap;
-        if (window.__planScriptEnabled && window.__currentScriptPlan && mapName === window.__targetFarmMap && typeof window.planMapForNow === 'function') {
+        if (window.__planScriptEnabled && window.__currentScriptPlan && mapName === window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(mapName || '') && typeof window.planMapForNow === 'function') {
             const planMap = window.planMapForNow();
             if (planMap && planMap !== mapName) {
                 console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${mapName}")`, 'color: #38bdf8; font-weight: bold;');
@@ -7277,7 +7610,8 @@
             return;
         }
 
-        const saveWarp = window.isWarpTooExpensive();
+        const saveWarp = window.isWarpTooExpensive() || !!(opts && opts.walkOnly);
+        window.__navWalkOnly = !!(opts && opts.walkOnly);
         function clickWalkButton() {
             // เงินต่ำกว่าที่ตั้งไว้: เดินผ่านแผนที่โลก (ฟรี) ก่อน — วาร์ปเฉพาะเมื่อเดินจากตรงนี้ไม่ได้
             if (saveWarp) {
@@ -7285,7 +7619,7 @@
                 if (freeWalk && !freeWalk.disabled) {
                     navClicked = true;
                     triggerClick(freeWalk);
-                    console.log('%c[PmheeAether Warp] 💸 เงินต่ำกว่าที่ตั้งไว้ -> เดินไปเอง (ไม่เสียค่าวาร์ป)', 'color: #f59e0b; font-weight: bold;');
+                    console.log(`%c[PmheeAether Warp] 💸 ${window.__navWalkOnly ? 'เดินกลับเมืองผ่านแผนที่' : 'เงินต่ำกว่าที่ตั้งไว้'} -> เดินไปเอง (ไม่เสียค่าวาร์ป)`, 'color: #f59e0b; font-weight: bold;');
                     setTimeout(() => { if (isWorldMapOpen()) dispatchKeyAll('m', 'KeyM', 77); }, 1500);
                     startArrivalWatcher(mapName);
                     return true;
@@ -7392,6 +7726,11 @@
                     if (clickWalkButton() || walkTries >= 8) {
                         clearInterval(window.__walkClickInterval);
                         window.__walkClickInterval = null;
+                        if (!navClicked && saveWarp && navLive()) {
+                            console.warn('[PmheeAether] ⚠️ ไม่พบปุ่ม "เดินไปที่นี่" ในแผนที่ — ยกเลิกรอบนี้ ระบบจะลองเดินทางใหม่');
+                            window.__isNavigating = false;
+                            if (isWorldMapOpen()) dispatchKeyAll('m', 'KeyM', 77);
+                        }
                     }
                 }, 300);
 
@@ -7475,6 +7814,7 @@
             }
         }, 1500);
 
+        const longWalk = /เมืองหลวง|โซลเฮเวน/.test(targetMap) && window.__navWalkOnly;   // walking home without a wing
         window.__arrivalTimeout = setTimeout(() => {
             if (window.__isNavigating) {
                 stopArrivalWatcher();
@@ -7482,7 +7822,7 @@
                 window.__isNavigating = false;
                 window.__isRecovering = false;
             }
-        }, 120000);
+        }, longWalk ? 480000 : 120000);
     }
 
 
@@ -7492,7 +7832,7 @@
     let lastAutoActivateAttempt = 0;
     let autoActivateFailCount = 0;
     let lastPeriodicWeightRefresh = 0;
-    let lastCityToFarmAttempt = 0;
+    let lastCityToFarmAttempt = 0, lastTownSweepAt = 0;
     let navStaleSince = 0;
 
     setInterval(() => {
@@ -7655,6 +7995,16 @@
                     window.activateInGameAuto();
                 }
             }
+        }
+
+        // 5.9 Town stay of a plan system that is gone (plan switched off / changed, need expired): the farm map
+        //     the trip remembered comes back once no system needs town any more
+        if (inCity && Date.now() - lastTownSweepAt > 30000 && !window.__isShopping && !window.__isNavigating && !window.__isConsolidating
+            && !window.__isGearRefining && !((window.__planJobChangeHoldUntil || 0) > Date.now()) && /เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) {
+            lastTownSweepAt = Date.now();
+            let ret = null;
+            try { ret = localStorage.getItem('pelican_job_return_map'); } catch (e) {}
+            if (ret && !window.otherTownNeeds('').length) restoreFarmMapAfterJobChange('sweep');
         }
 
         // 6. ตรวจสอบกรณีตัวละครตกค้างอยู่ในเมืองหลวง (City-to-Farm Auto-Dispatch)
@@ -9726,8 +10076,8 @@
                 if (remainingSlots <= 0) break;
 
                 const norm = rule.itemName.trim().toLowerCase();
-                const gearKeep = Array.isArray(window.__gearKeepItemIds) ? window.__gearKeepItemIds : [];
-                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKeep.includes(Number(it.id ?? it.itemId)));
+                const gearKept = it => typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it.raw || it);
+                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKept(it));
                 if (matchingItems.length === 0) continue;
 
                 let totalQty = 0;
@@ -12421,11 +12771,28 @@
 
     // Market search for plan purchases. The bot's own sniper/auto-buy is paused meanwhile so these
     // results can never trigger an unrelated automatic purchase.
-    async function planMarketSearch(room, q, term, page = 0) {
-        const cfg = window.__marketFilterConfig || {};
-        const saved = { autoBuy: cfg.autoBuy, sniperAlert: cfg.sniperAlert };
+    // The bot's sniper / auto-buy is paused during plan and Manager market searches (their results must never
+    // trigger a purchase). A depth counter: back-to-back or overlapping searches restore it only at the end.
+    window.pauseSniper = function () {
+        const cfg = window.__marketFilterConfig || (window.__marketFilterConfig = {});
+        if (!window.__sniperPauseDepth) window.__sniperSaved = { autoBuy: cfg.autoBuy, sniperAlert: cfg.sniperAlert };
+        window.__sniperPauseDepth = (window.__sniperPauseDepth || 0) + 1;
         cfg.autoBuy = false;
         cfg.sniperAlert = false;
+    };
+    window.resumeSniper = function (delayMs = 400) {
+        setTimeout(() => {
+            window.__sniperPauseDepth = Math.max(0, (window.__sniperPauseDepth || 0) - 1);
+            if (window.__sniperPauseDepth === 0 && window.__sniperSaved) {
+                const cfg = window.__marketFilterConfig || {};
+                cfg.autoBuy = window.__sniperSaved.autoBuy;
+                cfg.sniperAlert = window.__sniperSaved.sniperAlert;
+                window.__sniperSaved = null;
+            }
+        }, delayMs);
+    };
+    async function planMarketSearch(room, q, term, page = 0) {
+        window.pauseSniper();
         try {
             const filters = { q, sort: 'price_asc', page };
             if (term) { filters.affix = term.type; if (term.min) filters.affixMin = term.min; }
@@ -12437,7 +12804,7 @@
             });
             return (res && Array.isArray(res.listings)) ? res.listings : [];
         } finally {
-            setTimeout(() => { cfg.autoBuy = saved.autoBuy; cfg.sniperAlert = saved.sniperAlert; }, 400);
+            window.resumeSniper();
         }
     }
 
@@ -12637,7 +13004,7 @@
         weightShopBackoffUntil = Date.now() + mins * 60000;
         console.warn(`[PmheeAether Plan] 📦 ซื้อ Weight Limit Scroll ไม่ได้ (${r === 'not-sold' ? 'ไม่มีร้าน NPC ในเมืองที่ขาย' : 'เงินไม่พอ'}) -> กลับไปฟาร์มก่อน ลองใหม่ใน ${mins} นาที`);
         window.__planJobChangeHoldUntil = 0;
-        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('weight');
     };
     const planSleep = ms => new Promise(r => setTimeout(r, ms));
     const planBag = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
@@ -12704,7 +13071,7 @@
         const finish = msg => {
             console.log(`%c[PmheeAether Plan] 📦 Weight Limit Scroll: ${msg}`, 'color: #22c55e; font-weight: bold;');
             window.__planJobChangeHoldUntil = 0;
-            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('weight');
             return 'done';
         };
         const real = window.getWeightScrollsUsed();
@@ -12758,14 +13125,14 @@
                 if (window.__isNavigating || window.__isWalkingToMap) return 'pending';
                 const farm = window.__targetFarmMap || '';
                 if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
-                window.__planJobChangeHoldUntil = Date.now() + 120000;
+                window.__planJobChangeHoldUntil = Date.now() + 120000; if (typeof window.needTown === 'function') window.needTown('weight');
                 console.log(`%c[PmheeAether Plan] 📦 ต้องซื้อ Weight Limit Scroll อีก ${target - used} อัน -> กลับเมืองหลวง`, 'color: #f59e0b; font-weight: bold;');
-                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                window.planTripToCapital('weight');
                 return 'pending';
             }
             if (Date.now() - weightShopTriedAt < 60000) return 'pending';
             weightShopTriedAt = Date.now();
-            window.__planJobChangeHoldUntil = Date.now() + 60000;
+            window.__planJobChangeHoldUntil = Date.now() + 60000; if (typeof window.needTown === 'function') window.needTown('weight');
             // Uses unknown (no counter here and max weight can't tell, e.g. Pack Mule): buy 1 first — if the game
             // refuses it the quota is full and only that one scroll was spent
             const buyQty = (real === null && !counterKnown) ? 1 : target - used;
@@ -12808,7 +13175,7 @@
             try { localStorage.removeItem(WEIGHT_TOPUP_KEY); } catch (e) {}
             console.log(`%c[PmheeAether Plan] ⚖️ เช็คน้ำหนัก: ${msg}`, 'color: #22c55e; font-weight: bold;');
             window.__planJobChangeHoldUntil = 0;
-            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('topup');
             return false;
         };
         if (limit >= req.target) return done(`น้ำหนักสูงสุด ${limit.toLocaleString()} ถึงเป้า ${req.target.toLocaleString()} แล้ว`);
@@ -12864,20 +13231,20 @@
                 if (window.__isNavigating || window.__isWalkingToMap) return true;
                 const farm = window.__targetFarmMap || '';
                 if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
-                window.__planJobChangeHoldUntil = Date.now() + 120000;
+                window.__planJobChangeHoldUntil = Date.now() + 120000; if (typeof window.needTown === 'function') window.needTown('topup');
                 console.log(`%c[PmheeAether Plan] ⚖️ ต้องซื้อ Weight Limit Scroll ${need} อัน -> กลับเมืองหลวง`, 'color: #f59e0b; font-weight: bold;');
-                window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+                window.planTripToCapital('topup');
                 return true;
             }
             if (Date.now() - weightTopUpShopAt < 60000) return true;
             weightTopUpShopAt = Date.now();
-            window.__planJobChangeHoldUntil = Date.now() + 60000;
+            window.__planJobChangeHoldUntil = Date.now() + 60000; if (typeof window.needTown === 'function') window.needTown('topup');
             const r = await planBuyFromNpcShop(WEIGHT_SCROLL_ID, need, 0);
             if (r === 'no-money') {
                 // go back to farming; try again in 5 minutes
                 weightTopUpNoMoneyAt = Date.now();
                 window.__planJobChangeHoldUntil = 0;
-                if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+                if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('topup');
                 return false;
             }
             if (r === 'not-sold') { weightShopGiveUp(r); return false; }
@@ -12896,7 +13263,7 @@
     const GEAR_ACC = ['accessory-left', 'accessory-right'];
     const GEAR_TRIP_KEY = 'pelican_gear_trip';   // kept in localStorage: an Auto-update refresh mid-trip must still go back
     let gearBusy = false, gearNextTry = 0, gearWaitLog = '', gearWaitLogAt = 0, gearSmithBackoffUntil = 0;
-    const gearEquipTries = {};
+    const gearEquipTries = {}, gearEquipHistory = {}, gearWasWorn = {};
     const gearName = it => String((it && it.name) || '').trim().toLowerCase();
     const gearChar = () => (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
     const gearKey = suffix => {
@@ -12952,7 +13319,7 @@
         for (let i = 0; i < steps.length; i++) {
             const st = steps[i];
             if (!st || !st.slot || !st.itemName || gearIsSkipped(sk, st)) continue;
-            if (gearStepDone(st, equipment, steps)) { delete gearEquipTries[st.id]; continue; }
+            if (gearStepDone(st, equipment, steps)) { delete gearEquipTries[st.id]; if (st.kind === 'equip') gearWasWorn[st.id] = true; continue; }
             const superseded = steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== gearName({ name: st.itemName }) && gearWorn(x, equipment, steps));
             if (superseded) continue;
             if (st.kind === 'refine' && !steps.slice(0, i).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) === gearName({ name: st.itemName }))) continue;
@@ -12963,12 +13330,10 @@
 
     const gearGoTown = why => {
         if (window.__isNavigating || window.__isWalkingToMap) return;
-        const farm = window.__targetFarmMap || '';
-        if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
-        window.__planJobChangeHoldUntil = Date.now() + 120000;
+        window.__planJobChangeHoldUntil = Date.now() + 120000; if (typeof window.needTown === 'function') window.needTown('gear');
         try { localStorage.setItem(GEAR_TRIP_KEY, String(Date.now())); } catch (e) {}
         gearLog(`🏙️ ${why} -> กลับเมืองหลวงไปหา Blacksmith`);
-        window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+        window.planTripToCapital('gear');
     };
     // Back to the farm map after a town trip of the gear set (also after a page refresh during the trip)
     const gearBackToFarm = () => {
@@ -12977,7 +13342,7 @@
         if (!trip) return;
         try { localStorage.removeItem(GEAR_TRIP_KEY); } catch (e) {}
         window.__planJobChangeHoldUntil = 0;
-        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+        if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('gear');
     };
     const gearCloseNpc = () => {
         const x = document.querySelector('.refine-window .win-close, .shop-window .win-close, .npc-dialog .win-close');
@@ -13069,6 +13434,7 @@
                 const before = gearOreCount(ore.id);
                 const zenyBefore = Number(gearChar().zeny) || 0;
                 gearLog(`🛒 ซื้อ ${ore.name} x${best.qty} ราคา ${best.price.toLocaleString()} z (${Math.round(best.price / best.qty).toLocaleString()} z/ก้อน) จากตลาด — ${best.l.sellerName || '?'}`, '#10b981');
+                gearSet(paidKey, Date.now());   // counts as paid if the page reloads before we know
                 room.send('market', { op: 'buy', listingId: Number(best.l.listingId), price: best.price });
                 await planSleep(1200);
                 room.send('market', { op: 'collect_all' });   // purchases wait in the market "รับของ" tab
@@ -13077,11 +13443,14 @@
                 if (got <= 0) {
                     // paid (zeny went down) but not delivered: remember it; not paid (someone bought it first): just stop
                     if ((Number(gearChar().zeny) || 0) < zenyBefore) {
-                        gearSet(paidKey, Date.now());
                         gearLog(`⚠️ ซื้อ ${ore.name} แล้วแต่ยังไม่เข้ากระเป๋า — หยุดซื้อรอบนี้ (กระเป๋าเต็ม/น้ำหนักเกิน?)`, '#ef4444');
-                    } else gearLog(`ℹ️ ซื้อ ${ore.name} รายการนี้ไม่สำเร็จ (มีคนซื้อตัดหน้า?) — ลองใหม่รอบหน้า`, '#94a3b8');
+                    } else {
+                        try { localStorage.removeItem(paidKey); } catch (e) {}
+                        gearLog(`ℹ️ ซื้อ ${ore.name} รายการนี้ไม่สำเร็จ (มีคนซื้อตัดหน้า?) — ลองใหม่รอบหน้า`, '#94a3b8');
+                    }
                     break;
                 }
+                try { localStorage.removeItem(paidKey); } catch (e) {}
                 bought += got;
                 spent += best.price;
                 await planSleep(600);
@@ -13130,6 +13499,10 @@
     }
 
     async function gearRefineStep(step, worn, zeny, steps) {
+        window.__isGearRefining = true;   // the shop trip / page reloads wait while the gear set is at work
+        try { return await gearRefineStepInner(step, worn, zeny, steps); } finally { window.__isGearRefining = false; }
+    }
+    async function gearRefineStepInner(step, worn, zeny, steps) {
         const room = getPlanRoom();
         if (!room) return true;
         // Every way out that is not "refined just now" waits a while AND goes back to farming
@@ -13173,8 +13546,8 @@
             if (!npcCount) return true;   // capital NPCs not loaded yet
             return giveUp(10, '⚠️ ไม่พบ NPC Blacksmith ในเมืองหลวง -> กลับไปฟาร์มก่อน ลองใหม่ใน 10 นาที');
         }
-        window.__isGearRefining = true;
-        window.__planJobChangeHoldUntil = Date.now() + 60000;
+        window.__planJobChangeHoldUntil = Date.now() + 60000; if (typeof window.needTown === 'function') window.needTown('gear');
+        try { localStorage.setItem(GEAR_TRIP_KEY, localStorage.getItem(GEAR_TRIP_KEY) || String(Date.now())); } catch (e) {}   // goes back to the farm when done
         try {
             // 1. Open the refine window and find this item (the server sends the list with rates and costs)
             const r = await gearSmithOption(room, key, o => /ตีบวก/.test(o) && !/ซื้อ|วิธี|เสริมพลัง|สุ่ม/.test(o), 'refine');
@@ -13240,11 +13613,46 @@
         }
     }
 
+    // Items the gear set still needs: ores + Blessing of refine steps not done, and the items of equip steps not
+    // worn yet (with the required options). The NPC sell trip and the auto market sell skip them.
+    function gearKeepIds() {
+        const plan = window.__currentScriptPlan || {};
+        const steps = (plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
+        const eq = gearChar().equipment || {};
+        const sk = gearSkipped();
+        const keep = new Set();
+        steps.forEach(x => {
+            if (!x || x.kind !== 'refine' || gearIsSkipped(sk, x) || gearStepDone(x, eq, steps)) return;
+            const w = gearWorn(x, eq, steps);
+            for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) keep.add(gearOreFor(x.slot, to).id);
+            if (x.blessing !== false) keep.add(90208);   // Blacksmith Blessing
+        });
+        return [...keep];
+    }
+    let gearKeepMemo = { at: 0, plan: null, ids: [], eq: null, sk: null };
+    window.isGearKeptItem = function (raw) {
+        try {
+            const plan = window.__currentScriptPlan || {};
+            const steps = (plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
+            if (!raw || !steps.length) return false;
+            if (Date.now() - gearKeepMemo.at > 1000 || gearKeepMemo.plan !== plan) {
+                gearKeepMemo = { at: Date.now(), plan, ids: gearKeepIds(), eq: gearChar().equipment || {}, sk: gearSkipped() };
+            }
+            if (gearKeepMemo.ids.includes(Number(raw.itemId))) return true;
+            const eq = gearKeepMemo.eq;
+            const name = gearName(raw);
+            return steps.some((st, i) => st && st.kind === 'equip' && gearName({ name: st.itemName }) === name
+                && !gearStepDone(st, eq, steps)
+                && !steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== name && gearWorn(x, eq, steps))
+                && itemPassesPlanOptions(raw, parsePlanOptionFilter(st.options)));
+        } catch (e) { return false; }
+    };
+
     // true = working on the gear set this round (other plan work waits), false = nothing to do / waiting
     window.runGearPlanStep = async function () {
         const plan = window.__currentScriptPlan;
         const gp = plan && plan.gearPlan;
-        if (!gp || !Array.isArray(gp.steps) || !gp.steps.length) { window.__gearKeepItemIds = []; gearBackToFarm(); return false; }
+        if (!gp || !Array.isArray(gp.steps) || !gp.steps.length) { gearBackToFarm(); return false; }
         if (gearBusy || Date.now() < gearNextTry) return false;
         const lv = readPlanLevels();
         if (!lv || !lv.cls) return false;
@@ -13252,18 +13660,6 @@
         const start = String(gp.startClass || 'novice').toLowerCase();
         if (!lineage.includes(start)) { gearWait(`เซ็ตอุปกรณ์เริ่มเมื่อเป็น ${start} (ตอนนี้ ${lv.cls})`); gearBackToFarm(); return false; }
         const { index, step, total, steps } = window.getGearPlanStatus();
-        {
-            const keep = new Set();
-            const eq = gearChar().equipment || {};
-            const sk = gearSkipped();
-            if (index >= 0) steps.slice(index).forEach(x => {
-                if (!x || x.kind !== 'refine' || gearIsSkipped(sk, x)) return;
-                const w = gearWorn(x, eq, steps);
-                for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) keep.add(gearOreFor(x.slot, to).id);
-                if (x.blessing !== false) keep.add(90208);   // Blacksmith Blessing
-            });
-            window.__gearKeepItemIds = [...keep];
-        }
         if (!step) { gearBackToFarm(); return false; }
         const ch = gearChar();
         const zeny = Number(ch.zeny) || 0;
@@ -13285,13 +13681,23 @@
                 return false;
             }
             const room = getPlanRoom();
-            if (room) room.send('market', { op: 'collect_all' });   // anything bought earlier waits in "รับของ"
+            if (room) { room.send('market', { op: 'collect_all' }); await planSleep(1500); }   // bought earlier: lands first
             // equip: from the bag, else buy on the market for up to the step's amount
             const terms = parsePlanOptionFilter(step.options);
             const want = gearName({ name: step.itemName });
             const inBag = planBag().filter(it => gearName(it) === want && itemPassesPlanOptions(it, terms) && (!it.levelReq || it.levelReq <= lv.base))
                 .sort((a, b) => (Number(b.refine) || 0) - (Number(a.refine) || 0))[0];
             if (inBag && room) {
+                // Equipped again and again (something else takes it off: a plan equip action, a two-handed weapon
+                // vs the off-hand step...): stop fighting for an hour
+                const hist = (gearEquipHistory[step.id] || []).filter(t => Date.now() - t < 30 * 60000);
+                if (gearWasWorn[step.id]) { hist.push(Date.now()); gearWasWorn[step.id] = false; }   // worn before, taken off since
+                gearEquipHistory[step.id] = hist;
+                if (hist.length > 4) {
+                    gearEquipHistory[step.id] = [];
+                    gearSkip(step, 'ใส่แล้วถูกถอดออกซ้ำๆ (มีระบบอื่นเปลี่ยนของในช่องนี้ / อาวุธสองมือ?)', 60);
+                    return false;
+                }
                 const tries = gearEquipTries[step.id] = (gearEquipTries[step.id] || 0) + 1;
                 if (tries > 6) {
                     gearEquipTries[step.id] = 0;
@@ -13307,13 +13713,19 @@
             }
             // Paid for it already (not delivered yet: bag full / refresh between buy and collect)? Never pay twice.
             const boughtKey = gearKey('bought_' + step.id);
+            // a buy that was under way when the page reloaded counts as paid until proven otherwise
+            const pendingAt = Number(gearGet(boughtKey + '_pending', 0)) || 0;
+            if (pendingAt && Date.now() - pendingAt < 5 * 60000) gearSet(boughtKey, pendingAt);
+            if (pendingAt) { try { localStorage.removeItem(boughtKey + '_pending'); } catch (e) {} }
             if (Date.now() - (Number(gearGet(boughtKey, 0)) || 0) < 30 * 60000) {
                 gearWait(`${label} — ซื้อไปแล้ว รอรับของจากตลาด (ไม่ซื้อซ้ำภายใน 30 นาที)`);
                 gearNextTry = Date.now() + 60000;
                 return false;
             }
             gearLog(`🛒 ${label} — เงินถึง ${need.toLocaleString()} z แล้ว หาซื้อในตลาด (ราคาไม่เกิน ${(need || zeny).toLocaleString()} z)`, '#38bdf8');
+            gearSet(boughtKey + '_pending', Date.now());
             const r = await window.findAndEquipItemByName(step.itemName, true, need || zeny, step.options || '');
+            try { localStorage.removeItem(boughtKey + '_pending'); } catch (e) {}
             if ((Number(gearChar().zeny) || 0) < zeny) gearSet(boughtKey, Date.now());
             gearNextTry = Date.now() + (r === 'done' ? 5000 : 60000);
             return r === 'done';
@@ -13644,7 +14056,7 @@
         const finish = why => {
             try { localStorage.setItem(doneKey, why || String(Date.now())); } catch (e) {}
             window.__planJobChangeHoldUntil = 0;
-            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange();
+            if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('pet');
         };
 
         // 0. The character already has this pet: nothing to do (the game refuses another egg of it)
@@ -13677,8 +14089,8 @@
             const farm = window.__targetFarmMap || '';
             if (farm && !/เมืองหลวง|โซลเฮเวน/.test(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
             console.log('%c[PmheeAether Plan] 🐣 Base Lv.15 แล้ว -> กลับเมืองหลวงไปรับไข่สัตว์เลี้ยงจาก Event Lily', 'color: #f59e0b; font-weight: bold;');
-            window.__planJobChangeHoldUntil = Date.now() + 120000;
-            if (typeof window.walkToTargetMap === 'function') window.walkToTargetMap('เมืองหลวงโซลเฮเวน', false);
+            window.__planJobChangeHoldUntil = Date.now() + 120000; if (typeof window.needTown === 'function') window.needTown('pet');
+            window.planTripToCapital('pet');
             eventPetNextTry = Date.now() + 15000;
             return true;
         }
@@ -13693,7 +14105,7 @@
             finish('no-npc');
             return false;
         }
-        window.__planJobChangeHoldUntil = Date.now() + 30000;
+        window.__planJobChangeHoldUntil = Date.now() + 30000; if (typeof window.needTown === 'function') window.needTown('pet');
         const readDialog = () => {
             const d = document.querySelector('.npc-dialog');
             if (!d) return null;
@@ -14317,10 +14729,9 @@
             return { success: true, alreadyHome: true, map: curMap };
         }
 
-        console.log('%c[PmheeAether Bwing] 🦋 ใช้วาร์ป Butterfly Wing เพื่อกลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
-        if (typeof window.useButterflyWing === 'function') {
-            window.useButterflyWing();
-        }
+        window.keepFarmMapForTrip();   // put back by restoreKeptFarmMap when the bot starts again
+        const how = window.goToCapital('รวมเงิน', { allowDuringConsolidation: true });
+        if (how === 'walk' || how === 'walking') return { success: false, walking: true, error: 'ไม่มี Butterfly Wing — กำลังเดินกลับเมืองหลวง' };
         
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {

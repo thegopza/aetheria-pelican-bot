@@ -467,17 +467,26 @@ function buildProfileCard(p) {
       <div class="human-check-alert-box" style="margin: 8px 12px; background: rgba(239, 68, 68, 0.2); border: 2px solid #ef4444; border-radius: 8px; padding: 10px; animation: pulse 1.5s infinite;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-weight: bold; color: #fca5a5; font-size: 13px;">🚨 เช็คผู้เล่น (Human Check)!</span>
-          <span style="font-size: 11px; color: #fecaca; background: #b91c1c; padding: 2px 6px; border-radius: 4px;">${escapeHTML(state.humanCheck.meta || 'ตอบด่วน')}</span>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            ${state.humanCheck.autoSolved ? `<span style="font-size: 11px; color: #a7f3d0; background: #065f46; padding: 2px 6px; border-radius: 4px; font-weight: bold;">🤖 ตอบอัตโนมัติแล้ว</span>` : ''}
+            <span style="font-size: 11px; color: #fecaca; background: #b91c1c; padding: 2px 6px; border-radius: 4px;">${escapeHTML(state.humanCheck.meta || 'ตอบด่วน')}</span>
+          </div>
         </div>
         <div style="font-size: 12px; color: #fff; margin-bottom: 8px; font-weight: 500;">
           ❓ ${escapeHTML(state.humanCheck.prompt || 'กรุณาเลือกรูปภาพให้ถูกต้อง')}
         </div>
         <div style="display: grid; grid-template-columns: repeat(${Math.min(4, (state.humanCheck.options || []).length || 4)}, 1fr); gap: 6px;">
-          ${((state.humanCheck.options && state.humanCheck.options.length) ? state.humanCheck.options : [0, 1, 2, 3]).map((opt, i) => `
-            <button type="button" class="btn btn-sm" style="font-size: 11px; padding: 6px 4px; background: #dc2626; color: #fff; border: 1px solid #ef4444; border-radius: 6px; font-weight: bold; cursor: pointer;" onclick="answerHumanCheckQuick('${p.id}', ${typeof opt === 'object' ? opt.index : i})">
-              ข้อ ${i + 1}
+          ${((state.humanCheck.options && state.humanCheck.options.length) ? state.humanCheck.options : [0, 1, 2, 3]).map((opt, i) => {
+            const idx = (typeof opt === 'object' && opt.index != null) ? opt.index : i;
+            const name = (typeof opt === 'object' && opt.itemName) ? opt.itemName : `ข้อ ${i + 1}`;
+            const icon = (typeof opt === 'object' && opt.icon) ? opt.icon : '';
+            return `
+            <button type="button" class="btn btn-sm" style="font-size: 11px; padding: 6px 4px; background: #dc2626; color: #fff; border: 1px solid #ef4444; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 48px;" onclick="answerHumanCheckQuick('${p.id}', ${idx})" title="${escapeHTML(name)}">
+              ${icon ? `<img src="${escapeHTML(icon)}" style="width: 22px; height: 22px; object-fit: contain; border-radius: 3px;" onerror="this.style.display='none'">` : ''}
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 10.5px;">${escapeHTML(name)}</span>
             </button>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       </div>` : ''}
 

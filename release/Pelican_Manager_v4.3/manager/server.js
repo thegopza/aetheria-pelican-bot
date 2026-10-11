@@ -75,6 +75,8 @@ const { createAuthSync } = require("./auth_sync");
 const credentials = require("./credentials");
 const { createBrowserMode } = require("./browser_mode");
 const { createDiscordBotService } = require("./discord_bot");
+const { createHumanCheckSolver } = require("./human_check_solver");
+const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -335,10 +337,17 @@ const LIVE_STATE_EVAL = `(() => {
         active: true,
         prompt: promptEl ? (promptEl.innerText || '').trim() : '',
         meta: metaEl ? (metaEl.innerText || '').trim() : '',
-        options: btns.map((b, i) => ({
-          index: i,
-          label: b.getAttribute('aria-label') || ('ตัวเลือกที่ ' + (i + 1))
-        }))
+        autoSolved: !!window.__lastHumanCheckSolved && (Date.now() - window.__lastHumanCheckSolved.timestamp < 15000),
+        lastSolved: window.__lastHumanCheckSolved || null,
+        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : null,
+        options: btns.map((b, i) => {
+          const img = b.querySelector('img');
+          return {
+            index: i,
+            label: b.getAttribute('aria-label') || ('ตัวเลือกที่ ' + (i + 1)),
+            icon: img ? (img.getAttribute('src') || '') : ''
+          };
+        })
       };
     } else {
       s.humanCheck = null;
@@ -611,9 +620,19 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     consolidationState.step = 'วาร์ปกลับเมืองหลวง (โซลเฮเวน) ด้วย Butterfly Wing...';
     addConsolidationLog('🦋 ขั้นตอนที่ 2/5: ทยอยกด Butterfly Wing กลับเมืองหลวงโซลเฮเวน...', 'info');
 
+    // Gear set work in progress (refine at the Blacksmith / market buy): let it finish before the bot stops,
+    // otherwise zeny can still change while the trade amount is read
+    for (const p of involvedProfiles) {
+      for (let i = 0; i < 30; i++) {
+        const b = await evalProfilePort(p.debugPort, `!!(window.__isGearRefining || window.__planMarketBuyInFlight)`, 4000);
+        if (!(b && b.success && b.result === true)) break;
+        if (i === 0) addConsolidationLog(`⏳ ${p.name}: รอเซ็ตอุปกรณ์ซื้อ/ตีบวกให้เสร็จก่อน...`, 'info');
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
     for (const p of involvedProfiles) {
       if (consolidationAborted) throw new Error('ผู้ใช้ยกเลิกการรวมเงิน');
-      addConsolidationLog(`🕊️ ${p.name}: กำลังใช้วาร์ป Butterfly Wing...`, 'info');
+      addConsolidationLog(`🕊️ ${p.name}: กลับเมืองหลวง (Butterfly Wing / ถ้าไม่มีปีกจะเปิดแผนที่เดินกลับ)...`, 'info');
       evalProfilePort(p.debugPort, `(() => {
         window.__isConsolidating = true;
         window.__isBotRunning = false;
@@ -632,6 +651,12 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
 
     addConsolidationLog('⏳ รอตัวละครทุกตัวโหลดเข้าสู่เมืองหลวง (รอ 6 วินาที)...', 'info');
     await new Promise(r => setTimeout(r, 6000));
+
+    // The receiver must be in the capital before it changes channel (no Butterfly Wing: it walks home first)
+    const recvHome = await evalProfilePort(receiverProfile.debugPort, `window.ensureInCapital ? window.ensureInCapital(280000) : { success: true }`, 290000);
+    if (!(recvHome && recvHome.result && recvHome.result.success)) {
+      throw new Error(`ตัวรับเงิน (${receiverProfile.name}) ไปไม่ถึงเมืองหลวง: ${(recvHome && recvHome.result && recvHome.result.error) || 'ไม่ทราบสาเหตุ'}`);
+    }
 
     // -------------------------------------------------------------
     // STEP 3: ตัวรับเงินหา Channel ที่คนน้อยสุด และย้ายไป Channel นั้น
@@ -705,6 +730,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     }
     const startBotJs = `(() => {
       window.__isConsolidating = false; window.__isWalkingToMap = false; window.__isNavigating = false;
+      if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap();
       window.__autoLoopEnabled = true; window.__isBotRunning = true;
       try { localStorage.setItem('pelican_auto_loop', 'true'); localStorage.setItem('pelican_bot_running', 'true'); } catch(e){}
       const cb = document.getElementById('p-auto-loop'); if (cb) cb.checked = true;
@@ -713,6 +739,9 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     })()`;
     // into the receiver's channel (waits for cooldown / a free slot) and up to the receiver
     const prepareSender = async (s) => {
+      // no Butterfly Wing: it is walking home — wait for the capital before changing channel / trading
+      const home = await evalProfilePort(s.debugPort, `window.ensureInCapital ? window.ensureInCapital(280000) : { success: true }`, 290000);
+      if (!(home && home.result && home.result.success)) return { ok: false, homeChannel: null, error: `ยังไม่ถึงเมืองหลวง: ${(home && home.result && home.result.error) || 'ไม่ทราบสาเหตุ'}` };
       const fromCh = await evalProfilePort(s.debugPort, `window.getCurrentChannel ? window.getCurrentChannel() : null`, 5000);
       const homeChannel = (fromCh && typeof fromCh.result === 'number') ? fromCh.result : null;
       addConsolidationLog(`🔄 จอ ${s.name} กำลังย้ายไป CH ${targetChannel} (รอคูลดาวน์/ที่ว่างให้เอง)...`, 'info');
@@ -828,6 +857,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
           window.__isConsolidating = false;
           window.__isWalkingToMap = false;
           window.__isNavigating = false;
+          if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap();
           window.__autoLoopEnabled = true;
           window.__isBotRunning = true;
           try { localStorage.setItem('pelican_auto_loop', 'true'); } catch(e){}
@@ -866,7 +896,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const involvedProfiles = [receiverProfile, ...senderProfiles];
     for (const p of involvedProfiles) {
       try {
-        evalProfilePort(p.debugPort, `(() => { window.__isConsolidating = false; })()`);
+        evalProfilePort(p.debugPort, `(() => { window.__isConsolidating = false; if (typeof window.restoreKeptFarmMap === 'function') window.restoreKeptFarmMap(); })()`);
       } catch(e) {}
     }
   }
@@ -960,7 +990,8 @@ const discordService = createDiscordBotService({
     if (profile && profile.debugPort) {
       http.get(`http://127.0.0.1:${profile.debugPort}/api/window?action=top`, () => {}).on('error', () => {});
     }
-  }
+  },
+  humanCheckSolver
 });
 
 // Background monitor for Human Check (alerts Discord even if Manager UI is closed/idle)

@@ -289,6 +289,8 @@
     const discordWebhookUrl = document.getElementById('discord-webhook-url');
     const discordBotToken = document.getElementById('discord-bot-token');
     const discordChannelId = document.getElementById('discord-channel-id');
+    const discordAutoAnswer = document.getElementById('discord-auto-answer');
+    const discordAnswerDelay = document.getElementById('discord-answer-delay');
     const discordAutoBring = document.getElementById('discord-auto-bring-to-front');
     const discordSoundAlert = document.getElementById('discord-sound-alert');
     const btnDiscordSave = document.getElementById('btn-discord-save');
@@ -316,6 +318,8 @@
           if (discordWebhookUrl) discordWebhookUrl.value = s.webhookUrl || '';
           if (discordBotToken) discordBotToken.value = s.botToken || '';
           if (discordChannelId) discordChannelId.value = s.channelId || '';
+          if (discordAutoAnswer) discordAutoAnswer.checked = s.autoAnswer !== false;
+          if (discordAnswerDelay) discordAnswerDelay.value = s.answerDelayMs || 1800;
           if (discordAutoBring) discordAutoBring.checked = s.autoBringToFront !== false;
           if (discordSoundAlert) discordSoundAlert.checked = s.soundAlert !== false;
         }
@@ -334,6 +338,8 @@
             webhookUrl: discordWebhookUrl ? discordWebhookUrl.value.trim() : '',
             botToken: discordBotToken ? discordBotToken.value.trim() : '',
             channelId: discordChannelId ? discordChannelId.value.trim() : '',
+            autoAnswer: discordAutoAnswer ? discordAutoAnswer.checked : true,
+            answerDelayMs: discordAnswerDelay ? Math.max(800, parseInt(discordAnswerDelay.value, 10) || 1800) : 1800,
             autoBringToFront: discordAutoBring ? discordAutoBring.checked : true,
             soundAlert: discordSoundAlert ? discordSoundAlert.checked : true
           };
