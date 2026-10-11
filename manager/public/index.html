@@ -42,6 +42,10 @@
           <span class="icon">⚡</span> <span>สคริปต์เกม</span>
           <span id="game-patcher-status-badge" class="badge patcher-badge">ตรวจสอบ...</span>
         </button>
+        <button id="btn-topup-captcha" class="btn" title="เติม Point สำหรับระบบตอบคำถาม Auto Captcha" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1)); border: 1px solid rgba(250, 204, 21, 0.45); color: #facc15; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+          <span class="icon" style="font-size: 14px;">🪙</span> <span>เติม Point Auto Captcha</span>
+          <span id="topup-point-badge" class="badge" style="background: rgba(250, 204, 21, 0.25); color: #fef08a; border: 1px solid rgba(250, 204, 21, 0.4); padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700;">0 P</span>
+        </button>
         <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
           <span class="icon">🔄</span>
         </button>
@@ -1014,8 +1018,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=42710"></script>
-  <script src="patcher_module.js?v=41720"></script>
+  <script src="app.js?v=42720"></script>
+  <script src="patcher_module.js?v=41730"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
   <script src="inventory_market.js?v=4360"></script>
@@ -1235,6 +1239,100 @@
             🚀 ติดตั้ง / อัปเดตสคริปต์ลงตัวเกมทันที
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOPUP POINT AUTO CAPTCHA MODAL -->
+  <div id="modal-topup-captcha" class="modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 99999; backdrop-filter: blur(4px);">
+    <div class="modal-content" style="background: #0f172a; border: 1.5px solid rgba(250, 204, 21, 0.35); border-radius: 14px; width: 560px; max-width: 95vw; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(234, 179, 8, 0.15); color: #f8fafc; padding: 22px; font-family: inherit;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">🪙</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: #facc15;">เติม Point ระบบ Auto Captcha</h3>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Human Check Solver Credit & Point Top-up</div>
+          </div>
+        </div>
+        <button type="button" id="btn-topup-close" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
+      </div>
+
+      <!-- Point Balance Card -->
+      <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.15), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-size: 11.5px; color: #cbd5e1; font-weight: 600;">ยอด Point คงเหลือปัจจุบัน:</div>
+          <div style="font-size: 26px; font-weight: 800; color: #facc15; display: flex; align-items: baseline; gap: 6px; margin-top: 2px;">
+            <span id="topup-modal-points">0</span>
+            <span style="font-size: 14px; font-weight: normal; color: #94a3b8;">Points</span>
+          </div>
+          <div id="topup-modal-rate" style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+            หัก 1 Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <span id="topup-modal-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;">
+            ● พร้อมใช้งาน
+          </span>
+        </div>
+      </div>
+
+      <!-- Notice: Ready for User's System -->
+      <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 11.5px; color: #94a3b8; line-height: 1.5;">
+        <span style="color: #facc15; font-weight: 600;">💡 ช่องทางชำระเงิน / เติมเงินอัตโนมัติ:</span><br/>
+        ระบบเตรียมพร้อมเชื่อมต่อกับระบบเติมเงินที่คุณจะกำหนดในอนาคต (เช่น สแกน QR PromptPay, TrueMoney หรือระบบสมาชิก) ขณะนี้คุณสามารถทดสอบกดเติม Point เข้าสู่ระบบได้ทันทีด้านล่างนี้
+      </div>
+
+      <!-- Quick Top-up Packages -->
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">📦 เลือกแพ็กเกจเติม Point:</div>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(255,255,255,0.15);">
+            <div>
+              <div style="font-weight: 700; color: #f8fafc; font-size: 13px;">+50 Points</div>
+              <div style="font-size: 10.5px; color: #94a3b8;">ตอบได้ 50 ครั้ง</div>
+            </div>
+            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="200" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(250, 204, 21, 0.3); background: rgba(234, 179, 8, 0.08);">
+            <div>
+              <div style="font-weight: 700; color: #facc15; font-size: 13px;">+200 Points <span style="font-size: 9.5px; background: #eab308; color: #000; padding: 1px 4px; border-radius: 3px; font-weight: 800;">นิยม</span></div>
+              <div style="font-size: 10.5px; color: #cbd5e1;">ตอบได้ 200 ครั้ง</div>
+            </div>
+            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="500" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(255,255,255,0.15);">
+            <div>
+              <div style="font-weight: 700; color: #f8fafc; font-size: 13px;">+500 Points</div>
+              <div style="font-size: 10.5px; color: #94a3b8;">ตอบได้ 500 ครั้ง</div>
+            </div>
+            <span style="color: #facc15; font-weight: 800; font-size: 13px;">เติม</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="1000" style="padding: 10px; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08);">
+            <div>
+              <div style="font-weight: 700; color: #34d399; font-size: 13px;">+1,000 Points <span style="font-size: 9.5px; background: #10b981; color: #000; padding: 1px 4px; border-radius: 3px; font-weight: 800;">คุ้มสุด</span></div>
+              <div style="font-size: 10.5px; color: #cbd5e1;">ตอบได้ 1,000 ครั้ง</div>
+            </div>
+            <span style="color: #34d399; font-weight: 800; font-size: 13px;">เติม</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Custom Amount Input -->
+      <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: center;">
+        <span style="font-size: 11.5px; color: #cbd5e1; white-space: nowrap;">ระบุ Point เอง:</span>
+        <input type="number" id="topup-custom-amount" class="form-input" style="flex: 1; padding: 6px 10px; font-size: 12px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: #fff;" placeholder="จำนวน Point (เช่น 100)" min="1" max="100000">
+        <button type="button" id="btn-topup-custom" class="btn btn-primary" style="padding: 6px 14px; font-size: 12px; background: #d97706; border-color: #f59e0b;">➕ เติม Point</button>
+      </div>
+
+      <div id="topup-modal-msg" style="display: none; font-size: 11.5px; padding: 6px 10px; border-radius: 6px; margin-bottom: 14px;"></div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
+        <button type="button" id="btn-topup-goto-settings" class="btn btn-ghost btn-sm" style="font-size: 11.5px; color: #38bdf8;">
+          ⚙️ ไปที่การตั้งค่าตอบคำถาม
+        </button>
+        <button type="button" id="btn-topup-cancel" class="btn btn-secondary" style="font-size: 12px; padding: 6px 16px;">
+          ปิด
+        </button>
       </div>
     </div>
   </div>

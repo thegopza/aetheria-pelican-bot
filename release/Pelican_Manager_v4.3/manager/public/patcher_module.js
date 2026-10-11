@@ -318,6 +318,9 @@
           if (typeof window.updateAutoAnswerToolbarBtn === 'function') {
             window.updateAutoAnswerToolbarBtn(s.autoAnswer !== false);
           }
+          if (typeof window.updatePointDisplays === 'function') {
+            window.updatePointDisplays(s.points, s.pointsPerSolve);
+          }
         }
       } catch (e) {
         console.error('[HumanCheck] Failed to load settings:', e);
@@ -374,6 +377,9 @@
           }).then(r => r.json());
           if (res && res.success) {
             if (hcPointsVal) hcPointsVal.innerText = res.points;
+            if (typeof window.updatePointDisplays === 'function') {
+              window.updatePointDisplays(res.points);
+            }
             showHcMsg(`⚡ เติม Point สำเร็จ: +${amount} P (รวมคงเหลือ ${res.points} P)`);
           } else {
             showHcMsg('❌ เติม Point ไม่สำเร็จ: ' + (res.error || 'Unknown error'), true);

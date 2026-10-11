@@ -876,13 +876,136 @@ if (btnToggleAutoAnswer) {
   };
 }
 
+// ==========================================
+// AUTO CAPTCHA POINT TOP-UP MODAL CONTROLLER
+// ==========================================
+function updatePointDisplays(points, pointsPerSolve) {
+  const p = points != null ? Number(points) : 0;
+  const topupBadge = document.getElementById("topup-point-badge");
+  const topupPointsVal = document.getElementById("topup-modal-points");
+  const hcPoints = document.getElementById("hc-points-val");
+  const topupStatusBadge = document.getElementById("topup-modal-status-badge");
+  const topupRate = document.getElementById("topup-modal-rate");
+
+  if (topupBadge) topupBadge.innerText = `${p.toLocaleString()} P`;
+  if (topupPointsVal) topupPointsVal.innerText = p.toLocaleString();
+  if (hcPoints) hcPoints.innerText = p;
+  if (topupStatusBadge) {
+    if (p > 0) {
+      topupStatusBadge.style.background = "rgba(16, 185, 129, 0.2)";
+      topupStatusBadge.style.color = "#34d399";
+      topupStatusBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+      topupStatusBadge.innerText = "● พร้อมใช้งาน";
+    } else {
+      topupStatusBadge.style.background = "rgba(239, 68, 68, 0.2)";
+      topupStatusBadge.style.color = "#f87171";
+      topupStatusBadge.style.borderColor = "rgba(239, 68, 68, 0.4)";
+      topupStatusBadge.innerText = "● Point หมด";
+    }
+  }
+  if (pointsPerSolve && topupRate) {
+    topupRate.innerText = `หัก ${pointsPerSolve} Point / การตอบเช็คผู้เล่นสำเร็จ 1 ครั้ง`;
+  }
+}
+window.updatePointDisplays = updatePointDisplays;
+
+function initTopupCaptchaModal() {
+  const btnTopup = document.getElementById("btn-topup-captcha");
+  const modal = document.getElementById("modal-topup-captcha");
+  const btnClose = document.getElementById("btn-topup-close");
+  const btnCancel = document.getElementById("btn-topup-cancel");
+  const topupMsg = document.getElementById("topup-modal-msg");
+  const customInput = document.getElementById("topup-custom-amount");
+  const btnCustom = document.getElementById("btn-topup-custom");
+  const btnGotoSettings = document.getElementById("btn-topup-goto-settings");
+
+  if (!btnTopup || !modal) return;
+
+  function showTopupMsg(text, isError = false) {
+    if (!topupMsg) return;
+    topupMsg.style.display = "block";
+    topupMsg.style.background = isError ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)";
+    topupMsg.style.color = isError ? "#f87171" : "#34d399";
+    topupMsg.style.border = isError ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)";
+    topupMsg.innerText = text;
+    setTimeout(() => { if (topupMsg) topupMsg.style.display = "none"; }, 5000);
+  }
+
+  async function refreshTopupData() {
+    try {
+      const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
+      if (res && res.success && res.settings) {
+        updatePointDisplays(res.settings.points, res.settings.pointsPerSolve);
+      }
+    } catch (e) {}
+  }
+
+  async function executeAddPoints(amount) {
+    const val = parseInt(amount, 10);
+    if (!val || val <= 0) return showTopupMsg("กรุณาระบุจำนวน Point ให้ถูกต้อง", true);
+    try {
+      const res = await fetch(`${API_BASE}/api/human-check/add-points`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: val })
+      }).then(r => r.json());
+
+      if (res && res.success) {
+        updatePointDisplays(res.points);
+        showTopupMsg(`🎉 เติม Point สำเร็จ: +${val.toLocaleString()} P (คงเหลือ ${res.points.toLocaleString()} P)`);
+        showToast(`🪙 เติม Point สำเร็จ: +${val.toLocaleString()} P`, "success");
+      } else {
+        showTopupMsg("❌ เติมไม่สำเร็จ: " + (res.error || "Unknown error"), true);
+      }
+    } catch (e) {
+      showTopupMsg("❌ เกิดข้อผิดพลาด: " + e.message, true);
+    }
+  }
+
+  btnTopup.addEventListener("click", () => {
+    modal.style.display = "flex";
+    refreshTopupData();
+  });
+
+  const closeModal = () => { modal.style.display = "none"; };
+  if (btnClose) btnClose.addEventListener("click", closeModal);
+  if (btnCancel) btnCancel.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+  document.querySelectorAll(".btn-modal-point").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const amt = btn.dataset.amount;
+      executeAddPoints(amt);
+    });
+  });
+
+  if (btnCustom && customInput) {
+    btnCustom.addEventListener("click", () => {
+      executeAddPoints(customInput.value);
+      customInput.value = "";
+    });
+  }
+
+  if (btnGotoSettings) {
+    btnGotoSettings.addEventListener("click", () => {
+      closeModal();
+      const patcherBtn = document.getElementById("btn-game-patcher");
+      if (patcherBtn) patcherBtn.click();
+    });
+  }
+
+  refreshTopupData();
+}
+
 (async () => {
   try {
     const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
     if (res && res.success && res.settings) {
       updateAutoAnswerToolbarBtn(res.settings.autoAnswer !== false);
+      updatePointDisplays(res.settings.points, res.settings.pointsPerSolve);
     }
   } catch (e) {}
+  initTopupCaptchaModal();
 })();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);
