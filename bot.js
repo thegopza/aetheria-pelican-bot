@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.25.0
+// @version      4.25.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.25.0';
+    const PELICAN_BOT_VERSION = '4.25.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7207,52 +7207,12 @@
         return zeny !== null && zeny < min;
     };
 
-    // Death loop: 3 deaths within 10 minutes on the same farm map -> farm the plan's previous (easier) map and stay
-    // there (kept per character across reloads) until the user changes the plan or picks a farm map himself.
-    // Without a plan there is no "easier map" to pick: it only warns.
-    window.__deathLog = window.__deathLog || [];
-    const safeMapKey = () => 'pelican_safe_map_' + ((typeof window.getCharacterName === 'function' && window.getCharacterName()) || 'default');
-    const loadSafeMap = () => { try { return JSON.parse(localStorage.getItem(safeMapKey()) || 'null'); } catch (e) { return null; } };
-    window.__safeMap = window.__safeMap || null;
-    const planSig = () => {
-        const p = window.__currentScriptPlan;
-        if (!p) return '';
-        const t = JSON.stringify(p.triggers || []);
-        let h = 0;
-        for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
-        return (p.id || '') + ':' + h;
-    };
-    window.clearSafeMap = function (why) {
-        if (!window.__safeMap && !loadSafeMap()) return;
-        window.__safeMap = null;
-        try { localStorage.removeItem(safeMapKey()); } catch (e) {}
-        console.log(`%c[PmheeAether] ☠️ ยกเลิกการย้ายแมพเพราะตายบ่อย (${why || 'ผู้ใช้เปลี่ยนเอง'})`, 'color: #94a3b8;');
-    };
-    window.noteDeathForMap = function () {
-        const map = window.__targetFarmMap || '';
-        const now = Date.now();
-        window.__deathLog = window.__deathLog.filter(d => now - d.at < 10 * 60 * 1000);
-        window.__deathLog.push({ at: now, map });
-        const n = window.__deathLog.filter(d => d.map === map).length;
-        const cur = window.__safeMap || loadSafeMap();
-        if (n < 3 || (cur && cur.from === map)) return;
-        let easier = null;
-        const plan = window.__planScriptEnabled && window.__currentScriptPlan;
-        if (plan && Array.isArray(plan.triggers)) {
-            const maps = plan.triggers.filter(t => t.type === 'base_level')
-                .map(t => ({ lvl: parseInt(t.targetLevel, 10) || 0, map: ((t.actions || []).filter(a => a.type === 'change_map' && a.targetMap).pop() || {}).targetMap }))
-                .filter(x => x.map).sort((a, b) => a.lvl - b.lvl);
-            const idx = maps.map(x => x.map).lastIndexOf(map);
-            for (let i = (idx >= 0 ? idx : maps.length) - 1; i >= 0 && !easier; i--) if (maps[i].map !== map) easier = maps[i].map;
-        }
-        if (!easier) {
-            console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" — แมพนี้อาจยากเกินไป (ลองเพิ่ม VIT / ซื้อยา / เปลี่ยนแมพ)`);
-            return;
-        }
-        window.__safeMap = { from: map, to: easier, at: now, plan: planSig() };
-        try { localStorage.setItem(safeMapKey(), JSON.stringify(window.__safeMap)); } catch (e) {}
-        console.warn(`[PmheeAether] ☠️ ตาย ${n} ครั้งใน 10 นาทีที่ "${map}" -> ย้ายไปฟาร์ม "${easier}" (แมพก่อนหน้าในแผน) และฟาร์มที่นี่ต่อไปจนกว่าจะแก้แผน/เลือกแมพเอง`);
-    };
+    // (v4.24-4.25 moved characters to an easier map after repeated deaths; removed on request — forget what it
+    //  saved so nobody keeps being sent back to the old map)
+    try {
+        Object.keys(localStorage).filter(k => /safe_map_/.test(k)).forEach(k => localStorage.removeItem(k));
+    } catch (e) {}
+    window.__safeMap = null;
 
     window.walkToTargetMap = function(mapName = window.__targetFarmMap, force = false) {
         if (window.__isConsolidating) {
@@ -7266,13 +7226,6 @@
                 console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${mapName}")`, 'color: #38bdf8; font-weight: bold;');
                 mapName = planMap;
             }
-        }
-        let safe = window.__safeMap || loadSafeMap();
-        if (safe && safe.plan && safe.plan !== planSig()) { window.clearSafeMap('แผนถูกแก้'); safe = null; }
-        if (safe && mapName === safe.from) {
-            window.__safeMap = safe;
-            console.log(`%c[PmheeAether] ☠️ เคยตายบ่อยที่ "${safe.from}" -> ฟาร์ม "${safe.to}" แทน (แก้แผนหรือเลือกแมพเองเพื่อยกเลิก)`, 'color: #f59e0b; font-weight: bold;');
-            mapName = safe.to;
         }
 
         // ถ้ากำลังนำทางอยู่ แต่เป็นการกดสั่งใหม่ (force) หรือเปลี่ยนแมพเป้าหมาย ให้ยกเลิกการเดินเดิมทันที
@@ -7551,7 +7504,6 @@
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
         if (isDead) {
             console.log('%c[PmheeAether] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
-            if (typeof window.noteDeathForMap === 'function') window.noteDeathForMap();
             lastCityToFarmAttempt = Date.now() + 3000;   // the respawn below walks back itself (was sent twice)
             window.__isRecovering = true;
             autoActivateFailCount = 0;
@@ -11338,7 +11290,6 @@
             selectEl.onchange = (e) => {
                 window.__targetFarmMap = e.target.value;
                 localStorage.setItem('pelican_farm_map', window.__targetFarmMap);
-                if (typeof window.clearSafeMap === 'function') window.clearSafeMap('เลือกแมพเองใน HUD');
             };
         }
 
