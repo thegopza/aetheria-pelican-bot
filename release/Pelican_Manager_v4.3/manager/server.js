@@ -333,21 +333,107 @@ const LIVE_STATE_EVAL = `(() => {
       const promptEl = hc.querySelector('.human-check-prompt');
       const metaEl = hc.querySelector('.human-check-meta');
       const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
+
+      const options = btns.map((b, i) => {
+        const img = b.querySelector('img');
+        let icon = img ? (img.getAttribute('src') || img.src || '') : '';
+        let itemId = (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items[i] : null;
+        if (itemId == null) {
+          try {
+            const fk = Object.keys(b).find(k => k.startsWith('__reactFiber'));
+            if (fk && b[fk]) {
+              const cp = b[fk].child?.memoizedProps;
+              if (cp && cp.itemId != null) itemId = Number(cp.itemId);
+            }
+          } catch (e) {}
+        }
+        return {
+          index: i,
+          label: b.getAttribute('aria-label') || ('ตัวเลือกที่ ' + (i + 1)),
+          icon,
+          itemId: itemId != null ? itemId : null
+        };
+      });
+
+      let imageDataUrl = null;
+      try {
+        const canvas = document.createElement('canvas');
+        const w = 580;
+        const h = 210;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#0f172a';
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(0, 0, w, h, 12); else ctx.rect(0, 0, w, h);
+          ctx.fill();
+          ctx.strokeStyle = '#334155';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 14px "Segoe UI", Tahoma, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText('🚨 ตรวจพบเช็คผู้เล่น (Human Check) - Aetheria Online', 20, 28);
+
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 16px "Segoe UI", Tahoma, sans-serif';
+          const pText = (promptEl ? (promptEl.innerText || '').trim() : '') || 'กดเลือกรูปภาพที่ถูกต้อง';
+          ctx.fillText('❓ โจทย์คำถาม: ' + pText, 20, 54);
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '12px "Segoe UI", Tahoma, sans-serif';
+          const mText = (metaEl ? (metaEl.innerText || '').trim() : '') || 'กรุณาตอบภายในเวลา';
+          ctx.fillText('⏱️ ' + mText, 20, 74);
+
+          const cardW = 125;
+          const cardH = 110;
+          const startX = 20;
+          const startY = 86;
+          const gap = 12;
+
+          btns.forEach((b, i) => {
+            if (i >= 4) return;
+            const x = startX + i * (cardW + gap);
+            const y = startY;
+
+            ctx.fillStyle = '#1e293b';
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(x, y, cardW, cardH, 8); else ctx.rect(x, y, cardW, cardH);
+            ctx.fill();
+
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = 'bold 12px "Segoe UI", Tahoma, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('ข้อ ' + (i + 1), x + cardW / 2, y + 18);
+
+            const bImg = b.querySelector('img');
+            if (bImg && bImg.complete && bImg.naturalWidth > 0) {
+              ctx.drawImage(bImg, x + (cardW - 44) / 2, y + 26, 44, 44);
+            } else {
+              ctx.fillStyle = '#334155';
+              ctx.fillRect(x + (cardW - 44) / 2, y + 26, 44, 44);
+            }
+          });
+
+          imageDataUrl = canvas.toDataURL('image/png');
+        }
+      } catch (err) {}
+
       s.humanCheck = {
         active: true,
         prompt: promptEl ? (promptEl.innerText || '').trim() : '',
         meta: metaEl ? (metaEl.innerText || '').trim() : '',
         autoSolved: !!window.__lastHumanCheckSolved && (Date.now() - window.__lastHumanCheckSolved.timestamp < 15000),
         lastSolved: window.__lastHumanCheckSolved || null,
-        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : null,
-        options: btns.map((b, i) => {
-          const img = b.querySelector('img');
-          return {
-            index: i,
-            label: b.getAttribute('aria-label') || ('ตัวเลือกที่ ' + (i + 1)),
-            icon: img ? (img.getAttribute('src') || '') : ''
-          };
-        })
+        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : options.map(o => o.itemId).filter(id => id != null),
+        options,
+        imageDataUrl
       };
     } else {
       s.humanCheck = null;

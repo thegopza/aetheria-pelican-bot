@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.33.0
+// @version      4.34.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.33.0';
+    const PELICAN_BOT_VERSION = '4.34.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -359,6 +359,14 @@
         return room;
     };
 
+    // Ensure room listener is periodically hooked on map transitions
+    setInterval(() => {
+        try {
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            if (room && !room.__humanCheckAttached) attachHumanCheckRoomListener(room);
+        } catch (e) {}
+    }, 2000);
+
     // ==========================================
     // AUTO HUMAN CHECK SOLVER ENGINE (ANTI-BOT)
     // ==========================================
@@ -428,6 +436,11 @@
         return inGameCatalogPromise;
     }
 
+    // Preload item catalog in background so it is instantly available for Human Check
+    setTimeout(() => {
+        getInGameCatalog().catch(() => {});
+    }, 3500);
+
     function buildInGameCatalogIndex(raw) {
         const idToName = new Map();
         const iconToNames = new Map();
@@ -473,7 +486,7 @@
         for (let i = 0; i < count; i++) {
             const btn = buttons[i];
             const img = btn ? btn.querySelector('img') : null;
-            const imgSrc = img ? (img.getAttribute('src') || '') : '';
+            const imgSrc = img ? (img.getAttribute('src') || img.src || '') : '';
             const cleanIcon = imgSrc.replace(/^https?:\/\/[^\/]+/, '').replace(/^\/?art\/icons\//, '').replace(/^\//, '').split('?')[0].trim();
             const itemId = (packetItems && packetItems[i]) || null;
 
@@ -538,7 +551,19 @@
             return;
         }
 
-        const packetItems = window.__latestHumanCheck ? window.__latestHumanCheck.items : null;
+        let packetItems = window.__latestHumanCheck ? window.__latestHumanCheck.items : null;
+        if (!packetItems || !packetItems.length) {
+            try {
+                const extracted = [];
+                for (const b of btns) {
+                    const fk = Object.keys(b).find(k => k.startsWith('__reactFiber'));
+                    const cp = fk && b[fk]?.child?.memoizedProps;
+                    if (cp && cp.itemId != null) extracted.push(Number(cp.itemId));
+                }
+                if (extracted.length === btns.length) packetItems = extracted;
+            } catch (e) {}
+        }
+
         const solution = solveInGameHumanCheck(prompt, btns, packetItems, catalog);
 
         if (!solution || solution.index == null) {
@@ -7223,13 +7248,12 @@
         if (planStillNeeds(it)) return false;
         if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
 
-        // ไอเทมใน Whitelist: ฝากเข้าคลังได้ (เฉพาะที่ไม่ได้ตั้งขายตลาดกลาง)
-        if (window.isSellWhitelisted(it.name)) {
-            return (cfg.storeWhitelist !== false || (opts && opts.storeWhitelist));
-        }
-
+        // Only weapons / armor / accessories+gems / refine ores, Whitelist or not: arrows, usables (potions,
+        // Butterfly Wing, scrolls), cards and materials are never deposited — even when they are in the Whitelist
         const cat = storeCategoryOf(it);
         if (!cat || cfg[STORE_CAT_KEY[cat]] === false) return false;
+        // Whitelist items: deposited too (unless listed for the market, checked above)
+        if (window.isSellWhitelisted(it.name)) return (cfg.storeWhitelist !== false || !!(opts && opts.storeWhitelist));
         return true;
     }
     window.getStorageDepositList = function (cfg = window.__sellConfig || {}, opts = {}) {

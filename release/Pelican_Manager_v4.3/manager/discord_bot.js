@@ -72,19 +72,46 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
   let lastSequence = null;
   let isConnecting = false;
 
-  // HTTP helper for Discord REST API
-  function discordRequest(endpoint, method = 'GET', body = null, token = null) {
+  // HTTP helper for Discord REST API (supports JSON and multipart/form-data with file attachments)
+  function discordRequest(endpoint, method = 'GET', body = null, token = null, fileAttachment = null) {
     return new Promise((resolve, reject) => {
       const url = new URL(endpoint.startsWith('http') ? endpoint : `https://discord.com/api/v10${endpoint}`);
-      const headers = { 'Content-Type': 'application/json' };
+      const headers = {};
       if (token) {
         headers['Authorization'] = `Bot ${token}`;
+      }
+
+      let requestBody = null;
+      if (fileAttachment && fileAttachment.buffer) {
+        const boundary = '----PmheeAetherBoundary' + Date.now().toString(16);
+        const parts = [];
+        if (body) {
+          parts.push(Buffer.from(
+            `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="payload_json"\r\n` +
+            `Content-Type: application/json; charset=utf-8\r\n\r\n` +
+            JSON.stringify(body) + `\r\n`
+          ));
+        }
+        parts.push(Buffer.from(
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="files[0]"; filename="${fileAttachment.filename || 'human_check.png'}"\r\n` +
+          `Content-Type: ${fileAttachment.contentType || 'image/png'}\r\n\r\n`
+        ));
+        parts.push(fileAttachment.buffer);
+        parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+        requestBody = Buffer.concat(parts);
+        headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
+        headers['Content-Length'] = requestBody.length;
+      } else {
+        headers['Content-Type'] = 'application/json';
+        if (body) requestBody = Buffer.from(JSON.stringify(body), 'utf8');
       }
 
       const req = https.request(url, {
         method,
         headers,
-        timeout: 10000
+        timeout: 15000
       }, (res) => {
         let data = '';
         res.setEncoding('utf8');
@@ -103,7 +130,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       req.on('error', (err) => resolve({ success: false, error: err.message }));
       req.on('timeout', () => { req.destroy(); resolve({ success: false, error: 'Timeout' }); });
 
-      if (body) req.write(JSON.stringify(body));
+      if (requestBody) req.write(requestBody);
       req.end();
     });
   }
@@ -250,12 +277,22 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     if (interaction.type !== 3) return;
 
     const customId = interaction.data?.custom_id || '';
-    // Format: hc_<profileId>_<pickIndex> or hc_<profileId>_focus
-    if (!customId.startsWith('hc_')) return;
+    // Format: hc:<profileId>:<action> (new) or hc_<profileId>_<action> (legacy)
+    if (!customId.startsWith('hc:') && !customId.startsWith('hc_')) return;
 
-    const parts = customId.split('_');
-    const profileId = parts[1];
-    const action = parts[2];
+    let profileId = null;
+    let action = null;
+    if (customId.startsWith('hc:')) {
+      const parts = customId.split(':');
+      profileId = parts[1];
+      action = parts[2];
+    } else {
+      const lastUnderscore = customId.lastIndexOf('_');
+      action = customId.slice(lastUnderscore + 1);
+      profileId = customId.slice(3, lastUnderscore);
+    }
+
+    if (!profileId || !action) return;
 
     const interactionId = interaction.id;
     const interactionToken = interaction.token;
@@ -357,6 +394,24 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return;
     }
 
+    // Decode composite image preview if available from game client
+    let fileAttachment = null;
+    if (check.imageDataUrl && typeof check.imageDataUrl === 'string' && check.imageDataUrl.startsWith('data:image/')) {
+      try {
+        const base64Str = check.imageDataUrl.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+        const buf = Buffer.from(base64Str, 'base64');
+        if (buf.length > 200) {
+          fileAttachment = {
+            buffer: buf,
+            filename: 'human_check.png',
+            contentType: 'image/png'
+          };
+        }
+      } catch (e) {
+        console.warn('[Discord Bot] Failed to decode imageDataUrl:', e.message);
+      }
+    }
+
     // Solve question using humanCheckSolver
     const solution = (solver && typeof solver.solveHumanCheck === 'function')
       ? solver.solveHumanCheck(check.prompt, check.options, check.items)
@@ -427,18 +482,22 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           timestamp: new Date().toISOString()
         };
 
+        if (fileAttachment) {
+          embed.image = { url: 'attachment://human_check.png' };
+        }
+
         if (cfg.botToken && cfg.channelId) {
           await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', {
             content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) มีโจทย์เช็คผู้เล่น -> บอทจับคู่และตอบ **"${solution.matchedName}"** ให้อัตโนมัติเรียบร้อยแล้ว!`,
             embeds: [embed]
-          }, cfg.botToken);
+          }, cfg.botToken, fileAttachment);
         } else if (cfg.webhookUrl) {
           await discordRequest(cfg.webhookUrl, 'POST', {
             username: 'PmheeAether Anti-Bot Solver',
             avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
             content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) ตอบเช็คผู้เล่นอัตโนมัติสำเร็จ!`,
             embeds: [embed]
-          });
+          }, null, fileAttachment);
         }
         return;
       } else {
@@ -446,7 +505,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       }
     }
 
-    // Fallback or Manual Mode: Send Urgent Alert with Interactive Buttons & Real Item Names
+    // Fallback or Manual Mode: Send Urgent Alert with Interactive Buttons & Real Item Names & Card Image
     if (cfg.autoBringToFront && typeof focusProfileWindow === 'function') {
       try { focusProfileWindow(profileId); } catch (e) {}
     }
@@ -461,9 +520,15 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       timestamp: new Date().toISOString()
     };
 
+    if (fileAttachment) {
+      embed.image = { url: 'attachment://human_check.png' };
+    }
+
     const optionDescriptions = resolvedOptions.map((opt, i) => {
-      const suggest = (solution.matchedName && opt.index === solution.pickIndex) ? ' *(แนะนำ)*' : '';
-      return `**${i + 1}️⃣** ${opt.itemName}${suggest}`;
+      const isChosen = (solution.success && opt.index === solution.pickIndex);
+      const suggest = isChosen ? ' ⭐ **(แนะนำ)**' : '';
+      const name = opt.itemName || opt.label || `ตัวเลือกที่ ${i + 1}`;
+      return `**${i + 1}️⃣** ${name}${suggest}`;
     }).join('\n');
 
     if (optionDescriptions) {
@@ -474,19 +539,20 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       });
     }
 
-    // Build Interactive Buttons (with item names)
+    // Build Interactive Buttons (with item names and recommended star)
     let components = [];
     if (cfg.botToken && cfg.channelId) {
       const buttons = [];
       for (let i = 0; i < optionsCount; i++) {
         const opt = resolvedOptions[i] || {};
-        const labelText = opt.itemName ? `${i + 1}. ${opt.itemName}`.slice(0, 80) : `ข้อ ${i + 1}`;
-        const isSuggested = solution.matchedName && opt.index === solution.pickIndex;
+        const isSuggested = solution.success && opt.index === solution.pickIndex;
+        const name = opt.itemName || `ข้อ ${i + 1}`;
+        const labelText = `${i + 1}. ${name}${isSuggested ? ' ⭐' : ''}`.slice(0, 80);
         buttons.push({
           type: 2, // Button
           style: isSuggested ? 3 : 1, // Green (Success) if suggested, else Blurple (Primary)
           label: labelText,
-          custom_id: `hc_${profileId}_${opt.index != null ? opt.index : i}`
+          custom_id: `hc:${profileId}:${opt.index != null ? opt.index : i}`
         });
       }
 
@@ -502,20 +568,20 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
             type: 2,
             style: 4, // Danger (Red)
             label: '🖥️ ดึงจอเกมขึ้นหน้าสุด',
-            custom_id: `hc_${profileId}_focus`
+            custom_id: `hc:${profileId}:focus`
           }
         ]
       });
     }
 
-    // Send via Bot Token (to channel) or Webhook
+    // Send via Bot Token (to channel) or Webhook with image attachment
     if (cfg.botToken && cfg.channelId) {
       const payload = {
         content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
         embeds: [embed],
         components
       };
-      const res = await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken);
+      const res = await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken, fileAttachment);
       if (res.success && res.data?.id) {
         const info = activeChecks.get(profileId);
         if (info) info.messageId = res.data.id;
@@ -527,7 +593,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น!`,
         embeds: [embed]
       };
-      await discordRequest(cfg.webhookUrl, 'POST', payload);
+      await discordRequest(cfg.webhookUrl, 'POST', payload, null, fileAttachment);
     }
   }
 
