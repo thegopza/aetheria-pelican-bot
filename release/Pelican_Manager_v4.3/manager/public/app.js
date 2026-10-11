@@ -973,9 +973,13 @@ function initTopupCaptchaModal() {
       if (res && res.success && res.settings) {
         const s = res.settings;
         updatePointDisplays(s.points, s.pointsPerSolve);
-        if (s.receiverPhone && receiverPhoneEl) {
-          receiverPhoneEl.innerText = s.receiverPhone;
-        }
+
+        // Show dev-only shortcuts ONLY if running in dev/git mode
+        const isDev = !!res.isDev;
+        document.querySelectorAll(".dev-only-feature").forEach(el => {
+          el.style.display = isDev ? "" : "none";
+        });
+
         if (s.machineHwid) {
           cachedFullHwid = s.machineHwid;
           if (hwidShort) {
@@ -1102,6 +1106,10 @@ function initTopupCaptchaModal() {
     if (res && res.success && res.settings) {
       updateAutoAnswerToolbarBtn(res.settings.autoAnswer !== false);
       updatePointDisplays(res.settings.points, res.settings.pointsPerSolve);
+      const isDev = !!res.isDev;
+      document.querySelectorAll(".dev-only-feature").forEach(el => {
+        el.style.display = isDev ? "" : "none";
+      });
     }
   } catch (e) {}
   initTopupCaptchaModal();

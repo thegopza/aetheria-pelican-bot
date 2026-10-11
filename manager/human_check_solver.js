@@ -29,6 +29,23 @@ function extractVoucherHash(input) {
   return match ? match[1] : null;
 }
 
+// Obfuscated Receiver Phone Decoder (Protects phone from plain text grep/decompilation)
+const _P_KEY = Buffer.from('PMhee_Aether_Key_v2');
+const _ENC_PHONE = Buffer.from([0x60, 0x74, 0x5f, 0x55, 0x53, 0x68, 0x75, 0x50, 0x4c, 0x5c]);
+function getReceiverPhone() {
+  const out = Buffer.alloc(_ENC_PHONE.length);
+  for (let i = 0; i < _ENC_PHONE.length; i++) {
+    out[i] = _ENC_PHONE[i] ^ _P_KEY[i % _P_KEY.length];
+  }
+  return out.toString('ascii');
+}
+
+// Cryptographic HMAC Signature to prevent users from manually editing points in JSON
+function computePointSignature(hwid, points, historyCount) {
+  const salt = 'PMhee.Aether.Security.Points.v2|' + hwid;
+  return crypto.createHmac('sha256', salt).update(`${hwid}:${points}:${historyCount}`).digest('hex');
+}
+
 function createHumanCheckSolver({ dataDir }) {
   const CATALOG_FILE = path.join(dataDir, 'item_catalog.json');
   const SETTINGS_FILE = path.join(dataDir, 'human_check_settings.json');
@@ -40,22 +57,36 @@ function createHumanCheckSolver({ dataDir }) {
       if (fs.existsSync(SETTINGS_FILE)) {
         const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
         const s = JSON.parse(raw);
+        let points = Math.max(0, parseInt(s.points, 10) || 0);
+        const historyCount = Array.isArray(s.topupHistory) ? s.topupHistory.length : 0;
+        const expectedSig = computePointSignature(hwid, points, historyCount);
+
+        // Anti-tamper verification: if signature does not match HWID and point value, reset points
+        if (points > 0 && s.sig !== expectedSig) {
+          console.warn(`[Security] ⚠️ ตรวจพบการแก้ไข Point ในไฟล์โดยไม่ได้รับอนุญาตบนเครื่อง ${hwid}! ทำการรีเซ็ตแต้มเป็น 0`);
+          points = 0;
+          s.points = 0;
+          s.sig = computePointSignature(hwid, 0, historyCount);
+          try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf8'); } catch (e) {}
+        }
+
         return {
           autoAnswer: s.autoAnswer !== false,
           answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
           pointSystemEnabled: s.pointSystemEnabled !== undefined ? !!s.pointSystemEnabled : true,
-          points: Math.max(0, parseInt(s.points, 10) || 0),
+          points,
           pointsPerSolve: 1, // 1 point ต่อ 1 captcha
           pointsPerBaht: Math.max(1, parseInt(s.pointsPerBaht, 10) || 1),
-          receiverPhone: String(s.receiverPhone || '0970674584').replace(/\D/g, ''),
           machineHwid: s.machineHwid || hwid,
           claimedVouchers: Array.isArray(s.claimedVouchers) ? s.claimedVouchers : [],
           topupHistory: Array.isArray(s.topupHistory) ? s.topupHistory : [],
+          sig: s.sig || expectedSig,
           apiUrl: s.apiUrl || '',
           apiKey: s.apiKey || ''
         };
       }
     } catch (e) {}
+    const defaultHwid = hwid;
     return {
       autoAnswer: true,
       answerDelayMs: 1800,
@@ -63,34 +94,47 @@ function createHumanCheckSolver({ dataDir }) {
       points: 0,
       pointsPerSolve: 1,
       pointsPerBaht: 1,
-      receiverPhone: '0970674584',
-      machineHwid: hwid,
+      machineHwid: defaultHwid,
       claimedVouchers: [],
       topupHistory: [],
+      sig: computePointSignature(defaultHwid, 0, 0),
       apiUrl: '',
       apiKey: ''
     };
   }
 
-  function saveSettings(settings) {
+  function saveSettings(settings, allowInternalPointUpdate = false) {
     try {
       const current = loadSettings();
+      // SECURITY: Points, history, and claimed vouchers can only be modified via internal methods (top-up / solve deduction)
+      const points = (allowInternalPointUpdate && settings.points !== undefined)
+        ? Math.max(0, parseInt(settings.points, 10) || 0)
+        : current.points;
+      const history = (allowInternalPointUpdate && Array.isArray(settings.topupHistory))
+        ? settings.topupHistory
+        : current.topupHistory;
+      const claimed = (allowInternalPointUpdate && Array.isArray(settings.claimedVouchers))
+        ? settings.claimedVouchers
+        : current.claimedVouchers;
+      const hwid = current.machineHwid;
+
       const updated = {
         ...current,
         ...settings,
         autoAnswer: settings.autoAnswer !== undefined ? (settings.autoAnswer !== false) : current.autoAnswer,
         answerDelayMs: settings.answerDelayMs !== undefined ? Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800)) : current.answerDelayMs,
         pointSystemEnabled: settings.pointSystemEnabled !== undefined ? !!settings.pointSystemEnabled : current.pointSystemEnabled,
-        points: settings.points !== undefined ? Math.max(0, parseInt(settings.points, 10) || 0) : current.points,
+        points,
         pointsPerSolve: 1, // 1 point ต่อ 1 captcha
         pointsPerBaht: settings.pointsPerBaht !== undefined ? Math.max(1, parseInt(settings.pointsPerBaht, 10) || 1) : current.pointsPerBaht,
-        receiverPhone: String(settings.receiverPhone || current.receiverPhone || '0970674584').replace(/\D/g, ''),
-        machineHwid: current.machineHwid,
-        claimedVouchers: Array.isArray(settings.claimedVouchers) ? settings.claimedVouchers : current.claimedVouchers,
-        topupHistory: Array.isArray(settings.topupHistory) ? settings.topupHistory : current.topupHistory,
+        machineHwid: hwid,
+        claimedVouchers: claimed,
+        topupHistory: history,
+        sig: computePointSignature(hwid, points, history.length),
         apiUrl: String(settings.apiUrl || current.apiUrl || '').trim(),
         apiKey: String(settings.apiKey || current.apiKey || '').trim()
       };
+      delete updated.receiverPhone; // Never save receiver phone to disk in settings JSON!
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
       return updated;
     } catch (e) {
@@ -107,7 +151,10 @@ function createHumanCheckSolver({ dataDir }) {
     }
 
     const s = loadSettings();
-    const receiverPhone = String(receiverPhoneOverride || s.receiverPhone || '0970674584').replace(/\D/g, '');
+    const receiverPhone = String(receiverPhoneOverride || getReceiverPhone()).replace(/\D/g, '');
+    if (!receiverPhone || receiverPhone.length !== 10) {
+      return { success: false, message: 'ระบบขัดข้อง: เบอร์โทรศัพท์ผู้รับเงินไม่ถูกต้อง' };
+    }
     if (!receiverPhone || receiverPhone.length !== 10) {
       return { success: false, message: 'เบอร์โทรศัพท์ผู้รับเงิน TrueMoney ไม่ถูกต้อง (ต้องมี 10 หลัก)' };
     }
@@ -178,7 +225,7 @@ function createHumanCheckSolver({ dataDir }) {
         };
         s.topupHistory = [historyRecord, ...(s.topupHistory || [])].slice(0, 50);
 
-        saveSettings(s);
+        saveSettings(s, true);
 
         return {
           success: true,
@@ -218,7 +265,7 @@ function createHumanCheckSolver({ dataDir }) {
       return { success: false, error: 'Point ไม่เพียงพอสำหรับการตอบคำถาม', remaining: s.points };
     }
     s.points -= cost;
-    saveSettings(s);
+    saveSettings(s, true);
     return { success: true, remaining: s.points, deducted: cost };
   }
 
@@ -228,7 +275,7 @@ function createHumanCheckSolver({ dataDir }) {
     if (isNaN(add) || add <= 0) return { success: false, error: 'จำนวน Point ไม่ถูกต้อง' };
     const s = loadSettings();
     s.points = (s.points || 0) + add;
-    saveSettings(s);
+    saveSettings(s, true);
     return { success: true, points: s.points, added: add };
   }
 

@@ -136,13 +136,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
   }
 
   // Answer human check in the game window
-  async function answerCheckInGame(profileId, pickIndex) {
+  async function answerCheckInGame(profileId, pickIndex, matchedName = '') {
     const profiles = loadProfiles();
     const profile = profiles.find(p => p.id === profileId);
     if (!profile || !profile.debugPort) {
       return { success: false, error: `ไม่พบโปรไฟล์ ${profileId} หรือโปรไฟล์ออฟไลน์อยู่` };
     }
 
+    const cleanName = String(matchedName || '').replace(/['"\\]/g, '');
     const evalCode = `(() => {
       try {
         const hc = document.querySelector('.human-check');
@@ -152,6 +153,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         if (!targetBtn) return { success: false, error: 'ไม่พบปุ่มตัวเลือกที่ ${pickIndex + 1}' };
         if (targetBtn.disabled) return { success: false, error: 'ปุ่มนี้ถูกกดไปแล้วหรือถูกปิดใช้งาน' };
         targetBtn.click();
+        window.__lastHumanCheckSolved = {
+          pickIndex: ${Number(pickIndex)},
+          matchedName: '${cleanName}',
+          timestamp: Date.now()
+        };
+        if (window.showHudToast) {
+          window.showHudToast('🤖 ตอบเช็คผู้เล่น: ${cleanName || ("ข้อ " + (${Number(pickIndex)} + 1))} (หัก 1 Point)', 'success', 5000);
+        }
         return { success: true, picked: ${pickIndex} };
       } catch (err) {
         return { success: false, error: err.message };
@@ -472,7 +481,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       await new Promise(r => setTimeout(r, delayMs));
 
       // Execute answer in game
-      const ansRes = await answerCheckInGame(profileId, solution.pickIndex);
+      const ansRes = await answerCheckInGame(profileId, solution.pickIndex, solution.matchedName);
 
       if (ansRes && ansRes.success) {
         console.log(`[Discord Bot] ✅ Auto-answer succeeded for [${profile.name}]! Picked #${solution.pickIndex + 1} (${solution.matchedName})`);

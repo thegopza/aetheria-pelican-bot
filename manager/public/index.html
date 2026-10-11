@@ -1105,8 +1105,8 @@
               <input type="number" id="hc-points-per-solve" class="form-input" style="width: 55px; padding: 2px 6px; font-size: 11px; text-align: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; color: #fff;" value="1" min="1" max="100">
               <span>Point / ข้อ</span>
             </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <span style="font-size: 11px; color: #64748b;">เติม Point ทดสอบ:</span>
+            <div class="dev-only-feature" style="display: none; gap: 6px; align-items: center;">
+              <span style="font-size: 11px; color: #64748b;">เติม Point ทดสอบ (Dev):</span>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="50" style="font-size: 10.5px; padding: 2px 7px;">+50</button>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="200" style="font-size: 10.5px; padding: 2px 7px;">+200</button>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="1000" style="font-size: 10.5px; padding: 2px 7px;">+1,000</button>
@@ -1297,13 +1297,13 @@
           <div style="font-size: 12.5px; font-weight: 700; color: #f87171; display: flex; align-items: center; gap: 6px;">
             <span>🧧 เติมเงินด้วยซองของขวัญ / อั่งเปา TrueMoney Wallet</span>
           </div>
-          <div style="font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 4px;">
-            📱 เบอร์ผู้รับ: <b id="topup-receiver-phone">0970674584</b>
+          <div style="font-size: 11px; color: #34d399; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 4px; font-weight: 600;">
+            ⚡ อัตโนมัติ 24 ชม.
           </div>
         </div>
 
         <div style="font-size: 11px; color: #94a3b8; line-height: 1.45; margin-bottom: 10px;">
-          เปิดแอป TrueMoney > เลือก <b>"โอนเงิน"</b> > <b>"ส่งของขวัญ / ซองอั่งเปา"</b> > กรอกจำนวนเงินที่ต้องการ (เลือก 1 คน) แล้วคัดลอกลิงก์ซองมาวางในช่องด้านล่างนี้ ระบบจะตัดยอดเงินเข้าเบอร์ <span style="color: #facc15; font-weight: 700;">097-067-4584</span> และเพิ่ม Point ให้อัตโนมัติทันที
+          เปิดแอป TrueMoney > เลือก <b>"โอนเงิน"</b> > <b>"ส่งของขวัญ / ซองอั่งเปา"</b> > กรอกจำนวนเงินที่ต้องการ (เลือก 1 คน) แล้วคัดลอกลิงก์ซองมาวางในช่องด้านล่างนี้ ระบบจะตรวจสอบยอดเงินและเพิ่ม Point เข้าเครื่องให้อัตโนมัติทันที (1 บาท = 1 Point)
         </div>
 
         <div style="display: flex; gap: 8px; align-items: center;">
@@ -1316,11 +1316,11 @@
         <div id="topup-voucher-msg" style="display: none; font-size: 11.5px; padding: 6px 10px; border-radius: 6px; margin-top: 10px;"></div>
       </div>
 
-      <!-- Quick Test Top-up Section (Dev Mode / Shortcut) -->
-      <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
+      <!-- Quick Test Top-up Section (Dev Mode / Shortcut Only) -->
+      <div id="topup-dev-section" class="dev-only-feature" style="display: none; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-size: 11.5px; font-weight: 600; color: #cbd5e1;">🛠️ เติม Point ด่วนสำหรับทดสอบระบบ (Dev Shortcuts):</span>
-          <span style="font-size: 10.5px; color: #64748b;">(ทดสอบหัก Point ในเกม)</span>
+          <span style="font-size: 10.5px; color: #64748b;">(โหมดผู้พัฒนา)</span>
         </div>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
           <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 6px; font-size: 11.5px; text-align: center;">+50 P</button>

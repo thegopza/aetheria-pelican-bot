@@ -1230,7 +1230,11 @@ const server = http.createServer(async (req, res) => {
   // Human Check Auto-Answer & Point System Endpoints
   if (pathname === "/api/human-check/settings") {
     if (req.method === "GET") {
-      return sendJSON({ success: true, settings: humanCheckSolver.loadSettings() });
+      const s = humanCheckSolver.loadSettings();
+      const isDev = fs.existsSync(path.join(__dirname, "..", ".git"));
+      const publicSettings = { ...s };
+      delete publicSettings.receiverPhone; // Keep recipient phone number confidential
+      return sendJSON({ success: true, settings: publicSettings, isDev });
     }
     if (req.method === "POST") {
       let body = "";
@@ -1258,7 +1262,9 @@ const server = http.createServer(async (req, res) => {
               })()`).catch(() => {});
             }
           }
-          sendJSON({ success: true, settings: updated });
+          const publicUpdated = { ...updated };
+          delete publicUpdated.receiverPhone;
+          sendJSON({ success: true, settings: publicUpdated });
         } catch (e) {
           sendJSON({ success: false, error: e.message }, 400);
         }
@@ -1292,8 +1298,12 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Point top-up / credit add endpoint
+  // Point top-up / credit add endpoint (Dev shortcut only)
   if (pathname === "/api/human-check/add-points" && req.method === "POST") {
+    const isDev = fs.existsSync(path.join(__dirname, "..", ".git"));
+    if (!isDev) {
+      return sendJSON({ success: false, error: "ฟังก์ชันนี้สงวนสิทธิ์สำหรับโหมดผู้พัฒนา (Dev Mode) เท่านั้น" }, 403);
+    }
     let body = "";
     req.on("data", c => body += c);
     req.on("end", () => {

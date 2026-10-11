@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.2
+// @version      4.35.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.2';
+    const PELICAN_BOT_VERSION = '4.35.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -388,7 +388,6 @@
                         triesLeft: payload.triesLeft,
                         timestamp: Date.now()
                     };
-                    checkAndAutoAnswerHumanCheck();
                 });
             }
         } catch (e) {}
@@ -524,91 +523,26 @@
         return candidates[0] || null;
     }
 
-    let isAutoAnsweringHumanCheck = false;
-    async function checkAndAutoAnswerHumanCheck() {
+    let hasNotifiedHumanCheck = false;
+    function checkHumanCheckStatus() {
         const hc = document.querySelector('.human-check');
         if (!hc) {
-            isAutoAnsweringHumanCheck = false;
+            hasNotifiedHumanCheck = false;
             return;
         }
-        if (isAutoAnsweringHumanCheck) return;
-
-        try {
-            const userPref = localStorage.getItem('pelican_auto_human_check');
-            if (userPref === 'false') return;
-        } catch (e) {}
-
-        const promptEl = hc.querySelector('.human-check-prompt');
-        const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
-        if (!promptEl || !btns.length) return;
-
-        const prompt = (promptEl.innerText || '').trim();
-        if (!prompt) return;
-
-        isAutoAnsweringHumanCheck = true;
-        const catalog = await getInGameCatalog();
-        if (!catalog) {
-            isAutoAnsweringHumanCheck = false;
-            return;
-        }
-
-        let packetItems = window.__latestHumanCheck ? window.__latestHumanCheck.items : null;
-        if (!packetItems || !packetItems.length) {
-            try {
-                const extracted = [];
-                for (const b of btns) {
-                    const fk = Object.keys(b).find(k => k.startsWith('__reactFiber'));
-                    const cp = fk && b[fk]?.child?.memoizedProps;
-                    if (cp && cp.itemId != null) extracted.push(Number(cp.itemId));
-                }
-                if (extracted.length === btns.length) packetItems = extracted;
-            } catch (e) {}
-        }
-
-        const solution = solveInGameHumanCheck(prompt, btns, packetItems, catalog);
-
-        if (!solution || solution.index == null) {
-            console.warn('[PmheeAether Anti-Bot] ⚠️ ไม่สามารถจับคู่คำถามเช็คผู้เล่น:', prompt);
-            isAutoAnsweringHumanCheck = false;
-            return;
-        }
-
-        // Add randomized delay (1,500ms - 2,400ms) to simulate natural player behavior
-        const delay = 1500 + Math.floor(Math.random() * 900);
-        console.log(`[PmheeAether Anti-Bot] 🤖 ตรวจพบเช็คผู้เล่น: "${prompt}" -> จับคู่ข้อ ${solution.index + 1} (${solution.name}) -> กำลังตอบใน ${delay}ms...`);
-
-        setTimeout(() => {
-            try {
-                const currentHc = document.querySelector('.human-check');
-                if (!currentHc) {
-                    isAutoAnsweringHumanCheck = false;
-                    return;
-                }
-                const currentBtns = Array.from(currentHc.querySelectorAll('.human-check-pick'));
-                const targetBtn = currentBtns[solution.index];
-                if (targetBtn && !targetBtn.disabled) {
-                    targetBtn.click();
-                    window.__lastHumanCheckSolved = {
-                        prompt,
-                        pickIndex: solution.index,
-                        matchedName: solution.name,
-                        timestamp: Date.now()
-                    };
-                    console.log(`[PmheeAether Anti-Bot] ✅ ตอบเช็คผู้เล่นสำเร็จ! เลือกข้อ ${solution.index + 1}: ${solution.name}`);
-                    if (window.showHudToast) {
-                        window.showHudToast(`🤖 ตอบเช็คผู้เล่น: ${solution.name} (ข้อ ${solution.index + 1})`, 'success');
-                    }
-                }
-            } catch (err) {
-                console.error('[PmheeAether Anti-Bot] Error clicking answer:', err);
-            } finally {
-                setTimeout(() => { isAutoAnsweringHumanCheck = false; }, 3000);
+        if (!hasNotifiedHumanCheck) {
+            hasNotifiedHumanCheck = true;
+            const promptEl = hc.querySelector('.human-check-prompt');
+            const prompt = (promptEl ? promptEl.innerText : '').trim();
+            console.log('[PmheeAether Anti-Bot] 🚨 ตรวจพบเช็คผู้เล่น (Human Check):', prompt);
+            if (window.showHudToast) {
+                window.showHudToast('🚨 ตรวจพบเช็คผู้เล่น! ระบบ Manager กำลังประมวลผลคำตอบ...', 'warning', 6000);
             }
-        }, delay);
+        }
     }
 
-    // Attach periodic watcher for human check
-    setInterval(checkAndAutoAnswerHumanCheck, 700);
+    // Attach periodic watcher for human check detection
+    setInterval(checkHumanCheckStatus, 1000);
 
     // Also preload catalog on idle
     setTimeout(() => { getInGameCatalog(); }, 4000);
