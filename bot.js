@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.31.1
+// @version      4.31.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.31.1';
+    const PELICAN_BOT_VERSION = '4.31.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8459,13 +8459,14 @@
     const saveAuth = () => { try { localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig)); } catch (e) {} };
     const randomId = () => 'pm' + Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x');
     // Character names that look like players picked them: gamer words, FiveM-style lowercase tags, Thai nicknames
-    // and short Thai words, mixed in several patterns. Game rule: English, Thai, digits and _ only, min..max
+    // and short Thai words (the game allows rude words in names), mixed in several patterns. Game rule: English, Thai, digits and _ only, min..max
     // characters (read from the create form), unique — a taken name is simply re-rolled on the next try.
     const NAME_WORDS = {
         prefix: ['lnw', 'Pro', 'God', 'King', 'Baby', 'Master', 'Lord', 'Boss', 'Dark', 'Shadow', 'Ghost', 'Blood', 'Demon', 'Chaos', 'Void',
             'Phantom', 'Cyber', 'Neon', 'Apex', 'Viper', 'Silent', 'Lucky', 'Mini', 'Big', 'Little', 'Sweet', 'Crazy', 'Wild'],
         tag: ['cxllme', 'teary', 'lost', 'saddest', 'deadly', 'zodiac', 'mafia', 'gang', 'nightmare', 'lonely', 'sleepy', 'broken', 'silent',
-            'hxrt', 'nxbody', 'cold', 'lazy', 'tired', 'sxdboy', 'midnight', 'blue', 'mxrning', 'xoxo', 'sxul', 'velvet'],
+            'hxrt', 'nxbody', 'cold', 'lazy', 'tired', 'sxdboy', 'midnight', 'blue', 'mxrning', 'xoxo', 'sxul', 'velvet',
+            'fxxk', 'bxtch', 'pxssy', 'killer', 'psycho', 'ghosttown'],
         core: ['Dragon', 'Tiger', 'Phoenix', 'Wolf', 'Hawk', 'Snake', 'Lion', 'Panther', 'Raven', 'Thunder', 'Frost', 'Flame', 'Sniper',
             'Gamer', 'Player', 'Glitch', 'Assassin', 'Knight', 'Samurai', 'Ninja', 'Warrior', 'Guardian', 'Reaper', 'Stalker', 'Slayer',
             'Archer', 'Bard', 'Hunter', 'Ranger', 'Arrow', 'Storm', 'Moon', 'Star', 'Sky', 'Rain', 'Fox', 'Bear', 'Cat'],
