@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.4
+// @version      4.35.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.4';
+    const PELICAN_BOT_VERSION = '4.35.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5816,6 +5816,7 @@
     // Plan systems (job change, weight scrolls, event pet, gear set): the capital becomes the target map for the
     // stay (so nothing walks the character out) and the farm map is remembered for restoreFarmMapAfterJobChange
     window.planTripToCapital = function (who) {
+        window.__lastTownTripAt = Date.now();
         if (window.isInCapital()) return 'here';
         const farm = window.__targetFarmMap || '';
         if (farm && !isCityMapName(farm)) { try { localStorage.setItem('pelican_job_return_map', farm); } catch (e) {} }
@@ -8217,6 +8218,31 @@
     let lastCityToFarmAttempt = 0, lastTownSweepAt = 0, cityTargetSince = 0;
     let navStaleSince = 0;
 
+    // Why is the character in town? Judged when it ARRIVES: an arrival with a reason (a trip / Butterfly Wing /
+    // shop / plan stay / respawn / consolidation, or the bot stopped) explains the whole stay until it leaves town.
+    // Before, a plan trip (e.g. Weight Limit Scrolls) that finished in town was taken for an unexplained return.
+    setInterval(() => {
+        try {
+            const inCityNow = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
+            if (!inCityNow) { window.__wasInCity = false; window.__townArrivalExplained = false; return; }
+            if (window.__wasInCity === true) {
+                if (!window.__isBotRunning || window.__isConsolidating || window.__isRecovering) window.__townArrivalExplained = true;
+                return;
+            }
+            const first = window.__wasInCity === undefined;   // page just loaded in town
+            window.__wasInCity = true;
+            const recent = t => Date.now() - (Number(t) || 0) < 120000;
+            const needs = typeof window.otherTownNeeds === 'function' ? window.otherTownNeeds('').length : 0;
+            window.__townArrivalExplained = first || !window.__isBotRunning || !!(window.__isShopping || window.__isStoring || window.__isNavigating
+                || window.__isWalkingToMap || window.__isRecovering || window.__isConsolidating || window.__isGearRefining || window.__isChangingJob
+                || window.__isHumanizing || window.__isWeightScrollBusy || needs > 0 || ((window.__planJobChangeHoldUntil || 0) > Date.now())
+                || recent(window.__lastBwingUsedAt) || recent(window.__goHomeWingAt) || recent(window.__lastRespawnAt)
+                || recent(window.__lastIntentionalWarpAt) || recent(window.__lastTownTripAt) || recent(lastAutoShopCompletionTime)
+                || (typeof isCharacterDead === 'function' && isCharacterDead()));
+            if (!window.__townArrivalExplained) console.warn('[PmheeAether Watchdog] ⚠️ เข้าเมืองโดยไม่มีระบบไหนสั่ง (ไม่ได้เดินทาง / ใช้ปีก / ตาย)');
+        } catch (e) {}
+    }, 1000);
+
     setInterval(() => {
         if (!window.__isBotRunning || !window.__autoLoopEnabled || window.__isRecovering || window.__isConsolidating) return;
         const deadNow = typeof isCharacterDead === 'function' ? isCharacterDead() : false;
@@ -8429,6 +8455,7 @@
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
 
             const legitimateTownStay = 
+                window.__townArrivalExplained === true ||
                 isTargetCity ||
                 window.__isShopping ||
                 window.__isStoring ||
