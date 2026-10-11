@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.30.0
+// @version      4.30.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Auto Human Check & Weight Auto-Sync 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.30.0';
+    const PELICAN_BOT_VERSION = '4.30.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5876,6 +5876,21 @@
         window.__gameSocket.send(buf.buffer);
         console.log(`%c[PmheeAether] 🦋 ใช้วาร์ป Butterfly Wing (sendInvUse Slot: ${slot})!`, 'color: #38bdf8; font-weight: bold;');
     };
+
+    // The game's "ยินดีต้อนรับ" / event announcement popups (footer.event-foot): tick "ไม่ต้องแสดงอีกวันนี้" and close
+    // them, so they never sit over the game on unattended screens
+    setInterval(() => {
+        try {
+            const foot = document.querySelector('footer.event-foot');
+            if (!foot) return;
+            const cb = foot.querySelector('input[type="checkbox"]');
+            const close = foot.querySelector('button.event-close');
+            if (!close) return;
+            if (cb && !cb.checked) { cb.click(); return; }   // ticked first; closed on the next round
+            close.click();
+            console.log('%c[PmheeAether] ❎ ปิดหน้าต่างต้อนรับ/ประกาศ (ติ๊ก "ไม่ต้องแสดงอีกวันนี้")', 'color: #38bdf8;');
+        } catch (e) {}
+    }, 2000);
 
     // Back to the capital for every system that needs town (shop trip, money consolidation, plan steps, gear set):
     // a Butterfly Wing when the bag has one, else the world map's "เดินไปที่นี่" (a free walk, never a paid warp).

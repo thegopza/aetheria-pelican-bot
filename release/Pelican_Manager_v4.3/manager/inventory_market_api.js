@@ -143,8 +143,9 @@ function buildMarketCode(p) {
         if (!room || !room.connection?.isOpen) return { success: false, error: 'ไม่ได้เชื่อมต่อเกม' };
         const awaitReply = ${AWAIT_REPLY_JS};
         const cfg = window.__marketFilterConfig || {};
+        const shared = typeof window.pauseSniper === 'function';
         const saved = { autoBuy: cfg.autoBuy, sniperAlert: cfg.sniperAlert };
-        cfg.autoBuy = false; cfg.sniperAlert = false;
+        if (shared) window.pauseSniper(); else { cfg.autoBuy = false; cfg.sniperAlert = false; }
         const listings = []; let total = 0;
         try {
           for (let page = 0; page < ${pages}; page++) {
@@ -156,7 +157,7 @@ function buildMarketCode(p) {
             if (listings.length >= total || res.listings.length < (res.pageSize || 20)) break;
           }
         } finally {
-          setTimeout(() => { cfg.autoBuy = saved.autoBuy; cfg.sniperAlert = saved.sniperAlert; }, 400);
+          if (shared) window.resumeSniper(); else setTimeout(() => { cfg.autoBuy = saved.autoBuy; cfg.sniperAlert = saved.sniperAlert; }, 400);
         }
         return { success: true, total, listings };
       })()`
