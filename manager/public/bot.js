@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.34.0
+// @version      4.35.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.34.0';
+    const PELICAN_BOT_VERSION = '4.35.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -14215,9 +14215,22 @@
         }
         return null;
     }
+    // Cards on an item (game: item.cards) that are this step's card
+    function gearCardCount(item, step) {
+        const want = String(step.cardName || '').trim().toLowerCase();
+        return (Array.isArray(item && item.cards) ? item.cards : []).filter(c => c && (typeof c === 'object'
+            ? (gearName(c) === want || Number(c.itemId) === Number(step.cardId))
+            : Number(c) === Number(step.cardId))).length;
+    }
+    // A card step is the n-th of its card on that item (two of the same card = two steps)
+    const gearCardOrdinal = (step, steps) => {
+        const i = steps.indexOf(step);
+        return steps.slice(0, i + 1).filter(x => x && x.kind === 'card' && x.slot === step.slot && x.itemName === step.itemName && x.cardName === step.cardName).length;
+    };
     function gearStepDone(step, equipment, steps) {
         const w = gearWorn(step, equipment, steps);
         if (!w) return false;
+        if (step.kind === 'card') return gearCardCount(w, step) >= gearCardOrdinal(step, steps || [step]);
         return step.kind !== 'refine' || (Number(w.refine) || 0) >= (Number(step.toLevel) || 0);
     }
     // First step that still has work. Also done: a step whose slot moved on to a later item of the plan (the
@@ -14235,7 +14248,7 @@
             if (gearStepDone(st, equipment, steps)) { delete gearEquipTries[st.id]; if (st.kind === 'equip') gearWasWorn[st.id] = true; continue; }
             const superseded = steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== gearName({ name: st.itemName }) && gearWorn(x, equipment, steps));
             if (superseded) continue;
-            if (st.kind === 'refine' && !steps.slice(0, i).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) === gearName({ name: st.itemName }))) continue;
+            if ((st.kind === 'refine' || st.kind === 'card') && !steps.slice(0, i).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) === gearName({ name: st.itemName }))) continue;
             return { index: i, step: st, total: steps.length, steps };
         }
         return { index: -1, step: null, total: steps.length, steps };
@@ -14540,6 +14553,7 @@
             for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) keep.add(gearOreFor(x.slot, to).id);
             if (x.blessing !== false) keep.add(90208);   // Blacksmith Blessing
         });
+        steps.forEach(x => { if (x && x.kind === 'card' && x.cardId && !gearIsSkipped(sk, x) && !gearStepDone(x, eq, steps)) keep.add(Number(x.cardId)); });
         return [...keep];
     }
     let gearKeepMemo = { at: 0, plan: null, ids: [], eq: null, sk: null };
@@ -14560,6 +14574,82 @@
                 && itemPassesPlanOptions(raw, parsePlanOptionFilter(st.options)));
         } catch (e) { return false; }
     };
+
+    // 🃏 Insert a card into the worn item (card from the bag, else bought on the market for up to the step's amount).
+    // The game never lets the player take a card out again — the step is only run when the item has a free slot.
+    const gearCardFails = {};
+    async function gearCardStep(step, worn, zeny, need, steps) {
+        const room = getPlanRoom();
+        if (!room) return false;
+        const used = (Array.isArray(worn.cards) ? worn.cards : []).filter(Boolean).length;
+        if ((Number(worn.slots) || 0) - used <= 0) { gearSkip(step, `${step.itemName} ไม่มีช่องการ์ดว่างแล้ว`); return false; }
+        const want = String(step.cardName || '').trim().toLowerCase();
+        const isCard = it => it && (Number(it.itemId) === Number(step.cardId) || gearName(it) === want);
+        room.send('market', { op: 'collect_all' });
+        await planSleep(1200);
+        const card = planBag().find(isCard);
+        if (card) {
+            const before = gearCardCount(worn, step);
+            gearLog(`🃏 ใส่ "${card.name}" ใน ${step.itemName} (ใส่แล้วถอดเองไม่ได้)`, '#38bdf8');
+            room.send('card_insert', { card: Number(card.slot), target: { kind: 'equip', slot: step.slot } });
+            for (let i = 0; i < 12; i++) {
+                await planSleep(250);
+                const w2 = gearWorn(step, gearChar().equipment || {}, steps);
+                if (w2 && gearCardCount(w2, step) > before) {
+                    gearLog(`✅ ใส่การ์ด "${card.name}" ใน ${step.itemName} แล้ว`, '#22c55e');
+                    delete gearCardFails[step.id];
+                    gearNextTry = Date.now() + 3000;
+                    return true;
+                }
+            }
+            const n = gearCardFails[step.id] = (gearCardFails[step.id] || 0) + 1;
+            if (n >= 3) { delete gearCardFails[step.id]; gearSkip(step, 'เกมไม่ยอมให้ใส่การ์ดนี้ 3 ครั้ง (ชนิดอุปกรณ์ไม่ตรง?)', 60); }
+            gearNextTry = Date.now() + 30000;
+            return false;
+        }
+        // not in the bag: the cheapest one on the market, never paying twice (same markers as equip steps)
+        const boughtKey = gearKey('bought_' + step.id);
+        const pendingAt = Number(gearGet(boughtKey + '_pending', 0)) || 0;
+        if (pendingAt && Date.now() - pendingAt < 5 * 60000) gearSet(boughtKey, pendingAt);
+        if (pendingAt) { try { localStorage.removeItem(boughtKey + '_pending'); } catch (e) {} }
+        if (Date.now() - (Number(gearGet(boughtKey, 0)) || 0) < 30 * 60000) {
+            gearWait(`ซื้อการ์ด ${step.cardName} ไปแล้ว รอรับของจากตลาด (ไม่ซื้อซ้ำภายใน 30 นาที)`);
+            gearNextTry = Date.now() + 60000;
+            return false;
+        }
+        if (window.__planMarketBuyInFlight) return false;
+        const budget = Math.min(need || zeny, zeny);
+        window.__planMarketBuyInFlight = true;
+        try {
+            const now = Date.now();
+            const best = (await planMarketSearch(room, step.cardName))
+                .filter(l => l && !l.mine && l.item && isCard(l.item) && Number(l.qty || 1) === 1 && !(l.auctionEndsAt && l.auctionEndsAt > now))
+                .filter(l => Number(l.price) > 0 && Number(l.price) <= budget)
+                .sort((a, b) => Number(a.price) - Number(b.price))[0];
+            if (!best) {
+                gearWait(`ยังไม่มี ${step.cardName} ขายในตลาดราคาไม่เกิน ${budget.toLocaleString()} z — ลองใหม่ภายหลัง`);
+                gearNextTry = Date.now() + 5 * 60000;
+                return false;
+            }
+            gearLog(`🛒 ซื้อการ์ด "${best.item.name}" ราคา ${Number(best.price).toLocaleString()} z จากตลาด (${best.sellerName || '?'})`, '#10b981');
+            const zeny0 = Number(gearChar().zeny) || 0;
+            gearSet(boughtKey + '_pending', Date.now());
+            room.send('market', { op: 'buy', listingId: Number(best.listingId), price: Number(best.price) });
+            await planSleep(1200);
+            room.send('market', { op: 'collect_all' });
+            await planSleep(2000);
+            try { localStorage.removeItem(boughtKey + '_pending'); } catch (e) {}
+            if ((Number(gearChar().zeny) || 0) < zeny0) gearSet(boughtKey, Date.now());
+            gearNextTry = Date.now() + 5000;
+            return true;
+        } catch (e) {
+            console.warn('[PmheeAether Gear] card buy error:', e);
+            gearNextTry = Date.now() + 60000;
+            return false;
+        } finally {
+            window.__planMarketBuyInFlight = false;
+        }
+    }
 
     // true = working on the gear set this round (other plan work waits), false = nothing to do / waiting
     window.runGearPlanStep = async function () {
@@ -14594,12 +14684,18 @@
         const ch = gearChar();
         const zeny = Number(ch.zeny) || 0;
         const need = Number(step.zeny) || 0;
-        const label = `รายการ ${index + 1}/${total}: ${step.kind === 'refine' ? `ตีบวก ${step.itemName} +${step.toLevel}` : `สวม ${step.itemName}${step.options ? ' [' + step.options + ']' : ''}`}`;
+        const label = `รายการ ${index + 1}/${total}: ${step.kind === 'refine' ? `ตีบวก ${step.itemName} +${step.toLevel}` : step.kind === 'card' ? `ใส่การ์ด ${step.cardName} ใน ${step.itemName}` : `สวม ${step.itemName}${step.options ? ' [' + step.options + ']' : ''}`}`;
         if (zeny < need) { gearWait(`${label} — รอเงินถึง ${need.toLocaleString()} z (มี ${zeny.toLocaleString()} z)`); gearBackToFarm(); return false; }
         const needLv = Math.min(99, Number(step.minLevel) || 0);
         if (needLv && lv.base < needLv) { gearWait(`${label} — รอ Base Lv. ถึง ${needLv} (ตอนนี้ ${lv.base})`); gearBackToFarm(); return false; }
         gearBusy = true;
         try {
+            if (step.kind === 'card') {
+                const worn = gearWorn(step, ch.equipment || {}, steps);
+                if (!worn) { gearWait(`${label} — ยังไม่ได้สวม ${step.itemName}`); gearBackToFarm(); return false; }
+                gearBackToFarm();
+                return await gearCardStep(step, worn, zeny, need, steps);
+            }
             if (step.kind === 'refine') {
                 const worn = gearWorn(step, ch.equipment || {}, steps);
                 if (!worn) { gearWait(`${label} — ยังไม่ได้สวม ${step.itemName}`); gearBackToFarm(); return false; }

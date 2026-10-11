@@ -8,6 +8,80 @@ const path = require('path');
 
 function createHumanCheckSolver({ dataDir }) {
   const CATALOG_FILE = path.join(dataDir, 'item_catalog.json');
+  const SETTINGS_FILE = path.join(dataDir, 'human_check_settings.json');
+
+  // Load / Save Human Check Solver Settings (Auto-answer, delay, point system)
+  function loadSettings() {
+    try {
+      if (fs.existsSync(SETTINGS_FILE)) {
+        const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
+        const s = JSON.parse(raw);
+        return {
+          autoAnswer: s.autoAnswer !== false,
+          answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
+          pointSystemEnabled: !!s.pointSystemEnabled,
+          points: Math.max(0, parseInt(s.points, 10) || 0),
+          pointsPerSolve: Math.max(1, parseInt(s.pointsPerSolve, 10) || 1),
+          apiUrl: s.apiUrl || '',
+          apiKey: s.apiKey || ''
+        };
+      }
+    } catch (e) {}
+    return {
+      autoAnswer: true,
+      answerDelayMs: 1800,
+      pointSystemEnabled: false,
+      points: 0,
+      pointsPerSolve: 1,
+      apiUrl: '',
+      apiKey: ''
+    };
+  }
+
+  function saveSettings(settings) {
+    try {
+      const current = loadSettings();
+      const updated = {
+        ...current,
+        ...settings,
+        autoAnswer: settings.autoAnswer !== false,
+        answerDelayMs: Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800)),
+        pointSystemEnabled: !!settings.pointSystemEnabled,
+        points: Math.max(0, parseInt(settings.points, 10) || 0),
+        pointsPerSolve: Math.max(1, parseInt(settings.pointsPerSolve, 10) || 1),
+        apiUrl: String(settings.apiUrl || current.apiUrl || '').trim(),
+        apiKey: String(settings.apiKey || current.apiKey || '').trim()
+      };
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+      return updated;
+    } catch (e) {
+      console.error('[HumanCheckSolver] Failed to save settings:', e);
+      return null;
+    }
+  }
+
+  // Deduct points after a successful auto-solve (if point system is active)
+  function deductPoints(amount = null) {
+    const s = loadSettings();
+    if (!s.pointSystemEnabled) return { success: true, remaining: s.points, deducted: 0 };
+    const cost = amount != null ? amount : (s.pointsPerSolve || 1);
+    if (s.points < cost) {
+      return { success: false, error: 'Point ไม่เพียงพอสำหรับการตอบคำถาม', remaining: s.points };
+    }
+    s.points -= cost;
+    saveSettings(s);
+    return { success: true, remaining: s.points, deducted: cost };
+  }
+
+  // Add / top up points
+  function addPoints(amount) {
+    const add = parseInt(amount, 10);
+    if (isNaN(add) || add <= 0) return { success: false, error: 'จำนวน Point ไม่ถูกต้อง' };
+    const s = loadSettings();
+    s.points = (s.points || 0) + add;
+    saveSettings(s);
+    return { success: true, points: s.points, added: add };
+  }
 
   // In-memory lookup tables
   let idToName = new Map();
@@ -288,6 +362,10 @@ function createHumanCheckSolver({ dataDir }) {
     getItemNamesByIcon,
     cleanIconPath,
     cleanPromptText,
+    loadSettings,
+    saveSettings,
+    deductPoints,
+    addPoints,
     isReady: () => isReady
   };
 }

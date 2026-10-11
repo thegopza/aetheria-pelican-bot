@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="style.css?v=42510">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
-  <link rel="stylesheet" href="plan_editor.css?v=42820">
+  <link rel="stylesheet" href="plan_editor.css?v=42900">
 </head>
 <body>
   <div class="app-container">
@@ -124,6 +124,9 @@
             </button>
             <button id="btn-weight-check" class="btn btn-ghost btn-sm" title="เช็คน้ำหนักสูงสุดของทุกจอที่ใช้ Plan Script — ตัวที่ยังไม่ถึง 7,000 จะไปซื้อและใช้ Weight Limit Scroll ให้ครบ">
               <span class="icon">⚖️</span> เช็คน้ำหนัก
+            </button>
+            <button id="btn-toggle-auto-answer" class="btn btn-ghost btn-sm" title="เปิด/ปิด การตอบคำถามเช็คผู้เล่นอัตโนมัติ (Auto-Answer Human Check) คลิกเพื่อสลับ" style="border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.12); color: #34d399; font-weight: 600;">
+              <span class="icon">🤖</span> <span id="lbl-toggle-auto-answer">Auto ตอบ: เปิด</span>
             </button>
           </div>
           <div class="toolbar-group">
@@ -1011,10 +1014,10 @@
     </div>
   </div>
 
-  <script src="app.js?v=42700"></script>
-  <script src="patcher_module.js?v=41710"></script>
+  <script src="app.js?v=42710"></script>
+  <script src="patcher_module.js?v=41720"></script>
   <script src="builder_module.js?v=42700"></script>
-  <script src="gear_builder.js?v=42820"></script>
+  <script src="gear_builder.js?v=42900"></script>
   <script src="inventory_market.js?v=4360"></script>
   <script src="bot_update.js?v=41920"></script>
   <script src="config_copy.js?v=4400"></script>
@@ -1051,6 +1054,63 @@
           <small id="lm-browser-path"></small>
         </div>
         <div class="lm-hint">เปลี่ยนโหมดแล้ว ให้ปิดจอเกมเดิมแล้วกดเปิดใหม่ · เบราว์เซอร์ที่ Manager เปิดใช้โปรไฟล์แยก ไม่ปนกับเบราว์เซอร์ส่วนตัว</div>
+      </div>
+
+      <!-- Human Check & Auto-Answer & Point System Card -->
+      <div class="lm-card" style="margin-bottom: 16px; border-color: rgba(16, 185, 129, 0.35); background: rgba(6, 78, 59, 0.2);">
+        <div class="lm-title" style="color: #6ee7b7; display: flex; justify-content: space-between; align-items: center;">
+          <span>🤖 ระบบตอบเช็คผู้เล่นอัตโนมัติ & ระบบ Point (Human Check Solver)</span>
+          <label style="font-size: 11.5px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #cbd5e1;">
+            <input type="checkbox" id="hc-global-auto-answer" checked style="cursor: pointer;">
+            <span style="font-weight: bold; color: #34d399;">เปิดใช้งาน Auto ตอบคำถาม</span>
+          </label>
+        </div>
+        <div style="font-size: 11.5px; color: #94a3b8; margin-top: 6px; line-height: 1.5;">
+          เมื่อตัวละครในเกมเจอกล่องคำถามเช็คผู้เล่น (Human Check) บอทจะวิเคราะห์รูปภาพและกดคำตอบที่ถูกต้องให้อัตโนมัติ พร้อมสุ่มหน่วงเวลาเสมือนคนเล่นจริง
+        </div>
+
+        <div style="display: flex; gap: 14px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #cbd5e1;">
+            <span>⏱️ หน่วงเวลาก่อนตอบ:</span>
+            <input type="number" id="hc-global-answer-delay" class="form-input" style="width: 70px; padding: 2px 6px; font-size: 11.5px; text-align: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; color: #fff;" value="1800" min="800" max="8000" step="100">
+            <span style="color: #64748b;">ms (สุ่ม ±250ms)</span>
+          </div>
+          <button type="button" id="btn-hc-save" class="btn btn-primary btn-sm" style="font-size: 11px; padding: 4px 12px; background: #059669; border-color: #10b981;">💾 บันทึกตั้งค่าตอบคำถาม</button>
+        </div>
+
+        <!-- Point System Sub-Panel -->
+        <div style="margin-top: 12px; padding: 10px 12px; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <label style="font-size: 11.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #facc15; font-weight: 600;">
+              <input type="checkbox" id="hc-point-system-toggle" style="cursor: pointer;">
+              <span>⚡ เปิดใช้งานระบบ Point (หัก Point ต่อการตอบ 1 ครั้ง)</span>
+            </label>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #e2e8f0;">
+              <span>Point คงเหลือ:</span>
+              <span style="font-weight: 800; font-size: 14px; color: #facc15; background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(250, 204, 21, 0.3);" id="hc-points-val">0</span>
+              <span style="color: #94a3b8; font-size: 11px;">Points</span>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8;">
+              <span>หัก Point ข้อละ:</span>
+              <input type="number" id="hc-points-per-solve" class="form-input" style="width: 55px; padding: 2px 6px; font-size: 11px; text-align: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; color: #fff;" value="1" min="1" max="100">
+              <span>Point / ข้อ</span>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span style="font-size: 11px; color: #64748b;">เติม Point ทดสอบ:</span>
+              <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="50" style="font-size: 10.5px; padding: 2px 7px;">+50</button>
+              <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="200" style="font-size: 10.5px; padding: 2px 7px;">+200</button>
+              <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="1000" style="font-size: 10.5px; padding: 2px 7px;">+1,000</button>
+            </div>
+          </div>
+          <div style="font-size: 10.5px; color: #64748b; margin-top: 6px;">
+            * เมื่อเปิดใช้งานระบบ Point: หาก Point หมด ระบบจะหยุดตอบอัตโนมัติและแจ้งเตือนให้ตอบเองทาง Discord / Manager ทันที
+          </div>
+        </div>
+
+        <div id="hc-status-msg" style="display: none; font-size: 11.5px; padding: 4px 8px; border-radius: 4px; margin-top: 6px;"></div>
       </div>
 
       <!-- Discord Bot & Webhook Alert Integration -->

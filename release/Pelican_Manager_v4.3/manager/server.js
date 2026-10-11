@@ -574,7 +574,11 @@ async function fetchGameItems() {
         specials: (i.specials || []).slice(0, 2), soldBy: (i.soldBy || []).map(x => x.shop).slice(0, 1), icon: iconOf(i.id)
       }));
     const classes = (wiki.classes || []).map(c => ({ id: c.id, name: c.name, tier: c.tier }));
-    gameItemsMem = { fetchedAt: Date.now(), items, classes };
+    const cards = (wiki.items || []).filter(i => i.type === "Card").map(i => ({
+      id: i.id, name: i.name, rarity: i.rarity, cardSlotTypes: i.cardSlotTypes || [],
+      attributes: (i.attributes || []).slice(0, 4).map(a => ({ type: a.type, value: a.value })), icon: iconOf(i.id)
+    }));
+    gameItemsMem = { fetchedAt: Date.now(), items, classes, cards };
     try { fs.mkdirSync(path.dirname(GAME_ITEMS_CACHE), { recursive: true }); fs.writeFileSync(GAME_ITEMS_CACHE, JSON.stringify(gameItemsMem)); } catch (e) {}
     return gameItemsMem;
   } catch (e) {
@@ -1215,6 +1219,87 @@ const server = http.createServer(async (req, res) => {
       try {
         const { profileId, pick } = JSON.parse(body || "{}");
         const res = await discordService.answerCheckInGame(profileId, pick);
+        sendJSON(res);
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  // Human Check Auto-Answer & Point System Endpoints
+  if (pathname === "/api/human-check/settings") {
+    if (req.method === "GET") {
+      return sendJSON({ success: true, settings: humanCheckSolver.loadSettings() });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", async () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const updated = humanCheckSolver.saveSettings(data);
+          // Sync to Discord settings as well if autoAnswer changed
+          if (data.autoAnswer !== undefined || data.answerDelayMs !== undefined) {
+            const dCfg = discordService.loadSettings();
+            discordService.saveSettings({
+              ...dCfg,
+              autoAnswer: updated.autoAnswer,
+              answerDelayMs: updated.answerDelayMs
+            });
+          }
+          // Sync autoHumanCheckEnabled into all running game clients
+          const profiles = loadProfiles();
+          for (const p of profiles) {
+            if (p.debugPort) {
+              evalProfilePort(p.debugPort, `(() => {
+                window.__autoHumanCheckEnabled = ${updated.autoAnswer};
+                try { localStorage.setItem('pelican_auto_human_check', '${updated.autoAnswer}'); } catch(e){}
+              })()`).catch(() => {});
+            }
+          }
+          sendJSON({ success: true, settings: updated });
+        } catch (e) {
+          sendJSON({ success: false, error: e.message }, 400);
+        }
+      });
+      return;
+    }
+  }
+
+  // Quick toggle for Auto-Answer (from Manager toolbar or UI button)
+  if (pathname === "/api/human-check/toggle" && req.method === "POST") {
+    try {
+      const current = humanCheckSolver.loadSettings();
+      const newAutoAnswer = !current.autoAnswer;
+      const updated = humanCheckSolver.saveSettings({ ...current, autoAnswer: newAutoAnswer });
+      // Keep discord settings in sync
+      const dCfg = discordService.loadSettings();
+      discordService.saveSettings({ ...dCfg, autoAnswer: newAutoAnswer });
+      // Sync into all running clients
+      const profiles = loadProfiles();
+      for (const p of profiles) {
+        if (p.debugPort) {
+          evalProfilePort(p.debugPort, `(() => {
+            window.__autoHumanCheckEnabled = ${newAutoAnswer};
+            try { localStorage.setItem('pelican_auto_human_check', '${newAutoAnswer}'); } catch(e){}
+          })()`).catch(() => {});
+        }
+      }
+      return sendJSON({ success: true, autoAnswer: newAutoAnswer, settings: updated });
+    } catch (e) {
+      return sendJSON({ success: false, error: e.message }, 500);
+    }
+  }
+
+  // Point top-up / credit add endpoint
+  if (pathname === "/api/human-check/add-points" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { amount } = JSON.parse(body || "{}");
+        const res = humanCheckSolver.addPoints(amount);
         sendJSON(res);
       } catch (e) {
         sendJSON({ success: false, error: e.message }, 400);

@@ -831,6 +831,59 @@ async function runWeightCheck(btn) {
   }
 }
 document.getElementById("btn-weight-check").onclick = e => runWeightCheck(e.currentTarget);
+
+function updateAutoAnswerToolbarBtn(isAuto) {
+  const btn = document.getElementById("btn-toggle-auto-answer");
+  const lbl = document.getElementById("lbl-toggle-auto-answer");
+  if (!btn) return;
+  if (isAuto) {
+    if (lbl) lbl.textContent = "Auto ตอบ: เปิด";
+    btn.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    btn.style.background = "rgba(16, 185, 129, 0.12)";
+    btn.style.color = "#34d399";
+    btn.title = "เปิดใช้งาน Auto ตอบคำถามเช็คผู้เล่นอยู่ — คลิกเพื่อปิด";
+  } else {
+    if (lbl) lbl.textContent = "Auto ตอบ: ปิด";
+    btn.style.borderColor = "rgba(239, 68, 68, 0.4)";
+    btn.style.background = "rgba(239, 68, 68, 0.12)";
+    btn.style.color = "#f87171";
+    btn.title = "ปิด Auto ตอบคำถามเช็คผู้เล่นอยู่ — คลิกเพื่อเปิด";
+  }
+}
+window.updateAutoAnswerToolbarBtn = updateAutoAnswerToolbarBtn;
+
+const btnToggleAutoAnswer = document.getElementById("btn-toggle-auto-answer");
+if (btnToggleAutoAnswer) {
+  btnToggleAutoAnswer.onclick = async () => {
+    btnToggleAutoAnswer.disabled = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/human-check/toggle`, { method: "POST" }).then(r => r.json());
+      if (res && res.success) {
+        updateAutoAnswerToolbarBtn(res.autoAnswer);
+        showToast(res.autoAnswer ? "🤖 เปิด Auto ตอบคำถามเช็คผู้เล่นแล้ว" : "⏸️ ปิด Auto ตอบคำถามเช็คผู้เล่นแล้ว", res.autoAnswer ? "success" : "warning");
+        const hcGlobal = document.getElementById("hc-global-auto-answer");
+        if (hcGlobal) hcGlobal.checked = res.autoAnswer;
+        const discAuto = document.getElementById("discord-auto-answer");
+        if (discAuto) discAuto.checked = res.autoAnswer;
+      } else {
+        showToast("❌ เปลี่ยนสถานะไม่สำเร็จ: " + (res.error || "Unknown"), "error");
+      }
+    } catch (e) {
+      showToast("❌ เกิดข้อผิดพลาด: " + e.message, "error");
+    } finally {
+      btnToggleAutoAnswer.disabled = false;
+    }
+  };
+}
+
+(async () => {
+  try {
+    const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
+    if (res && res.success && res.settings) {
+      updateAutoAnswerToolbarBtn(res.settings.autoAnswer !== false);
+    }
+  } catch (e) {}
+})();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);
 

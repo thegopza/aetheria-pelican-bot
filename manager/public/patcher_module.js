@@ -284,6 +284,108 @@
       });
     }
 
+    // Human Check & Point System Settings Handlers
+    const hcGlobalAutoAnswer = document.getElementById('hc-global-auto-answer');
+    const hcGlobalAnswerDelay = document.getElementById('hc-global-answer-delay');
+    const hcPointSystemToggle = document.getElementById('hc-point-system-toggle');
+    const hcPointsVal = document.getElementById('hc-points-val');
+    const hcPointsPerSolve = document.getElementById('hc-points-per-solve');
+    const btnHcSave = document.getElementById('btn-hc-save');
+    const hcStatusMsg = document.getElementById('hc-status-msg');
+
+    function showHcMsg(text, isError = false) {
+      if (!hcStatusMsg) return;
+      hcStatusMsg.style.display = 'block';
+      hcStatusMsg.style.background = isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+      hcStatusMsg.style.color = isError ? '#f87171' : '#34d399';
+      hcStatusMsg.style.border = isError ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)';
+      hcStatusMsg.innerText = text;
+      setTimeout(() => {
+        if (hcStatusMsg) hcStatusMsg.style.display = 'none';
+      }, 5000);
+    }
+
+    async function loadHumanCheckSettings() {
+      try {
+        const res = await fetch('/api/human-check/settings').then(r => r.json());
+        if (res && res.success && res.settings) {
+          const s = res.settings;
+          if (hcGlobalAutoAnswer) hcGlobalAutoAnswer.checked = s.autoAnswer !== false;
+          if (hcGlobalAnswerDelay) hcGlobalAnswerDelay.value = s.answerDelayMs || 1800;
+          if (hcPointSystemToggle) hcPointSystemToggle.checked = !!s.pointSystemEnabled;
+          if (hcPointsVal) hcPointsVal.innerText = s.points || 0;
+          if (hcPointsPerSolve) hcPointsPerSolve.value = s.pointsPerSolve || 1;
+          if (typeof window.updateAutoAnswerToolbarBtn === 'function') {
+            window.updateAutoAnswerToolbarBtn(s.autoAnswer !== false);
+          }
+        }
+      } catch (e) {
+        console.error('[HumanCheck] Failed to load settings:', e);
+      }
+    }
+    window.loadHumanCheckSettings = loadHumanCheckSettings;
+
+    if (btnHcSave) {
+      btnHcSave.addEventListener('click', async () => {
+        btnHcSave.disabled = true;
+        btnHcSave.innerText = '⏳ กำลังบันทึก...';
+        try {
+          const payload = {
+            autoAnswer: hcGlobalAutoAnswer ? hcGlobalAutoAnswer.checked : true,
+            answerDelayMs: hcGlobalAnswerDelay ? Math.max(800, parseInt(hcGlobalAnswerDelay.value, 10) || 1800) : 1800,
+            pointSystemEnabled: hcPointSystemToggle ? hcPointSystemToggle.checked : false,
+            pointsPerSolve: hcPointsPerSolve ? Math.max(1, parseInt(hcPointsPerSolve.value, 10) || 1) : 1
+          };
+          const res = await fetch('/api/human-check/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          }).then(r => r.json());
+
+          if (res && res.success) {
+            showHcMsg('✅ บันทึกการตั้งค่าตอบคำถามเรียบร้อยแล้ว');
+            if (typeof window.updateAutoAnswerToolbarBtn === 'function') {
+              window.updateAutoAnswerToolbarBtn(payload.autoAnswer);
+            }
+            if (discordAutoAnswer) discordAutoAnswer.checked = payload.autoAnswer;
+          } else {
+            showHcMsg('❌ บันทึกไม่สำเร็จ: ' + (res.error || 'Unknown error'), true);
+          }
+        } catch (e) {
+          showHcMsg('❌ เกิดข้อผิดพลาด: ' + e.message, true);
+        } finally {
+          btnHcSave.disabled = false;
+          btnHcSave.innerText = '💾 บันทึกตั้งค่าตอบคำถาม';
+        }
+      });
+    }
+
+    // Quick point top-up buttons
+    document.querySelectorAll('.btn-quick-point').forEach(b => {
+      b.addEventListener('click', async () => {
+        const amount = parseInt(b.dataset.amount, 10);
+        if (!amount) return;
+        b.disabled = true;
+        try {
+          const res = await fetch('/api/human-check/add-points', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+          }).then(r => r.json());
+          if (res && res.success) {
+            if (hcPointsVal) hcPointsVal.innerText = res.points;
+            showHcMsg(`⚡ เติม Point สำเร็จ: +${amount} P (รวมคงเหลือ ${res.points} P)`);
+          } else {
+            showHcMsg('❌ เติม Point ไม่สำเร็จ: ' + (res.error || 'Unknown error'), true);
+          }
+        } catch (e) {
+          showHcMsg('❌ เกิดข้อผิดพลาด: ' + e.message, true);
+        } finally {
+          b.disabled = false;
+        }
+      });
+    });
+
     // Discord Integration handlers
     const discordEnabled = document.getElementById('discord-enabled-toggle');
     const discordWebhookUrl = document.getElementById('discord-webhook-url');
@@ -384,6 +486,7 @@
     }
 
     loadDiscordSettings();
+    loadHumanCheckSettings();
 
     // Initial background check
     fetchStatus();

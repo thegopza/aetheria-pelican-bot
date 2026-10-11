@@ -28,6 +28,7 @@
   const RARITY = { common: '#cbd5e1', uncommon: '#4ade80', rare: '#38bdf8', epic: '#c084fc', legendary: '#fbbf24' };
   const ATTR_TH = { MELEE_ATTACK: 'ATK ประชิด', RANGE_ATTACK: 'ATK ระยะไกล', MAGIC_ATTACK: 'MATK', MELEE_DEFENSE: 'DEF', MAGIC_DEFENSE: 'MDEF' };
 
+  let cards = [], pickMode = 'item';
   let items = null, classes = [], snapshot = null, slotSel = 'main-hand', query = '', onlyMine = true, focusStepId = null;
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const num = n => (Number(n) || 0).toLocaleString();
@@ -68,16 +69,18 @@
   }
   const itemById = id => (items || []).find(i => i.id === id);
 
-  // what the steps plan for a slot: last item + highest refine
+  const cardById = id => cards.find(c => c.id === id);
+  // what the steps plan for a slot: last item + highest refine + its cards
   function slotPlan(slotKey) {
     const steps = gp().steps;
-    let equip = null, refine = 0;
+    let equip = null, refine = 0, cardCount = 0;
     steps.forEach(st => {
       if (st.slot !== slotKey) return;
-      if (st.kind === 'equip') { equip = st; refine = 0; }
+      if (st.kind === 'equip') { equip = st; refine = 0; cardCount = 0; }
       else if (st.kind === 'refine' && equip && st.itemName === equip.itemName) refine = Math.max(refine, st.toLevel || 0);
+      else if (st.kind === 'card' && equip && st.itemName === equip.itemName) cardCount++;
     });
-    return { equip, refine };
+    return { equip, refine, cardCount };
   }
 
   function ensureModal() {
@@ -91,7 +94,7 @@
         <header class="gb-head">
           <div>
             <h3>🛡️ เซ็ตอุปกรณ์ <span class="gb-plan-name"></span></h3>
-            <small>คลิกช่องสวมใส่ / เจม → เลือกไอเทม → ใส่เงินและเลเวลที่ต้องถึงก่อน · กด <b>+</b> ที่ช่องเพื่อเพิ่มขั้นตีบวก · บอททำทีละรายการตามลำดับ · เจม % สูงกว่าที่ตั้งก็นับว่าผ่าน</small>
+            <small>คลิกช่องสวมใส่ / เจม → เลือกไอเทม → ใส่เงินและเลเวลที่ต้องถึงก่อน · <b>+</b> = ตีบวก · <b>🃏</b> = ใส่การ์ด (ไอเทมที่มีรู) · บอททำทีละรายการตามลำดับ · เจม % สูงกว่าที่ตั้งก็นับว่าผ่าน</small>
           </div>
           <button type="button" class="gb-x" data-gb="cancel" aria-label="ปิด">✕</button>
         </header>
@@ -167,8 +170,9 @@
           <div class="gb-slot-icon">${it && it.icon ? `<img src="${esc(it.icon)}" alt="">` : ''}</div>
           <div class="gb-slot-text">
             <small>${esc(s.label)}</small>
-            <b style="${it ? 'color:' + (RARITY[it.rarity] || '#e2e8f0') : ''}">${sp.equip ? esc(sp.equip.itemName) + (sp.refine ? ` <span class="gb-ref">+${sp.refine}</span>` : '') : 'ว่าง'}</b>
+            <b style="${it ? 'color:' + (RARITY[it.rarity] || '#e2e8f0') : ''}">${sp.equip ? esc(sp.equip.itemName) + (sp.refine ? ` <span class="gb-ref">+${sp.refine}</span>` : '') + (sp.cardCount ? ` <span class="gb-cardn">🃏${sp.cardCount}</span>` : '') : 'ว่าง'}</b>
           </div>
+          ${sp.equip && it && it.slots > 0 ? `<button type="button" class="gb-card-btn ${slotSel === s.key && pickMode === 'card' ? 'on' : ''}" data-gb="card-mode" data-slot="${s.key}" title="ใส่การ์ดใน ${esc(sp.equip.itemName)} (${sp.cardCount}/${it.slots} ช่อง)">🃏 ${sp.cardCount}/${it.slots}</button>` : ''}
           ${sp.equip && (!it || it.refineable) ? `<div class="gb-slot-ref"><button type="button" data-gb="ref-minus" data-slot="${s.key}" title="เอาขั้นตีบวกล่าสุดออก" ${sp.refine ? '' : 'disabled'}>−</button><button type="button" data-gb="ref-plus" data-slot="${s.key}" title="เพิ่มรายการตีบวก +${sp.refine + 1}" ${sp.refine >= 10 ? 'disabled' : ''}>+</button></div>` : ''}
         </div>`;
       }).join('');
@@ -183,6 +187,7 @@
     m.querySelector('.gb-picker-title').textContent = `เลือก${slot ? slot.label : ''}`;
     const box = m.querySelector('.gb-list');
     if (!items) return;
+    if (pickMode === 'card') return renderCardPicker(m, slot, box);
     const q = query.trim().toLowerCase();
     const list = items.filter(it => slot.types.includes(it.slotType))
       .filter(it => !onlyMine || wearableByPlan(it))
@@ -201,7 +206,32 @@
       </div>`).join('');
   }
 
+  // Cards that fit the planned item of the slot (game: card.cardSlotTypes has the item's equipment type)
+  function renderCardPicker(m, slot, box) {
+    const sp = slotPlan(slotSel);
+    const it = sp.equip && itemById(sp.equip.itemId);
+    if (!sp.equip || !it) { pickMode = 'item'; return renderPicker(); }
+    m.querySelector('.gb-picker-title').textContent = `🃏 เลือกการ์ดใส่ ${sp.equip.itemName} (${sp.cardCount}/${it.slots} ช่อง)`;
+    const q = query.trim().toLowerCase();
+    const list = cards.filter(c => (c.cardSlotTypes || []).includes(it.slotType))
+      .filter(c => !q || [c.name, ...(c.attributes || []).map(a => a.type)].join(' ').toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const full = sp.cardCount >= it.slots;
+    if (!list.length) { box.innerHTML = '<div class="gb-empty">ไม่มีการ์ดที่ใส่กับไอเทมชนิดนี้ได้</div>'; return; }
+    box.innerHTML = `<div class="gb-card-note">ใส่แล้วถอดเองไม่ได้ (ต้องให้ NPC ถอดและเสียเงิน) · การ์ดติดไปกับอุปกรณ์ชิ้นนี้${full ? ' · <b>ช่องการ์ดเต็มแล้ว</b>' : ''}</div>` + list.map(c => `
+      <div class="gb-item">
+        <div class="gb-item-icon">${c.icon ? `<img src="${esc(c.icon)}" alt="" loading="lazy">` : ''}</div>
+        <div class="gb-item-body">
+          <b style="color:${RARITY[c.rarity] || '#e2e8f0'}">${esc(c.name)}</b>
+          <small>ใส่ได้กับ: ${esc((c.cardSlotTypes || []).join(', '))}</small>
+          <div class="gb-attrs">${(c.attributes || []).map(a => `<span>${esc(ATTR_TH[a.type] || a.type)} +${esc(a.value)}</span>`).join('')}</div>
+        </div>
+        <button type="button" class="gb-pick" data-gb="pick-card" data-id="${c.id}" ${full ? 'disabled' : ''}>ใส่</button>
+      </div>`).join('');
+  }
+
   function stepText(st) {
+    if (st.kind === 'card') return `🃏 ใส่การ์ด <b>${esc(st.cardName)}</b> ใน <b>${esc(st.itemName)}</b>`;
     if (st.kind === 'refine') return `🔨 ตีบวก <b>${esc(st.itemName)}</b> → <span class="gb-ref">+${Number(st.toLevel) || 0}</span>`;
     return `🛒 ซื้อ / สวม <b>${esc(st.itemName)}</b>`;
   }
@@ -219,10 +249,10 @@
       return;
     }
     box.innerHTML = steps.map((st, i) => {
-      const it = st.itemId ? itemById(st.itemId) : (items || []).find(x => x.name === st.itemName);
+      const it = st.kind === 'card' ? cardById(st.cardId) : st.itemId ? itemById(st.itemId) : (items || []).find(x => x.name === st.itemName);
       const slot = SLOTS.find(s => s.key === st.slot);
       // a refine step needs its item equipped by an earlier step
-      const orphan = st.kind === 'refine' && !steps.slice(0, i).some(x => x.kind === 'equip' && x.slot === st.slot && x.itemName === st.itemName);
+      const orphan = (st.kind === 'refine' || st.kind === 'card') && !steps.slice(0, i).some(x => x.kind === 'equip' && x.slot === st.slot && x.itemName === st.itemName);
       return `<div class="gb-step ${focusStepId === st.id ? 'flash' : ''} ${orphan ? 'warn' : ''}" data-id="${esc(st.id)}">
         <span class="gb-step-no">${i + 1}</span>
         <div class="gb-step-icon">${it && it.icon ? `<img src="${esc(it.icon)}" alt="">` : ''}</div>
@@ -232,6 +262,7 @@
             <select class="gb-opt-type" data-id="${esc(st.id)}"><option value="">+ เพิ่มออปชั่น</option>${OPTION_TYPES.map(o => `<option value="${o}">${o}</option>`).join('')}</select></div>` : ''}
           ${st.kind === 'refine' ? `<label class="gb-step-bless"><input type="checkbox" data-gb="bless" data-id="${esc(st.id)}" ${st.blessing !== false ? 'checked' : ''}> ใช้ Blacksmith Blessing ถ้ามี (กันแตก/ลดขั้น) · ขั้นที่อาจแตกจะรอจนมี Blessing — เอาติ๊กออก = ยอมเสี่ยงตีเลย</label>` : ''}
           ${st.kind === 'refine' && st.toLevel > 4 ? `<small class="gb-warn-text">⚠️ เกิน +4 (ขั้นปลอดภัย) ตีพลาดอาจลดขั้น · +${st.toLevel >= 9 ? st.toLevel + ' อาจแตก ถ้าไม่มี Blessing' : '9 ขึ้นไปอาจแตก'}</small>` : ''}
+          ${st.kind === 'card' ? '<small class="gb-warn-text">🃏 ใส่แล้วถอดเองไม่ได้ · ไม่มีการ์ดในกระเป๋า = ซื้อในตลาด (ราคาไม่เกินเงินที่ตั้ง)</small>' : ''}
           ${orphan ? '<small class="gb-warn-text">⚠️ ต้องมีรายการซื้อ/สวมไอเทมนี้อยู่ก่อนหน้า — ไม่งั้นบอทจะข้ามรายการนี้</small>' : ''}
         </div>
         <div class="gb-conds">
@@ -260,7 +291,7 @@
     const slotEl = e.target.closest('.gb-slot');
     const btn = e.target.closest('[data-gb]');
     const act = btn && btn.dataset.gb;
-    if (slotEl && !btn) { slotSel = slotEl.dataset.slot; query = ''; ensureModal().querySelector('.gb-search').value = ''; render(); return; }
+    if (slotEl && !btn) { slotSel = slotEl.dataset.slot; pickMode = 'item'; query = ''; ensureModal().querySelector('.gb-search').value = ''; render(); return; }
     if (!act) return;
     const steps = gp().steps;
     const id = btn.dataset.id;
@@ -270,6 +301,24 @@
       const it = itemById(Number(id));
       if (!it) return;
       const st = { id: newId(), kind: 'equip', slot: slotSel, itemId: it.id, itemName: it.name, jobs: (it.jobs || []).slice(), options: '', zeny: lastZeny(), minLevel: Number(it.level) || 0 };
+      steps.push(st);
+      focusStepId = st.id;
+      return render();
+    }
+    if (act === 'card-mode') {
+      slotSel = btn.dataset.slot;
+      pickMode = 'card';
+      query = '';
+      ensureModal().querySelector('.gb-search').value = '';
+      return render();
+    }
+    if (act === 'pick-card') {
+      const c = cardById(Number(id));
+      const sp = slotPlan(slotSel);
+      const it = sp.equip && itemById(sp.equip.itemId);
+      if (!c || !sp.equip || !it) return;
+      if (sp.cardCount >= it.slots) return alert(`${sp.equip.itemName} มีช่องการ์ดแค่ ${it.slots} ช่อง`);
+      const st = { id: newId(), kind: 'card', slot: slotSel, itemName: sp.equip.itemName, cardId: c.id, cardName: c.name, zeny: lastZeny(), minLevel: lastLevel() };
       steps.push(st);
       focusStepId = st.id;
       return render();
@@ -335,6 +384,7 @@
       if (!r.success) throw new Error(r.error || 'error');
       items = r.items;
       classes = r.classes || [];
+      cards = r.cards || [];
     } catch (e) {
       if (!plan()) return;
       const box = ensureModal().querySelector('.gb-list');

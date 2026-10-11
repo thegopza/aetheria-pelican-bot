@@ -380,10 +380,15 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     );
   }
 
-  // Notify Discord about an active human check
+  // Notify Discord about an active human check & execute Auto-Answer if enabled
   async function notifyHumanCheck({ profile, check }) {
     const cfg = loadSettings();
-    if (!cfg.enabled) return;
+    const hcSettings = (solver && typeof solver.loadSettings === 'function')
+      ? solver.loadSettings()
+      : { autoAnswer: cfg.autoAnswer !== false, pointSystemEnabled: false, points: 0, pointsPerSolve: 1 };
+
+    // If both Discord alert and Auto-Answer are disabled, nothing to do
+    if (!cfg.enabled && !hcSettings.autoAnswer) return;
 
     const profileId = profile.id;
     const now = Date.now();
@@ -439,11 +444,24 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     const metaText = check.meta || '';
     const optionsCount = resolvedOptions.length || 4;
 
+    // Point system validation
+    let pointBlocked = false;
+    let pointMessage = '';
+    if (hcSettings.pointSystemEnabled) {
+      const cost = hcSettings.pointsPerSolve || 1;
+      if (hcSettings.points < cost) {
+        pointBlocked = true;
+        pointMessage = `⚠️ Point ไม่เพียงพอสำหรับการตอบอัตโนมัติ (คงเหลือ ${hcSettings.points} P, ต้องการ ${cost} P)`;
+        console.warn(`[HumanCheckSolver] Point blocked for ${profile.name}: has ${hcSettings.points} P, requires ${cost} P`);
+      }
+    }
+
     // Check if Auto-Answer is enabled AND solver found a confident match
-    const shouldAutoAnswer = (cfg.autoAnswer !== false) && solution.success && solution.pickIndex != null;
+    const isAutoAnswerAllowed = hcSettings.autoAnswer && (cfg.autoAnswer !== false) && !pointBlocked;
+    const shouldAutoAnswer = isAutoAnswerAllowed && solution.success && solution.pickIndex != null;
 
     if (shouldAutoAnswer) {
-      const baseDelay = parseInt(cfg.answerDelayMs, 10) || 1800;
+      const baseDelay = parseInt(hcSettings.answerDelayMs || cfg.answerDelayMs, 10) || 1800;
       // Add natural randomized jitter (-250ms to +350ms)
       const jitter = Math.floor(Math.random() * 600) - 250;
       const delayMs = Math.max(800, baseDelay + jitter);
@@ -458,6 +476,12 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
       if (ansRes && ansRes.success) {
         console.log(`[Discord Bot] ✅ Auto-answer succeeded for [${profile.name}]! Picked #${solution.pickIndex + 1} (${solution.matchedName})`);
+
+        // Deduct point if point system is active
+        let deductInfo = null;
+        if (solver && typeof solver.deductPoints === 'function' && hcSettings.pointSystemEnabled) {
+          deductInfo = solver.deductPoints();
+        }
 
         // Send Success Notification to Discord
         const optionsList = resolvedOptions.map((opt, i) => {
@@ -513,6 +537,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     const embed = {
       title: `🚨 ตรวจพบเช็คผู้เล่น (Human Check)!`,
       description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}` +
+        (pointMessage ? `\n\n${pointMessage}` : '') +
         (solution.matchedName ? `\n\n💡 *ระบบวิเคราะห์ว่าเป็น:* **ข้อ ${solution.pickIndex + 1}: ${solution.matchedName}**` : ''),
       color: 0xEF4444, // Red
       fields: [],
@@ -541,7 +566,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
     // Build Interactive Buttons (with item names and recommended star)
     let components = [];
-    if (cfg.botToken && cfg.channelId) {
+    if (cfg.enabled && cfg.botToken && cfg.channelId) {
       const buttons = [];
       for (let i = 0; i < optionsCount; i++) {
         const opt = resolvedOptions[i] || {};
@@ -575,25 +600,27 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     }
 
     // Send via Bot Token (to channel) or Webhook with image attachment
-    if (cfg.botToken && cfg.channelId) {
-      const payload = {
-        content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
-        embeds: [embed],
-        components
-      };
-      const res = await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken, fileAttachment);
-      if (res.success && res.data?.id) {
-        const info = activeChecks.get(profileId);
-        if (info) info.messageId = res.data.id;
+    if (cfg.enabled) {
+      if (cfg.botToken && cfg.channelId) {
+        const payload = {
+          content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
+          embeds: [embed],
+          components
+        };
+        const res = await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken, fileAttachment);
+        if (res.success && res.data?.id) {
+          const info = activeChecks.get(profileId);
+          if (info) info.messageId = res.data.id;
+        }
+      } else if (cfg.webhookUrl) {
+        const payload = {
+          username: 'PmheeAether Anti-Bot Alert',
+          avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
+          content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น!`,
+          embeds: [embed]
+        };
+        await discordRequest(cfg.webhookUrl, 'POST', payload, null, fileAttachment);
       }
-    } else if (cfg.webhookUrl) {
-      const payload = {
-        username: 'PmheeAether Anti-Bot Alert',
-        avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
-        content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น!`,
-        embeds: [embed]
-      };
-      await discordRequest(cfg.webhookUrl, 'POST', payload, null, fileAttachment);
     }
   }
 

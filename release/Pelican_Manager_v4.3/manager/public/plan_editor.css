@@ -438,3 +438,9 @@
 
 .gb-gems .gb-slot-text b { white-space: normal; font-size: 10.5px; line-height: 1.25; overflow: visible; }
 .gb-gems .gb-slot { padding: 6px; gap: 6px; }
+
+.gb-card-btn { flex-shrink: 0; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.12); color: #7dd3fc; font-size: 10.5px; font-weight: 800; padding: 2px 6px; cursor: pointer; }
+.gb-card-btn.on { background: rgba(56, 189, 248, 0.35); color: #fff; }
+.gb-cardn { color: #7dd3fc; font-weight: 800; }
+.gb-card-note { font-size: 10.5px; color: #fbbf24; background: rgba(251, 191, 36, 0.08); border: 1px dashed rgba(251, 191, 36, 0.35); border-radius: 8px; padding: 5px 8px; }
+.gb-pick:disabled { opacity: .4; cursor: default; }
