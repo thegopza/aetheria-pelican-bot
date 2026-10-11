@@ -159,7 +159,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           timestamp: Date.now()
         };
         if (window.showHudToast) {
-          window.showHudToast('🤖 ตอบเช็คผู้เล่น: ${cleanName || ("ข้อ " + (${Number(pickIndex)} + 1))} (หัก 1 Point)', 'success', 5000);
+          window.showHudToast('🤖 ตอบเช็คผู้เล่น: ${cleanName || ("ข้อ " + (Number(pickIndex) + 1))} (หัก 1 Point)', 'success', 5000);
         }
         return { success: true, picked: ${pickIndex} };
       } catch (err) {
