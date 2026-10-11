@@ -187,7 +187,7 @@
     const list = items.filter(it => slot.types.includes(it.slotType))
       .filter(it => !onlyMine || wearableByPlan(it))
       .filter(it => !q || [it.name, it.weaponType, ...(it.attributes || []).map(a => a.type), ...(it.jobs || [])].join(' ').toLowerCase().includes(q))
-      .sort((a, b) => (a.level - b.level) || a.name.localeCompare(b.name));
+      .sort((a, b) => (a.level - b.level) || a.name.localeCompare(b.name, undefined, { numeric: true }));
     if (!list.length) { box.innerHTML = '<div class="gb-empty">ไม่พบไอเทมที่ตรงกับการค้นหา</div>'; return; }
     box.innerHTML = list.map(it => `
       <div class="gb-item">
