@@ -178,3 +178,16 @@
    - สไตล์ทั้งหมดอยู่ใน `<style>` ของ `#pelican-hud` (checkbox แสดงเป็นสวิตช์, การ์ด/ปุ่ม/ช่องกรอกใช้ธีมเดียวกัน) — ของใหม่ให้ใช้ class เดิม (`p-card`, `p-card-title`, `p-btn`, `p-check-box`, `p-hint`) แทน inline style
    - ห้ามใช้ emoji 🪙 (Windows 10 แสดงเป็นกล่องสี่เหลี่ยม) ให้ใช้ 💰
 9. **HUD จำลองใน Manager** (`getGitHubHudTemplate` ใน `manager/public/app.js`) เป็นสำเนาของ HUD ในเกม — ถ้าเอาฟีเจอร์ออกจาก bot.js ต้องเอาออกจากที่นี่และ action ใน `server.js` (`client-action`) ด้วย
+
+## Cloudflare Workers + D1 — ระบบ Point / Auto Humancheck (ย้ายแล้ว 2026-10-12)
+
+- ฝั่ง API อยู่ `D:\MyProject\PMheeSuite\PMheePlatform_Src\Server\PMhee.AetheriaApi\cloudflare\` อ่าน `README.md`, `DEPLOYMENT_STATUS.md` และ `../AGENTS.md` ก่อนทำงาน สถานะ deploy จริงอยู่ใน DEPLOYMENT_STATUS ห้ามอ้างว่าขึ้น production แล้วจากการมีโค้ดเพียงอย่างเดียว
+- Manager เป็น client เรียก `https://api.noggunsshop.xyz/v1/aetheria/*` ยอด Point/สิทธิ์ตอบ/เติมซอง/ตัวกันหักซ้ำเป็นหน้าที่ของ API และ D1 ห้ามเพิ่ม solver/เครดิตออฟไลน์ที่ข้าม server
+- โดเมนแชร์กับ Licensing API: ใช้ Worker route เฉพาะ `/v1/aetheria/*` ห้ามย้าย DNS หรือ custom domain ทั้ง hostname; ห้ามหยุด PMheeLicensingApi, PMheeCloudflared, Manager หรือจอเกม
+- ย้ายข้อมูลต้องคง accountId, token_hash, Point, receipts, requestId/payload_hash/response เดิมทั้งหมด และคงอัตราใช้ฟรี/คิดแต้มจาก config จริง ห้ามบังคับกลับเป็น 1 Point
+- หักแต้ม+บันทึกผล / เติมแต้ม+receipt ต้อง atomic และ idempotent; pending voucher ห้าม retry redeem อัตโนมัติ; ห้ามเปิด SQLite กับ D1 ให้รับรายการพร้อมกัน
+- Receiver/webhook ใช้ Workers Secrets เท่านั้น export/backup/customer data อยู่โฟลเดอร์ artifacts ที่จำกัดสิทธิ์ในโปรเจกต์ API ห้ามคัดลอกลง Manager/release/Git/log
+- โค้ด client เดิมผูกบัญชีกับ API origin จึงคง origin เดิมเพื่อใช้ token เดิม อย่าลบไฟล์บัญชีใน Manager ระหว่างย้าย
+- ทดสอบด้วย D1 staging/ข้อมูลจำลองก่อน; ทดสอบเงินจริงหรือเปลี่ยนราคาต้องมีคำสั่งผู้ใช้ชัดเจน การ rollback หลังมีรายการบน D1 ต้องย้าย ledger ล่าสุดกลับ ห้ามใช้ SQLite backup เก่าแทน
+- เปลี่ยนแนวทาง/สถานะที่มีผลต่อ agent ให้ปรับส่วนนี้ทั้ง AGENTS.md และ agent.md พร้อมกัน และปรับ DEPLOYMENT_STATUS ของฝั่ง API ด้วย
+- สถานะ 2026-10-12: production Worker `pmhee-aetheria-api` + D1 ใช้งานแล้ว; PMheeAetheriaApi ในเครื่องหยุดอยู่; origin/token เดิมใช้ได้ และ Manager เดิมไม่ต้องแตก zip ใหม่ การคิด 2 Point/จอ/วันเป็นแผนใหม่ที่ยังไม่เปิดใช้ อ่าน `cloudflare/BILLING_DESIGN.md` ก่อนแก้ ห้ามเริ่มเก็บเงินหรือยอมให้บัญชีใหม่หนีหนี้โดยอนุมานเอง
