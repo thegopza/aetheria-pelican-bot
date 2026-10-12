@@ -154,6 +154,9 @@
             <button id="btn-toggle-auto-answer" class="btn btn-ghost btn-sm" title="เปิด/ปิด การตอบคำถามเช็คผู้เล่นอัตโนมัติ (Auto-Answer Human Check) คลิกเพื่อสลับ" style="border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.12); color: #34d399; font-weight: 600;">
               <span class="icon">🤖</span> <span id="lbl-toggle-auto-answer">Auto ตอบ: เปิด</span>
             </button>
+            <button id="btn-toggle-proxy-register" class="btn btn-ghost btn-sm" title="เปิด/ปิด ระบบ Proxy สำหรับสมัครไอดีอัตโนมัติ (ป้องกันชนลิมิต 3 ID/ชม./IP) คลิกเพื่อสลับหรือดูเงื่อนไข" style="border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(148, 163, 184, 0.08); color: #94a3b8; font-weight: 600;">
+              <span class="icon">🌐</span> <span id="lbl-toggle-proxy-register">Proxy สมัคร: ปิด</span>
+            </button>
           </div>
           <div class="toolbar-group">
             <button id="btn-global-plan-setup" class="btn btn-ghost btn-sm" title="ตั้งค่าแผนการเล่น (Script Plan Builder)">
@@ -1040,7 +1043,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42736"></script>
+  <script src="app.js?v=43620"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1509,6 +1512,91 @@
         <div style="display: flex; gap: 8px;">
           <button type="button" id="btn-usage-statement-topup" class="btn" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(202, 138, 4, 0.15)); border: 1px solid rgba(250, 204, 21, 0.5); color: #facc15; font-size: 12px; padding: 5px 14px; font-weight: 600;">💰 เติมแต้มบุญ</button>
           <button type="button" id="btn-usage-statement-ok" class="btn btn-secondary" style="font-size: 12px; padding: 5px 16px;">ปิด</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PROXY AUTO-REGISTER CONFIRMATION & SETTINGS MODAL -->
+  <div id="modal-proxy-register-confirm" class="modal-overlay modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); z-index: 99999; backdrop-filter: blur(6px);">
+    <div class="modal-content" style="background: #0b1329; border: 1.5px solid rgba(56, 189, 248, 0.45); border-radius: 14px; width: 600px; max-width: 95vw; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.95), 0 0 35px rgba(56, 189, 248, 0.2); color: #f8fafc; padding: 22px; font-family: inherit; max-height: 90vh; display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 14px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 9px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            🌐
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+              ระบบ Proxy สำหรับสมัครไอดีอัตโนมัติ
+              <span id="proxy-modal-status-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); padding: 2px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600;">สถานะ: ปิด</span>
+            </h3>
+            <span style="font-size: 11px; color: #94a3b8;">ป้องกันการชนลิมิต 3 ID / ชั่วโมง / IP ด้วยระบบจัดสรรคิวกลางบน Cloudflare</span>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-proxy-register-close" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
+        
+        <!-- Highlight Notice Box -->
+        <div style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 12px 14px;">
+          <div style="display: flex; align-items: flex-start; gap: 9px;">
+            <span style="font-size: 16px; margin-top: 1px;">💡</span>
+            <div style="font-size: 12px; color: #e2e8f0; line-height: 1.5;">
+              <strong style="color: #38bdf8;">เงื่อนไขและหลักการทำงานของระบบ Proxy:</strong>
+              <ul style="margin: 6px 0 0 0; padding-left: 18px; color: #cbd5e1;">
+                <li><strong>ใช้ Proxy เฉพาะตอนส่งสมัครเท่านั้น:</strong> การเล่นเกม, เข้าสู่ระบบ และฟาร์มบอทปกติยังคงใช้เน็ตบ้านความเร็วสูงของคุณโดยตรง ไม่มีความหน่วงหรือหลุด</li>
+                <li><strong>ระบบจองคิว IP กลาง (Cloudflare):</strong> ป้องกันการใช้ IP ซ้ำเกิน 3 ID ภายใน 1 ชั่วโมง แม้จะเปิดบอทหลายเครื่องหรือหลายหน้าต่างพร้อมกัน</li>
+                <li><strong>ค่าบริการ:</strong> หัก <strong>0.1 ส่วนบุญ (0.1 Point)</strong> ต่อ 1 ไอดีที่<strong>สมัครสำเร็จเท่านั้น</strong> (หากสมัครไม่สำเร็จหรือไม่ผ่าน จะไม่มีการหักแต้มใดๆ ทั้งสิ้น)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Current Status & Balance Card -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 11px; color: #94a3b8;">ส่วนบุญคงเหลือในบัญชี:</div>
+            <div style="font-size: 16px; font-weight: 700; color: #facc15; margin-top: 2px;" id="proxy-modal-balance-display">
+              0 ส่วนบุญ
+            </div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">(สมัครได้ประมาณ <span id="proxy-modal-quota-calc" style="color: #38bdf8; font-weight: 600;">0</span> ไอดี)</div>
+          </div>
+
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 11px; color: #94a3b8;">สถิติการสมัครผ่าน Proxy เครื่องนี้:</div>
+            <div style="font-size: 16px; font-weight: 700; color: #34d399; margin-top: 2px;" id="proxy-modal-reg-count">
+              0 ไอดี
+            </div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">IP ล่าสุด: <span id="proxy-modal-last-ip" style="font-family: monospace; color: #cbd5e1;">-</span></div>
+          </div>
+        </div>
+
+        <!-- Connection Test Box -->
+        <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <div style="font-size: 11.5px; font-weight: 600; color: #e2e8f0;">ทดสอบสัญญาณ Proxy & Cloudflare Queue</div>
+            <div id="proxy-test-status" style="font-size: 11px; color: #64748b; margin-top: 1px;">กดปุ่มเพื่อทดสอบการเชื่อมต่อไปยัง Egress IP ประเทศไทย</div>
+          </div>
+          <button type="button" id="btn-proxy-test-conn" class="btn btn-ghost btn-sm" style="font-size: 11px; padding: 4px 10px; border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8;">
+            🔍 ทดสอบการเชื่อมต่อ
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;">
+        <span style="font-size: 11px; color: #64748b;">ค่าบริการ 0.1 ส่วนบุญ / ไอดีที่สมัครสำเร็จ</span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-proxy-modal-cancel" class="btn btn-secondary" style="font-size: 12px; padding: 5px 16px;">ปิด</button>
+          <button type="button" id="btn-proxy-modal-confirm" class="btn btn-primary" style="font-size: 12px; padding: 5px 16px; font-weight: 600; background: #0284c7; border-color: #38bdf8;">
+            ✅ เปิดใช้งาน Proxy สมัคร
+          </button>
         </div>
       </div>
 

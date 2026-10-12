@@ -30,3 +30,5 @@ manager/data/script_device_v1.json
 manager/data/script_device_v1.json.tmp
 manager/data/human_check_catalog_v1.json
 manager/data/human_check_catalog_v1.json.tmp
+manager/data/captcha_stats.json
+manager/data/proxy_settings.json

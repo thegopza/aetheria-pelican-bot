@@ -89,6 +89,8 @@ const { createDiscordBotService } = require("./discord_bot");
 const { allowLocalRequest } = require("./local_request_security");
 const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
+const { createProxyRegisterService } = require("./proxy_register");
+const proxyRegister = createProxyRegisterService({ dataDir: path.join(__dirname, "data"), solver: humanCheckSolver });
 const { createScriptCoordinator } = require('./script_coordinator');
 const { loadScriptRollout, saveScriptRolloutSelection } = require('./script_rollout');
 function loadPresets() {
@@ -1119,7 +1121,7 @@ const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfil
 const scriptRollout = loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin});
 const scriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout, reloadRollout:()=>loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin}) });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
-const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
+const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials, proxyRegister });
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
 const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles, ...(TEST_INSTANCE?{cdpPort:testCdpPort,browserUserDataDir:path.join(SESSIONS_DIR,'_isolated_test_browser')}:{ }), profileScriptSource:id=>scriptCoordinator.profileScriptSource(id) });
 const isBrowserMode = () => {
@@ -1546,6 +1548,59 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  // Proxy Registration Endpoints (0.1 pt / registered account, Cloudflare IP slot coordination)
+  if (pathname === "/api/proxy-register/settings") {
+    if (req.method === "GET") {
+      return sendJSON({ success: true, settings: proxyRegister.publicSettings() });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => {
+        body += c;
+        if (Buffer.byteLength(body, "utf8") > 16384) req.destroy();
+      });
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const updated = proxyRegister.saveSettings(data);
+          sendJSON({ success: true, settings: proxyRegister.publicSettings() });
+        } catch (e) {
+          sendJSON({ success: false, error: e.message }, 400);
+        }
+      });
+      return;
+    }
+  }
+
+  if (pathname === "/api/proxy-register/toggle" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => {
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > 4096) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const current = proxyRegister.loadSettings();
+        const nextState = typeof data.enabled === "boolean" ? data.enabled : !current.enabled;
+        const updated = proxyRegister.saveSettings({ enabled: nextState });
+        sendJSON({ success: true, enabled: updated.enabled, settings: proxyRegister.publicSettings() });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/proxy-register/test" && req.method === "POST") {
+    try {
+      const result = await proxyRegister.testConnection();
+      return sendJSON(result, result.success ? 200 : 502);
+    } catch (e) {
+      return sendJSON({ success: false, error: e.message }, 500);
+    }
   }
 
   // 1. GET /api/profiles

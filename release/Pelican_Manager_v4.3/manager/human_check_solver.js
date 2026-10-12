@@ -193,9 +193,16 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     ].map(key => [key, s[key]])),
     refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint, reportSecurityEvent, recoverOfflineCredit,
     serviceRequest: (route, payload) => {
-      if (!/^\/v1\/aetheria\/(?:script|usage|billing)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
+      if (!/^\/v1\/aetheria\/(?:script|usage|billing|proxy)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
       return call(route, payload);
     },
+    proxyReserve: ip => call('/v1/aetheria/proxy/reserve', { ip }),
+    proxyComplete: async (ticketId, username, success) => {
+      const res = await call('/v1/aetheria/proxy/complete', { ticketId, username, success });
+      if (res && res.balanceUnits !== undefined) updateBalance(res);
+      return res;
+    },
+    proxyStatus: ip => call('/v1/aetheria/proxy/status', { ip }),
     updateLocalCatalog: (catalog, hash) => localMatcher.update(catalog, hash),
     localCatalogReady: () => localMatcher.ready(),
     // A client must never mint, debit or refund credit locally.

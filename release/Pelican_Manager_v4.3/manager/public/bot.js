@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.36.0
+// @version      4.36.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.36.0';
+    const PELICAN_BOT_VERSION = '4.36.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -4092,21 +4092,22 @@
         const rect = el.getBoundingClientRect();
         const clientX = rect.left + rect.width / 2;
         const clientY = rect.top + rect.height / 2;
-        const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY, buttons: 1 };
+        const opts = { bubbles: true, cancelable: true, clientX, clientY, buttons: 1 };
 
-        el.focus();
-        el.dispatchEvent(new PointerEvent('pointerdown', opts));
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new PointerEvent('pointerup', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
-        if (typeof el.click === 'function') el.click();
+        try { if (typeof el.focus === 'function') el.focus(); } catch (e) {}
+        try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (e) {}
+        try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (e) {}
+        try { el.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (e) {}
+        try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (e) {}
+        try { el.dispatchEvent(new MouseEvent('click', opts)); } catch (e) {}
+        try { if (typeof el.click === 'function') el.click(); } catch (e) {}
 
-        const reactKey = Object.keys(el).find(k => k.startsWith('__reactProps') || k.startsWith('__reactFiber'));
-        if (reactKey && el[reactKey]) {
-            const props = el[reactKey];
-            if (typeof props.onClick === 'function') props.onClick({ stopPropagation: () => {}, preventDefault: () => {} });
-            if (typeof props.onPointerDown === 'function') props.onPointerDown({ stopPropagation: () => {}, preventDefault: () => {} });
+        const reactPropsKey = Object.keys(el).find(k => k.startsWith('__reactProps'));
+        const reactFiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+        const props = (reactPropsKey && el[reactPropsKey]) || (reactFiberKey && (el[reactFiberKey].memoizedProps || el[reactFiberKey].pendingProps));
+        if (props) {
+            try { if (typeof props.onClick === 'function') props.onClick({ stopPropagation: () => {}, preventDefault: () => {} }); } catch(e) {}
+            try { if (typeof props.onPointerDown === 'function') props.onPointerDown({ stopPropagation: () => {}, preventDefault: () => {} }); } catch(e) {}
         }
         return true;
     }
@@ -4122,8 +4123,7 @@
                 charCode: keyCodeNum,
                 bubbles: true,
                 cancelable: true,
-                composed: true,
-                view: window
+                composed: true
             });
         } catch(e) {
             evt = document.createEvent('Event');
@@ -4841,12 +4841,12 @@
         const rect = btn.getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
-        const opts = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window, buttons: 1 };
-        btn.dispatchEvent(new PointerEvent('pointerdown', opts));
-        btn.dispatchEvent(new MouseEvent('mousedown', opts));
-        btn.dispatchEvent(new PointerEvent('pointerup', opts));
-        btn.dispatchEvent(new MouseEvent('mouseup', opts));
-        btn.dispatchEvent(new MouseEvent('click', opts));
+        const opts = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, buttons: 1 };
+        try { btn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(e) {}
+        try { btn.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(e) {}
+        try { btn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(e) {}
+        try { btn.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(e) {}
+        try { btn.dispatchEvent(new MouseEvent('click', opts)); } catch(e) {}
         return true;
     }
 
@@ -5183,7 +5183,7 @@
                     } else if (typeof closeBtn.click === 'function') {
                         closeBtn.click();
                     }
-                    closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                    try { closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch(e) {}
                     closedCount++;
                 }
 
@@ -5402,12 +5402,12 @@
                 if (canvas) {
                     const clientX = rect.left + rect.width / 2;
                     const clientY = rect.top + rect.height / 2;
-                    const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY, buttons: 1 };
-                    canvas.dispatchEvent(new PointerEvent('pointerdown', opts));
-                    canvas.dispatchEvent(new MouseEvent('mousedown', opts));
-                    canvas.dispatchEvent(new PointerEvent('pointerup', opts));
-                    canvas.dispatchEvent(new MouseEvent('mouseup', opts));
-                    canvas.dispatchEvent(new MouseEvent('click', opts));
+                    const opts = { bubbles: true, cancelable: true, clientX, clientY, buttons: 1 };
+                    try { canvas.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(e) {}
+                    try { canvas.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(e) {}
+                    try { canvas.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(e) {}
+                    try { canvas.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(e) {}
+                    try { canvas.dispatchEvent(new MouseEvent('click', opts)); } catch(e) {}
                 }
                 return true;
             }
@@ -5736,7 +5736,7 @@
                 const title = (el.getAttribute('title') || el.getAttribute('data-name') || el.innerText || '').toLowerCase();
                 const isArrow = isTargetArrowDom(src, title, targetArrowId);
                 if (isArrow) {
-                    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    try { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); } catch(e) {}
                     console.log(`%c[PmheeAether Ammo] 🎯 Double-click สวมใส่ลูกธนู "${arrowInfo.name}" จากหน้าต่างกระเป๋าสำเร็จ!`, 'color: #22c55e;');
                     return;
                 }
@@ -5909,7 +5909,7 @@
                     domFound = true;
                     console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ในช่องกระเป๋า DOM ช่องที่ ${idx} -> ดับเบิลคลิกใช้งาน!`, 'color: #22c55e; font-weight: bold;');
                     triggerClick(s);
-                    s.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                    try { s.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); } catch(e) {}
                     window.sendInvUse(idx);
                     break;
                 }
@@ -5945,7 +5945,7 @@
             });
             if (bwingEl) {
                 triggerClick(bwingEl);
-                bwingEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }));
+                try { bwingEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); } catch(e) {}
                 console.log('%c[PmheeAether] 🦋 คลิกปุ่ม Butterfly Wing บนหน้าจอสำเร็จ!', 'color: #22c55e;');
             }
         } catch(e) {}
@@ -7854,7 +7854,7 @@
 
         if (minimapStage) {
             triggerClick(minimapStage);
-            minimapStage.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            try { minimapStage.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch(e) {}
         }
 
         dispatchKeyAll('m', 'KeyM', 77);
@@ -8107,7 +8107,7 @@
             if (pin) {
                 console.log(`%c[PmheeAether Map] 📍 คลิกหมุดแมพ: "${cleanMapName}"`, 'color: #00ffcc; font-weight: bold;');
                 triggerClick(pin);
-                pin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                try { pin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch(e) {}
 
                 const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
 
@@ -8397,7 +8397,17 @@
 
         // 5. ตรวจสอบสถานะปุ่ม AUTO ในเกม (In-Game AUTO State Monitor)
         // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
-        if (!inCity) {
+        const isBusyTravelingOrRoutine = window.__isNavigating || window.__isWalkingToMap || window.__isShopping || 
+            window.__isStoring || window.__isRecovering || window.__isConsolidating || window.__isGearRefining || 
+            window.__navWalkOnly || window.__isChangingJob || window.__isManualWarping;
+
+        if (isBusyTravelingOrRoutine) {
+            // ขณะเดินทางระหว่างแมพ หรือกำลังทำ Routine ห้ามเปิด AUTO เด็ดขาด และถ้าเปิดอยู่ให้ปิด
+            if (getInGameAutoStatus() === 'on') {
+                window.deactivateInGameAuto();
+            }
+            autoActivateFailCount = 0;
+        } else if (!inCity) {
             const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             if (curMap && !/เมืองหลวง|โซลเฮเวน/.test(curMap)) {
                 window.__lastKnownNonCityMap = curMap;
@@ -8473,6 +8483,9 @@
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
 
+            const isAliceActive = (window.__aliceWarpInterval != null) || (window.__alicePollInterval != null) || (typeof isAliceDialogOpen === 'function' && isAliceDialogOpen());
+            const isPlanTownActive = ((window.__planJobChangeHoldUntil || 0) > Date.now()) || !!localStorage.getItem('pelican_gear_trip') || !!localStorage.getItem('pelican_job_return_map');
+
             const legitimateTownStay = 
                 window.__townArrivalExplained === true ||
                 isTargetCity ||
@@ -8485,8 +8498,8 @@
                 window.__isGearRefining ||
                 window.__isChangingJob ||
                 window.__isHumanizing ||
-                (window.__aliceWarpInterval != null) ||
-                ((window.__planJobChangeHoldUntil || 0) > Date.now()) ||
+                isAliceActive ||
+                isPlanTownActive ||
                 (Date.now() - (window.__lastRespawnAt || 0) < 60000) ||
                 (Date.now() - (window.__lastBwingUsedAt || 0) < 60000) ||
                 (Date.now() - (window.__goHomeWingAt || 0) < 60000) ||
@@ -8844,7 +8857,10 @@
         setNativeInputValue(inputs[1], cfg.password);
         setNativeInputValue(inputs[2], cfg.password);
         registerSubmittedAt = now;
-        setTimeout(() => submit.click(), 400);
+        setTimeout(() => {
+            try { submit.click(); } catch(e) {}
+            triggerClick(submit);
+        }, 400);
     }
     // Called while not on the login screen: a sign-up from this page went through
     function confirmRegistered() {

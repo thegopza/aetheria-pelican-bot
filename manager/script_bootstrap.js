@@ -24,6 +24,17 @@
     get(target, key) {
       if (exports.has(key)) return exports.get(key);
       const value = Reflect.get(target, key, target);
+      if (typeof key === 'string' && ['PointerEvent', 'MouseEvent', 'KeyboardEvent', 'UIEvent', 'FocusEvent', 'WheelEvent'].includes(key) && typeof value === 'function') {
+        return new Proxy(value, {
+          construct(ctor, args, newTarget) {
+            const [type, dict] = args;
+            if (dict && dict.view === facade) {
+              args = [type, Object.assign({}, dict, { view: target })];
+            }
+            return Reflect.construct(ctor, args, newTarget);
+          }
+        });
+      }
       // Browser methods require a genuine Window receiver; constructors must retain their prototype.
       return typeof value === 'function' && typeof key === 'string' && !/^[A-Z]/.test(key) ? value.bind(target) : value;
     },

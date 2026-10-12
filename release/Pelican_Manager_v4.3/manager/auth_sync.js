@@ -31,7 +31,7 @@ const pushJs = cfg => `(() => {
   return { success: true };
 })()`;
 
-function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials }) {
+function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials, proxyRegister }) {
   // passwords live in data/credentials.json (git-ignored), not in profiles.json
   const pw = p => credentials.getPassword(p.id);
   function updateProfile(id, patch) {
@@ -75,6 +75,39 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
         updateProfile(profile.id, { autoRegister: false, registerError: cur.registerError });
         return;
       }
+
+      // If Proxy Registration is enabled, sign up directly through proxy tunnel
+      if (proxyRegister && typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) {
+        try {
+          console.log(`[AuthSync] 🌐 ${profile.name}: กำลังสมัครบัญชี "${profile.account}" ผ่านระบบ Proxy...`);
+          const regRes = await proxyRegister.registerAccountWithProxy({
+            username: profile.account,
+            password: pw(profile)
+          });
+          if (regRes && regRes.success) {
+            updateProfile(profile.id, { account: profile.account, autoRegister: false, registeredAt: Date.now() });
+            console.log(`[AuthSync] ✅ ${profile.name}: สมัครบัญชี "${profile.account}" ผ่าน Proxy สำเร็จ! สั่งเข้าสู่ระบบ`);
+            await evalProfilePort(profile.debugPort, pushJs({
+              enabled: true, autoResumeBot: true, username: profile.account, password: pw(profile),
+              register: false, registerDone: true, autoCreateChar: true
+            }), 3000);
+            return;
+          } else if (regRes && regRes.code === 'USERNAME_TAKEN') {
+            const nextUser = genUserId();
+            console.log(`[AuthSync] ⚠️ ${profile.name}: ชื่อ "${profile.account}" ซ้ำ, สุ่มชื่อใหม่ "${nextUser}"`);
+            updateProfile(profile.id, { account: nextUser, generatedAccount: true });
+            return;
+          } else {
+            console.error(`[AuthSync] ❌ ${profile.name}: สมัครผ่าน Proxy ล้มเหลว (${regRes?.error || 'Unknown'})`);
+            updateProfile(profile.id, { autoRegister: false, registerError: regRes?.error || 'Proxy error' });
+            return;
+          }
+        } catch (e) {
+          console.error(`[AuthSync] ❌ ${profile.name}: เกิดข้อผิดพลาด Proxy Register: ${e.message}`);
+          return;
+        }
+      }
+
       await evalProfilePort(profile.debugPort, pushJs({
         enabled: true, autoResumeBot: true, username: profile.account, password: pw(profile),
         register: true, registerDone: false, autoCreateChar: true, generatedUser: !!profile.generatedAccount

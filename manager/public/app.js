@@ -1582,6 +1582,177 @@ if (btnToggleAutoAnswer) {
 }
 
 // ==========================================
+// PROXY AUTO-REGISTER MODAL & TOGGLE CONTROLLER
+// ==========================================
+let currentProxyRegisterEnabled = false;
+
+function updateProxyRegisterToolbarBtn(enabled) {
+  currentProxyRegisterEnabled = !!enabled;
+  const btn = document.getElementById("btn-toggle-proxy-register");
+  const lbl = document.getElementById("lbl-toggle-proxy-register");
+  if (!btn) return;
+  if (enabled) {
+    if (lbl) lbl.textContent = "Proxy สมัคร: เปิด";
+    btn.style.borderColor = "rgba(14, 165, 233, 0.5)";
+    btn.style.background = "rgba(14, 165, 233, 0.15)";
+    btn.style.color = "#38bdf8";
+    btn.title = "ระบบ Proxy สมัครไอดีเปิดใช้งานอยู่ (0.1 ส่วนบุญ/ไอดี) — คลิกเพื่อดูเงื่อนไขหรือปิด";
+  } else {
+    if (lbl) lbl.textContent = "Proxy สมัคร: ปิด";
+    btn.style.borderColor = "rgba(148, 163, 184, 0.3)";
+    btn.style.background = "rgba(148, 163, 184, 0.08)";
+    btn.style.color = "#94a3b8";
+    btn.title = "ระบบ Proxy สมัครไอดีปิดอยู่ — คลิกเพื่อดูเงื่อนไขและเปิดใช้งาน";
+  }
+}
+window.updateProxyRegisterToolbarBtn = updateProxyRegisterToolbarBtn;
+
+function openProxyRegisterModal() {
+  const modal = document.getElementById("modal-proxy-register-confirm");
+  if (!modal) return;
+  modal.style.display = "flex";
+
+  const badge = document.getElementById("proxy-modal-status-badge");
+  const confirmBtn = document.getElementById("btn-proxy-modal-confirm");
+  if (badge) {
+    if (currentProxyRegisterEnabled) {
+      badge.textContent = "สถานะ: เปิดใช้งาน";
+      badge.style.background = "rgba(16, 185, 129, 0.2)";
+      badge.style.color = "#34d399";
+      badge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    } else {
+      badge.textContent = "สถานะ: ปิด";
+      badge.style.background = "rgba(148, 163, 184, 0.15)";
+      badge.style.color = "#94a3b8";
+      badge.style.borderColor = "rgba(148, 163, 184, 0.3)";
+    }
+  }
+  if (confirmBtn) {
+    if (currentProxyRegisterEnabled) {
+      confirmBtn.textContent = "⏸️ ปิดใช้งาน Proxy";
+      confirmBtn.style.background = "rgba(239, 68, 68, 0.8)";
+      confirmBtn.style.borderColor = "rgba(239, 68, 68, 0.5)";
+    } else {
+      confirmBtn.textContent = "✅ ยอมรับเงื่อนไขและเปิดใช้งาน";
+      confirmBtn.style.background = "#0284c7";
+      confirmBtn.style.borderColor = "#38bdf8";
+    }
+  }
+
+  fetchProxyRegisterSettings();
+}
+
+function closeProxyRegisterModal() {
+  const modal = document.getElementById("modal-proxy-register-confirm");
+  if (modal) modal.style.display = "none";
+}
+
+async function fetchProxyRegisterSettings() {
+  try {
+    const [proxyRes, hcRes] = await Promise.all([
+      fetch(`${API_BASE}/api/proxy-register/settings`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json()).catch(() => null)
+    ]);
+    if (proxyRes && proxyRes.success && proxyRes.settings) {
+      const s = proxyRes.settings;
+      updateProxyRegisterToolbarBtn(s.enabled);
+      const regCountEl = document.getElementById("proxy-modal-reg-count");
+      if (regCountEl) regCountEl.textContent = (s.registeredCount || 0) + " ไอดี";
+      const lastIpEl = document.getElementById("proxy-modal-last-ip");
+      if (lastIpEl) lastIpEl.textContent = s.lastTestedIp || "-";
+    }
+    if (hcRes && hcRes.success && hcRes.settings) {
+      const points = hcRes.settings.points != null ? Number(hcRes.settings.points) : 0;
+      const balEl = document.getElementById("proxy-modal-balance-display");
+      if (balEl) balEl.textContent = points.toLocaleString("th-TH", { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + " ส่วนบุญ";
+      const quotaEl = document.getElementById("proxy-modal-quota-calc");
+      if (quotaEl) quotaEl.textContent = Math.floor(points / 0.1).toLocaleString();
+    }
+  } catch (_) {}
+}
+
+function initProxyRegisterControls() {
+  const btnToolbar = document.getElementById("btn-toggle-proxy-register");
+  if (btnToolbar) {
+    btnToolbar.onclick = () => {
+      openProxyRegisterModal();
+    };
+  }
+
+  const btnClose = document.getElementById("btn-proxy-register-close");
+  if (btnClose) btnClose.onclick = closeProxyRegisterModal;
+  const btnCancel = document.getElementById("btn-proxy-modal-cancel");
+  if (btnCancel) btnCancel.onclick = closeProxyRegisterModal;
+
+  const btnConfirm = document.getElementById("btn-proxy-modal-confirm");
+  if (btnConfirm) {
+    btnConfirm.onclick = async () => {
+      btnConfirm.disabled = true;
+      try {
+        const nextState = !currentProxyRegisterEnabled;
+        const res = await fetch(`${API_BASE}/api/proxy-register/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: nextState })
+        }).then(r => r.json());
+        if (res && res.success) {
+          updateProxyRegisterToolbarBtn(res.enabled);
+          showToast(res.enabled ? "🌐 เปิดใช้งานระบบ Proxy สำหรับสมัครไอดีแล้ว (0.1 ส่วนบุญ/ไอดี)" : "⏸️ ปิดใช้งานระบบ Proxy แล้ว", res.enabled ? "success" : "info");
+          closeProxyRegisterModal();
+        } else {
+          showToast("❌ เปลี่ยนสถานะไม่สำเร็จ: " + (res.error || "Unknown"), "error");
+        }
+      } catch (e) {
+        showToast("❌ เกิดข้อผิดพลาด: " + e.message, "error");
+      } finally {
+        btnConfirm.disabled = false;
+      }
+    };
+  }
+
+  const btnTest = document.getElementById("btn-proxy-test-conn");
+  const testStatus = document.getElementById("proxy-test-status");
+  if (btnTest) {
+    btnTest.onclick = async () => {
+      btnTest.disabled = true;
+      if (testStatus) {
+        testStatus.textContent = "⏳ กำลังเชื่อมต่อ Proxy และตรวจสอบสถานะ IP ผ่าน Cloudflare...";
+        testStatus.style.color = "#38bdf8";
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/proxy-register/test`, { method: "POST" }).then(r => r.json());
+        if (res && res.success) {
+          const cf = res.cloudflareStatus;
+          const slots = cf?.availableSlots != null ? cf.availableSlots : 3;
+          if (testStatus) {
+            testStatus.textContent = `✅ เชื่อมต่อสำเร็จ! Egress IP: ${res.ip} (โควต้าชม.นี้: ว่าง ${slots}/3 ช่อง)`;
+            testStatus.style.color = "#34d399";
+          }
+          const lastIpEl = document.getElementById("proxy-modal-last-ip");
+          if (lastIpEl) lastIpEl.textContent = res.ip;
+          showToast(`✅ เชื่อมต่อ Proxy สำเร็จ (IP: ${res.ip})`, "success");
+        } else {
+          if (testStatus) {
+            testStatus.textContent = `❌ เชื่อมต่อไม่สำเร็จ: ${res.error || "Unknown"}`;
+            testStatus.style.color = "#f87171";
+          }
+          showToast(`❌ ทดสอบไม่สำเร็จ: ${res.error || "Unknown"}`, "error");
+        }
+      } catch (e) {
+        if (testStatus) {
+          testStatus.textContent = `❌ เกิดข้อผิดพลาด: ${e.message}`;
+          testStatus.style.color = "#f87171";
+        }
+      } finally {
+        btnTest.disabled = false;
+      }
+    };
+  }
+
+  fetchProxyRegisterSettings();
+}
+
+// ==========================================
 // AUTO CAPTCHA POINT TOP-UP MODAL CONTROLLER
 // ==========================================
 let lastKnownPointsPerSolve = 1;
@@ -1904,6 +2075,7 @@ function initDeviceNickname() {
   else initTopupCaptchaModal();
   initDeviceNickname();
   fetchCaptchaStats();
+  initProxyRegisterControls();
 })();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);
