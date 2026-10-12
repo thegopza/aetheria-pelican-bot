@@ -8,7 +8,7 @@ const PROBE_JS = `(() => {
  const busy = ['__isWalkingToMap','__isShopping','__isRecovering','__isNavigating','__isConsolidating','__consolidationReceiverMode','__isChangingJob','__isGearRefining','__isStoring','__planMarketBuyInFlight','__isManualSelling','__isAutoSellingNow','__isMarketScanning','__unexpectedTownWaiting','__isHumanizing','__isWeightScrollBusy','__senderTradeBusy'].filter(k => window[k]);
  if(document.querySelector('.human-check')) busy.push('human-check');
  let bootstrap=null; try { bootstrap=window.__pmScriptBootstrap?.status?.() || null; } catch(_){}
- return {version:window.__pelicanBotVersion||null,running:!!window.__isBotRunning,bootstrap,busy};
+ return {version:window.__pelicanBotVersion||null,running:!!window.__isBotRunning,bootstrap,busy,existingRuntime:!!window.__pmLegacyInjectionAttempted||!!window.__pmBrowserInjectionAttempted||('__isBotRunning' in window)||typeof window.startMasterBot==='function'||!!document.querySelector('#pelican-hud')};
 })()`;
 function dpapi(value, decrypt = false) {
   if (process.platform !== 'win32') throw new Error('Windows DPAPI required');
@@ -34,10 +34,21 @@ async function fetchApprovedPayload(service, metadata, lease) {
   return {source,version:metadata.version,hash:metadata.hash};
 }
 const usageEvidenceData=event=>Buffer.from('PmheeAether.usage-evidence.v1\n'+JSON.stringify([event.eventId,event.sequence,event.slotId,event.bangkokDate,event.observedAt,event.deviceId,event.leaseId,event.runtimeNonce,event.previousAnchor]));
-function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, service, now = Date.now, protect = dpapi, unprotect = value => dpapi(value, true), trustedKeys = {}, pilotProfileIds = [], configurationCode = 'DEFAULT_OBSERVATION', serviceOrigin = service.serviceOrigin }) {
+function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, service, now = Date.now, protect = dpapi, unprotect = value => dpapi(value, true), trustedKeys = {}, pilotProfileIds = [], configurationCode = 'DEFAULT_OBSERVATION', serviceOrigin = service.serviceOrigin, reloadRollout }) {
   const stateFile = path.join(dataDir, 'script_coordinator_v1.json'), keyFile = path.join(dataDir, 'script_device_v1.json');
   let state = { schema: 1, slots: {}, queue: [], sequence: 0, observed: {} }, device = null, timer = null, inFlight = false;
   const clients = {}, pilot = new Set(pilotProfileIds);
+  let rolloutRevision=0;
+  const bootstrapSource=()=>fs.readFileSync(path.join(__dirname,'script_bootstrap.js'),'utf8').replace('/* PMHEE_PUBLIC_KEYS */ {}',JSON.stringify(trustedKeys));
+  function applyRollout(next) {
+    if(!next || next.serviceOrigin!==serviceOrigin || !Array.isArray(next.pilotProfileIds))throw Error('ROLLOUT_ORIGIN_CHANGED');
+    const fingerprint=JSON.stringify([next.mode,next.pilotProfileIds,next.trustedKeys,next.configurationCode]);
+    if(fingerprint===appliedRolloutFingerprint)return;
+    pilot.clear();for(const id of next.pilotProfileIds)pilot.add(id);
+    trustedKeys=next.trustedKeys;configurationCode=next.configurationCode;
+    appliedRolloutFingerprint=fingerprint;rolloutRevision++;
+  }
+  let appliedRolloutFingerprint=null;
   let registeredAccount = null;
   const requestTimes=[], downloadAttempts=new Map(), slotRefreshNeeded=new Set();
   async function apiCall(route,body) {
@@ -75,6 +86,8 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
   async function cycle() {
     if(inFlight) return; inFlight=true;
     try {
+      // Only a cycle boundary can change admissions. Downloads, leases and rebinds retain their original policy.
+      if(reloadRollout)applyRollout(reloadRollout());
       const pending=[];
       for(const profile of loadProfiles()) {
         if(!profile.debugPort) continue;
@@ -94,14 +107,14 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
       for(const {profile,probe} of pending) {
         try {
           const day=dateKey();
-          if(!probe.bootstrap && !probe.version && !probe.busy.length) {
+          if(!probe.bootstrap && !probe.version && !probe.existingRuntime && !probe.busy.length) {
             if(!Object.keys(trustedKeys).length) throw new Error('PINNED_KEY_REQUIRED');
-            const bootstrap=fs.readFileSync(path.join(__dirname,'script_bootstrap.js'),'utf8').replace('/* PMHEE_PUBLIC_KEYS */ {}',JSON.stringify(trustedKeys));
+            const bootstrap=bootstrapSource();
             const injected=await evalProfilePort(profile.debugPort,bootstrap+'\n({success:!!window.__pmScriptBootstrap})',5000);
             if(!injected?.success || injected.result?.success!==true) throw new Error('BOOTSTRAP_NOT_ACKNOWLEDGED');
             clients[profile.id].state='waiting-safe-bootstrap';continue;
           }
-          if((probe.version && !probe.bootstrap?.activated) || !probe.bootstrap?.runtimeNonce || (probe.busy.length && !probe.bootstrap?.activated)) {clients[profile.id].state='waiting-safe-bootstrap';continue;}
+          if((probe.version && !probe.bootstrap?.activated) || (probe.existingRuntime && !probe.bootstrap) || !probe.bootstrap?.runtimeNonce || (probe.busy.length && !probe.bootstrap?.activated)) {clients[profile.id].state='waiting-safe-bootstrap';continue;}
           if(!probe.bootstrap.activated && downloadCount>=3) {clients[profile.id].state='waiting-download-budget';continue;}
           const d=await ensureDevice(),accountId=service.loadSettings?.().accountId || 'authenticated-service';
           if(registeredAccount!==accountId) {
@@ -180,6 +193,9 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
     }
   }
   async function prepareCredentialChange(profile) {
+    if(inFlight)throw Error('กำลังตรวจสิทธิ์จอ กรุณาลองใหม่หลังรอบนี้');
+    inFlight=true;
+    try {
     const slot=state.slots[profile.id];
     if(!slot) return {success:true,observation:true};
     const probe=await evalProfilePort(profile.debugPort,PROBE_JS,3000);
@@ -195,7 +211,8 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
     const result=await apiCall('/v1/aetheria/script/rebind',body);
     if(!result.success || result.slotId!==slot.slotId || !Number.isInteger(result.bindingVersion) || result.bindingVersion<=slot.bindingVersion) throw new Error('ยังยืนยันการเปลี่ยน binding บนเซิร์ฟเวอร์ไม่ได้');
     slot.bindingVersion=result.bindingVersion;delete state.pendingRebind[profile.id];persist();return {success:true,slotId:slot.slotId};
+    } finally {inFlight=false;}
   }
-  return {cycle,verifyDelivery,prepareCredentialChange,start(){if(!timer){cycle().catch(()=>{});timer=setInterval(()=>cycle().catch(()=>{}),30000);timer.unref();}},stop(){clearInterval(timer);timer=null;},status(){return {success:true,mode:pilot.size?'pilot-shadow':'observation',configurationCode,serviceOrigin,pilotProfileIds:[...pilot],billingEnabled:false,pendingEvents:state.queue.length,reconciliationRequired:state.queue.filter(e=>!e.proof||e.bangkokDate!==dateKey()||['LEASE_INVALID','ACTIVE_LEASE_REQUIRED','UNSIGNED_USAGE_EVIDENCE','INVALID_USAGE_EVIDENCE','INVALID_SERVER_ACK_ANCHOR'].includes(e.reconciliationReason)).length,observedSlotsToday:Object.keys(state.observed[dateKey()]||{}).length,clients};}};
+  return {cycle,verifyDelivery,prepareCredentialChange,profileScriptSource(profileId){return pilot.has(profileId)?bootstrapSource():null;},start(){if(!timer){cycle().catch(()=>{});timer=setInterval(()=>cycle().catch(()=>{}),30000);timer.unref();}},stop(){clearInterval(timer);timer=null;},status(){return {success:true,mode:pilot.size?'pilot-shadow':'observation',configurationCode,serviceOrigin,rolloutRevision,cycleInFlight:inFlight,pilotProfileIds:[...pilot],billingEnabled:false,pendingEvents:state.queue.length,reconciliationRequired:state.queue.filter(e=>!e.proof||e.bangkokDate!==dateKey()||['LEASE_INVALID','ACTIVE_LEASE_REQUIRED','UNSIGNED_USAGE_EVIDENCE','INVALID_USAGE_EVIDENCE','INVALID_SERVER_ACK_ANCHOR'].includes(e.reconciliationReason)).length,observedSlotsToday:Object.keys(state.observed[dateKey()]||{}).length,clients};}};
 }
 module.exports={createScriptCoordinator,PROBE_JS,fetchApprovedPayload,usageEvidenceData};

@@ -15,8 +15,7 @@ const { spawn } = require('child_process');
 
 const GAME_URL = 'https://www.aetheria-online.in.th/play';
 const BOT_URL = 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/bot.js';
-const CDP_PORT = 9339;
-const isGameUrl=value=>{try{return new URL(value).origin==='https://www.aetheria-online.in.th';}catch(_){return false;}};
+const DEFAULT_CDP_PORT = 9339;
 const HEALTH_JS = `(() => ({href:location.href,documentId:String(performance.timeOrigin),ready:document.readyState,
  version:window.__pelicanBotVersion||null,hud:!!document.getElementById('pelican-hud'),liveHook:typeof window.__getClientLiveState==='function',
  initialized:!!window.__pmPayloadInitialized||!!window.__pmScriptBootstrap||!!window.__pmBrowserInjectionAttempted||('__isBotRunning' in window)||typeof window.startMasterBot==='function'||typeof window.startAutoLoop==='function'}))()`;
@@ -46,8 +45,11 @@ function getText(url, timeout = 8000) {
   });
 }
 
-function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot }) {
-  const userDataDir = path.join(sessionsDir, '_browser');
+function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot, cdpPort = DEFAULT_CDP_PORT, browserUserDataDir, gameUrl = GAME_URL, profileScriptSource }) {
+  if(!Number.isInteger(cdpPort)||cdpPort<1024||cdpPort>65535)throw Error('INVALID_CDP_PORT');
+  const CDP_PORT = cdpPort;
+  const isGameUrl=value=>{try{return new URL(value).origin===new URL(gameUrl).origin;}catch(_){return false;}};
+  const userDataDir = browserUserDataDir || path.join(sessionsDir, '_browser');
   const localBotPath = path.join(rootDir, 'bot.js');
   let browserProc = null;
   let ws = null, wsReady = null, nextId = 1;
@@ -154,7 +156,9 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   }
 
   // ---------- bot injection ----------
-  async function botSource() {
+  async function botSource(profileId) {
+    const selected=profileScriptSource?.(profileId);
+    if(typeof selected==='string')return selected;
     if (preferLocalBot) return fs.readFileSync(localBotPath, 'utf8');
     try {
       const code = await getText(BOT_URL + '?t=' + Date.now(), 8000);
@@ -188,7 +192,9 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       if(!isGameUrl(before.href)||new URL(before.href).pathname!=='/play'||before.ready!=='complete'){diagnostic(c,'document-pending');return;}
       if(c.attempts>=3){diagnostic(c,'load-failed',{code:'RETRY_LIMIT'});return;}
       c.attempts++;diagnostic(c,'loading');
-      const code = await botSource();
+      const selectedSource=profileScriptSource?.(c.profileId);
+      const code = await botSource(c.profileId);
+      if(profileScriptSource?.(c.profileId)!==selectedSource)return;
       if(!current(c,token))return;
       const after=await health(c);
       if(!current(c,token)||after.documentId!==before.documentId||classify(c,after))return;
@@ -362,7 +368,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     const { targetId } = await send('Target.createTarget', { url: 'about:blank', newWindow: true });
     const c = await attach(profile.id, targetId);
     startProxy(c, profile.debugPort);
-    await send('Page.navigate', { url: GAME_URL }, c.sessionId);
+    await send('Page.navigate', { url: gameUrl }, c.sessionId);
     for (const targetId of startupPages.splice(0)) await send('Target.closeTarget', { targetId }).catch(() => {});
     return { success: true, message: 'เปิดหน้าต่างเบราว์เซอร์แล้ว' };
   }
@@ -381,11 +387,17 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   function start() {
     if(started)return;started=true;
     // reconnect to a browser left open by a previous Manager run
-    setTimeout(() => rediscover().catch(() => {}), 3000);
+    setTimeout(() => {if(started)rediscover().catch(() => {});}, 3000);
     monitorTimer=setInterval(()=>rediscover().catch(()=>scheduleReconnect()),15000);monitorTimer.unref?.();
   }
 
-  return { launch, stop, isOpen, start, findBrowser, status:()=>Object.fromEntries(diagnostics) };
+  function dispose(){
+    started=false;clearTimeout(reconnectTimer);reconnectTimer=null;clearInterval(monitorTimer);monitorTimer=null;
+    for(const c of [...clients.values()]){stoppedProfiles.add(c.profileId);clearTimeout(c.retryTimer);drop(c);}
+    if(ws){const socket=ws;ws=null;socket.close();}
+    for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('BROWSER_MODE_DISPOSED'));}pending.clear();
+  }
+  return { launch, stop, isOpen, start, dispose, findBrowser, status:()=>Object.fromEntries(diagnostics) };
 }
 
 module.exports = { createBrowserMode, findBrowser, HEALTH_JS };

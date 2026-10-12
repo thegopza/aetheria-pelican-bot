@@ -9,7 +9,7 @@ const https = require('https');
 const LOADER_PACKAGE = {
     name: 'aetheria-launcher',
     productName: 'Aetheria Online',
-    version: '1.0.6',
+    version: '1.0.7',
     description: 'Aetheria Online for Windows + PmheeAether Auto-Injector',
     main: 'main.js',
     private: true
@@ -111,6 +111,9 @@ function getFileHash(filePath) {
     }
 }
 
+function hasProtectedLoaderCapability(loaderPath) {
+    try {const source=fs.readFileSync(loaderPath,'utf8');return /const LOADER_PROTOCOL = 1;/.test(source)&&source.includes('--pmhee-protected-script');}catch(_){return false;}
+}
 function checkStatus(overridePath) {
     const gamePath = getEffectiveGamePath(overridePath);
     const exePath = path.join(gamePath, 'Aetheria Online.exe');
@@ -161,6 +164,8 @@ function checkStatus(overridePath) {
         asarActive,
         hasBackup,
         loaderVersion,
+        // Inspect installed capability, not a version label. Older loaders ignore the protected flag and must be updated explicitly.
+        protectedScriptCapable: hasLoader && !asarActive && hasProtectedLoaderCapability(loaderPath),
         botModifiedTime: fs.existsSync(installedBotPath) ? fs.statSync(installedBotPath).mtime : null,
         sourceBotModifiedTime: fs.existsSync(BOT_SRC) ? fs.statSync(BOT_SRC).mtime : null
     };

@@ -93,7 +93,7 @@
       const digest = await host.crypto.subtle.digest('SHA-256', encoder.encode(source));
       const hash = Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, '0')).join('');
       if (hash !== next.payloadHash) throw Error('PAYLOAD_HASH_MISMATCH');
-      if (host.__pelicanBotVersion || host.__pmPayloadInitialized) throw Error('EXISTING_RUNTIME_REFRESH_REQUIRED');
+      if (host.__pelicanBotVersion || host.__pmPayloadInitialized || host.__pmLegacyInjectionAttempted || ('__isBotRunning' in host) || typeof host.startMasterBot === 'function' || host.document?.getElementById?.('pelican-hud')) throw Error('EXISTING_RUNTIME_REFRESH_REQUIRED');
       const initialize = new Function('runtime', source);
       claims = next;
       phase = 'ready';

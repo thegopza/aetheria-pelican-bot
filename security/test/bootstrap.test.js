@@ -171,3 +171,19 @@ test('full current bot parses under instrumentation; private builder rejects pub
   assert.ok(result.awaits > 100);
   assert.throws(() => build({ sourcePath: 'unused', outputDir: path.join(__dirname, '..', 'output'), publicKeys: {} }), /PRIVATE_OUTPUT_REQUIRED/);
 });
+
+test('partial legacy, stopped runtime, exported Start and HUD refuse admission before payload execution or timers',async()=>{
+ for(const variant of ['attempt','stopped','start','hud']){
+  const f=await fixture();
+  if(variant==='attempt')f.window.__pmLegacyInjectionAttempted=true;
+  if(variant==='stopped')f.window.__isBotRunning=false;
+  if(variant==='start')f.window.startMasterBot=()=>{};
+  if(variant==='hud')f.window.document={querySelector:()=>null,getElementById:id=>id==='pelican-hud'?{}:null};
+  const response=await f.api.accept({ticket:await f.sign(),payload:f.payload});
+  assert.equal(response.code,'EXISTING_RUNTIME_REFRESH_REQUIRED',variant);
+  assert.equal(f.window.loaded,undefined,variant);assert.equal(f.window.__pmPayloadInitialized,undefined,variant);assert.equal(f.intervals.length,0,variant);
+ }
+ const browser=await fixture();browser.window.__pmBrowserInjectionAttempted=true;
+ assert.equal((await browser.api.accept({ticket:await browser.sign(),payload:browser.payload})).success,true);
+ assert.equal(browser.window.loaded,1);assert.equal(browser.intervals.length,1);
+});

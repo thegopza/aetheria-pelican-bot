@@ -44,3 +44,31 @@ el('terms-accept').addEventListener('click',async()=>{
   }catch(error){el('terms-result').textContent=error.message;}
 });
 refresh();
+
+async function loadPilots(){
+ try{
+  const response=await fetch('/api/script/pilot'),data=await response.json();
+  if(!response.ok||data.success!==true)throw Error('ยังอ่านรายชื่อจอไม่ได้');
+  el('pilot-profiles').replaceChildren();
+  for(const profile of data.profiles){
+   const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=profile.id;check.checked=data.pilotProfileIds.includes(profile.id);
+   label.append(check,document.createTextNode(' '+profile.name+' ('+profile.id+')'));label.style.display='block';el('pilot-profiles').append(label);
+  }
+ }catch(error){el('pilot-result').textContent=error.message;}
+}
+el('pilot-check').addEventListener('change',()=>{el('pilot-save').disabled=!el('pilot-check').checked;});
+async function savePilot(mode){
+ el('pilot-save').disabled=true;el('pilot-observe').disabled=true;
+ try{
+  const pilotProfileIds=mode==='pilot'?[...el('pilot-profiles').querySelectorAll('input:checked')].map(check=>check.value):[];
+  if(mode==='pilot'&&!pilotProfileIds.length)throw Error('เลือกจอทดลองอย่างน้อยหนึ่งจอ');
+  const response=await fetch('/api/script/pilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,pilotProfileIds,acknowledgePilot:mode==='pilot'&&el('pilot-check').checked})}),data=await response.json();
+  if(!response.ok||data.success!==true)throw Error(data.error||'ยังบันทึกจอทดลองไม่ได้');
+  el('pilot-result').textContent=data.message;
+  el('pilot-check').checked=false;await refresh();
+ }catch(error){el('pilot-result').textContent=error.message;}
+ finally{el('pilot-save').disabled=!el('pilot-check').checked;el('pilot-observe').disabled=false;}
+}
+el('pilot-save').addEventListener('click',()=>savePilot('pilot'));
+el('pilot-observe').addEventListener('click',()=>savePilot('observation'));
+loadPilots();

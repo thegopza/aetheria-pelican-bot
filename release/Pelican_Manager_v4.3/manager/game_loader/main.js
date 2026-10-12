@@ -16,9 +16,12 @@ let profileName = "";
 let debugPort = 49876;
 let isMulti = false;
 let userDataDir = "";
+let protectedScriptMode = false;
+const LOADER_PROTOCOL = 1;
 
 for (const arg of args) {
-  if (arg.startsWith("--user-data-dir=")) {
+  if(arg === "--pmhee-protected-script") {protectedScriptMode=true;isMulti=true;}
+  else if (arg.startsWith("--user-data-dir=")) {
     userDataDir = arg.slice("--user-data-dir=".length);
     isMulti = true;
   } else if (arg.startsWith("--profile-name=")) {
@@ -83,10 +86,14 @@ function open() {
     win.show();
   });
 
+  let documentGeneration=0;
   // Inject PmheeAether Bot automatically upon game page load
   win.webContents.on("did-finish-load", async () => {
     const currentUrl = win.webContents.getURL();
-    if (!currentUrl.includes("aetheria-online.in.th/play")) return;
+    let parsed;try{parsed=new URL(currentUrl);}catch(_){return;}
+    if(parsed.origin!==new URL(GAME).origin||parsed.pathname!=="/play")return;
+    const generation=++documentGeneration;
+    let documentId;try{documentId=await win.webContents.executeJavaScript('String(performance.timeOrigin)');}catch(_){return;}
 
     console.log("[PmheeAether Loader] 🎮 Detected game window! Preparing PmheeAether Bot injection...");
 
@@ -102,12 +109,19 @@ function open() {
       })();
     `).catch(() => {});
 
-    // 2. Load bot payload (Remote Auto-Update with local fallback)
+    // Selected protected pilot waits for Manager POST bridge. No payload, private key or editable trust anchor is shipped here.
+    if(protectedScriptMode) {
+      console.log("[PmheeAether Loader] รอ Manager ตรวจสิทธิ์และส่งสคริปต์ให้จอทดลอง");
+      return;
+    }
+    // 2. Load compatibility bot (Remote Auto-Update with local fallback)
     const localBotPath = path.join(process.resourcesPath, "bot.js");
 
     function injectScript(code) {
-      win.webContents.executeJavaScript(code + '\n; void 0;')
-        .then(() => console.log("[PmheeAether Loader] 🚀 PmheeAether Bot injected and active!"))
+      if(generation!==documentGeneration)return;
+      const guarded=`(() => { if(String(performance.timeOrigin)!==${JSON.stringify(documentId)} || window.__pelicanBotVersion || window.__pmPayloadInitialized || window.__pmScriptBootstrap || window.__pmLegacyInjectionAttempted || ('__isBotRunning' in window) || typeof window.startMasterBot==='function' || document.getElementById('pelican-hud') || typeof window.__getClientLiveState==='function') return {skipped:true}; window.__pmLegacyInjectionAttempted=true; (0,eval)(${JSON.stringify(code)}); return {attempted:true}; })()`;
+      win.webContents.executeJavaScript(guarded)
+        .then(result => console.log(result?.attempted ? "[PmheeAether Loader] 🚀 เริ่มโหลดสคริปต์แล้ว" : "[PmheeAether Loader] ข้ามการโหลดซ้ำหรือ document เก่า"))
         .catch(err => console.error("[PmheeAether Loader] ❌ Injection error:", err));
     }
 
@@ -206,6 +220,9 @@ function startDebugServer(port = DEBUG_PORT) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     const parsedUrl = new URL(req.url, `http://localhost:${DEBUG_PORT}`);
 
+    if(parsedUrl.pathname === "/api/loader-status" && req.method === "GET") {
+      res.writeHead(200);return res.end(JSON.stringify({success:true,protocol:LOADER_PROTOCOL,protectedScriptMode,postEval:true,documentGuard:true}));
+    }
     if (parsedUrl.pathname === "/api/eval") {
       const handleEval = (evalCode) => {
         if (!evalCode || !win || !win.webContents) {

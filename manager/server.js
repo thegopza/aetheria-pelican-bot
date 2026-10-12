@@ -61,7 +61,17 @@ const path = require("path");
 const os = require("os");
 const { spawn, exec } = require("child_process");
 
-const PORT = 3888;
+const TEST_INSTANCE=process.env.PELICAN_TEST_INSTANCE==='1';
+const testPort=Number(process.env.PELICAN_TEST_PORT),testCdpPort=Number(process.env.PELICAN_TEST_CDP_PORT);
+if(TEST_INSTANCE) {
+  const tempRoot=path.resolve(os.tmpdir())+path.sep;
+  if(!path.resolve(__dirname).toLowerCase().startsWith(tempRoot.toLowerCase())||!Number.isInteger(testPort)||testPort<3899||testPort>65535||!Number.isInteger(testCdpPort)||testCdpPort<9400||testCdpPort>65535||testCdpPort===testPort)throw Error('ISOLATED_TEMP_MANAGER_REQUIRED');
+  for(const name of ['bot_update_state.json','manager_update_state.json']) {
+    const data=JSON.parse(fs.readFileSync(path.join(__dirname,'data',name),'utf8'));
+    if(data.enabled!==false)throw Error('TEST_AUTO_UPDATE_MUST_BE_DISABLED');
+  }
+}
+const PORT = TEST_INSTANCE?testPort:3888;
 const BASE_DIR = path.resolve(__dirname, "..");
 const PROFILES_FILE = path.join(__dirname, "profiles.json");
 const PLANS_FILE = path.join(__dirname, "plans.json");
@@ -80,7 +90,7 @@ const { allowLocalRequest } = require("./local_request_security");
 const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
 const { createScriptCoordinator } = require('./script_coordinator');
-const { loadScriptRollout } = require('./script_rollout');
+const { loadScriptRollout, saveScriptRolloutSelection } = require('./script_rollout');
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -1107,11 +1117,11 @@ const botAutoUpdater = createBotAutoUpdater({
 const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
 // Observation only by default. Pilot keys/profile IDs require a separately reviewed activation.
 const scriptRollout = loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin});
-const scriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout });
+const scriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout, reloadRollout:()=>loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin}) });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
-const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles });
+const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles, ...(TEST_INSTANCE?{cdpPort:testCdpPort,browserUserDataDir:path.join(SESSIONS_DIR,'_isolated_test_browser')}:{ }), profileScriptSource:id=>scriptCoordinator.profileScriptSource(id) });
 const isBrowserMode = () => {
   const st = installer.loadSettings() || {};
   return (st.launchMode || "browser") === "browser";
@@ -1312,6 +1322,19 @@ const server = http.createServer(async (req, res) => {
   // API ROUTING
   // ==========================================
   if (pathname === '/api/script/status' && req.method === 'GET') return sendJSON(scriptCoordinator.status());
+  if(pathname==='/api/script/pilot' && req.method==='GET')return sendJSON({success:true,profiles:loadProfiles().map(p=>({id:p.id,name:p.name})),...scriptCoordinator.status()});
+  if(pathname==='/api/script/pilot' && req.method==='POST') {
+    if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||''))return sendJSON({success:false,error:'JSON body required'},415);
+    try {
+      let text='';for await(const chunk of req){text+=chunk;if(Buffer.byteLength(text)>16384)return sendJSON({success:false,error:'Body too large'},413);}
+      const input=JSON.parse(text);
+      if(Object.keys(input).some(k=>!['mode','pilotProfileIds','acknowledgePilot'].includes(k)))throw Error('INVALID_ROLLOUT_SELECTION');
+      const saved=saveScriptRolloutSelection({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin,profiles:loadProfiles(),...input});
+      // The coordinator picks this up at its next idle cycle; never replace its instance or queues.
+      scriptCoordinator.cycle().catch(()=>{});
+      return sendJSON({success:true,configurationCode:saved.configurationCode,pendingApply:true,message:'บันทึกแล้ว รอรอบตรวจสิทธิ์ที่ปลอดภัย จอเดิมยังไม่ถูกรีเฟรชหรือฉีดบอททับ'});
+    }catch(error){return sendJSON({success:false,error:error.message},409);}
+  }
   if (pathname === '/api/script/statement' && req.method === 'GET') {
     try { return sendJSON(await humanCheckSolver.serviceRequest('/v1/aetheria/usage/statement')); }
     catch (_) { return sendJSON({ success: false, code: 'STATEMENT_UNAVAILABLE', message: 'ยังอ่านใบสรุปจากเซิร์ฟเวอร์ไม่ได้ โหมดสังเกตการณ์ไม่มีการเรียกเก็บเงิน' }, 503); }
@@ -1870,7 +1893,10 @@ const server = http.createServer(async (req, res) => {
     const launchProblem = gameLaunchProblem();
     if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
 
+    const protectedPilot=!!scriptCoordinator.profileScriptSource(profile.id);
+    if(protectedPilot&&!installer.checkStatus().protectedScriptCapable)return sendJSON({success:false,code:'PROTECTED_LOADER_UPDATE_REQUIRED',error:'จอทดลอง Electron ต้องอัปเดตผ่านปุ่ม สคริปต์เกม ก่อน (loader 1.0.7) จากนั้นเปิดเฉพาะจอทดลองใหม่ จออื่นไม่ต้องปิด'},409);
     const args = [
+      ...(protectedPilot?['--pmhee-protected-script']:[]),
       `--user-data-dir=${sessionDir}`,
       `--profile-name=${encodeURIComponent(profile.name)}`,
       `--debug-port=${profile.debugPort || 49876}`,
@@ -1938,13 +1964,16 @@ const server = http.createServer(async (req, res) => {
     }
     const launchProblem = gameLaunchProblem();
     if (launchProblem) return sendJSON({ success: false, error: launchProblem }, 500);
-    const launched = [];
+    const launched = [], failed = [];
     for (const p0 of toOpen) {
       const p = (await ensureUsableDebugPort(p0.id)) || p0;
       const sessionDir = path.join(SESSIONS_DIR, p.id);
       if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
+      const protectedPilot=!!scriptCoordinator.profileScriptSource(p.id);
+      if(protectedPilot&&!installer.checkStatus().protectedScriptCapable){failed.push(p.name+': ต้องอัปเดต สคริปต์เกม เป็น loader 1.0.7 ก่อนเปิดจอทดลอง');continue;}
       const args = [
+        ...(protectedPilot?['--pmhee-protected-script']:[]),
         `--user-data-dir=${sessionDir}`,
         `--profile-name=${encodeURIComponent(p.name)}`,
         `--debug-port=${p.debugPort || 49876}`,
@@ -1957,7 +1986,7 @@ const server = http.createServer(async (req, res) => {
         launched.push({ id: p.id, name: p.name, pid: child.pid });
       } catch (e) {}
     }
-    return sendJSON({ success: true, launched, skipped });
+    return sendJSON({ success:failed.length===0, launched, skipped, error:failed.length?failed.join('\n'):undefined });
   }
 
   // 8. POST /api/stop-all
@@ -3391,8 +3420,8 @@ public class PmFocus {
 
 server.listen(PORT, "127.0.0.1", () => {
   scriptCoordinator.start();
-  botAutoUpdater.start();
-  managerUpdater.start();
+  if(!TEST_INSTANCE)botAutoUpdater.start();
+  if(!TEST_INSTANCE)managerUpdater.start();
   planSync.start();
   authSync.start();
   browserMode.start();
