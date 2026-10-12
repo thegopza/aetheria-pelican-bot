@@ -49,6 +49,24 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
     if (!profile.account) return updateProfile(profile.id, { account: genUserId(), generatedAccount: true });
     return profile;
   }
+  async function syncProxyRegistration(profile) {
+    try {
+      const result=await proxyRegister.registerAccountWithProxy({profileId:profile.id,username:profile.account,password:pw(profile)});
+      if(result?.success===true) {
+        // Persist the known signup outcome before delivering login settings; a lost game ACK cannot sign up again.
+        updateProfile(profile.id,{autoRegister:false,registeredAt:Date.now(),proxyRegistrationState:'done',registerError:'',loginSyncPending:true});
+        const delivered=await evalProfilePort(profile.debugPort,pushJs({enabled:true,autoResumeBot:true,username:profile.account,password:pw(profile),register:false,registerDone:true,autoCreateChar:true}),3000);
+        if(!delivered?.success||delivered.result?.success!==true) updateProfile(profile.id,{registerError:'สมัครสำเร็จแล้ว แต่ยังส่งค่าล็อกอินเข้าจอไม่ได้ รอซิงค์อีกครั้ง'});
+        else updateProfile(profile.id,{loginSyncPending:false});
+      } else if(result?.code==='USERNAME_TAKEN' && profile.generatedAccount) {
+        updateProfile(profile.id,{account:genUserId(),generatedAccount:true,proxyRegistrationState:'known-rejected',registerError:''});
+      } else if(result?.pending) {
+        updateProfile(profile.id,{proxyRegistrationState:'review-required',registerError:result.error||'รายการสมัครยังรอตรวจสอบ'});
+      } else {
+        updateProfile(profile.id,{autoRegister:false,proxyRegistrationState:'known-rejected',registerError:result?.error||'Proxy ไม่อนุมัติรายการสมัคร'});
+      }
+    } catch(_) {updateProfile(profile.id,{proxyRegistrationState:'retry-pending',registerError:'ยังยืนยันผล Proxy ไม่ได้ เก็บรายการเดิมไว้ก่อนลองใหม่'});}
+  }
 
   async function syncOne(profile) {
     if (!profile.debugPort) return;
@@ -59,6 +77,7 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
 
     if (profile.autoRegister) {
       profile = ensureRegisterCredentials(profile) || profile;
+      if(proxyRegister?.hasPending?.(profile.id)){await syncProxyRegistration(profile);return;}
       if (cur.registerDone && cur.username) {
         if (cur.password && cur.password !== pw(profile)) credentials.setPassword(profile.id, cur.password);
         updateProfile(profile.id, { account: cur.username, autoRegister: false, registeredAt: Date.now() });
@@ -78,34 +97,7 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
 
       // If Proxy Registration is enabled, sign up directly through proxy tunnel
       if (proxyRegister && typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) {
-        try {
-          console.log(`[AuthSync] 🌐 ${profile.name}: กำลังสมัครบัญชี "${profile.account}" ผ่านระบบ Proxy...`);
-          const regRes = await proxyRegister.registerAccountWithProxy({
-            username: profile.account,
-            password: pw(profile)
-          });
-          if (regRes && regRes.success) {
-            updateProfile(profile.id, { account: profile.account, autoRegister: false, registeredAt: Date.now() });
-            console.log(`[AuthSync] ✅ ${profile.name}: สมัครบัญชี "${profile.account}" ผ่าน Proxy สำเร็จ! สั่งเข้าสู่ระบบ`);
-            await evalProfilePort(profile.debugPort, pushJs({
-              enabled: true, autoResumeBot: true, username: profile.account, password: pw(profile),
-              register: false, registerDone: true, autoCreateChar: true
-            }), 3000);
-            return;
-          } else if (regRes && regRes.code === 'USERNAME_TAKEN') {
-            const nextUser = genUserId();
-            console.log(`[AuthSync] ⚠️ ${profile.name}: ชื่อ "${profile.account}" ซ้ำ, สุ่มชื่อใหม่ "${nextUser}"`);
-            updateProfile(profile.id, { account: nextUser, generatedAccount: true });
-            return;
-          } else {
-            console.error(`[AuthSync] ❌ ${profile.name}: สมัครผ่าน Proxy ล้มเหลว (${regRes?.error || 'Unknown'})`);
-            updateProfile(profile.id, { autoRegister: false, registerError: regRes?.error || 'Proxy error' });
-            return;
-          }
-        } catch (e) {
-          console.error(`[AuthSync] ❌ ${profile.name}: เกิดข้อผิดพลาด Proxy Register: ${e.message}`);
-          return;
-        }
+        await syncProxyRegistration(profile);return;
       }
 
       await evalProfilePort(profile.debugPort, pushJs({
@@ -116,9 +108,9 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
       return;
     }
 
-    if (cur.username !== profile.account || cur.password !== pw(profile)) {
-      await evalProfilePort(profile.debugPort, pushJs({ enabled: true, username: profile.account, password: pw(profile), register: false }), 3000);
-      console.log(`[AuthSync] 🔐 ${profile.name}: อัปเดต Auto-login เป็น ID "${profile.account}"`);
+    if (profile.loginSyncPending || cur.username !== profile.account || cur.password !== pw(profile)) {
+      const delivered=await evalProfilePort(profile.debugPort, pushJs({ enabled: true, username: profile.account, password: pw(profile), register: false,...(profile.loginSyncPending?{registerDone:true,autoCreateChar:true,autoResumeBot:true}:{}) }), 3000);
+      if(delivered?.success&&delivered.result?.success===true)updateProfile(profile.id,{loginSyncPending:false,registerError:''});
     }
   }
 

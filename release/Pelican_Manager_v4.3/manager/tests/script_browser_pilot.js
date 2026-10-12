@@ -8,6 +8,7 @@ const privateDir=process.env.PMHEE_PILOT_ARTIFACT_DIR;
 if(!privateDir)throw Error('PMHEE_PILOT_ARTIFACT_DIR required (private artifact directory)');
 const stage='https://pmhee-aetheria-staging.pmhee-aetheria-worker.workers.dev';
 const pins=JSON.parse(fs.readFileSync(path.join(privateDir,'public-keys.json'),'utf8'));
+const expectedVersion=JSON.parse(fs.readFileSync(path.join(privateDir,'release.json'),'utf8')).version;
 const out=path.join(process.env.PMHEE_PILOT_OUTPUT_DIR||privateDir,'browser-pilot-'+Date.now());fs.mkdirSync(out,{recursive:true});
 const results=[];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -58,7 +59,7 @@ async function run(name,exe,cdpPort,bridgePort){
   const coordinator=createScriptCoordinator({dataDir:dir,loadProfiles:()=>[profile],evalProfilePort:bridge,service,trustedKeys:pins,pilotProfileIds:[profile.id],protect:v=>v,unprotect:v=>v});
   await pause(300);await coordinator.cycle();await coordinator.cycle();
   assert.equal(coordinator.status().clients[profile.id].state,'authorized',JSON.stringify(coordinator.status().clients));
-  assert.equal(await evaluate('window.__pelicanBotVersion'),'4.37.0');
+  assert.equal(await evaluate('window.__pelicanBotVersion'),expectedVersion);
   const timerCount=await evaluate('window.__pilotIntervals');assert.ok(timerCount>10);
   await coordinator.cycle();assert.equal(deliveries,1);assert.equal(await evaluate('window.__pilotIntervals'),timerCount);assert.ok(renewals>0);
   await evaluate('window.startMasterBot(); window.__isBotRunning');await coordinator.cycle();

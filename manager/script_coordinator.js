@@ -38,7 +38,7 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
   const stateFile = path.join(dataDir, 'script_coordinator_v1.json'), keyFile = path.join(dataDir, 'script_device_v1.json');
   let state = { schema: 1, slots: {}, queue: [], sequence: 0, observed: {} }, device = null, timer = null, inFlight = false;
   const clients = {}, pilot = new Set(pilotProfileIds);
-  let rolloutRevision=0;
+  let rolloutRevision=0, billingMode=null, billingCheckedAt=0;
   const bootstrapSource=()=>fs.readFileSync(path.join(__dirname,'script_bootstrap.js'),'utf8').replace('/* PMHEE_PUBLIC_KEYS */ {}',JSON.stringify(trustedKeys));
   function applyRollout(next) {
     if(!next || next.serviceOrigin!==serviceOrigin || !Array.isArray(next.pilotProfileIds))throw Error('ROLLOUT_ORIGIN_CHANGED');
@@ -88,6 +88,10 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
     try {
       // Only a cycle boundary can change admissions. Downloads, leases and rebinds retain their original policy.
       if(reloadRollout)applyRollout(reloadRollout());
+      if(service.loadSettings?.().accountId && now()-billingCheckedAt>=60000) {
+        billingCheckedAt=now();
+        try { const summary=await apiCall('/v1/aetheria/usage/statement'); billingMode=summary?.success && ['shadow','deferred'].includes(summary.billingMode) ? summary.billingMode : null; } catch(_) {billingMode=null;}
+      }
       const pending=[];
       for(const profile of loadProfiles()) {
         if(!profile.debugPort) continue;
@@ -213,6 +217,6 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
     slot.bindingVersion=result.bindingVersion;delete state.pendingRebind[profile.id];persist();return {success:true,slotId:slot.slotId};
     } finally {inFlight=false;}
   }
-  return {cycle,verifyDelivery,prepareCredentialChange,profileScriptSource(profileId){return pilot.has(profileId)?bootstrapSource():null;},start(){if(!timer){cycle().catch(()=>{});timer=setInterval(()=>cycle().catch(()=>{}),30000);timer.unref();}},stop(){clearInterval(timer);timer=null;},status(){return {success:true,mode:pilot.size?'pilot-shadow':'observation',configurationCode,serviceOrigin,rolloutRevision,cycleInFlight:inFlight,pilotProfileIds:[...pilot],billingEnabled:false,pendingEvents:state.queue.length,reconciliationRequired:state.queue.filter(e=>!e.proof||e.bangkokDate!==dateKey()||['LEASE_INVALID','ACTIVE_LEASE_REQUIRED','UNSIGNED_USAGE_EVIDENCE','INVALID_USAGE_EVIDENCE','INVALID_SERVER_ACK_ANCHOR'].includes(e.reconciliationReason)).length,observedSlotsToday:Object.keys(state.observed[dateKey()]||{}).length,clients};}};
+  return {cycle,verifyDelivery,prepareCredentialChange,profileScriptSource(profileId){return pilot.has(profileId)?bootstrapSource():null;},start(){if(!timer){cycle().catch(()=>{});timer=setInterval(()=>cycle().catch(()=>{}),30000);timer.unref();}},stop(){clearInterval(timer);timer=null;},status(){return {success:true,mode:pilot.size?(billingMode==='deferred'?'pilot-deferred':'pilot-shadow'):'observation',configurationCode,serviceOrigin,rolloutRevision,cycleInFlight:inFlight,pilotProfileIds:[...pilot],billingEnabled:billingMode===null?null:billingMode==='deferred',billingMode,billingCheckedAt,pendingEvents:state.queue.length,reconciliationRequired:state.queue.filter(e=>!e.proof||e.bangkokDate!==dateKey()||['LEASE_INVALID','ACTIVE_LEASE_REQUIRED','UNSIGNED_USAGE_EVIDENCE','INVALID_USAGE_EVIDENCE','INVALID_SERVER_ACK_ANCHOR'].includes(e.reconciliationReason)).length,observedSlotsToday:Object.keys(state.observed[dateKey()]||{}).length,clients};}};
 }
 module.exports={createScriptCoordinator,PROBE_JS,fetchApprovedPayload,usageEvidenceData};

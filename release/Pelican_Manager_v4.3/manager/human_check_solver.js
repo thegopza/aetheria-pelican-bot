@@ -196,10 +196,10 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
       if (!/^\/v1\/aetheria\/(?:script|usage|billing|proxy)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
       return call(route, payload);
     },
-    proxyReserve: ip => call('/v1/aetheria/proxy/reserve', { ip }),
+    proxyReserve: (ip, requestId) => call('/v1/aetheria/proxy/reserve', { ip, ...(requestId ? { requestId } : {}) }),
     proxyComplete: async (ticketId, username, success) => {
       const res = await call('/v1/aetheria/proxy/complete', { ticketId, username, success });
-      if (res && res.balanceUnits !== undefined) updateBalance(res);
+      if (res?.unitScale === 100 && Number.isSafeInteger(res.balanceUnits)) updateBalance({ ...res, schemaVersion: 2 });
       return res;
     },
     proxyStatus: ip => call('/v1/aetheria/proxy/status', { ip }),

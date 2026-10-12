@@ -6,8 +6,8 @@ async function refresh() {
   try {
     const response=await fetch('/api/script/status'), data=await response.json();
     if(!response.ok || !data.success) throw Error('ยังอ่านสถานะไม่ได้');
-    el('mode').textContent=data.billingEnabled?'กำลังใช้นโยบายที่เปิดใช้งานแล้ว':data.mode==='pilot-shadow'?'โหมดทดลองเฉพาะจอ — ยังไม่มีการเรียกเก็บเงิน':'โหมดสังเกตการณ์ — ยังไม่มีการเรียกเก็บเงิน';
-    el('mode-note').textContent=data.mode==='pilot-shadow'?`จอที่เลือกทดลอง: ${(data.pilotProfileIds||[]).join(', ')} • ${data.serviceOrigin||''}`:'จอเดิมใช้งานตามเดิม การเปลี่ยนผ่านต้องผ่านการตรวจความพร้อมก่อน';
+    el('mode').textContent=data.billingEnabled===null?'ยังยืนยันสถานะการคิดส่วนบุญจากเซิร์ฟเวอร์ไม่ได้':data.billingEnabled?'กำลังใช้นโยบายที่เปิดใช้งานแล้ว':data.mode==='pilot-shadow'?'โหมดทดลองเฉพาะจอ — ยังไม่มีการเรียกเก็บเงิน':'โหมดสังเกตการณ์ — ยังไม่มีการเรียกเก็บเงิน';
+    el('mode-note').textContent=data.pilotProfileIds?.length?`จอที่เลือกทดลอง: ${(data.pilotProfileIds||[]).join(', ')} • ${data.serviceOrigin||''}`:'จอเดิมใช้งานตามเดิม การเปลี่ยนผ่านต้องผ่านการตรวจความพร้อมก่อน';
     el('observed').textContent=String(data.observedSlotsToday);el('pending').textContent=String(data.pendingEvents);el('reconcile').textContent=String(data.reconciliationRequired);
     el('clients').replaceChildren();
     for(const [id,client] of Object.entries(data.clients)) {

@@ -518,310 +518,69 @@ async function fetchStatementData(force = false) {
     const res = await fetch(`${API_BASE}/api/script/statement`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data && data.success) {
+    if (validStatement(data)) {
       lastStatementData = data;
-      const onlineCount = currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0;
-      updateUsageStatementDisplay(onlineCount);
+      updateUsageStatementDisplay();
       const modal = document.getElementById("modal-usage-statement");
       if (modal && modal.style.display !== "none") {
         renderUsageStatementModal(data);
       }
       return data;
     }
+    throw new Error('ใบสรุปยังไม่ตรงรูปแบบที่ยืนยันจากเซิร์ฟเวอร์');
   } catch (err) {
     console.warn("Failed to fetch usage statement:", err);
+    const content=document.getElementById('usage-statement-content');
+    if(content&&!validStatement(lastStatementData))content.textContent='ยังอ่านใบสรุปจากเซิร์ฟเวอร์ไม่ได้ ไม่คำนวณจากจอออนไลน์';
+    updateUsageStatementDisplay();
   }
   return null;
 }
 window.fetchStatementData = fetchStatementData;
 
-function updateUsageStatementDisplay(onlineCount) {
-  const pill = document.getElementById("btn-open-usage-statement");
-  if (!pill) return;
-  const textEl = document.getElementById("online-expense-text");
-  const count = typeof onlineCount === 'number' ? onlineCount : (currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0);
-
-  const data = lastStatementData || {};
-  const rateUnits = typeof data.rateUnits === 'number' ? data.rateUnits : 200;
-  const ratePoints = rateUnits / 100;
-  const balanceUnits = typeof data.balanceUnits === 'number' ? data.balanceUnits : 100000;
-  const balancePoints = balanceUnits / 100;
-
-  // Running expense today (in แต้มบุญ)
-  let todayPoints = 0;
-  if (typeof data.estimatedUnits === 'number' && data.estimatedUnits > 0) {
-    todayPoints = data.estimatedUnits / 100;
-  } else if (typeof data.shadowEstimatedUnits === 'number' && data.shadowEstimatedUnits > 0) {
-    todayPoints = data.shadowEstimatedUnits / 100;
-  } else if (count > 0) {
-    todayPoints = count * ratePoints;
-  }
-
-  // Debt logic:
-  // If balancePoints < 0, account has an outstanding unpaid debt
-  if (balancePoints < 0) {
-    const debtPoints = Math.abs(balancePoints);
-    pill.classList.add("has-debt");
-    if (textEl) {
-      textEl.innerHTML = `หนี้ค้าง: <strong id="online-expense-val">${debtPoints.toLocaleString()}</strong> แต้มบุญ <span style="font-size: 10px; opacity: 0.85;">(วันนี้ ${todayPoints.toLocaleString()})</span>`;
-    }
-    pill.title = `มียอดหนี้ค้างชำระ ${debtPoints.toLocaleString()} แต้มบุญ · ค่าใช้จ่ายวันนี้ประมาณ ${todayPoints.toLocaleString()} แต้มบุญ (คลิกเพื่อดูประวัติ)`;
-  } else {
-    pill.classList.remove("has-debt");
-    if (textEl) {
-      textEl.innerHTML = `หนี้วันนี้: <strong id="online-expense-val">${todayPoints.toLocaleString()}</strong> แต้มบุญ`;
-    }
-    pill.title = `ค่าใช้จ่าย/หนี้วันนี้ ${todayPoints.toLocaleString()} แต้มบุญ · แต้มบุญคงเหลือ ${balancePoints.toLocaleString()} แต้มบุญ (คลิกเพื่อดูประวัติ)`;
-  }
+function validStatement(data) {
+  return data?.success===true&&data.schemaVersion===2&&data.unitScale===100&&['balanceUnits','rateUnits','estimatedUnits','usedSlotsToday','billableSlotsToday'].every(k=>Number.isSafeInteger(data[k]))&&data.rateUnits>=0&&data.estimatedUnits>=0&&data.usedSlotsToday>=0&&data.billableSlotsToday>=0&&['shadow','deferred'].includes(data.billingMode)&&Array.isArray(data.usage)&&Array.isArray(data.ledger);
 }
-window.updateUsageStatementDisplay = updateUsageStatementDisplay;
-
+function updateUsageStatementDisplay() {
+  const pill=document.getElementById('btn-open-usage-statement'),text=document.getElementById('online-expense-text');if(!pill)return;
+  if(!validStatement(lastStatementData)){if(text)text.textContent='ยังไม่มีใบสรุปจากเซิร์ฟเวอร์';pill.title='ไม่คำนวณค่าใช้จ่ายจากจำนวนจอออนไลน์';pill.classList.remove('has-debt');return;}
+  const data=lastStatementData,balance=data.balanceUnits/100,today=data.estimatedUnits/100;
+  pill.classList.toggle('has-debt',balance<0);
+  if(text)text.textContent=balance<0?`ส่วนบุญ ${balance.toLocaleString()} • รอสรุปวันนี้ ${today.toLocaleString()}`:`รอสรุปวันนี้ ${today.toLocaleString()} ส่วนบุญ`;
+  pill.title=`ยอดจากเซิร์ฟเวอร์: ${balance.toLocaleString()} ส่วนบุญ • ${data.billingMode==='shadow'?'โหมดทดลอง ไม่หักจริง':'คิดจาก slot ที่ใช้สคริปต์จริง'} • ${data.usedSlotsToday} slot วันนี้`;
+}
 function renderUsageStatementModal(data) {
-  if (!data) return;
-  const onlineCount = currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0;
-  const rateUnits = typeof data.rateUnits === 'number' ? data.rateUnits : 200;
-  const ratePoints = rateUnits / 100;
-  const balanceUnits = typeof data.balanceUnits === 'number' ? data.balanceUnits : 0;
-  const balancePoints = balanceUnits / 100;
-
-  let todayPoints = 0;
-  if (typeof data.estimatedUnits === 'number' && data.estimatedUnits > 0) {
-    todayPoints = data.estimatedUnits / 100;
-  } else if (typeof data.shadowEstimatedUnits === 'number' && data.shadowEstimatedUnits > 0) {
-    todayPoints = data.shadowEstimatedUnits / 100;
-  } else if (onlineCount > 0) {
-    todayPoints = onlineCount * ratePoints;
+  const container=document.getElementById('usage-statement-content');
+  if(!validStatement(data)){if(container)container.textContent='ยังอ่านใบสรุปที่ยืนยันจากเซิร์ฟเวอร์ไม่ได้';return;}
+  const set=(id,value)=>{const node=document.getElementById(id);if(node)node.innerText=value;},balance=data.balanceUnits/100,today=data.estimatedUnits/100;
+  set('us-stat-balance-icon',balance<0?'🚨':'🟢');set('us-stat-balance-title',balance<0?'ส่วนบุญติดลบ':'ส่วนบุญคงเหลือ');set('us-stat-balance-val',balance.toLocaleString());set('us-stat-balance-sub',balance<0?'ยอดค้างจากบัญชีเซิร์ฟเวอร์':'ยอดยืนยันจากบัญชีเซิร์ฟเวอร์');
+  set('us-stat-today-val',today.toLocaleString());set('us-stat-today-sub',`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ไม่มีการหักจริง':'รอสรุปหลังเที่ยงคืน'}`);
+  set('us-stat-slots-val',String(data.usedSlotsToday));set('us-stat-slots-sub',`คิดจริง ${data.billableSlotsToday} slot • เรท ${data.rateUnits/100} ส่วนบุญ/slot/วัน`);
+  set('us-stat-mode-val',data.billingMode==='shadow'?'โหมดทดลอง ไม่หักจริง':'คิดตามการใช้จริง');set('us-stat-mode-sub',Number.isSafeInteger(data.shadowEstimatedUnits)?`ตัวอย่างจาก slot ที่สังเกต ${data.shadowEstimatedUnits/100} ส่วนบุญ (แยกจากยอดรอสรุปจริง)`:'ยอดตาม slot ที่ใช้สคริปต์จริง');
+  const balanceNode=document.getElementById('us-stat-balance-val');if(balanceNode)balanceNode.style.color=balance<0?'#f87171':'#34d399';
+  if(container){if(currentStatementTab==='usage')renderDailyUsageTab(container,data,today,data.usedSlotsToday,data.rateUnits/100);else renderLedgerTab(container,data);}
+}
+function renderDailyUsageTab(container,data,todayPoints,activeSlots,ratePoints) {
+  const groups=new Map();
+  for(const row of data.usage){if(typeof row.slot_id!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(row.bangkok_day||''))continue;let group=groups.get(row.bangkok_day);if(!group){group=new Map();groups.set(row.bangkok_day,group);}group.set(row.slot_id,row);}
+  const ledger=new Map();for(const row of data.ledger)if(row.kind==='usage'&&typeof row.slot_id==='string'&&Number.isSafeInteger(row.delta_units))ledger.set(row.bangkok_day+':'+row.slot_id,row);
+  let html=`<div class="us-row-item"><div><strong>วันนี้ ${escapeHTML(data.bangkokDay)}</strong><div>${activeSlots} slot ใช้สคริปต์ • คิดจริง ${data.billableSlotsToday} slot • เรท ${ratePoints} ส่วนบุญ</div></div><div>${todayPoints.toLocaleString()} ส่วนบุญ<div>${data.billingMode==='shadow'?'ทดลอง ไม่หักจริง':'ยอดรอสรุป'}</div></div></div>`;
+  for(const [day,slots]of [...groups].sort((a,b)=>b[0].localeCompare(a[0]))){if(day===data.bangkokDay)continue;const billable=[...slots.values()].filter(r=>r.billable===1),entries=billable.map(r=>ledger.get(day+':'+r.slot_id)).filter(Boolean),complete=entries.length===billable.length;
+    const sum=entries.reduce((units,r)=>units+r.delta_units,0),rates=[...new Set(entries.filter(r=>Number.isSafeInteger(r.rate_units)).map(r=>r.rate_units))];
+    const status=!billable.length?'สังเกตการณ์ ไม่หักจริง':billable.some(r=>r.settled_ms==null)?'รอสรุป':complete?'สรุปจาก ledger แล้ว':'ยอด ledger บางส่วนอยู่นอกช่วงที่โหลด';
+    const amount=!billable.length?'0':complete?(sum/100).toLocaleString():'—';
+    html+=`<div class="us-row-item"><div><strong>วันที่ ${escapeHTML(day)}</strong><div>${slots.size} slot • คิดจริง ${billable.length} slot • เรทที่บันทึก ${rates.length?rates.map(r=>r/100).join(', '):'—'} ส่วนบุญ</div><small>${escapeHTML([...slots.keys()].join(', '))}</small></div><div>${amount} ส่วนบุญ<div>${status}</div></div></div>`;
   }
-
-  const activeSlots = typeof data.usedSlotsToday === 'number' && data.usedSlotsToday > 0 
-    ? data.usedSlotsToday 
-    : (typeof data.billableSlotsToday === 'number' && data.billableSlotsToday > 0 ? data.billableSlotsToday : onlineCount);
-
-  // Card 1: Balance / Debt
-  const cardBal = document.getElementById("us-card-balance");
-  const balIcon = document.getElementById("us-stat-balance-icon");
-  const balTitle = document.getElementById("us-stat-balance-title");
-  const balVal = document.getElementById("us-stat-balance-val");
-  const balSub = document.getElementById("us-stat-balance-sub");
-
-  if (balancePoints < 0) {
-    const debt = Math.abs(balancePoints);
-    if (cardBal) {
-      cardBal.style.background = "linear-gradient(135deg, rgba(239, 68, 68, 0.16), rgba(15, 23, 42, 0.9))";
-      cardBal.style.borderColor = "rgba(239, 68, 68, 0.4)";
-    }
-    if (balIcon) balIcon.innerText = "🚨";
-    if (balTitle) balTitle.innerText = "หนี้ค้างชำระ";
-    if (balVal) {
-      balVal.innerText = `-${debt.toLocaleString()}`;
-      balVal.style.color = "#f87171";
-    }
-    if (balSub) balSub.innerText = "มียอดค้างชำระ กรุณาเติมแต้มบุญ";
-  } else {
-    if (cardBal) {
-      cardBal.style.background = "linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.9))";
-      cardBal.style.borderColor = "rgba(52, 211, 153, 0.35)";
-    }
-    if (balIcon) balIcon.innerText = "🟢";
-    if (balTitle) balTitle.innerText = "แต้มบุญคงเหลือ";
-    if (balVal) {
-      balVal.innerText = `+${balancePoints.toLocaleString()}`;
-      balVal.style.color = "#34d399";
-    }
-    if (balSub) balSub.innerText = "ไม่มีหนี้ค้างชำระ (หนี้ = 0)";
-  }
-
-  // Card 2: Today's Expense
-  const todayVal = document.getElementById("us-stat-today-val");
-  const todaySub = document.getElementById("us-stat-today-sub");
-  if (todayVal) todayVal.innerText = todayPoints.toLocaleString();
-  if (todaySub) todaySub.innerText = `วันที่ ${data.bangkokDay || 'วันนี้'} (รอตัดเที่ยงคืน)`;
-
-  // Card 3: Active Slots
-  const slotsVal = document.getElementById("us-stat-slots-val");
-  const slotsSub = document.getElementById("us-stat-slots-sub");
-  if (slotsVal) slotsVal.innerText = activeSlots.toLocaleString();
-  if (slotsSub) slotsSub.innerText = `เรท ${ratePoints} แต้มบุญ / จอ / วัน`;
-
-  // Card 4: Billing Mode
-  const modeVal = document.getElementById("us-stat-mode-val");
-  const modeSub = document.getElementById("us-stat-mode-sub");
-  if (modeVal) {
-    if (data.billingMode === 'shadow') {
-      modeVal.innerText = "โหมดทดลอง (สังเกตการณ์)";
-      modeVal.style.color = "#facc15";
-    } else {
-      modeVal.innerText = "คิดตามการใช้งานจริง";
-      modeVal.style.color = "#34d399";
-    }
-  }
-  if (modeSub) {
-    modeSub.innerText = data.billingMode === 'shadow' ? "ยังไม่มีการหักแต้มบุญจริง" : "หักแต้มบุญตอนเที่ยงคืน (00:00 ICT)";
-  }
-
-  // Content List
-  const container = document.getElementById("usage-statement-content");
-  if (!container) return;
-
-  if (currentStatementTab === 'usage') {
-    renderDailyUsageTab(container, data, todayPoints, activeSlots, ratePoints);
-  } else {
-    renderLedgerTab(container, data);
-  }
+  if(!groups.size)html+='<div style="padding:24px;color:#94a3b8">ยังไม่มีบันทึกการใช้ slot จากเซิร์ฟเวอร์</div>';
+  container.innerHTML=html;
+}
+function renderLedgerTab(container,data) {
+  const labels={usage:'สรุปค่าบริการรายวัน',topup:'เติมส่วนบุญ',adjustment:'ปรับยอดโดยผู้ดูแล',proxy:'สมัครผ่าน Proxy',proxy_register:'สมัครผ่าน Proxy'};
+  const entries=data.ledger.filter(row=>Number.isSafeInteger(row.delta_units));if(!entries.length){container.textContent='ยังไม่มีรายการเดินบัญชีส่วนบุญ';return;}
+  container.innerHTML=entries.map(row=>{const amount=row.delta_units/100,time=Number.isSafeInteger(row.created_ms)?new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',dateStyle:'short',timeStyle:'short'}).format(new Date(row.created_ms)):'—';return `<div class="us-row-item"><div><strong>${escapeHTML(labels[row.kind]||'รายการเดินบัญชี')}</strong><div>${escapeHTML(row.bangkok_day||time)} ${row.slot_id?'• slot '+escapeHTML(row.slot_id):''}</div><small>${escapeHTML(row.reason||row.entry_key||'')}</small></div><div style="color:${amount<0?'#f87171':'#34d399'}">${amount>0?'+':''}${amount.toLocaleString()} ส่วนบุญ</div></div>`;}).join('');
 }
 
-function renderDailyUsageTab(container, data, todayPoints, activeSlots, ratePoints) {
-  const usages = Array.isArray(data.usage) ? data.usage : [];
-  
-  let html = '';
-  // Top Item: Today's running estimate
-  html += `
-    <div class="us-row-item" style="border-left: 3px solid #38bdf8; background: linear-gradient(90deg, rgba(56, 189, 248, 0.08), rgba(15, 23, 42, 0.7));">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; font-size: 16px;">
-          📅
-        </div>
-        <div>
-          <div style="font-weight: 700; color: #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-            <span>วันที่ ${data.bangkokDay || 'วันนี้'}</span>
-            <span style="font-size: 10px; background: rgba(56, 189, 248, 0.2); color: #7dd3fc; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 600;">รอบวันนี้ (กำลังรัน)</span>
-          </div>
-          <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">
-            ${activeSlots} จอที่ใช้งาน · เรท ${ratePoints} แต้มบุญ/จอ/วัน
-          </div>
-        </div>
-      </div>
-      <div style="text-align: right;">
-        <div style="font-size: 16px; font-weight: 800; color: #38bdf8; font-family: monospace;">
-          ${todayPoints > 0 ? '-' + todayPoints.toLocaleString() : '0'} <small style="font-size: 11px; font-weight: normal; color: #bae6fd;">แต้มบุญ</small>
-        </div>
-        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
-          ${data.billingMode === 'shadow' ? '🧪 สังเกตการณ์ (ยังไม่หักจริง)' : '⏳ สรุปยอดตัดรอบเที่ยงคืน'}
-        </div>
-      </div>
-    </div>
-  `;
-
-  if (usages.length === 0) {
-    html += `
-      <div style="text-align: center; color: #64748b; padding: 24px; font-size: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.08); margin-top: 6px;">
-        <div style="font-size: 22px; margin-bottom: 6px;">📋</div>
-        ยังไม่มีบันทึกสรุปย้อนหลังของวันก่อนหน้า<br>
-        <span style="font-size: 11px; color: #475569;">(ระบบจะบันทึกประวัติการเสียแต้มบุญและสรุปยอดอัตโนมัติทุกเที่ยงคืน 00:00 ICT)</span>
-      </div>
-    `;
-  } else {
-    usages.forEach(u => {
-      const slots = u.slots || u.billable_slots || u.used_slots || 0;
-      const rate = (u.rate_units || data.rateUnits || 200) / 100;
-      const charged = (u.charged_units != null ? u.charged_units : (u.estimated_units || 0)) / 100;
-      const isShadow = u.mode === 'shadow' || data.billingMode === 'shadow';
-      html += `
-        <div class="us-row-item">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.2); display: flex; align-items: center; justify-content: center; font-size: 16px;">
-              🗓️
-            </div>
-            <div>
-              <div style="font-weight: 700; color: #e2e8f0; font-size: 13px;">
-                วันที่ ${escapeHTML(u.bangkok_day || '—')}
-              </div>
-              <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
-                ${slots} จอ · อัตรา ${rate} แต้มบุญ/จอ/วัน
-              </div>
-            </div>
-          </div>
-          <div style="text-align: right;">
-            <div style="font-size: 15px; font-weight: 800; color: ${isShadow ? '#facc15' : '#cbd5e1'}; font-family: monospace;">
-              -${charged.toLocaleString()} <small style="font-size: 11px; font-weight: normal;">แต้มบุญ</small>
-            </div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
-              ${isShadow ? '🧪 โหมดทดลอง (ไม่หักจริง)' : '✅ สรุปยอดแล้ว'}
-            </div>
-          </div>
-        </div>
-      `;
-    });
-  }
-
-  container.innerHTML = html;
-}
-
-function renderLedgerTab(container, data) {
-  const ledger = Array.isArray(data.ledger) ? data.ledger : [];
-  if (ledger.length === 0) {
-    container.innerHTML = `
-      <div style="text-align: center; color: #64748b; padding: 36px; font-size: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.08);">
-        <div style="font-size: 26px; margin-bottom: 6px;">💳</div>
-        ยังไม่มีประวัติการหักแต้มบุญ การติดหนี้ หรือการชำระเงิน<br>
-        <span style="font-size: 11px; color: #475569;">(เมื่อมีการหักค่าบริการรายวัน การติดหนี้ หรือการเติมแต้มบุญชำระหนี้ รายการจะปรากฏที่นี่)</span>
-      </div>
-    `;
-    return;
-  }
-
-  let html = '';
-  ledger.forEach(item => {
-    const deltaUnits = typeof item.delta_units === 'number' ? item.delta_units : 0;
-    const deltaPoints = deltaUnits / 100;
-    const isNegative = deltaPoints < 0;
-    const absPoints = Math.abs(deltaPoints);
-
-    let kindLabel = 'รายการเดินบัญชี';
-    let kindBadgeColor = '#94a3b8';
-    let kindBadgeBg = 'rgba(148, 163, 184, 0.15)';
-    let icon = '💳';
-
-    if (item.kind === 'charge' || item.kind === 'daily_charge') {
-      kindLabel = 'หักค่าบริการรายวัน';
-      kindBadgeColor = '#fca5a5';
-      kindBadgeBg = 'rgba(239, 68, 68, 0.2)';
-      icon = '🔻';
-    } else if (item.kind === 'topup' || item.kind === 'payment') {
-      kindLabel = 'ชำระหนี้ / เติมแต้มบุญ';
-      kindBadgeColor = '#6ee7b7';
-      kindBadgeBg = 'rgba(16, 185, 129, 0.2)';
-      icon = '➕';
-    } else if (item.kind === 'adjustment') {
-      kindLabel = 'ปรับปรุงยอดหนี้';
-      kindBadgeColor = '#c084fc';
-      kindBadgeBg = 'rgba(168, 85, 247, 0.2)';
-      icon = '⚖️';
-    }
-
-    const dateStr = item.bangkok_day || item.created_at || '—';
-    const reasonStr = item.reason || (isNegative ? 'หักค่าบริการ' : 'เพิ่มแต้มบุญ');
-    const balAfterStr = typeof item.balance_after_units === 'number' 
-      ? `คงเหลือ ${(item.balance_after_units / 100).toLocaleString()} แต้มบุญ` 
-      : '';
-
-    html += `
-      <div class="us-row-item">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="width: 36px; height: 36px; border-radius: 8px; background: ${isNegative ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)'}; border: 1px solid ${isNegative ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-            ${icon}
-          </div>
-          <div>
-            <div style="font-weight: 700; color: #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-              <span>${escapeHTML(reasonStr)}</span>
-              <span style="font-size: 10px; background: ${kindBadgeBg}; color: ${kindBadgeColor}; padding: 1px 7px; border-radius: 999px; font-weight: 600;">${kindLabel}</span>
-            </div>
-            <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">
-              ${escapeHTML(dateStr)} ${balAfterStr ? '· ' + balAfterStr : ''}
-            </div>
-          </div>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 15px; font-weight: 800; color: ${isNegative ? '#f87171' : '#34d399'}; font-family: monospace;">
-            ${isNegative ? '-' : '+'}${absPoints.toLocaleString()} <small style="font-size: 11px; font-weight: normal;">แต้มบุญ</small>
-          </div>
-        </div>
-      </div>
-    `;
-  });
-
-  container.innerHTML = html;
-}
+window.updateUsageStatementDisplay=updateUsageStatementDisplay;
 
 function openUsageStatementModal() {
   const modal = document.getElementById("modal-usage-statement");
@@ -1647,6 +1406,27 @@ function closeProxyRegisterModal() {
   if (modal) modal.style.display = "none";
 }
 
+function proxyQuotaFromSettings(settings) {
+  if(settings?.unitScale!==100||!Number.isSafeInteger(settings.balanceUnits))return null;
+  return Math.max(0,Math.floor(settings.balanceUnits/10));
+}
+function applyProxyConnectionSettings(settings) {
+  const fields={'proxy-config-host':settings.proxyHost||'','proxy-config-port':settings.proxyPort||'','proxy-config-country':settings.country||'th'};
+  for(const [id,value]of Object.entries(fields)){const input=document.getElementById(id);if(input&&document.activeElement!==input)input.value=value;}
+  const note=document.getElementById('proxy-config-note');
+  if(note)note.textContent=settings.rotationRequired?'credential เดิมถูกบล็อก ให้ยกเลิก/เปลี่ยนที่ผู้ให้บริการแล้วกรอกชุดใหม่':settings.configured?'มี credential ที่ตั้งไว้แล้ว กรอกผู้ใช้และรหัสผ่านเฉพาะเมื่อต้องการเปลี่ยน':'ยังไม่ได้ตั้งค่า credential ชุดใหม่จากผู้ให้บริการ';
+  const confirm=document.getElementById('btn-proxy-modal-confirm');if(confirm)confirm.disabled=!settings.enabled&&!settings.configured;
+}
+async function saveProxyConnectionSettings(){
+  const value=id=>(document.getElementById(id)?.value||'').trim(),user=value('proxy-config-user'),password=document.getElementById('proxy-config-pass')?.value||'';
+  const body={proxyHost:value('proxy-config-host'),proxyPort:Number(value('proxy-config-port')),country:value('proxy-config-country').toLowerCase(),enabled:false};
+  if(!body.proxyHost||!Number.isInteger(body.proxyPort)||body.proxyPort<1||body.proxyPort>65535||!/^[a-z]{2}$/.test(body.country))return showToast('กรอก Host, Port และรหัสประเทศสองตัวให้ถูกต้อง','error');
+  if(!!user!==!!password)return showToast('กรอกชื่อผู้ใช้ Proxy และรหัสผ่านใหม่ทั้งคู่ หรือเว้นทั้งคู่เพื่อคงค่าเดิม','error');
+  if(user){body.proxyUser=user;body.proxyPass=password;}
+  try{const response=await fetch(`${API_BASE}/api/proxy-register/settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),data=await response.json();if(!response.ok||data.success!==true)throw Error(data.error||'ยังบันทึกค่า Proxy ไม่ได้');
+    document.getElementById('proxy-config-user').value='';document.getElementById('proxy-config-pass').value='';applyProxyConnectionSettings(data.settings);updateProxyRegisterToolbarBtn(data.settings.enabled);showToast('บันทึกไว้ในเครื่องแล้ว Proxy ยังปิดอยู่ เปิดใช้งานหลังตรวจ credential ชุดใหม่','success');
+  }catch(error){showToast(error.message,'error');}
+}
 async function fetchProxyRegisterSettings() {
   try {
     const [proxyRes, hcRes] = await Promise.all([
@@ -1655,23 +1435,22 @@ async function fetchProxyRegisterSettings() {
     ]);
     if (proxyRes && proxyRes.success && proxyRes.settings) {
       const s = proxyRes.settings;
+      applyProxyConnectionSettings(s);
       updateProxyRegisterToolbarBtn(s.enabled);
       const regCountEl = document.getElementById("proxy-modal-reg-count");
       if (regCountEl) regCountEl.textContent = (s.registeredCount || 0) + " ไอดี";
       const lastIpEl = document.getElementById("proxy-modal-last-ip");
       if (lastIpEl) lastIpEl.textContent = s.lastTestedIp || "-";
     }
-    if (hcRes && hcRes.success && hcRes.settings) {
-      const points = hcRes.settings.points != null ? Number(hcRes.settings.points) : 0;
-      const balEl = document.getElementById("proxy-modal-balance-display");
-      if (balEl) balEl.textContent = points.toLocaleString("th-TH", { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + " ส่วนบุญ";
-      const quotaEl = document.getElementById("proxy-modal-quota-calc");
-      if (quotaEl) quotaEl.textContent = Math.floor(points / 0.1).toLocaleString();
-    }
+    const settings=hcRes?.success?hcRes.settings:null,quota=proxyQuotaFromSettings(settings);
+    const balEl=document.getElementById('proxy-modal-balance-display'),quotaEl=document.getElementById('proxy-modal-quota-calc');
+    if(balEl)balEl.textContent=quota===null?'—':(settings.balanceUnits/100).toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:2})+' ส่วนบุญ';
+    if(quotaEl)quotaEl.textContent=quota===null?'—':quota.toLocaleString();
   } catch (_) {}
 }
 
 function initProxyRegisterControls() {
+  const saveConfig=document.getElementById('btn-proxy-config-save');if(saveConfig)saveConfig.onclick=saveProxyConnectionSettings;
   const btnToolbar = document.getElementById("btn-toggle-proxy-register");
   if (btnToolbar) {
     btnToolbar.onclick = () => {
@@ -2071,11 +1850,11 @@ function initDeviceNickname() {
     }
   } catch (e) {}
   // The modal markup follows this script; a fast/cached response can finish before parsing it.
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTopupCaptchaModal, { once: true });
-  else initTopupCaptchaModal();
+  const initAccountModals=()=>{initTopupCaptchaModal();initProxyRegisterControls();};
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccountModals, { once: true });
+  else initAccountModals();
   initDeviceNickname();
   fetchCaptchaStats();
-  initProxyRegisterControls();
 })();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);

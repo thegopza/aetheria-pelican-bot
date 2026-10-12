@@ -1,5 +1,20 @@
 # PmheeAether transition build — 2026-10-12
 
+## Verified current state — 2026-10-13 (Asia/Bangkok)
+
+Production Worker 03f7e60a-7843-4031-889e-a9eaffc2e8a0 delivers private signed payload 4.37.1 (cf9360cf1ad728f58734c30c3e9f946992ba68075988944781ddeb5953c0a440). Compatibility bot in public Git remains 4.36.2. Immutable lease release pins preserve 4.37.0 runtimes across deployment; a fresh document receives 4.37.1. No full hot injection or fleet refresh was performed.
+
+Production daily billing was already enabled by the prior rollout (activation day 2026-10-13). The owner explicitly set 1 Baht / actually used screen / Bangkok day during this repair: default and today's dated revision are 100 units = 1 ส่วนบุญ. Actual server statement verified 17 used slots = 17 ส่วนบุญ estimated. Local Humancheck remains free and independent.
+
+API tests 60/60; Security 12/12; Manager 92/92; actual isolated Edge/Chrome 4.37.1 delivery/renew/reconnect/reload/expiry passed and screenshots reviewed. Production payload smoke passed without execution/usage/topup. Provider connectivity passed with an invalid fixture, but no real voucher was redeemed; valid payment end-to-end remains unverified.
+
+Proxy exposed credential literals were removed from current source/release; owner must rotate the previously published provider credentials. Reservations now use atomic quota/funds admission and exact retry ACKs, sticky IP sessions, bounded deadlines and durable ambiguous-result review. UI uses actual slot/ledger fields, honors zero usage, and does not invent balance or debt from open-game counts.
+
+For operational updates follow AGENTS.md / agent.md and the private API cloudflare/DEPLOYMENT_STATUS.md. GitHub updates Manager/bootstrap/tooling; private payload requires explicit build + D1 import + Worker deploy. Rollback must preserve latest financial ledger and both lease-pinned releases. The sections below are the historical 2026-10-12 preparation record, not the current deployment state.
+
+## Historical preparation record
+
+
 ## Implemented boundaries
 
 The shipped Manager defaults to local observation. Existing screens continue

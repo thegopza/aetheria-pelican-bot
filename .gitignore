@@ -32,3 +32,6 @@ manager/data/human_check_catalog_v1.json
 manager/data/human_check_catalog_v1.json.tmp
 manager/data/captcha_stats.json
 manager/data/proxy_settings.json
+
+manager/data/proxy_register_state_v1.json
+manager/data/proxy_register_state_v1.json.tmp

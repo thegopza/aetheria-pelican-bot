@@ -12,7 +12,7 @@ const hash=v=>crypto.createHash('sha256').update(typeof v==='string'?v:JSON.stri
 test('observation never enrolls, delivers payload, counts unused profiles or creates billable events',async t=>{
  const dataDir=dir(t),reads=[];let clock=Date.UTC(2026,9,12,16,59,59);
  const make=()=>createScriptCoordinator({dataDir,now:()=>clock,loadProfiles:()=>[{id:'p1',debugPort:1},{id:'p2',debugPort:2}],evalProfilePort:async(port,code)=>{reads.push(code);return {success:true,result:{version:'4.36.0',running:port===1,busy:[]}};},service:{serviceRequest(){throw Error('UNEXPECTED_NETWORK');}}});
- let c=make();await c.cycle();await c.cycle();assert.equal(c.status().observedSlotsToday,1);assert.equal(c.status().pendingEvents,0);assert.equal(c.status().billingEnabled,false);
+ let c=make();await c.cycle();await c.cycle();assert.equal(c.status().observedSlotsToday,1);assert.equal(c.status().pendingEvents,0);assert.equal(c.status().billingEnabled,null);
  assert.ok(reads.every(code=>!code.includes('.accept(')));c=make();assert.equal(c.status().observedSlotsToday,1);clock+=2000;assert.equal(c.status().observedSlotsToday,0);await c.cycle();assert.equal(c.status().observedSlotsToday,1);
 });
 test('signed pilot delivery verifies payload, reuses stable slot and renews without duplicate injection',async t=>{
@@ -156,7 +156,7 @@ test('signed queued evidence survives restart, validates sequence and stores ser
   if(mutation==='unsigned')delete event.proof;if(mutation==='sequence')event.sequence=2;if(mutation==='slot')event.slotId='forged-slot';
   fs.writeFileSync(file,JSON.stringify({schema:1,slots:{},observed:{},queue:[event],sequence:1,lastAckAnchor:'b'.repeat(64)}));let calls=0;
   const ackAnchor=hash(JSON.stringify(['a','event','stable',day]));
-  const c=createScriptCoordinator({dataDir,now:()=>Date.UTC(2026,9,12,12),loadProfiles:()=>[],unprotect:v=>v,service:{loadSettings:()=>({accountId:'a'}),async serviceRequest(route,body){calls++;assert.ok(route.endsWith('/usage/record'));assert.deepEqual(Object.keys(body).sort(),['eventId','leaseId','runtimeNonce','slotId']);return {success:true,eventId:'event',slotId:'stable',bangkokDay:day,ackAnchor:mutation==='anchor'?'a'.repeat(64):ackAnchor};}},evalProfilePort:()=>assert.fail('no game actions')});
+  const c=createScriptCoordinator({dataDir,now:()=>Date.UTC(2026,9,12,12),loadProfiles:()=>[],unprotect:v=>v,service:{loadSettings:()=>({accountId:'a'}),async serviceRequest(route,body){if(route.endsWith('/usage/statement'))return {success:true,billingMode:'shadow'};calls++;assert.ok(route.endsWith('/usage/record'));assert.deepEqual(Object.keys(body).sort(),['eventId','leaseId','runtimeNonce','slotId']);return {success:true,eventId:'event',slotId:'stable',bangkokDay:day,ackAnchor:mutation==='anchor'?'a'.repeat(64):ackAnchor};}},evalProfilePort:()=>assert.fail('no game actions')});
   await c.cycle();const saved=JSON.parse(fs.readFileSync(file,'utf8'));
   if(mutation===null){assert.equal(calls,1);assert.equal(c.status().pendingEvents,0);assert.equal(saved.lastAckAnchor,ackAnchor);assert.equal(saved.lastAckSequence,1);}
   else {assert.equal(c.status().pendingEvents,1);assert.equal(c.status().reconciliationRequired,1);assert.equal(calls,mutation==='anchor'?1:0);assert.equal(saved.lastAckAnchor,'b'.repeat(64));}
@@ -173,4 +173,10 @@ test('a signed version or hash change reports safe update-required without renew
   const c=createScriptCoordinator({dataDir,now:()=>1000000,loadProfiles:()=>[{id:'p',debugPort:1}],service,pilotProfileIds:['p'],protect:v=>v,unprotect:v=>v,trustedKeys:{key:keys.publicKey.export({format:'jwk'})},evalProfilePort:async(_,code)=>{if(code.includes('.renew(')||code.includes('.accept('))gameActions++;return {success:true,result:{version:'4.37.0',running:true,busy:['refine'],bootstrap:{activated:true,runtimeNonce:'nonce',version:'4.37.0',payloadHash:'a'.repeat(64)}}};}});
   await c.cycle();assert.equal(c.status().clients.p.state,'update-required');assert.deepEqual(c.status().clients.p.busy,['refine']);assert.equal(gameActions,0);
  }
+});
+
+test('status reads actual server billing and marks unavailable status unknown without enrolling',async t=>{
+ const dataDir=dir(t);let now=1000000,calls=0,fail=false;
+ const c=createScriptCoordinator({dataDir,now:()=>now,loadProfiles:()=>[],evalProfilePort:()=>assert.fail('no game action'),service:{loadSettings:()=>({accountId:'existing'}),serviceRequest:async route=>{calls++;assert.equal(route,'/v1/aetheria/usage/statement');if(fail)throw Error('offline');return {success:true,billingMode:'deferred'};}}});
+ assert.equal(c.status().billingEnabled,null);await c.cycle();assert.equal(c.status().billingEnabled,true);await c.cycle();assert.equal(calls,1);now+=60001;fail=true;await c.cycle();assert.equal(c.status().billingEnabled,null);
 });

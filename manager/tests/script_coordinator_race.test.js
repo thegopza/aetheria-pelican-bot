@@ -25,6 +25,6 @@ test('rollout changes apply only after in-flight delivery and reject simultaneou
  await assert.rejects(c.prepareCredentialChange({id:'p1',debugPort:1}),/กำลังตรวจสิทธิ์/);
  await c.cycle();assert.deepEqual(c.status().pilotProfileIds,['p1']);assert.equal(deliveries,0);
  releaseDownload();await cycle;assert.equal(deliveries,1);assert.equal(c.status().clients.p1.state,'authorized');
- const before=apiCalls;await c.cycle();assert.equal(apiCalls,before);assert.deepEqual(c.status().pilotProfileIds,[]);assert.equal(c.profileScriptSource('p1'),null);assert.equal(c.status().billingEnabled,false);
+ const before=apiCalls;await c.cycle();assert.equal(apiCalls,before);assert.deepEqual(c.status().pilotProfileIds,[]);assert.equal(c.profileScriptSource('p1'),null);assert.equal(c.status().billingEnabled,null);
  const saved=JSON.parse(fs.readFileSync(path.join(dataDir,'script_coordinator_v1.json')));assert.equal(saved.managerInstanceId,instance);assert.equal(saved.slots.p1.slotId,'stable-slot');assert.equal(saved.queue.length,0);
 });

@@ -28,7 +28,7 @@ test('full bot plus external Plan IIFEs initialize on a simulated page only afte
   assert.equal(timers.length, 0);
   active = true;
   script(runtime);
-  assert.equal(win.__pelicanBotVersion, '4.36.0');
+  assert.equal(win.__pelicanBotVersion, source.match(/const PELICAN_BOT_VERSION = '([^']+)'/)[1]);
   assert.equal(typeof win.startMasterBot, 'function');
   assert.equal(typeof win.__applyScriptPlan, 'function');
   assert.equal(win.__planScriptEnabled, false);
@@ -96,4 +96,8 @@ test('real full payload under signed bootstrap preserves native gameplay and loc
     assert.equal(typeof win.__getClientLiveState(), 'object');
     assert.equal(win.__isBotRunning, false);
   } finally { dom.window.close(); }
+});
+
+test('private event constructors accept the protected window facade as view',()=>{
+ const dom=new JSDOM('<body></body>',{url:'https://www.aetheria-online.in.th/play',runScripts:'outside-only'});try{const win=dom.window;const source=instrument("window.__mouse=new MouseEvent('click',{view:window});window.__key=new KeyboardEvent('keydown',{view:window});").source;new win.Function('runtime',source)({window:new Proxy(win,{}),assert(){},setTimeout(){},setInterval(){}});assert.equal(win.__mouse.view,win);assert.equal(win.__key.view,win);}finally{dom.window.close();}
 });
