@@ -182,7 +182,7 @@
 ## Cloudflare Workers + D1 — ระบบ Point / Auto Humancheck (ย้ายแล้ว 2026-10-12)
 
 - ฝั่ง API อยู่ `D:\MyProject\PMheeSuite\PMheePlatform_Src\Server\PMhee.AetheriaApi\cloudflare\` อ่าน `README.md`, `DEPLOYMENT_STATUS.md` และ `../AGENTS.md` ก่อนทำงาน สถานะ deploy จริงอยู่ใน DEPLOYMENT_STATUS ห้ามอ้างว่าขึ้น production แล้วจากการมีโค้ดเพียงอย่างเดียว
-- Manager เป็น client เรียก `https://api.noggunsshop.xyz/v1/aetheria/*` ยอด Point/สิทธิ์ตอบ/เติมซอง/ตัวกันหักซ้ำเป็นหน้าที่ของ API และ D1 ห้ามเพิ่ม solver/เครดิตออฟไลน์ที่ข้าม server
+- Manager เป็น client เรียก `https://api.noggunsshop.xyz/v1/aetheria/*` ยอด Point/เติมซอง/ตัวกันหักซ้ำเป็นหน้าที่ของ API และ D1 ห้ามสร้างเครดิตออฟไลน์เอง ผู้ใช้อนุญาต Humancheck local/offline ในแบบร่างล่าสุด 2026-10-12 เพื่อให้การตอบไม่ขึ้นกับ billing API; ยังไม่ได้ implement
 - โดเมนแชร์กับ Licensing API: ใช้ Worker route เฉพาะ `/v1/aetheria/*` ห้ามย้าย DNS หรือ custom domain ทั้ง hostname; ห้ามหยุด PMheeLicensingApi, PMheeCloudflared, Manager หรือจอเกม
 - ย้ายข้อมูลต้องคง accountId, token_hash, Point, receipts, requestId/payload_hash/response เดิมทั้งหมด และคงอัตราใช้ฟรี/คิดแต้มจาก config จริง ห้ามบังคับกลับเป็น 1 Point
 - หักแต้ม+บันทึกผล / เติมแต้ม+receipt ต้อง atomic และ idempotent; pending voucher ห้าม retry redeem อัตโนมัติ; ห้ามเปิด SQLite กับ D1 ให้รับรายการพร้อมกัน
@@ -191,3 +191,4 @@
 - ทดสอบด้วย D1 staging/ข้อมูลจำลองก่อน; ทดสอบเงินจริงหรือเปลี่ยนราคาต้องมีคำสั่งผู้ใช้ชัดเจน การ rollback หลังมีรายการบน D1 ต้องย้าย ledger ล่าสุดกลับ ห้ามใช้ SQLite backup เก่าแทน
 - เปลี่ยนแนวทาง/สถานะที่มีผลต่อ agent ให้ปรับส่วนนี้ทั้ง AGENTS.md และ agent.md พร้อมกัน และปรับ DEPLOYMENT_STATUS ของฝั่ง API ด้วย
 - สถานะ 2026-10-12: production Worker `pmhee-aetheria-api` + D1 ใช้งานแล้ว; PMheeAetheriaApi ในเครื่องหยุดอยู่; origin/token เดิมใช้ได้ และ Manager เดิมไม่ต้องแตก zip ใหม่ การคิด 2 Point/จอ/วันเป็นแผนใหม่ที่ยังไม่เปิดใช้ อ่าน `cloudflare/BILLING_DESIGN.md` ก่อนแก้ ห้ามเริ่มเก็บเงินหรือยอมให้บัญชีใหม่หนีหนี้โดยอนุมานเอง
+- แบบร่างล่าสุด 2026-10-12: สคริปต์ต้องเปิดสิทธิ์ผ่าน Manager บันทึกจอที่ใช้จริงด้วย slotId คงที่ แล้วหัก 2 Point ต่อ slot ต่อวันไทยหลังเที่ยงคืน; session/refresh/ปิดเปิดต้องไม่เก็บซ้ำ และยอมให้ยอดติดลบ กฎนี้แทนแบบต่ออายุจอ offline เดิม ข้อยกเว้นจอใหม่หักทันทีเป็นทางเลือกที่ยังต้องเลือก หากใช้ต้องนับเป็นยอดจ่ายของวันนั้นไม่หักซ้ำตอนเที่ยงคืน
