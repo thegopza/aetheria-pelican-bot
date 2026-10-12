@@ -1,0 +1,12 @@
+{
+  "name": "pmheeaether-private-release-tools",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "acorn": "8.15.0",
+    "jsdom": "26.1.0"
+  }
+}

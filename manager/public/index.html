@@ -59,13 +59,14 @@
           <span class="icon">⚡</span> <span>สคริปต์เกม</span>
           <span id="game-patcher-status-badge" class="badge patcher-badge">ตรวจสอบ...</span>
         </button>
-        <button id="btn-topup-captcha" class="btn" title="เติม Point สำหรับระบบตอบคำถาม Auto Captcha" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1)); border: 1px solid rgba(250, 204, 21, 0.45); color: #facc15; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
-          <span class="icon" style="font-size: 14px;">🪙</span> <span>เติม Point Auto Captcha</span>
-          <span id="topup-point-badge" class="badge" style="background: rgba(250, 204, 21, 0.25); color: #fef08a; border: 1px solid rgba(250, 204, 21, 0.4); padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700;">0 P</span>
+        <button id="btn-topup-captcha" class="btn" title="เติมส่วนบุญเข้าบัญชีบริการ PmheeAether" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.2), rgba(202, 138, 4, 0.1)); border: 1px solid rgba(250, 204, 21, 0.45); color: #facc15; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+          <span class="icon" style="font-size: 14px;">💰</span> <span>เติมส่วนบุญ</span>
+          <span id="topup-point-badge" class="badge" style="background: rgba(250, 204, 21, 0.25); color: #fef08a; border: 1px solid rgba(250, 204, 21, 0.4); padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700;">0 ส่วนบุญ</span>
         </button>
         <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
           <span class="icon">🔄</span>
         </button>
+        <a class="btn" href="script_status.html?v=1" target="_blank" rel="noopener">สิทธิ์สคริปต์ / ใบสรุป</a>
       </div>
     </header>
 
@@ -1035,7 +1036,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42734"></script>
+  <script src="app.js?v=42735"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1080,10 +1081,10 @@
         <div class="lm-hint">เปลี่ยนโหมดแล้ว ให้ปิดจอเกมเดิมแล้วกดเปิดใหม่ · เบราว์เซอร์ที่ Manager เปิดใช้โปรไฟล์แยก ไม่ปนกับเบราว์เซอร์ส่วนตัว</div>
       </div>
 
-      <!-- Human Check & Auto-Answer & Point System Card -->
+      <!-- Human Check & Auto-Answer & ส่วนบุญ System Card -->
       <div class="lm-card" style="margin-bottom: 16px; border-color: rgba(16, 185, 129, 0.35); background: rgba(6, 78, 59, 0.2);">
         <div class="lm-title" style="color: #6ee7b7; display: flex; justify-content: space-between; align-items: center;">
-          <span>🤖 ระบบตอบเช็คผู้เล่นอัตโนมัติ & ระบบ Point (Human Check Solver)</span>
+          <span>🤖 ระบบตอบเช็คผู้เล่นอัตโนมัติ & ระบบส่วนบุญ (Human Check Solver)</span>
           <label style="font-size: 11.5px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #cbd5e1;">
             <input type="checkbox" id="hc-global-auto-answer" checked style="cursor: pointer;">
             <span style="font-weight: bold; color: #34d399;">เปิดใช้งาน Auto ตอบคำถาม</span>
@@ -1102,35 +1103,34 @@
           <button type="button" id="btn-hc-save" class="btn btn-primary btn-sm" style="font-size: 11px; padding: 4px 12px; background: #059669; border-color: #10b981;">💾 บันทึกตั้งค่าตอบคำถาม</button>
         </div>
 
-        <!-- Point System Sub-Panel -->
+        <!-- ส่วนบุญ System Sub-Panel -->
         <div style="margin-top: 12px; padding: 10px 12px; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <label style="font-size: 11.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #facc15; font-weight: 600;">
-              <input type="checkbox" id="hc-point-system-toggle" style="cursor: pointer;">
-              <span>⚡ เปิดใช้งานระบบ Point (หัก Point ต่อการตอบ 1 ครั้ง)</span>
+              <input type="checkbox" id="hc-point-system-toggle" disabled style="display:none;">
+              <span>⚡ Humancheck ไม่มีค่าต่อคำตอบ</span>
             </label>
             <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #e2e8f0;">
-              <span>Point คงเหลือ:</span>
+              <span>ส่วนบุญคงเหลือ:</span>
               <span style="font-weight: 800; font-size: 14px; color: #facc15; background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(250, 204, 21, 0.3);" id="hc-points-val">0</span>
-              <span style="color: #94a3b8; font-size: 11px;">Points</span>
+              <span style="color: #94a3b8; font-size: 11px;">ส่วนบุญ</span>
             </div>
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8;">
-              <span>หัก Point ข้อละ:</span>
-              <input type="number" id="hc-points-per-solve" class="form-input" style="width: 55px; padding: 2px 6px; font-size: 11px; text-align: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; color: #fff;" value="1" min="0" max="100">
-              <span>Point / ข้อ</span>
+              <span>ส่วนบุญสำหรับสคริปต์: ดูเรทและยอดรอสรุปในหน้าใบสรุป</span>
+              <input type="number" id="hc-points-per-solve" value="0" disabled hidden>
             </div>
             <div class="dev-only-feature" style="display: none; gap: 6px; align-items: center;">
-              <span style="font-size: 11px; color: #64748b;">เติม Point ทดสอบ (Dev):</span>
+              <span style="font-size: 11px; color: #64748b;">เติมส่วนบุญ ทดสอบ (Dev):</span>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="50" style="font-size: 10.5px; padding: 2px 7px;">+50</button>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="200" style="font-size: 10.5px; padding: 2px 7px;">+200</button>
               <button type="button" class="btn btn-secondary btn-sm btn-quick-point" data-amount="1000" style="font-size: 10.5px; padding: 2px 7px;">+1,000</button>
             </div>
           </div>
           <div style="font-size: 10.5px; color: #64748b; margin-top: 6px;">
-            * เมื่อเปิดใช้งานระบบ Point: หาก Point หมด ระบบจะหยุดตอบอัตโนมัติและแจ้งเตือนให้ตอบเองทาง Discord / Manager ทันที
+            * ตอบจากแคตตาล็อกในเครื่องได้แม้ API ขัดข้องหรือส่วนบุญติดลบ หากจับคู่ไม่ชัดเจนจะแจ้งให้ตอบเอง
           </div>
         </div>
 
@@ -1246,26 +1246,26 @@
           <span style="font-size: 26px;">🧧</span>
           <div>
             <h3 style="margin: 0; font-size: 16.5px; font-weight: 700; color: #facc15; display: flex; align-items: center; gap: 8px;">
-              <span>เติม Point Auto Captcha</span>
+              <span>เติมส่วนบุญ</span>
               <span style="font-size: 11px; background: rgba(234, 179, 8, 0.2); color: #fde047; padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(250, 204, 21, 0.4); font-weight: 600;">TrueMoney Wallet</span>
             </h3>
-            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">ระบบเติม Point ตอบเช็คผู้เล่นอัตโนมัติ (Human Check Solver)</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">บัญชีบริการ PmheeAether • Humancheck ไม่มีค่าต่อคำตอบ</div>
           </div>
         </div>
         <button type="button" id="btn-topup-close" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
       </div>
 
-      <!-- Point Balance & Machine HWID Card -->
+      <!-- ส่วนบุญ Balance & Machine HWID Card -->
       <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.14), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(250, 204, 21, 0.35); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div>
-            <div style="font-size: 11px; color: #cbd5e1; font-weight: 600;">ยอด Point คงเหลือของเครื่องนี้:</div>
+            <div style="font-size: 11px; color: #cbd5e1; font-weight: 600;">ยอดส่วนบุญคงเหลือของเครื่องนี้:</div>
             <div style="font-size: 28px; font-weight: 800; color: #facc15; display: flex; align-items: baseline; gap: 6px; margin-top: 1px;">
               <span id="topup-modal-points">0</span>
-              <span style="font-size: 13.5px; font-weight: normal; color: #94a3b8;">Points</span>
+              <span style="font-size: 13.5px; font-weight: normal; color: #94a3b8;">ส่วนบุญ</span>
             </div>
             <div id="topup-modal-rate" style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
-              หัก 1 Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง (1 บาท = 1 Point)
+              Humancheck ไม่มีค่าต่อคำตอบ • 1 บาท = 1 ส่วนบุญ
             </div>
           </div>
           <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
@@ -1281,7 +1281,7 @@
         </div>
       </div>
 
-      <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px;">บัญชีบริการ: <span id="topup-service-account">กำลังเชื่อมต่อ...</span><br>ยอด Point ยืนยันจากเซิร์ฟเวอร์ เก็บไฟล์บัญชีบริการไว้เพื่อรักษาสิทธิ์เข้าถึงยอดเดิม</div>
+      <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px;">บัญชีบริการ: <span id="topup-service-account">กำลังเชื่อมต่อ...</span><br>ยอดส่วนบุญ ยืนยันจากเซิร์ฟเวอร์ เก็บไฟล์บัญชีบริการไว้เพื่อรักษาสิทธิ์เข้าถึงยอดเดิม</div>
 
       <!-- TrueMoney Gift Voucher Redemption Box -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1.5px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
@@ -1295,13 +1295,13 @@
         </div>
 
         <div style="font-size: 11px; color: #94a3b8; line-height: 1.45; margin-bottom: 10px;">
-          เปิดแอป TrueMoney > เลือก <b>"โอนเงิน"</b> > <b>"ส่งของขวัญ / ซองอั่งเปา"</b> > กรอกจำนวนเงินที่ต้องการ (เลือก 1 คน) แล้วคัดลอกลิงก์ซองมาวางในช่องด้านล่างนี้ ระบบจะตรวจสอบยอดเงินและเพิ่ม Point เข้าเครื่องให้อัตโนมัติทันที (1 บาท = 1 Point)
+          เปิดแอป TrueMoney > เลือก <b>"โอนเงิน"</b> > <b>"ส่งของขวัญ / ซองอั่งเปา"</b> > กรอกจำนวนเงินที่ต้องการ (เลือก 1 คน) แล้วคัดลอกลิงก์ซองมาวางในช่องด้านล่างนี้ ระบบจะตรวจสอบยอดเงินและเพิ่มส่วนบุญ เข้าเครื่องให้อัตโนมัติทันที (1 บาท = 1 ส่วนบุญ)
         </div>
 
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" id="topup-voucher-input" class="form-input" style="flex: 1; padding: 8px 12px; font-size: 12px; background: rgba(11, 19, 41, 0.95); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; color: #fff; font-family: monospace;" placeholder="https://gift.truemoney.com/campaign/?v=...">
           <button type="button" id="btn-topup-voucher" class="btn btn-primary" style="padding: 8px 16px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, #ea580c, #dc2626); border-color: #f97316; white-space: nowrap;">
-            ⚡ แลกซองเข้า Point
+            ⚡ แลกซองเข้า ส่วนบุญ
           </button>
         </div>
 
@@ -1311,14 +1311,14 @@
       <!-- Quick Test Top-up Section (Dev Mode / Shortcut Only) -->
       <div id="topup-dev-section" class="dev-only-feature" style="display: none; background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-size: 11.5px; font-weight: 600; color: #cbd5e1;">🛠️ เติม Point ด่วนสำหรับทดสอบระบบ (Dev Shortcuts):</span>
+          <span style="font-size: 11.5px; font-weight: 600; color: #cbd5e1;">🛠️ เติมส่วนบุญ ด่วนสำหรับทดสอบระบบ (Dev Shortcuts):</span>
           <span style="font-size: 10.5px; color: #64748b;">(โหมดผู้พัฒนา)</span>
         </div>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 6px; font-size: 11.5px; text-align: center;">+50 P</button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="200" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(250, 204, 21, 0.3); background: rgba(234, 179, 8, 0.08); color: #facc15;">+200 P</button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="500" style="padding: 6px; font-size: 11.5px; text-align: center;">+500 P</button>
-          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="1000" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); color: #34d399;">+1,000 P</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="50" style="padding: 6px; font-size: 11.5px; text-align: center;">+50 ส่วนบุญ</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="200" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(250, 204, 21, 0.3); background: rgba(234, 179, 8, 0.08); color: #facc15;">+200 ส่วนบุญ</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="500" style="padding: 6px; font-size: 11.5px; text-align: center;">+500 ส่วนบุญ</button>
+          <button type="button" class="btn btn-secondary btn-modal-point" data-amount="1000" style="padding: 6px; font-size: 11.5px; text-align: center; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); color: #34d399;">+1,000 ส่วนบุญ</button>
         </div>
       </div>
 

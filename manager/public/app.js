@@ -1162,12 +1162,12 @@ function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
 
   if (topupBadge) {
     if (lastKnownPointsPerSolve === 0) {
-      topupBadge.innerText = `${p.toLocaleString()} P (ใช้ฟรี)`;
+      topupBadge.innerText = p < 0 ? `ส่วนบุญ ${p.toLocaleString()}` : `ส่วนบุญคงเหลือ ${p.toLocaleString()}`;
       topupBadge.style.background = "rgba(16, 185, 129, 0.25)";
       topupBadge.style.color = "#a7f3d0";
       topupBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
     } else {
-      topupBadge.innerText = `${p.toLocaleString()} P`;
+      topupBadge.innerText = p < 0 ? `ส่วนบุญ ${p.toLocaleString()}` : `ส่วนบุญคงเหลือ ${p.toLocaleString()}`;
       topupBadge.style.background = "rgba(250, 204, 21, 0.25)";
       topupBadge.style.color = "#fef08a";
       topupBadge.style.borderColor = "rgba(250, 204, 21, 0.4)";
@@ -1183,18 +1183,18 @@ function updatePointDisplays(points, pointsPerSolve, serviceAvailable) {
       topupStatusBadge.style.background = "rgba(16, 185, 129, 0.2)";
       topupStatusBadge.style.color = "#34d399";
       topupStatusBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
-      topupStatusBadge.innerText = lastKnownPointsPerSolve === 0 ? "● ใช้ฟรีชั่วคราว" : "● พร้อมใช้งาน";
+      topupStatusBadge.innerText = lastKnownPointsPerSolve === 0 ? "● Humancheck ไม่มีค่าต่อคำตอบ" : "● พร้อมใช้งาน";
     } else {
       topupStatusBadge.style.background = "rgba(239, 68, 68, 0.2)";
       topupStatusBadge.style.color = "#f87171";
       topupStatusBadge.style.borderColor = "rgba(239, 68, 68, 0.4)";
-      topupStatusBadge.innerText = "● Point หมด";
+      topupStatusBadge.innerText = "● ส่วนบุญหมด";
     }
   }
   if (topupRate) {
     topupRate.innerText = lastKnownPointsPerSolve === 0
-      ? "ใช้ฟรีชั่วคราว — ไม่หัก Point (0 Point / ข้อ)"
-      : `หัก ${lastKnownPointsPerSolve} Point / การวิเคราะห์คำตอบสำเร็จ 1 ครั้ง (1 บาท = 1 Point)`;
+      ? "Humancheck ไม่มีค่าต่อคำตอบ — ส่วนบุญ สำหรับสคริปต์ดูหน้าใบสรุป"
+      : 'Humancheck ไม่มีค่าต่อคำตอบ — ดูยอดส่วนบุญสำหรับสคริปต์ในหน้าใบสรุป';
   }
 }
 window.updatePointDisplays = updatePointDisplays;
@@ -1245,11 +1245,11 @@ function initTopupCaptchaModal() {
         dateStr = item.date || "";
       }
       const points = (Number(item.pointsAdded) || 0).toLocaleString();
-      const amount = item.amountBaht != null ? `${Number(item.amountBaht).toFixed(2)} ฿` : `${points} P`;
+      const amount = item.amountBaht != null ? `${Number(item.amountBaht).toFixed(2)} ฿` : `${points} ส่วนบุญ`;
       return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
         <div>
           <span style="font-weight: 700; color: #34d399; font-size: 11.5px;">+${amount}</span>
-          <span style="color: #facc15; font-size: 11px; margin-left: 4px;">(+${points} P)</span>
+          <span style="color: #facc15; font-size: 11px; margin-left: 4px;">(+${points} ส่วนบุญ)</span>
           <div style="color: #94a3b8; font-size: 10px; margin-top: 1px;">${escapeHTML(item.note || 'เติมเงิน')}</div>
         </div>
         <div style="font-size: 10px; color: #64748b; font-family: monospace;">${escapeHTML(dateStr)}</div>
@@ -1303,8 +1303,8 @@ function initTopupCaptchaModal() {
 
       if (res && res.success) {
         voucherInput.value = "";
-        showVoucherMsg(res.message || `🎉 แลกซองสำเร็จ! ได้รับ ${res.amount} บาท (+${res.pointsAdded} Points)`);
-        showToast(`🧧 เติมเงินสำเร็จ: +${res.amount} บ. (+${res.pointsAdded} Points)`, "success");
+        showVoucherMsg(typeof res.message === 'string' && res.message ? res.message.replace(/\bpoints?\b/gi, 'ส่วนบุญ') : `🎉 แลกซองสำเร็จ! ได้รับ ${res.amount} บาท (+${res.pointsAdded} ส่วนบุญ)`);
+        showToast(`🧧 เติมเงินสำเร็จ: +${res.amount} บ. (+${res.pointsAdded} ส่วนบุญ)`, "success");
         await refreshTopupData();
       } else {
         showVoucherMsg("❌ " + (res.message || res.error || "แลกซองไม่สำเร็จ"), true);
@@ -1314,14 +1314,14 @@ function initTopupCaptchaModal() {
     } finally {
       if (btnVoucher) {
         btnVoucher.disabled = false;
-        btnVoucher.innerText = "⚡ แลกซองเข้า Point";
+        btnVoucher.innerText = "⚡ แลกซองเข้า ส่วนบุญ";
       }
     }
   }
 
   async function executeAddPoints(amount) {
     const val = parseInt(amount, 10);
-    if (!val || val <= 0) return showVoucherMsg("กรุณาระบุจำนวน Point ให้ถูกต้อง", true);
+    if (!val || val <= 0) return showVoucherMsg("กรุณาระบุจำนวน ส่วนบุญ ให้ถูกต้อง", true);
     try {
       const res = await fetch(`${API_BASE}/api/human-check/add-points`, {
         method: "POST",
@@ -1331,8 +1331,8 @@ function initTopupCaptchaModal() {
 
       if (res && res.success) {
         updatePointDisplays(res.points);
-        showVoucherMsg(`🎉 เติม Point ด่วนสำเร็จ: +${val.toLocaleString()} P (คงเหลือ ${res.points.toLocaleString()} P)`);
-        showToast(`🪙 เติม Point สำเร็จ: +${val.toLocaleString()} P`, "success");
+        showVoucherMsg(`🎉 เติมส่วนบุญ ด่วนสำเร็จ: +${val.toLocaleString()} ส่วนบุญ (คงเหลือ ${res.points.toLocaleString()} ส่วนบุญ)`);
+        showToast(`🪙 เติมส่วนบุญ สำเร็จ: +${val.toLocaleString()} ส่วนบุญ`, "success");
         await refreshTopupData();
       } else {
         showVoucherMsg("❌ เติมไม่สำเร็จ: " + (res.error || "Unknown error"), true);
@@ -1465,7 +1465,9 @@ function initDeviceNickname() {
       });
     }
   } catch (e) {}
-  initTopupCaptchaModal();
+  // The modal markup follows this script; a fast/cached response can finish before parsing it.
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTopupCaptchaModal, { once: true });
+  else initTopupCaptchaModal();
   initDeviceNickname();
   fetchCaptchaStats();
 })();
@@ -6808,7 +6810,7 @@ function renderCharacterModal(data) {
   const spValEl = document.getElementById('char-modal-sp-val');
   if (spValEl) spValEl.innerText = `${spCur.toLocaleString()} / ${spMax.toLocaleString()}`;
 
-  // Points & Zeny
+  // ส่วนบุญ & Zeny
   const ptsVal = document.getElementById('char-modal-pts-val');
   if (ptsVal) ptsVal.innerText = (data.statusPoints || 0).toLocaleString();
   const zenyVal = document.getElementById('char-modal-zeny-val');

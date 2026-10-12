@@ -38,7 +38,7 @@ function fixture(t, provider) {
     if (route.endsWith('/topup')) return { success: true, totalPoints: 7 };
     throw new Error('UNEXPECTED_ROUTE');
   };
-  const create = (serviceUrl = ORIGIN) => client.createHumanCheckSolver({ dataDir, requestJSON, serviceUrl });
+  const create = (serviceUrl = ORIGIN) => client.createHumanCheckSolver({ dataDir, requestJSON, serviceUrl, localCatalogSeed: false });
   return { dataDir, calls, create, failPersistence: () => { failPersistence = true; } };
 }
 const options = [{ index: 0 }, { index: 1 }];

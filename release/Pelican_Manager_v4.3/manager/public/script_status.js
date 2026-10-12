@@ -1,0 +1,46 @@
+'use strict';
+const el = id => document.getElementById(id);
+const states = {observed:'สังเกตการณ์',offline:'ออฟไลน์','not-ready':'ยังไม่พร้อม','waiting-safe-bootstrap':'รอ bootstrap / ช่วงปลอดภัย','waiting-download-budget':'รอคิวดาวน์โหลด','update-required':'รออัปเดตรุ่นที่ช่วงปลอดภัย',authorized:'ยืนยันสิทธิ์แล้ว'};
+let termsVersion=null;
+async function refresh() {
+  try {
+    const response=await fetch('/api/script/status'), data=await response.json();
+    if(!response.ok || !data.success) throw Error('ยังอ่านสถานะไม่ได้');
+    el('mode').textContent=data.billingEnabled?'กำลังใช้นโยบายที่เปิดใช้งานแล้ว':data.mode==='pilot-shadow'?'โหมดทดลองเฉพาะจอ — ยังไม่มีการเรียกเก็บเงิน':'โหมดสังเกตการณ์ — ยังไม่มีการเรียกเก็บเงิน';
+    el('mode-note').textContent=data.mode==='pilot-shadow'?`จอที่เลือกทดลอง: ${(data.pilotProfileIds||[]).join(', ')} • ${data.serviceOrigin||''}`:'จอเดิมใช้งานตามเดิม การเปลี่ยนผ่านต้องผ่านการตรวจความพร้อมก่อน';
+    el('observed').textContent=String(data.observedSlotsToday);el('pending').textContent=String(data.pendingEvents);el('reconcile').textContent=String(data.reconciliationRequired);
+    el('clients').replaceChildren();
+    for(const [id,client] of Object.entries(data.clients)) {
+      const tr=document.createElement('tr');
+      for(const value of [id,client.version||'—',states[client.state]||client.state,client.reason||(client.busy||[]).join(', ')||'—']) {const td=document.createElement('td');td.textContent=value;tr.append(td);}
+      el('clients').append(tr);
+    }
+  } catch(error) {el('mode').textContent='ยังอ่านสถานะ Manager ไม่ได้';el('mode-note').textContent=error.message;}
+}
+el('refresh').addEventListener('click',refresh);
+el('statement').addEventListener('click',async()=>{
+  el('statement').disabled=true;el('statement-data').textContent='';
+  try {
+    const response=await fetch('/api/script/statement'),data=await response.json();
+    if(!response.ok || data.schemaVersion!==2 || data.unitScale!==100 || ![data.balanceUnits,data.rateUnits,data.estimatedUnits].every(Number.isSafeInteger)) throw Error(data.message||'ใบสรุปยังไม่พร้อม');
+    el('statement-message').textContent=`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ทดลอง ไม่มีการหักส่วนบุญ':'คิดตามการใช้จริง'} • ยอด ${data.balanceUnits/100} ส่วนบุญ • เรท ${data.rateUnits/100} ส่วนบุญ/จอ • ยอดรอสรุปจริง ${data.estimatedUnits/100} ส่วนบุญ${Number.isSafeInteger(data.shadowEstimatedUnits)?' • ตัวอย่างราคาตามจอที่สังเกต '+data.shadowEstimatedUnits/100+' ส่วนบุญ':''}`;
+    termsVersion=null;el('terms-check').disabled=true;el('terms-check').checked=false;el('terms-accept').disabled=true;
+    if(data.activationDay && typeof data.termsVersion==='string') {
+      termsVersion=data.termsVersion;el('terms-check').disabled=false;
+      el('terms-detail').textContent=`วันเริ่ม ${data.activationDay} (ไทย) • เรทวันนี้ ${data.rateUnits/100} ส่วนบุญ/จอ • เงื่อนไข ${termsVersion}`;
+      el('terms-accept').textContent='ยอมรับเงื่อนไขที่แสดง';
+    }
+    el('statement-data').textContent=JSON.stringify({usage:data.usage,ledger:data.ledger},null,2);
+  } catch(error) {el('statement-message').textContent=error.message;}
+  finally {el('statement').disabled=false;}
+});
+el('terms-check').addEventListener('change',()=>{el('terms-accept').disabled=!termsVersion||!el('terms-check').checked;});
+el('terms-accept').addEventListener('click',async()=>{
+  el('terms-accept').disabled=true;
+  try {
+    const response=await fetch('/api/script/terms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({termsVersion})}),data=await response.json();
+    if(!response.ok||data.success!==true||data.termsVersion!==termsVersion)throw Error(data.error||'ยังยืนยันการบันทึกไม่ได้');
+    el('terms-result').textContent='เซิร์ฟเวอร์บันทึกความยินยอมแล้ว การเปิดนโยบายยังเป็นไปตามวันเริ่มที่ประกาศ';
+  }catch(error){el('terms-result').textContent=error.message;}
+});
+refresh();

@@ -16,6 +16,10 @@ const { spawn } = require('child_process');
 const GAME_URL = 'https://www.aetheria-online.in.th/play';
 const BOT_URL = 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/bot.js';
 const CDP_PORT = 9339;
+const isGameUrl=value=>{try{return new URL(value).origin==='https://www.aetheria-online.in.th';}catch(_){return false;}};
+const HEALTH_JS = `(() => ({href:location.href,documentId:String(performance.timeOrigin),ready:document.readyState,
+ version:window.__pelicanBotVersion||null,hud:!!document.getElementById('pelican-hud'),liveHook:typeof window.__getClientLiveState==='function',
+ initialized:!!window.__pmPayloadInitialized||!!window.__pmScriptBootstrap||!!window.__pmBrowserInjectionAttempted||('__isBotRunning' in window)||typeof window.startMasterBot==='function'||typeof window.startAutoLoop==='function'}))()`;
 
 function findBrowser(kind) {
   const pf = process.env.ProgramFiles || 'C:\\Program Files';
@@ -53,6 +57,15 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   let startupPages = [];                // the empty window Chrome opens on start — closed once a game window exists
   const portServers = new Map();        // port -> proxy server (one per port, even if a client object went stale)
   let rediscovering = null;
+  let started = false, reconnectTimer = null, reconnectDelay = 1000, monitorTimer = null;
+  const stoppedProfiles = new Set(), knownTargets = new Map(), diagnostics = new Map();
+  const retryDelays = [1000, 3000, 10000];
+  function scheduleReconnect() {
+    if(!started || reconnectTimer) return;
+    reconnectTimer=setTimeout(async()=>{reconnectTimer=null;try{await rediscover();reconnectDelay=1000;}catch(_){reconnectDelay=Math.min(30000,reconnectDelay*2);scheduleReconnect();}},reconnectDelay);
+    reconnectTimer.unref?.();
+  }
+  function diagnostic(c, state, extra={}) { diagnostics.set(c.profileId,{gameAlive:state!=='closed',botReady:state==='ready',state,...extra}); }
 
   // A window that is gone (closed with Chrome's X, crashed, browser closed, CDP reconnected) must not stay
   // "open": that made launch answer "already open" and left a proxy with a dead session on the port.
@@ -60,6 +73,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     if (!c) return;
     stopProxy(c);
     if (clients.get(c.profileId) === c) clients.delete(c.profileId);
+    c.generation++;clearTimeout(c.retryTimer);c.retryTimer=null;
   }
   const isGoneError = e => /Session with given id not found|No target with given id|Target closed|CDP closed|CDP not connected/i.test(String(e && e.message || e));
 
@@ -70,14 +84,21 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     wsReady = (async () => {
       const info = JSON.parse(await getText(`http://127.0.0.1:${CDP_PORT}/json/version`, 3000));
       await new Promise((resolve, reject) => {
-        ws = new WebSocket(info.webSocketDebuggerUrl);
-        ws.onopen = resolve;
-        ws.onerror = e => reject(new Error('CDP connect failed'));
-        ws.onclose = () => { ws = null; for (const [, p] of pending) p.reject(new Error('CDP closed')); pending.clear(); Array.from(clients.values()).forEach(drop); };
-        ws.onmessage = ev => {
-          const msg = JSON.parse(ev.data);
+        const socket = new WebSocket(info.webSocketDebuggerUrl);ws=socket;
+        const openingTimeout=setTimeout(()=>{reject(new Error('CDP connect timeout'));try{socket.close();}catch(_){}},3000);
+        socket.onopen = () => {clearTimeout(openingTimeout);resolve();};
+        socket.onerror = () => {clearTimeout(openingTimeout);reject(new Error('CDP connect failed'));};
+        socket.onclose = () => {
+          clearTimeout(openingTimeout);reject(new Error('CDP closed'));
+          if(ws!==socket)return;ws=null;
+          for (const [, p] of pending) {clearTimeout(p.timer);p.reject(new Error('CDP closed'));}pending.clear();
+          for(const c of Array.from(clients.values())){diagnostic(c,'transport-disconnected',{gameAlive:null});drop(c);}scheduleReconnect();
+        };
+        socket.onmessage = ev => {
+          if(ws!==socket)return;
+          let msg;try{msg=JSON.parse(ev.data);}catch(_){return;}
           if (msg.id && pending.has(msg.id)) {
-            const p = pending.get(msg.id); pending.delete(msg.id);
+            const p = pending.get(msg.id); pending.delete(msg.id);clearTimeout(p.timer);
             if (msg.error) p.reject(new Error(msg.error.message)); else p.resolve(msg.result);
           } else if (msg.method) {
             listeners.forEach(fn => { try { fn(msg); } catch (e) {} });
@@ -92,9 +113,10 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     return new Promise((resolve, reject) => {
       if (!ws || ws.readyState !== 1) return reject(new Error('CDP not connected'));
       const id = nextId++;
-      pending.set(id, { resolve, reject });
-      ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, timeoutMs);
+      const timer=setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, timeoutMs);timer.unref?.();
+      pending.set(id, { resolve, reject, timer });
+      try{ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));}
+      catch(e){clearTimeout(timer);pending.delete(id);reject(e);}
     });
   }
 
@@ -140,44 +162,90 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     } catch (e) {}
     return fs.readFileSync(localBotPath, 'utf8');
   }
-  const MSGPACK = `(function(){ if (!window.msgpack) { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/msgpack-lite/0.1.26/msgpack.min.js'; document.head.appendChild(s); } })(); void 0;`;
+  const MSGPACK = `(function(){ if (!window.msgpack && !window.__pmMsgpackLoading) { window.__pmMsgpackLoading=true; const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/msgpack-lite/0.1.26/msgpack.min.js'; s.onerror=()=>{window.__pmMsgpackLoading=false;}; document.head.appendChild(s); } })(); void 0;`;
+
+  async function health(c) {
+    const value=await evaluate(c,HEALTH_JS);
+    if(!value || typeof value.documentId!=='string')throw Error('INVALID_DOCUMENT_PROBE');
+    if(c.documentId!==value.documentId) {c.documentId=value.documentId;c.generation++;c.attempts=0;clearTimeout(c.retryTimer);c.retryTimer=null;}
+    return value;
+  }
+  const current=(c,token)=>clients.get(c.profileId)===c&&!stoppedProfiles.has(c.profileId)&&c.generation===token.generation&&c.sessionId===token.sessionId;
+  function classify(c,h) {
+    if(h.version||h.initialized||h.hud||h.liveHook) {diagnostic(c,h.version&&h.hud&&h.liveHook?'ready':'partial-runtime',{version:h.version,documentId:h.documentId,hud:h.hud,liveHook:h.liveHook});return true;}
+    return false;
+  }
 
   async function injectBot(c) {
+    if(clients.get(c.profileId)!==c||stoppedProfiles.has(c.profileId))return;
+    if(c.retryTimer)return;
+    if(c.injectionInFlight){c.pendingLoad=true;return;}
+    const flight={};c.injectionInFlight=flight;
+    let token;
     try {
-      await send('Runtime.evaluate', { expression: MSGPACK }, c.sessionId);
+      const before=await health(c);token={generation:c.generation,sessionId:c.sessionId};
+      if(classify(c,before))return;
+      if(!isGameUrl(before.href)||new URL(before.href).pathname!=='/play'||before.ready!=='complete'){diagnostic(c,'document-pending');return;}
+      if(c.attempts>=3){diagnostic(c,'load-failed',{code:'RETRY_LIMIT'});return;}
+      c.attempts++;diagnostic(c,'loading');
       const code = await botSource();
-      await send('Runtime.evaluate', { expression: code + '\n; void 0;' }, c.sessionId);
-      console.log(`[BrowserMode] 🚀 ใส่บอทในหน้าต่างของ ${c.profileId} แล้ว`);
+      if(!current(c,token))return;
+      const after=await health(c);
+      if(!current(c,token)||after.documentId!==before.documentId||classify(c,after))return;
+      await evaluate(c,MSGPACK);
+      if(!current(c,token))return;
+      // Atomic document/runtime guard closes the race with a delayed legacy loader response.
+      const expression=`(() => { if(String(performance.timeOrigin)!==${JSON.stringify(before.documentId)} || window.__pelicanBotVersion || window.__pmPayloadInitialized || window.__pmScriptBootstrap || window.__pmBrowserInjectionAttempted || ('__isBotRunning' in window) || typeof window.startMasterBot==='function' || document.getElementById('pelican-hud') || typeof window.__getClientLiveState==='function') return {skipped:true}; window.__pmBrowserInjectionAttempted=true; (0,eval)(${JSON.stringify(code)}); return {attempted:true}; })()`;
+      await evaluate(c,expression);
+      if(!current(c,token))return;
+      const result=await health(c);if(!classify(c,result))diagnostic(c,'partial-runtime',{code:'POSTCONDITION_MISSING'});
     } catch (e) {
-      console.warn(`[BrowserMode] inject failed for ${c.profileId}:`, e.message);
+      if(isGoneError(e)){diagnostic(c,'transport-disconnected',{gameAlive:null});drop(c);scheduleReconnect();return;}
+      if(!token){if(clients.get(c.profileId)===c)diagnostic(c,'probe-unavailable',{code:'DOCUMENT_PROBE_FAILED'});return;}
+      if(!current(c,token))return;
+      let existing=false;
+      try{existing=classify(c,await health(c));}catch(_){}
+      if(!existing && current(c,token) && c.attempts<3 && !isGoneError(e)) {
+        diagnostic(c,'retry-pending',{code:'LOAD_FAILED'});
+        c.retryTimer=setTimeout(()=>{c.retryTimer=null;injectBot(c);},retryDelays[Math.max(0,c.attempts-1)]);c.retryTimer.unref?.();
+      } else if(!existing)diagnostic(c,'load-failed',{code:isGoneError(e)?'CDP_UNAVAILABLE':'LOAD_FAILED'});
+    } finally {
+      if(c.injectionInFlight===flight)c.injectionInFlight=null;
+      if(c.pendingLoad&&clients.get(c.profileId)===c&&!stoppedProfiles.has(c.profileId)){c.pendingLoad=false;setTimeout(()=>injectBot(c),0);}
     }
   }
 
   listeners.add(msg => {
-    if (msg.method !== 'Page.loadEventFired' || !msg.sessionId) return;
+    if (!msg.sessionId) return;
     const c = Array.from(clients.values()).find(x => x.sessionId === msg.sessionId);
     if (!c) return;
-    send('Runtime.evaluate', { expression: 'location.href', returnByValue: true }, c.sessionId)
-      .then(r => { if (String(r && r.result && r.result.value).includes('aetheria-online.in.th/play')) injectBot(c); })
-      .catch(() => {});
+    if(msg.method==='Page.frameNavigated'&&!msg.params?.frame?.parentId){c.generation++;c.documentId=null;c.attempts=0;clearTimeout(c.retryTimer);diagnostic(c,'document-pending',{navigationType:String(msg.params?.type||'navigation').slice(0,40)});}
+    if(msg.method==='Page.loadEventFired')injectBot(c);
   });
   listeners.add(msg => {
     if (msg.method === 'Target.targetDestroyed' || (msg.method === 'Target.targetCrashed')) {
-      for (const c of Array.from(clients.values())) if (c.targetId === msg.params.targetId) drop(c);
+      for (const c of Array.from(clients.values())) if (c.targetId === msg.params.targetId) {diagnostic(c,'closed');knownTargets.delete(c.profileId);drop(c);}
     }
     if (msg.method === 'Target.detachedFromTarget') {
-      for (const c of Array.from(clients.values())) if (c.sessionId === msg.params.sessionId) drop(c);
+      for (const c of Array.from(clients.values())) if (c.sessionId === msg.params.sessionId) {diagnostic(c,'transport-disconnected',{gameAlive:null});drop(c);scheduleReconnect();}
     }
   });
 
   async function attach(profileId, targetId) {
+    if(stoppedProfiles.has(profileId))throw Error('PROFILE_STOPPED');
     const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+    try {
     await send('Page.enable', {}, sessionId);
     await send('Runtime.enable', {}, sessionId);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__pmProfileId = ${JSON.stringify(profileId)};` }, sessionId);
-    const c = { profileId, targetId, sessionId };
+    const identity=await evaluate({sessionId},`(() => { if(!window.__pmProfileId)window.__pmProfileId=${JSON.stringify(profileId)}; return window.__pmProfileId; })()`);
+    if(identity!==profileId)throw Error('PROFILE_ID_CONFLICT');
+    if(stoppedProfiles.has(profileId))throw Error('PROFILE_STOPPED');
+    const c = { profileId, targetId, sessionId, generation:0,documentId:null,attempts:0,injectionInFlight:null,retryTimer:null };
     clients.set(profileId, c);
+    knownTargets.set(profileId,targetId);diagnostic(c,'document-pending');
     return c;
+    } catch(e) {await send('Target.detachFromTarget',{sessionId}).catch(()=>{});throw e;}
   }
 
   // After a Manager restart the browser windows are still there: find them again by __pmProfileId
@@ -186,20 +254,24 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     return rediscovering;
   }
   async function rediscoverOnce() {
-    if (!(await browserAlive())) return;
+    if (!(await browserAlive())) throw Error('CDP not available');
     await connect();
     const { targetInfos } = await send('Target.getTargets');
-    for (const t of targetInfos.filter(x => x.type === 'page' && x.url.includes('aetheria-online.in.th'))) {
+    const surviving=new Set(targetInfos.map(t=>t.targetId));
+    for(const c of Array.from(clients.values()))if(!surviving.has(c.targetId)){diagnostic(c,'closed');knownTargets.delete(c.profileId);drop(c);}
+    for (const t of targetInfos.filter(x => x.type === 'page' && isGameUrl(x.url))) {
       if (Array.from(clients.values()).some(c => c.targetId === t.targetId)) continue;
       try {
         const { sessionId } = await send('Target.attachToTarget', { targetId: t.targetId, flatten: true });
-        const r = await send('Runtime.evaluate', { expression: 'window.__pmProfileId || null', returnByValue: true }, sessionId);
-        const pid = r && r.result && r.result.value;
-        await send('Target.detachFromTarget', { sessionId }).catch(() => {});
-        const profile = pid && loadProfiles().find(p => p.id === pid);
-        if (profile) { const c = await attach(pid, t.targetId); startProxy(c, profile.debugPort); }
+        let pid;
+        try {const r = await send('Runtime.evaluate', { expression: 'window.__pmProfileId || null', returnByValue: true }, sessionId);if(r.exceptionDetails)throw Error('PROFILE_PROBE_FAILED');pid = r && r.result && r.result.value;}
+        finally {await send('Target.detachFromTarget', { sessionId }).catch(() => {});}
+        const identified=pid||loadProfiles().find(p=>knownTargets.get(p.id)===t.targetId)?.id;
+        const profile = identified && !stoppedProfiles.has(identified) && loadProfiles().find(p => p.id === identified);
+        if (profile) { const c = await attach(profile.id, t.targetId); startProxy(c, profile.debugPort); }
       } catch (e) {}
     }
+    for(const c of clients.values())await injectBot(c);
   }
 
   // ---------- per-profile HTTP API (same as the Electron loader's) ----------
@@ -248,6 +320,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
         if (url.pathname === '/api/state') {
           return reply(200, await evaluate(c, `typeof window.__getClientLiveState === 'function' ? window.__getClientLiveState() : null`));
         }
+        if(url.pathname==='/api/browser-status')return reply(200,{success:true,profileId:c.profileId,...diagnostics.get(c.profileId)});
         if (url.pathname === '/api/window') {
           await windowAction(c, url.searchParams.get('action'), url.searchParams);
           return reply(200, { success: true });
@@ -274,6 +347,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
 
   // ---------- public ----------
   async function launch(profile) {
+    stoppedProfiles.delete(profile.id);
     await ensureBrowser();
     await rediscover();
     const existing = clients.get(profile.id);
@@ -293,21 +367,25 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     return { success: true, message: 'เปิดหน้าต่างเบราว์เซอร์แล้ว' };
   }
   async function stop(profileId) {
+    stoppedProfiles.add(profileId);
     const c = clients.get(profileId);
-    if (!c) return false;
-    stopProxy(c);
-    clients.delete(profileId);
-    await send('Target.closeTarget', { targetId: c.targetId }).catch(() => {});
+    const targetId=c?.targetId||knownTargets.get(profileId);knownTargets.delete(profileId);
+    diagnostics.set(profileId,{gameAlive:null,botReady:false,state:'explicitly-stopped'});
+    if (!targetId) return false;
+    if(c)drop(c);
+    await connect().then(()=>send('Target.closeTarget', { targetId })).catch(() => {});
     return true;
   }
   const isOpen = profileId => clients.has(profileId);
 
   function start() {
+    if(started)return;started=true;
     // reconnect to a browser left open by a previous Manager run
     setTimeout(() => rediscover().catch(() => {}), 3000);
+    monitorTimer=setInterval(()=>rediscover().catch(()=>scheduleReconnect()),15000);monitorTimer.unref?.();
   }
 
-  return { launch, stop, isOpen, start, findBrowser };
+  return { launch, stop, isOpen, start, findBrowser, status:()=>Object.fromEntries(diagnostics) };
 }
 
-module.exports = { createBrowserMode, findBrowser };
+module.exports = { createBrowserMode, findBrowser, HEALTH_JS };

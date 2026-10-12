@@ -42,26 +42,26 @@ async function alert(t, reply, {free = true, gameSuccess = true} = {}) {
 test('free zero-balance successful solve reports free success and answers game', async t => {
   const result = await alert(t,id=>({success:true,charged:0,remaining:0,requestId:id,pickIndex:0,matchedName:'Hammer'}));
   assert.equal(result.gameCalls.length,1);
-  assert.match(result.text,/ไม่หัก Point/);
-  assert.doesNotMatch(result.text,/Point หมด|Point ไม่พอ|Point ไม่เพียงพอ/);
+  assert.match(result.text,/ไม่หักส่วนบุญ/);
+  assert.doesNotMatch(result.text,/ส่วนบุญหมด|ส่วนบุญไม่พอ|ส่วนบุญไม่เพียงพอ/);
 });
 test('free zero balance with API maintenance/outage never claims insufficient points', async t => {
   for (const reply of [{success:false,code:'MAINTENANCE',status:503},{success:false,code:'SERVICE_UNAVAILABLE'},'throw']) {
     const result = await alert(t,reply);
     assert.equal(result.gameCalls.length,0);
-    assert.doesNotMatch(result.text,/Point หมด|Point ไม่พอ|Point ไม่เพียงพอ/);
+    assert.doesNotMatch(result.text,/ส่วนบุญหมด|ส่วนบุญไม่พอ|ส่วนบุญไม่เพียงพอ/);
     assert.match(result.text,/API|การเชื่อมต่อ/);
   }
 });
 test('only server payment rejection identifies insufficient points', async t => {
   const result = await alert(t,{success:false,code:'INSUFFICIENT_POINTS',status:402},{free:false});
   assert.equal(result.gameCalls.length,0);
-  assert.match(result.text,/Point ไม่เพียงพอ/);
+  assert.match(result.text,/ส่วนบุญไม่เพียงพอ/);
 });
 test('no-match and game transport failure show their actual cause', async t => {
   const noMatch = await alert(t,{success:false,code:'NO_MATCH'});
   assert.match(noMatch.text,/จับคู่คำตอบไม่สำเร็จ/);
   const transport = await alert(t,id=>({success:true,charged:0,remaining:0,requestId:id,pickIndex:0,matchedName:'Hammer'}),{gameSuccess:false});
   assert.match(transport.text,/ส่งคำตอบเข้าเกมไม่สำเร็จ/);
-  assert.doesNotMatch(transport.text,/Point หมด|Point ไม่เพียงพอ/);
+  assert.doesNotMatch(transport.text,/ส่วนบุญหมด|ส่วนบุญไม่เพียงพอ/);
 });

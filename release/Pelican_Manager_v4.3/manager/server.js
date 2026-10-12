@@ -79,6 +79,8 @@ const { createDiscordBotService } = require("./discord_bot");
 const { allowLocalRequest } = require("./local_request_security");
 const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
+const { createScriptCoordinator } = require('./script_coordinator');
+const { loadScriptRollout } = require('./script_rollout');
 function loadPresets() {
   if (!fs.existsSync(PRESETS_FILE)) {
     const defaultPresets = [
@@ -1103,6 +1105,9 @@ const botAutoUpdater = createBotAutoUpdater({
 });
 
 const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
+// Observation only by default. Pilot keys/profile IDs require a separately reviewed activation.
+const scriptRollout = loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin});
+const scriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
@@ -1306,6 +1311,20 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // API ROUTING
   // ==========================================
+  if (pathname === '/api/script/status' && req.method === 'GET') return sendJSON(scriptCoordinator.status());
+  if (pathname === '/api/script/statement' && req.method === 'GET') {
+    try { return sendJSON(await humanCheckSolver.serviceRequest('/v1/aetheria/usage/statement')); }
+    catch (_) { return sendJSON({ success: false, code: 'STATEMENT_UNAVAILABLE', message: 'ยังอ่านใบสรุปจากเซิร์ฟเวอร์ไม่ได้ โหมดสังเกตการณ์ไม่มีการเรียกเก็บเงิน' }, 503); }
+  }
+  if (pathname === '/api/script/terms' && req.method === 'POST') {
+    try {
+      let body = ''; for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 1024) return sendJSON({success:false,error:'Body too large'},413); }
+      const input = JSON.parse(body);
+      const statement = await humanCheckSolver.serviceRequest('/v1/aetheria/usage/statement');
+      if (!statement.activationDay || input.termsVersion !== statement.termsVersion) return sendJSON({success:false,error:'ยังไม่ประกาศวันเริ่ม หรือเงื่อนไขเปลี่ยนแล้ว กรุณาอ่านใบสรุปใหม่'},409);
+      return sendJSON(await humanCheckSolver.serviceRequest('/v1/aetheria/billing/accept', {termsVersion:input.termsVersion}));
+    } catch (_) { return sendJSON({success:false,error:'ยังบันทึกความยินยอมบนเซิร์ฟเวอร์ไม่ได้'},503); }
+  }
 
   // Plan Script live status / on-off switch per client — see plan_sync.js
   if (await planSync.handleRoute(req, res, pathname, sendJSON)) return;
@@ -1623,12 +1642,14 @@ const server = http.createServer(async (req, res) => {
     const id = pathname.split("/")[3];
     let body = "";
     req.on("data", chunk => body += chunk);
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const data = JSON.parse(body);
         const profiles = loadProfiles();
         const idx = profiles.findIndex(p => p.id === id);
         if (idx === -1) return sendJSON({ success: false, error: "Profile not found" }, 404);
+        const changesIdentity = (data.account !== undefined && data.account.trim() !== profiles[idx].account) || !!(data.loginPassword || '').trim();
+        if (changesIdentity) await scriptCoordinator.prepareCredentialChange(profiles[idx]);
 
         profiles[idx] = {
           ...profiles[idx],
@@ -3369,6 +3390,7 @@ public class PmFocus {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
+  scriptCoordinator.start();
   botAutoUpdater.start();
   managerUpdater.start();
   planSync.start();

@@ -21,3 +21,12 @@ manager/data/aetheria_service_account.json
 manager/data/aetheria_service_account.json.tmp
 manager/data/aetheria_request_state.json
 manager/data/aetheria_request_state.json.tmp
+security/node_modules/
+manager/data/script_rollout_v1.json
+manager/data/script_rollout_v1.json.tmp
+manager/data/script_coordinator_v1.json
+manager/data/script_coordinator_v1.json.tmp
+manager/data/script_device_v1.json
+manager/data/script_device_v1.json.tmp
+manager/data/human_check_catalog_v1.json
+manager/data/human_check_catalog_v1.json.tmp

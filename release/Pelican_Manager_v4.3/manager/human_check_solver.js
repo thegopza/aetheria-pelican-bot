@@ -1,4 +1,4 @@
-// PmheeAether CAPTCHA client. Wallet, redemption and matching live on the server.
+// PmheeAether CAPTCHA client. Wallet and redemption remain server-authoritative.
 // Never accept a local balance/signature as payment authorization.
 const https = require('https');
 const fs = require('fs');
@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { execSync } = require('child_process');
+const { createLocalHumanCheck } = require('./local_human_check');
 
 function getMachineFingerprint() {
   let identity = os.hostname().toUpperCase();
@@ -15,10 +16,11 @@ function getMachineFingerprint() {
   } catch (_) {}
   return crypto.createHash('sha256').update('PMhee.MachineFingerprint.v1|' + identity).digest('hex').toUpperCase();
 }
-function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl: testServiceUrl } = {}) {
+function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl: testServiceUrl, localCatalogSeed = true } = {}) {
   const settingsFile = path.join(dataDir, 'human_check_settings.json');
   const accountFile = path.join(dataDir, 'aetheria_service_account.json');
   fs.mkdirSync(dataDir, { recursive: true });
+  const localMatcher = createLocalHumanCheck({ dataDir, seed: localCatalogSeed });
   const base = new URL(testServiceUrl || process.env.PMHEE_AETHERIA_API_URL || 'https://api.noggunsshop.xyz');
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || base.pathname !== '/') {
     throw new Error('CAPTCHA service requires an HTTPS origin');
@@ -27,11 +29,13 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   const machineName = os.hostname();
   const managerSessionId = crypto.randomUUID();
   let points = 0;
+  let balanceUnits = null;
   let pointsPerSolve = 1;
   let topupHistory = [];
   let serviceAvailable = false;
   let account = null;
   let enrollment = null;
+  let lastCatalogAttempt = 0;
   try {
     const saved = JSON.parse(fs.readFileSync(accountFile, 'utf8'));
     if (saved.origin === base.origin && /^[a-f0-9]{64}$/.test(saved.token || '') && typeof saved.accountId === 'string') account = saved;
@@ -46,7 +50,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     return {
       autoAnswer: s.autoAnswer !== false,
       answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
-      pointSystemEnabled: true, points, pointsPerSolve, pointsPerBaht: 1,
+      pointSystemEnabled: true, points, balanceUnits, unitScale: 100, pointsPerSolve: localMatcher.ready() ? 0 : pointsPerSolve, localCatalogReady: localMatcher.ready(), pointsPerBaht: 1,
       machineHwid, topupHistory, serviceAvailable, serviceOrigin: base.origin,
       accountId: account?.accountId || null
     };
@@ -64,6 +68,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     return loadSettings();
   }
   const requestJSON = testRequest || ((route, payload, token) => new Promise((resolve, reject) => {
+    const responseLimit = ['/v1/aetheria/script/payload-chunk','/v1/aetheria/script/catalog'].includes(route) ? 1024 * 1024 : 131072;
     const data = payload == null ? null : JSON.stringify(payload);
     const headers = { 'Accept': 'application/json' };
     if (token) headers.Authorization = 'Bearer ' + token;
@@ -74,7 +79,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
       res.on('error', reject);
       res.on('data', c => {
         body += c;
-        if (Buffer.byteLength(body) > 131072) res.destroy(new Error('Service response too large'));
+        if (Buffer.byteLength(body) > responseLimit) res.destroy(new Error('Service response too large'));
       });
       res.on('end', () => {
         try {
@@ -114,27 +119,42 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     } catch (e) { serviceAvailable = false; throw e; }
   }
   function updateBalance(result) {
+    if (result.schemaVersion === 2 && result.unitScale === 100 && Number.isSafeInteger(result.balanceUnits ?? result.remainingUnits)) {
+      balanceUnits = result.balanceUnits ?? result.remainingUnits; points = balanceUnits / 100;
+    } else {
     const balance = result.points ?? result.remaining ?? result.totalPoints;
     if (Number.isSafeInteger(balance) && balance >= 0) points = balance;
+    }
     if (result.pointsPerSolve === 0 || result.pointsPerSolve === 1) pointsPerSolve = result.pointsPerSolve;
     if (Array.isArray(result.topupHistory)) topupHistory = result.topupHistory;
   }
   async function refreshBalance() {
     try {
       const result = await call('/v1/aetheria/balance');
-      if (!result?.success || !Number.isSafeInteger(result.points) || result.points < 0) throw new Error('Invalid balance');
+      if (!result?.success || !(result.schemaVersion === 2 ? result.unitScale === 100 && Number.isSafeInteger(result.balanceUnits) && (result.points === undefined || result.points === result.balanceUnits / 100) : Number.isSafeInteger(result.points) && result.points >= 0)) throw new Error('Invalid balance');
       updateBalance(result);
     } catch (_) { serviceAvailable = false; }
     return loadSettings();
   }
   async function solveHumanCheck(prompt, options = [], items = null, requestId = crypto.randomUUID()) {
+    if (account && Date.now() - lastCatalogAttempt > 3600000) {
+      lastCatalogAttempt = Date.now();
+      // Refresh in the background. Local answers never wait for a billing/solve API.
+      call('/v1/aetheria/script/catalog').then(result => {
+        if (result?.success) localMatcher.update(result.catalog, result.hash);
+      }).catch(() => {});
+    }
+    if (localMatcher.ready()) {
+      const answer = localMatcher.solve({ prompt, options, items: items || [] });
+      return answer ? { ...answer, requestId } : { success: false, code: 'MANUAL_REQUIRED', reason: 'คำตอบจากแคตตาล็อกไม่ชัดเจน กรุณาตอบเอง' };
+    }
     try {
       const result = await call('/v1/aetheria/solve', { requestId, prompt, options, items });
       if (!result?.success || ![0, 1].includes(result.charged) || result.requestId !== requestId ||
           !Number.isInteger(result.pickIndex) || result.pickIndex < 0 || result.pickIndex > 5 ||
           result.pickIndex >= Math.max(options.length, items?.length || 0) ||
-          !Number.isSafeInteger(result.remaining) || result.remaining < 0) {
-        return { success: false, code: 'INVALID_SERVICE_RESPONSE', reason: 'ไม่สามารถยืนยันคำตอบและการหัก Point จากเซิร์ฟเวอร์' };
+          !(result.schemaVersion === 2 ? result.unitScale === 100 && Number.isSafeInteger(result.remainingUnits) && (result.remaining === undefined || result.remaining === result.remainingUnits / 100) : Number.isSafeInteger(result.remaining) && result.remaining >= 0)) {
+        return { success: false, code: 'INVALID_SERVICE_RESPONSE', reason: 'ไม่สามารถยืนยันคำตอบและการหักส่วนบุญ จากเซิร์ฟเวอร์' };
       }
       updateBalance(result);
       return result;
@@ -155,7 +175,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     try {
       await call('/v1/aetheria/admin/add-points', { points, adminToken: 'pmhee-legacy-offline-recovery-v1', clientContext: { machineName, sessionId: managerSessionId, profileId: typeof context.profileId === 'string' ? context.profileId.slice(0, 128) : undefined } });
     } catch (_) {}
-    return { success: false, error: 'การกู้ Point แบบออฟไลน์ไม่รองรับ' };
+    return { success: false, error: 'การกู้ ส่วนบุญ แบบออฟไลน์ไม่รองรับ' };
   }
   async function redeemTrueMoneyVoucher(voucherUrl) {
     try {
@@ -165,15 +185,22 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     } catch (e) { return { success: false, message: e.message }; }
   }
   return {
+    get serviceOrigin() { return base.origin; },
     isRemoteService: true, loadSettings, saveSettings,
     publicSettings: (s = loadSettings()) => Object.fromEntries([
       'autoAnswer', 'answerDelayMs', 'pointSystemEnabled', 'points', 'pointsPerSolve',
-      'pointsPerBaht', 'machineHwid', 'topupHistory', 'serviceAvailable', 'serviceOrigin', 'accountId'
+      'pointsPerBaht', 'machineHwid', 'topupHistory', 'serviceAvailable', 'serviceOrigin', 'accountId', 'balanceUnits', 'unitScale', 'localCatalogReady'
     ].map(key => [key, s[key]])),
     refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint, reportSecurityEvent, recoverOfflineCredit,
+    serviceRequest: (route, payload) => {
+      if (!/^\/v1\/aetheria\/(?:script|usage|billing)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
+      return call(route, payload);
+    },
+    updateLocalCatalog: (catalog, hash) => localMatcher.update(catalog, hash),
+    localCatalogReady: () => localMatcher.ready(),
     // A client must never mint, debit or refund credit locally.
-    addPoints: () => ({ success: false, error: 'เติม Point ได้ผ่านเซิร์ฟเวอร์เท่านั้น' }),
-    deductPoints: () => ({ success: false, error: 'เซิร์ฟเวอร์เป็นผู้หัก Point' }),
+    addPoints: () => ({ success: false, error: 'เติมส่วนบุญ ได้ผ่านเซิร์ฟเวอร์เท่านั้น' }),
+    deductPoints: () => ({ success: false, error: 'เซิร์ฟเวอร์เป็นผู้หักส่วนบุญ' }),
     isReady: () => serviceAvailable
   };
 }

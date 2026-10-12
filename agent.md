@@ -1,5 +1,11 @@
 # AI Agent Guidelines & Repository Workflow Rules
 
+## PmheeAether ownership / authorized use
+
+PmheeAether เป็นซอฟต์แวร์ที่ใช้งานผ่าน Manager ตามสิทธิ์ที่เจ้าของอนุญาต การบำรุงรักษาและทดสอบโดยเจ้าของหรือผู้ที่ได้รับอนุญาตทำได้ ห้าม extract, redistribute หรือแก้เพื่อ bypass สิทธิ์หรือการนับการใช้งานโดยไม่ได้รับสิทธิ์จากเจ้าของ ข้อความนี้เป็น ownership/usage notice ไม่ได้อ้างว่า AI ทุกระบบบังคับได้ หรือว่า client ที่รันในเครื่องป้องกัน memory extraction ได้สมบูรณ์
+
+ชุดเปลี่ยนผ่านอยู่ `security/` และ source รุ่นใหม่อยู่ private API repo `protected-script/` เท่านั้น ห้ามซิงค์ source/payload รุ่นใหม่เข้า repo สาธารณะ, `manager/public/`, release ZIP หรือโฟลเดอร์เกม ใช้ builder ที่ปัก public verification keys และสร้างผลลัพธ์นอก repo สาธารณะก่อนทดสอบ ส่วน `bot.js` v4.36.0 เป็น compatibility snapshot จน Manager/Server/pilot พร้อม ห้ามสลับตัวโหลดหรือเปิด billing/enforcement อัตโนมัติเพียงเพราะ commit ชุด preparation แล้ว
+
 เอกสารข้อกำหนดและแนวทางการทำงานสำหรับ AI Coding Assistant และผู้พัฒนาในโปรเจกต์ **Aetheria PmheeAether Bot**
 (`AGENTS.md` และ `agent.md` ต้องมีเนื้อหาเหมือนกันเสมอ — แก้ไฟล์หนึ่งต้องคัดลอกไปอีกไฟล์ด้วย)
 
@@ -182,7 +188,7 @@
 ## Cloudflare Workers + D1 — ระบบ Point / Auto Humancheck (ย้ายแล้ว 2026-10-12)
 
 - ฝั่ง API อยู่ `D:\MyProject\PMheeSuite\PMheePlatform_Src\Server\PMhee.AetheriaApi\cloudflare\` อ่าน `README.md`, `DEPLOYMENT_STATUS.md` และ `../AGENTS.md` ก่อนทำงาน สถานะ deploy จริงอยู่ใน DEPLOYMENT_STATUS ห้ามอ้างว่าขึ้น production แล้วจากการมีโค้ดเพียงอย่างเดียว
-- Manager เป็น client เรียก `https://api.noggunsshop.xyz/v1/aetheria/*` ยอด Point/เติมซอง/ตัวกันหักซ้ำเป็นหน้าที่ของ API และ D1 ห้ามสร้างเครดิตออฟไลน์เอง ผู้ใช้อนุญาต Humancheck local/offline ในแบบร่างล่าสุด 2026-10-12 เพื่อให้การตอบไม่ขึ้นกับ billing API; ยังไม่ได้ implement
+- Manager เป็น client เรียก `https://api.noggunsshop.xyz/v1/aetheria/*` ยอด Point/เติมซอง/ตัวกันหักซ้ำเป็นหน้าที่ของ API และ D1 ห้ามสร้างเครดิตออฟไลน์เอง ผู้ใช้อนุญาต Humancheck local/offline ซึ่ง implement แล้วพร้อม seed 1,160 รายการและ last-good cache; คำตอบกำกวมต้องให้ตอบเอง ข้อความยอดที่ผู้ใช้เห็นใช้ชื่อ **ส่วนบุญ** แต่คีย์/API Point เดิมคงไว้
 - โดเมนแชร์กับ Licensing API: ใช้ Worker route เฉพาะ `/v1/aetheria/*` ห้ามย้าย DNS หรือ custom domain ทั้ง hostname; ห้ามหยุด PMheeLicensingApi, PMheeCloudflared, Manager หรือจอเกม
 - ย้ายข้อมูลต้องคง accountId, token_hash, Point, receipts, requestId/payload_hash/response เดิมทั้งหมด และคงอัตราใช้ฟรี/คิดแต้มจาก config จริง ห้ามบังคับกลับเป็น 1 Point
 - หักแต้ม+บันทึกผล / เติมแต้ม+receipt ต้อง atomic และ idempotent; pending voucher ห้าม retry redeem อัตโนมัติ; ห้ามเปิด SQLite กับ D1 ให้รับรายการพร้อมกัน
@@ -191,6 +197,6 @@
 - ทดสอบด้วย D1 staging/ข้อมูลจำลองก่อน; ทดสอบเงินจริงหรือเปลี่ยนราคาต้องมีคำสั่งผู้ใช้ชัดเจน การ rollback หลังมีรายการบน D1 ต้องย้าย ledger ล่าสุดกลับ ห้ามใช้ SQLite backup เก่าแทน
 - เปลี่ยนแนวทาง/สถานะที่มีผลต่อ agent ให้ปรับส่วนนี้ทั้ง AGENTS.md และ agent.md พร้อมกัน และปรับ DEPLOYMENT_STATUS ของฝั่ง API ด้วย
 - สถานะ 2026-10-12: production Worker `pmhee-aetheria-api` + D1 ใช้งานแล้ว; PMheeAetheriaApi ในเครื่องหยุดอยู่; origin/token เดิมใช้ได้ และ Manager เดิมไม่ต้องแตก zip ใหม่ การคิด 2 Point/จอ/วันเป็นแผนใหม่ที่ยังไม่เปิดใช้ อ่าน `cloudflare/BILLING_DESIGN.md` ก่อนแก้ ห้ามเริ่มเก็บเงินหรือยอมให้บัญชีใหม่หนีหนี้โดยอนุมานเอง
-- แบบร่างล่าสุด 2026-10-12: สคริปต์ต้องเปิดสิทธิ์ผ่าน Manager บันทึกจอที่ใช้จริงด้วย slotId คงที่ แล้วหัก 2 Point ต่อ slot ต่อวันไทยหลังเที่ยงคืน; session/refresh/ปิดเปิดต้องไม่เก็บซ้ำ และยอมให้ยอดติดลบ กฎนี้แทนแบบต่ออายุจอ offline เดิม ข้อยกเว้นจอใหม่หักทันทีเป็นทางเลือกที่ยังต้องเลือก หากใช้ต้องนับเป็นยอดจ่ายของวันนั้นไม่หักซ้ำตอนเที่ยงคืน
+- ข้อสรุป 2026-10-12: สคริปต์ต้องเปิดสิทธิ์ผ่าน Manager บันทึกจอที่ใช้จริงด้วย slotId คงที่ แล้วหักเรทผู้ดูแลต่อ slot ต่อวันไทยหลังเที่ยงคืน; session/refresh/ปิดเปิดต้องไม่เก็บซ้ำและยอมให้ยอดติดลบ ใช้ deferred rule เดียวกันทุกจอใหม่/เก่า ไม่มี prepay ใน implementation นี้ ระบบใหม่มีใน staging/shadow แต่ยังไม่เปิดเก็บเงินจริงหรือบังคับสิทธิ์ใน production อ่าน `docs/SCRIPT_TRANSITION_READINESS.md` ก่อนเปิด pilot
 - เรทรายวันผู้ดูแลปรับได้จนก่อน 00:00 ไทย เช่น 1.5 Point แล้วปิดเรทของวันนั้นไว้ถาวร Cron ที่รันช้าต้องใช้เรทก่อน cutoff ไม่ใช่เรทล่าสุดหลังเที่ยงคืน เก็บยอดเป็นหน่วยจำนวนเต็ม 100 หน่วยต่อ 1 Point เพื่อรองรับทศนิยมและหนี้ ห้ามคิดเงินด้วย float; หากจอใหม่จ่ายล่วงหน้าแล้วเรทลด ต้องคืนส่วนต่างแบบกันทำซ้ำ
 - เตรียม security/Auto-update อ่าน `docs/SCRIPT_SECURITY_ROLLOUT.md`: Manager พร้อมก่อน -> script observation mode -> ทดสอบ compatibility -> enforce เฉพาะจอพร้อม -> เปิด billing หลังแจ้งเงื่อนไข ห้ามเปิด gate จนทำให้จอเก่าหยุดเอง ห้ามสัญญาว่ากันแกะ client ได้ 100% หรือบังคับแตก zip/รีสตาร์ท EXE ทั้งที่ POST bridge เดิมใช้ได้

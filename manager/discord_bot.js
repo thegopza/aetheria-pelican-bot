@@ -529,7 +529,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       pointMessage = 'ℹ️ **สถานะ:** ไม่ได้เปิดระบบตอบอัตโนมัติ (Auto Captcha) ไว้ — กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง';
     }
 
-    // Cached points are display data. Only the remote service authorizes and charges a solve.
+    // Catalog matches work offline; points are display data and never gate Humancheck.
     const shouldAutoAnswer = autoAnswerEnabled && solver?.isRemoteService === true;
     if (shouldAutoAnswer) {
       const baseDelay = parseInt(hcSettings.answerDelayMs || cfg.answerDelayMs, 10) || 1800;
@@ -555,9 +555,9 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
               manualReason = 'ปิดการตอบอัตโนมัติแล้ว';
               pointMessage = 'ℹ️ ปิด Auto Humancheck แล้ว กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
             } else if (solution?.code === 'INSUFFICIENT_POINTS' || solution?.status === 402) {
-              manualReason = 'Point ไม่เพียงพอ';
-              pointMessage = '⚠️ เซิร์ฟเวอร์แจ้งว่า Point ไม่เพียงพอ กรุณาตอบด้วยตนเองหรือเติม Point ใน Manager';
-            } else if (solution?.code === 'NO_MATCH') {
+              manualReason = 'ส่วนบุญไม่เพียงพอ';
+              pointMessage = '⚠️ เซิร์ฟเวอร์แจ้งว่า ส่วนบุญไม่เพียงพอ กรุณาตอบด้วยตนเองหรือเติมส่วนบุญ ใน Manager';
+            } else if (solution?.code === 'NO_MATCH' || solution?.code === 'MANUAL_REQUIRED') {
               manualReason = 'จับคู่คำตอบไม่สำเร็จ';
               pointMessage = '⚠️ ระบบจับคู่คำตอบไม่สำเร็จ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
             } else if (solution?.code === 'INVALID_SERVICE_RESPONSE' || solution?.success === true) {
@@ -588,12 +588,12 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         }).join('\n');
 
         const pointDeductText = (solution.charged === 1)
-          ? `\n🪙 **แต้มคงเหลือ:** หัก 1 Point ต่อการวิเคราะห์คำตอบสำเร็จ (คงเหลือ: **${solution.remaining}** P)`
-          : '\n🪙 **ใช้ฟรีชั่วคราว:** ไม่หัก Point สำหรับการวิเคราะห์คำตอบครั้งนี้';
+          ? `\n🪙 **ส่วนบุญคงเหลือ:** **${solution.remaining}**`
+          : '\n🪙 **ไม่มีค่าต่อคำตอบ:** ไม่หักส่วนบุญ สำหรับ Humancheck';
 
         const embed = {
           title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,
-          description: `💻 **เครื่อง:** \`${nick}\`\n🎮 **จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ยืนยันจากบริการส่วนกลาง)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
+          description: `💻 **เครื่อง:** \`${nick}\`\n🎮 **จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (${solution.source === 'local-catalog' ? 'แคตตาล็อกในเครื่อง' : 'บริการส่วนกลาง'})\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
           color: 0x10B981, // Emerald Green
           fields: [
             {

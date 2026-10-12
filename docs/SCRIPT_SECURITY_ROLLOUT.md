@@ -1,7 +1,13 @@
 # PmheeAether script authorization and update rollout
 
-Status 2026-10-12: preparation/design only. No authorization enforcement or
-daily billing has been enabled. Existing Cloudflare API remains free.
+Status 2026-10-12: implementation is available in isolated staging/shadow.
+No production authorization enforcement or daily billing has been enabled.
+Existing production Cloudflare API remains free. Public `bot.js` is still the
+v4.36.0 compatibility snapshot; the new v4.37.0 source is private in the API
+repository, not in Manager public files or the release ZIP.
+
+See [SCRIPT_TRANSITION_READINESS.md](SCRIPT_TRANSITION_READINESS.md) for the
+actual build, test evidence, staged delivery contract and activation boundaries.
 
 ## User experience and compatibility evidence
 
