@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.6
+// @version      4.36.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.6';
+    const PELICAN_BOT_VERSION = '4.36.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -10119,7 +10119,7 @@
         });
     };
 
-    window.fetchItemMarketMedianPrice = async function(itemId, refine = 0) {
+    window.fetchItemMarketMedianPrice = async function(itemId, refine = 0, range = '24h') {
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (!room || !room.connection?.isOpen) return null;
 
@@ -10188,9 +10188,75 @@
                 }
             });
 
-            room.send('market', { op: 'history', itemId: Number(itemId), refine: Number(refine) || 0, range: '24h' });
+            room.send('market', { op: 'history', itemId: Number(itemId), refine: Number(refine) || 0, range: range || '24h' });
         });
     };
+
+    // ---------- Auto-sell price: 1 z below the cheapest other seller, never following a bait listing ----------
+    // Reference = median of real sales (24 h; 7 d when there were fewer than 3), outliers cut. Listings below 70%
+    // of it are ignored (someone listing a 1.5 M card at 100 k must not make us list it at 99,999). Only plain,
+    // instant-buy copies with the same refine count, never our own listings. Items with random options keep the
+    // reference price. No sales and fewer than 3 listings to compare: no price (not listed this round).
+    const MARKET_UNDERCUT_FLOOR = 0.7;
+    async function searchMarketListings(room, name, pages = 2) {
+        const out = [];
+        if (typeof window.pauseSniper === 'function') window.pauseSniper();
+        try {
+            for (let page = 0; page < pages; page++) {
+                const res = await new Promise(resolve => {
+                    let unsub;
+                    const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 3500);
+                    unsub = room.onMessage('market_results', m => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); resolve(m); });
+                    room.send('market', { op: 'search', filters: { q: name, sort: 'price_asc', page } });
+                });
+                const list = res && Array.isArray(res.listings) ? res.listings : [];
+                out.push(...list);
+                if (list.length < 20) break;
+            }
+        } finally {
+            if (typeof window.resumeSniper === 'function') window.resumeSniper();
+        }
+        return out;
+    }
+    window.fetchItemSmartSellPrice = async function (item) {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        if (!item || !room || !room.connection?.isOpen) return null;
+        const raw = item.raw || item;
+        const id = Number(item.id ?? item.itemId ?? raw.itemId);
+        const refine = Number(item.refine ?? raw.refine) || 0;
+        let ref = await window.fetchItemMarketMedianPrice(id, refine, '24h');
+        if (!ref || !(ref.medianPrice > 0) || (ref.cleanTradesCount || 0) < 3) {
+            const week = await window.fetchItemMarketMedianPrice(id, refine, '7d');
+            if (week && week.medianPrice > 0 && (!ref || !(ref.medianPrice > 0) || (week.cleanTradesCount || 0) > (ref.cleanTradesCount || 0))) ref = week;
+        }
+        const reference = ref && ref.medianPrice > 0 ? ref.medianPrice : 0;
+        if (Array.isArray(raw.affixes) && raw.affixes.length) {
+            return reference ? { unitPrice: reference, mode: 'reference', why: 'มีออปชั่นสุ่ม ใช้ราคากลาง', reference } : null;
+        }
+        const now = Date.now();
+        const units = (await searchMarketListings(room, item.name || raw.name || ''))
+            .filter(l => l && !l.mine && l.item && Number(l.item.itemId) === id && (Number(l.item.refine) || 0) === refine)
+            .filter(l => !(l.auctionEndsAt && l.auctionEndsAt > now))
+            .filter(l => !(Array.isArray(l.item.affixes) && l.item.affixes.length))
+            .map(l => Number(l.price) / Math.max(1, Number(l.qty) || 1))
+            .filter(p => p > 0)
+            .sort((a, b) => a - b);
+        let floor = reference * MARKET_UNDERCUT_FLOOR;
+        if (!reference) {
+            if (units.length < 3) return null;
+            floor = units[Math.floor(units.length / 2)] * 0.5;   // no sales yet: half the listings' median
+        }
+        const valid = units.filter(p => p >= floor);
+        const ignored = units.length - valid.length;
+        if (valid.length) {
+            const cheapest = Math.floor(valid[0]);
+            return { unitPrice: Math.max(1, cheapest - 1), mode: 'undercut', reference, floor: Math.round(floor), cheapest, ignored, sellers: units.length };
+        }
+        return reference ? { unitPrice: reference, mode: 'reference', why: 'ไม่มีคนขายในช่วงราคาปกติ', reference, floor: Math.round(floor), ignored } : null;
+    };
+    const smartPriceText = p => p.mode === 'undercut'
+        ? `ถูกกว่าคนอื่น 1 z (ถูกสุดที่ผ่านเกณฑ์ ${p.cheapest.toLocaleString()} z · ราคากลาง ${(p.reference || 0).toLocaleString()} z · ข้ามราคาต่ำผิดปกติ ${p.ignored} รายการ)`
+        : `ราคากลาง ${p.reference.toLocaleString()} z (${p.why || ''})`;
 
     window.getAutoSellRuleBagStatusHtml = function(itemName, minQty) {
         if (!itemName) return '<span style="color: #64748b; font-size: 10px;">รอระบุชื่อ</span>';
@@ -10573,18 +10639,18 @@
         const targetSlotItem = matchingItems[0];
         const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
 
-        console.log(`%c[PmheeAether AutoSell] 🔍 กำลังคำนวณราคากลางสมดุล (Market Median) ของ ${rule.itemName} (ID: ${targetSlotItem.id})...`, 'color: #38bdf8; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] 🔍 กำลังคำนวณราคาลงขาย ${rule.itemName} (ID: ${targetSlotItem.id}) — ถูกกว่าคนอื่น 1 z โดยข้ามราคาล่อ...`, 'color: #38bdf8; font-weight: bold;');
 
-        const priceInfo = await window.fetchItemMarketMedianPrice(targetSlotItem.id, targetSlotItem.refine || 0);
-        if (!priceInfo || !priceInfo.medianPrice || priceInfo.medianPrice <= 0) {
-            console.warn(`[PmheeAether AutoSell] ❌ ไม่สามารถคำนวณราคาของ ${rule.itemName} ได้จากเซิร์ฟเวอร์`);
+        const priceInfo = await window.fetchItemSmartSellPrice(targetSlotItem);
+        if (!priceInfo || !(priceInfo.unitPrice > 0)) {
+            console.warn(`[PmheeAether AutoSell] ❌ ยังไม่มีข้อมูลราคาของ ${rule.itemName} พอจะตั้งราคา (ไม่มีประวัติขาย และคนขายน้อยกว่า 3 ราย) — ไม่ลงขายรอบนี้`);
             return;
         }
 
-        const medianUnitPrice = priceInfo.medianPrice;
+        const medianUnitPrice = priceInfo.unitPrice;
         const totalPrice = medianUnitPrice * qtyToSell;
 
-        console.log(`%c[PmheeAether AutoSell] 📊 ผลการวิเคราะห์ราคา: มัธยฐาน = ${medianUnitPrice.toLocaleString()} z/ชิ้น (จาก ${priceInfo.cleanTradesCount} ธุรกรรมล่าสุด) | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] 📊 ราคาลงขาย ${medianUnitPrice.toLocaleString()} z/ชิ้น — ${smartPriceText(priceInfo)} | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
 
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (room && room.connection?.isOpen) {
@@ -10649,9 +10715,9 @@
                     const targetSlotItem = matchingItems[0];
                     const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
 
-                    const priceInfo = await window.fetchItemMarketMedianPrice(targetSlotItem.id, targetSlotItem.refine || 0);
-                    if (priceInfo && priceInfo.medianPrice > 0) {
-                        const medianUnitPrice = priceInfo.medianPrice;
+                    const priceInfo = await window.fetchItemSmartSellPrice(targetSlotItem);
+                    if (priceInfo && priceInfo.unitPrice > 0) {
+                        const medianUnitPrice = priceInfo.unitPrice;
                         const totalPrice = medianUnitPrice * qtyToSell;
 
                         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
@@ -10663,7 +10729,7 @@
                                 price: Number(totalPrice),
                                 hours: 24
                             });
-                            console.log(`%c[PmheeAether AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z)`, 'color: #10b981; font-weight: bold;');
+                            console.log(`%c[PmheeAether AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z) — ${smartPriceText(priceInfo)}`, 'color: #10b981; font-weight: bold;');
                             if (typeof playWarningChime === 'function') playWarningChime();
                             remainingSlots--;
                             soldCount++;
