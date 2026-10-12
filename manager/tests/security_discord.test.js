@@ -142,4 +142,21 @@ test('townWebhookUrl can be configured, loaded, and saved', () => {
   }
 });
 
+test('onCaptchaSolved is invoked when answerCheckInGame succeeds', async () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  let solvedProfile = null;
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [{ id: 'p-test', name: 'ProfileTest', debugPort: 12345 }],
+    evalProfilePort: async () => ({ result: { success: true, picked: 2 } }),
+    onCaptchaSolved: (pid, details) => {
+      solvedProfile = pid;
+    }
+  });
+  const res = await service.answerCheckInGame('p-test', 2, 'Apple');
+  assert.equal(res.success, true);
+  assert.equal(solvedProfile, 'p-test');
+});
+
+
 

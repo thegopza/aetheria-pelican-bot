@@ -205,6 +205,10 @@ async function fetchProfiles() {
         updateZenyConsolidationView();
       }
 
+      if (data.captchaStats && typeof data.captchaStats.totalSolved === 'number') {
+        updateCaptchaSolvedDisplay(data.captchaStats.totalSolved);
+      }
+
       // Play alert chime if any card has humanCheck active
       if (currentProfiles.some(p => p.liveState && p.liveState.humanCheck && p.liveState.humanCheck.active)) {
         playHumanCheckAlert();
@@ -235,6 +239,23 @@ function playHumanCheckAlert() {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.55);
+  } catch (e) {}
+}
+
+function updateCaptchaSolvedDisplay(count) {
+  const el = document.getElementById("captcha-solved-count");
+  if (!el) return;
+  const num = Number(count) || 0;
+  el.innerText = num.toLocaleString();
+}
+window.updateCaptchaSolvedDisplay = updateCaptchaSolvedDisplay;
+
+async function fetchCaptchaStats() {
+  try {
+    const res = await fetch(`${API_BASE}/api/captcha-stats`).then(r => r.json());
+    if (res && res.success && typeof res.totalSolved === 'number') {
+      updateCaptchaSolvedDisplay(res.totalSolved);
+    }
   } catch (e) {}
 }
 
@@ -1196,6 +1217,7 @@ function initDeviceNickname() {
   } catch (e) {}
   initTopupCaptchaModal();
   initDeviceNickname();
+  fetchCaptchaStats();
 })();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);

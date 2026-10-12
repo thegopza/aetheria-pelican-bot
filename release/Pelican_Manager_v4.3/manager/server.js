@@ -1128,6 +1128,54 @@ function getEffectiveDeviceNickname() {
   return getDefaultDeviceNickname();
 }
 
+const CAPTCHA_STATS_FILE = path.join(__dirname, "data", "captcha_stats.json");
+
+function getCaptchaStats() {
+  try {
+    if (fs.existsSync(CAPTCHA_STATS_FILE)) {
+      const stats = JSON.parse(fs.readFileSync(CAPTCHA_STATS_FILE, "utf8"));
+      return {
+        totalSolved: Math.max(0, parseInt(stats.totalSolved, 10) || 0),
+        lastSolvedAt: stats.lastSolvedAt || null
+      };
+    }
+  } catch (e) {}
+
+  let initialCount = 16;
+  try {
+    const reqStateFile = path.join(__dirname, "data", "aetheria_request_state.json");
+    if (fs.existsSync(reqStateFile)) {
+      const reqs = JSON.parse(fs.readFileSync(reqStateFile, "utf8"));
+      const keys = Object.keys(reqs || {});
+      if (keys.length > 0) initialCount = keys.length;
+    }
+  } catch (e) {}
+
+  const initial = {
+    totalSolved: initialCount,
+    lastSolvedAt: Date.now()
+  };
+  try {
+    fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
+    fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(initial, null, 2), "utf8");
+  } catch (e) {}
+  return initial;
+}
+
+function recordCaptchaSolved(profileId, details = {}) {
+  try {
+    const stats = getCaptchaStats();
+    stats.totalSolved = (stats.totalSolved || 0) + 1;
+    stats.lastSolvedAt = Date.now();
+    fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
+    fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
+    return stats;
+  } catch (e) {
+    console.warn("[CaptchaStats] Failed to record solve:", e);
+    return getCaptchaStats();
+  }
+}
+
 const discordService = createDiscordBotService({
   dataDir: path.join(__dirname, "data"),
   loadProfiles,
@@ -1139,7 +1187,8 @@ const discordService = createDiscordBotService({
     }
   },
   humanCheckSolver,
-  getDeviceNickname: getEffectiveDeviceNickname
+  getDeviceNickname: getEffectiveDeviceNickname,
+  onCaptchaSolved: recordCaptchaSolved
 });
 
 // Background monitor for Human Check (alerts Discord even if Manager UI is closed/idle)
@@ -1251,6 +1300,12 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  // GET /api/captcha-stats
+  if (req.method === "GET" && pathname === "/api/captcha-stats") {
+    const stats = getCaptchaStats();
+    return sendJSON({ success: true, ...stats });
   }
 
   // Answer human check from Manager UI or remote link
@@ -1423,7 +1478,7 @@ const server = http.createServer(async (req, res) => {
       saveProfiles(fresh);
     }
 
-    return sendJSON({ success: true, profiles: enriched, gameExe: getGameExe(), allWindowsHidden });
+    return sendJSON({ success: true, profiles: enriched, gameExe: getGameExe(), allWindowsHidden, captchaStats: getCaptchaStats() });
   }
 
   // GET /api/portrait?src=/art/classes/hunter-face.webp — cached character portrait

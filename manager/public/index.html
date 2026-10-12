@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=42511">
+  <link rel="stylesheet" href="style.css?v=42512">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
   <link rel="stylesheet" href="plan_editor.css?v=42900">
@@ -35,6 +35,14 @@
       </div>
 
       <div class="header-actions">
+        <!-- CAPTCHA SOLVED COUNTER BADGE -->
+        <div id="captcha-solved-pill" class="captcha-solved-badge" title="จำนวนครั้งที่ระบบตอบคำถามเช็คผู้เล่น (Captcha) สำเร็จทั้งหมด">
+          <span class="captcha-icon">🤖</span>
+          <span class="captcha-label">แก้ Captcha:</span>
+          <span id="captcha-solved-count" class="captcha-count">0</span>
+          <span class="captcha-unit">ครั้ง</span>
+        </div>
+
         <div class="btn-group">
           <button id="btn-launch-all" class="btn btn-success" title="เปิดจอเกมทุกโปรไฟล์พร้อมกัน">
             <span class="icon">🚀</span> เปิดทุกจอ
@@ -1026,7 +1034,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42733"></script>
+  <script src="app.js?v=42734"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>

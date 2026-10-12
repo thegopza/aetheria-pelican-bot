@@ -12,7 +12,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { createHumanCheckSolver } = require('./human_check_solver.js');
 
-function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver, getDeviceNickname }) {
+function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver, getDeviceNickname, onCaptchaSolved }) {
   const SETTINGS_FILE = path.join(dataDir, 'discord_settings.json');
   const solver = humanCheckSolver || createHumanCheckSolver({ dataDir });
 
@@ -235,6 +235,11 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
     try {
       const res = await evalProfilePort(profile.debugPort, evalCode, 6000);
+      if (res?.result?.success) {
+        if (typeof onCaptchaSolved === 'function') {
+          try { onCaptchaSolved(profileId, { pickIndex, matchedName }); } catch (e) {}
+        }
+      }
       return res?.result || { success: false, uncertain: true, error: 'ไม่ได้รับการตอบรับจากจอเกม' };
     } catch (e) {
       return { success: false, uncertain: true, error: e.message };

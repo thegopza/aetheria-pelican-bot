@@ -199,6 +199,61 @@ body {
   flex-wrap: wrap;
 }
 
+.captcha-solved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 78, 59, 0.28));
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 11px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+}
+
+.captcha-solved-badge:hover {
+  border-color: rgba(52, 211, 153, 0.7);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 78, 59, 0.38));
+}
+
+.captcha-solved-badge .captcha-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.captcha-solved-badge .captcha-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #a7f3d0;
+  letter-spacing: 0.2px;
+}
+
+.captcha-solved-badge .captcha-count {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: #34d399;
+  background: rgba(6, 95, 70, 0.7);
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  min-width: 22px;
+  text-align: center;
+  display: inline-block;
+}
+
+.captcha-solved-badge .captcha-unit {
+  font-size: 11px;
+  color: #6ee7b7;
+}
+
 .btn-group {
   display: inline-flex;
   padding: 3px;
