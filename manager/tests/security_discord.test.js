@@ -124,3 +124,22 @@ test('device nickname defaults to configured getter and can be updated dynamical
   assert.equal(service.getDeviceNickname(), 'Office-Main');
 });
 
+test('townWebhookUrl can be configured, loaded, and saved', () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-town-test-'));
+  try {
+    const service = createDiscordBotService({
+      dataDir: tempDir,
+      loadProfiles: () => []
+    });
+    const initial = service.loadSettings();
+    assert.equal(initial.townWebhookUrl, '');
+    service.saveSettings({ townWebhookUrl: 'https://discord.com/api/webhooks/1234/testTown' });
+    const updated = service.loadSettings();
+    assert.equal(updated.townWebhookUrl, 'https://discord.com/api/webhooks/1234/testTown');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+

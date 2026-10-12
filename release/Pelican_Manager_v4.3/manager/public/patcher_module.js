@@ -169,6 +169,8 @@
       loadLaunchMode();
       fetchStatus(pathInput.value);
       checkGitHub();
+      loadHumanCheckSettings();
+      loadDiscordTownSettings();
     });
 
     const closeModal = () => { modal.style.display = 'none'; };
@@ -391,7 +393,88 @@
       });
     });
 
+    // Dedicated Discord Webhook for Unexpected Town Return
+    const townWebhookInput = document.getElementById('discord-town-webhook-input');
+    const btnSaveTownWebhook = document.getElementById('btn-save-town-webhook');
+    const btnTestTownWebhook = document.getElementById('btn-test-town-webhook');
+    const townWebhookStatusMsg = document.getElementById('town-webhook-status-msg');
+
+    function showTownWebhookMsg(text, isError = false) {
+      if (!townWebhookStatusMsg) return;
+      townWebhookStatusMsg.style.display = 'inline-block';
+      townWebhookStatusMsg.style.background = isError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)';
+      townWebhookStatusMsg.style.color = isError ? '#f87171' : '#34d399';
+      townWebhookStatusMsg.style.border = isError ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(16, 185, 129, 0.4)';
+      townWebhookStatusMsg.innerText = text;
+      setTimeout(() => {
+        if (townWebhookStatusMsg) townWebhookStatusMsg.style.display = 'none';
+      }, 5000);
+    }
+
+    async function loadDiscordTownSettings() {
+      try {
+        const res = await fetch('/api/discord/settings').then(r => r.json());
+        if (res && res.success && res.settings && townWebhookInput) {
+          townWebhookInput.value = res.settings.townWebhookUrl || '';
+        }
+      } catch (e) {
+        console.warn('[Patcher] Failed to load discord town settings:', e);
+      }
+    }
+    window.loadDiscordTownSettings = loadDiscordTownSettings;
+
+    if (btnSaveTownWebhook) {
+      btnSaveTownWebhook.addEventListener('click', async () => {
+        btnSaveTownWebhook.disabled = true;
+        btnSaveTownWebhook.innerText = '⏳ กำลังบันทึก...';
+        try {
+          const url = (townWebhookInput ? townWebhookInput.value : '').trim();
+          const res = await fetch('/api/discord/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ townWebhookUrl: url })
+          }).then(r => r.json());
+          if (res && res.success) {
+            showTownWebhookMsg(url ? '✅ บันทึก Webhook แจ้งเตือนกลับเมืองแล้ว' : '✅ บันทึกแล้ว (ใช้ Webhook/Bot หลัก)');
+          } else {
+            showTownWebhookMsg('❌ บันทึกไม่สำเร็จ: ' + (res.error || 'Server error'), true);
+          }
+        } catch (e) {
+          showTownWebhookMsg('❌ เกิดข้อผิดพลาด: ' + e.message, true);
+        } finally {
+          btnSaveTownWebhook.disabled = false;
+          btnSaveTownWebhook.innerText = '💾 บันทึก Webhook';
+        }
+      });
+    }
+
+    if (btnTestTownWebhook) {
+      btnTestTownWebhook.addEventListener('click', async () => {
+        btnTestTownWebhook.disabled = true;
+        btnTestTownWebhook.innerText = '⏳ กำลังทดสอบ...';
+        try {
+          const url = (townWebhookInput ? townWebhookInput.value : '').trim();
+          const res = await fetch('/api/discord/test-town', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ webhookUrl: url })
+          }).then(r => r.json());
+          if (res && res.success) {
+            showTownWebhookMsg('🎉 ส่งข้อความทดสอบเข้า Discord สำเร็จแล้ว!');
+          } else {
+            showTownWebhookMsg('❌ ส่งไม่สำเร็จ: ' + (res.error || res.status || 'ตรวจสอบ URL อีกครั้ง'), true);
+          }
+        } catch (e) {
+          showTownWebhookMsg('❌ ข้อผิดพลาด: ' + e.message, true);
+        } finally {
+          btnTestTownWebhook.disabled = false;
+          btnTestTownWebhook.innerText = '🔔 ทดสอบส่ง';
+        }
+      });
+    }
+
     loadHumanCheckSettings();
+    loadDiscordTownSettings();
 
     // Initial background check
     fetchStatus();

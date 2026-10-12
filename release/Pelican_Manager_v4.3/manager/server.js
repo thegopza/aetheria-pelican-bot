@@ -1238,6 +1238,21 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(testResult || { success: true });
   }
 
+  if (pathname === "/api/discord/test-town" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const testResult = await discordService.testTownNotification(data.webhookUrl);
+        sendJSON(testResult || { success: true });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
   // Answer human check from Manager UI or remote link
   if (pathname === "/api/human-check/answer" && req.method === "POST") {
     let body = "";

@@ -34,6 +34,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
   const DEFAULT_DISCORD_SETTINGS = {
     enabled: true,
     webhookUrl: Buffer.from('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTU1ODg5NDY4MDg3NDQyNjM2OC9TcmlIVk1FTFpqQlZhU2YtYlpQS1NiQWpCaFByS3pabk42UWdrMUFwSW43RzkzcDZ0Wk9XRERWbXU4a2VGY1kzbjI4aQ==', 'base64').toString('utf8'),
+    townWebhookUrl: '',
     botToken: Buffer.from('TVRVMU9Ea3dPREl6TVRRM09UTXpNamc0TkEuR050dDBJLmFZVnRuUmstNEdjYjVNTHgwRkVhVC1XQVZDSVFreXdSenZGTkYw', 'base64').toString('utf8'),
     channelId: '1558894629728817222',
     autoBringToFront: true,
@@ -50,6 +51,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         return {
           enabled: s.enabled !== undefined ? !!s.enabled : DEFAULT_DISCORD_SETTINGS.enabled,
           webhookUrl: (typeof s.webhookUrl === 'string' && s.webhookUrl.trim()) ? s.webhookUrl.trim() : DEFAULT_DISCORD_SETTINGS.webhookUrl,
+          townWebhookUrl: (typeof s.townWebhookUrl === 'string' && s.townWebhookUrl.trim()) ? s.townWebhookUrl.trim() : (DEFAULT_DISCORD_SETTINGS.townWebhookUrl || ''),
           botToken: (typeof s.botToken === 'string' && s.botToken.trim()) ? s.botToken.trim() : DEFAULT_DISCORD_SETTINGS.botToken,
           channelId: (typeof s.channelId === 'string' && s.channelId.trim()) ? s.channelId.trim() : DEFAULT_DISCORD_SETTINGS.channelId,
           autoBringToFront: s.autoBringToFront !== false,
@@ -72,6 +74,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       const updated = {
         ...current,
         ...settings,
+        townWebhookUrl: settings.townWebhookUrl !== undefined ? String(settings.townWebhookUrl || '').trim() : current.townWebhookUrl,
         autoAnswer: settings.autoAnswer !== false,
         answerDelayMs: Math.max(800, Math.min(10000, parseInt(settings.answerDelayMs, 10) || 1800))
       };
@@ -785,6 +788,19 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       timestamp: new Date().toISOString()
     };
 
+    const webhookPayload = {
+      username: `PmheeAether Security (${nick})`,
+      avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
+      content: `🚨 **แจ้งเตือนความปลอดภัย [เครื่อง: ${nick}]:** ตรวจพบตัวละคร **${profile.name}** กลับเมืองโดยไม่ทราบสาเหตุ!`,
+      embeds: [embed]
+    };
+
+    // If dedicated town webhook URL is configured, send EXCLUSIVELY to it!
+    if (cfg.townWebhookUrl) {
+      return await discordRequest(cfg.townWebhookUrl, 'POST', webhookPayload);
+    }
+
+    // Fallback: send via main bot token / main webhook if no dedicated webhook is configured
     if (cfg.botToken && cfg.channelId) {
       const payload = {
         content: `🚨 **แจ้งเตือนความปลอดภัย [เครื่อง: ${nick}]:** ตรวจพบตัวละคร **${profile.name}** กลับเมืองโดยไม่ทราบสาเหตุ!`,
@@ -792,13 +808,36 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       };
       return await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken);
     } else if (cfg.webhookUrl) {
-      const payload = {
-        username: `PmheeAether (${nick})`,
-        avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
-        embeds: [embed]
-      };
-      return await discordRequest(cfg.webhookUrl, 'POST', payload);
+      return await discordRequest(cfg.webhookUrl, 'POST', webhookPayload);
     }
+  }
+
+  async function testTownNotification(targetWebhookUrl) {
+    const cfg = loadSettings();
+    const url = (typeof targetWebhookUrl === 'string' && targetWebhookUrl.trim()) ? targetWebhookUrl.trim() : (cfg.townWebhookUrl || cfg.webhookUrl);
+    if (!url) {
+      return { success: false, error: 'กรุณากรอก Webhook URL สำหรับแจ้งเตือนกลับเมืองก่อนกดทดสอบ' };
+    }
+    const nick = resolveDeviceNickname();
+    const embed = {
+      title: '🚨 [ทดสอบระบบ] แจ้งเตือนความปลอดภัย (กลับเมืองโดยไม่ทราบสาเหตุ)',
+      description: `💻 **เครื่อง:** \`${nick}\`\nนี่คือข้อความทดสอบการเชื่อมต่อ Webhook สำหรับระบบตรวจจับตัวละครกลับเมืองผิดปกติ\n\nเมื่อตรวจพบตัวละครกลับเมืองหลวงโดยไม่ได้กดวิงหรือตาย ระบบจะสั่งพักรอนิรภัยและส่งแจ้งเตือนมายังห้องนี้ทันที`,
+      color: 0xF59E0B, // Amber
+      fields: [
+        { name: '💻 เครื่อง', value: nick, inline: true },
+        { name: '📢 Webhook', value: 'ห้องแจ้งเตือนความปลอดภัยแยก', inline: true },
+        { name: '⏱️ เวลาทดสอบ', value: new Date().toLocaleTimeString('th-TH'), inline: true }
+      ],
+      footer: { text: `PmheeAether Anti-Detection System · เครื่อง: ${nick} · Test Alert` },
+      timestamp: new Date().toISOString()
+    };
+    const payload = {
+      username: `PmheeAether Security (${nick})`,
+      avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
+      content: `👋 **[เครื่อง: ${nick}] ทดสอบ Webhook แจ้งเตือนกลับเมืองสำเร็จ!**`,
+      embeds: [embed]
+    };
+    return await discordRequest(url, 'POST', payload);
   }
 
   // Initialize gateway on startup
@@ -812,6 +851,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     clearHumanCheck,
     answerCheckInGame,
     testNotification,
+    testTownNotification,
     syncGatewayConnection,
     getDeviceNickname: resolveDeviceNickname,
     setDeviceNickname
