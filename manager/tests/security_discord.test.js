@@ -164,3 +164,22 @@ test('installer defaults launchMode to browser and browserKind to chrome', () =>
   assert.equal(st.browserKind, 'chrome');
 });
 
+test('onCaptchaSolved callback passes profileId and challenge details accurately', async () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  let captured = null;
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [{ id: 'p-client-99', name: 'Knight01', debugPort: 54321 }],
+    evalProfilePort: async () => ({ result: { success: true, picked: 1 } }),
+    onCaptchaSolved: (pid, details) => {
+      captured = { pid, details };
+    }
+  });
+  const res = await service.answerCheckInGame('p-client-99', 1, 'Banana');
+  assert.equal(res.success, true);
+  assert.equal(captured.pid, 'p-client-99');
+  assert.equal(captured.details.pickIndex, 1);
+  assert.equal(captured.details.matchedName, 'Banana');
+});
+
+

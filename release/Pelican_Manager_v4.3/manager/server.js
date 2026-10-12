@@ -1133,30 +1133,71 @@ function getEffectiveDeviceNickname() {
 
 const CAPTCHA_STATS_FILE = path.join(__dirname, "data", "captcha_stats.json");
 
-function getCaptchaStats() {
+function getThaiDateKey(timestamp = Date.now()) {
   try {
-    if (fs.existsSync(CAPTCHA_STATS_FILE)) {
-      const stats = JSON.parse(fs.readFileSync(CAPTCHA_STATS_FILE, "utf8"));
-      return {
-        totalSolved: Math.max(0, parseInt(stats.totalSolved, 10) || 0),
-        lastSolvedAt: stats.lastSolvedAt || null
-      };
-    }
-  } catch (e) {}
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(Number(timestamp)));
+  } catch (e) {
+    const d = new Date(Number(timestamp) + 7 * 3600 * 1000);
+    return d.toISOString().slice(0, 10);
+  }
+}
 
-  let initialCount = 16;
+function bootstrapDailyFromRequests() {
+  const daily = {};
   try {
     const reqStateFile = path.join(__dirname, "data", "aetheria_request_state.json");
     if (fs.existsSync(reqStateFile)) {
-      const reqs = JSON.parse(fs.readFileSync(reqStateFile, "utf8"));
-      const keys = Object.keys(reqs || {});
-      if (keys.length > 0) initialCount = keys.length;
+      const reqs = JSON.parse(fs.readFileSync(reqStateFile, "utf8")) || {};
+      for (const [pid, entry] of Object.entries(reqs)) {
+        if (!entry) continue;
+        const ts = entry.seenAt || Date.now();
+        const dateKey = getThaiDateKey(ts);
+        if (!daily[dateKey]) {
+          daily[dateKey] = { date: dateKey, total: 0, byProfile: {} };
+        }
+        daily[dateKey].total += 1;
+        daily[dateKey].byProfile[pid] = (daily[dateKey].byProfile[pid] || 0) + 1;
+      }
+    }
+  } catch (e) {}
+  return daily;
+}
+
+function getCaptchaStats() {
+  let stats = null;
+  try {
+    if (fs.existsSync(CAPTCHA_STATS_FILE)) {
+      stats = JSON.parse(fs.readFileSync(CAPTCHA_STATS_FILE, "utf8"));
     }
   } catch (e) {}
 
+  if (stats) {
+    const totalSolved = Math.max(0, parseInt(stats.totalSolved, 10) || 0);
+    let daily = stats.daily;
+    if (!daily || typeof daily !== 'object' || Object.keys(daily).length === 0) {
+      daily = bootstrapDailyFromRequests();
+      if (Object.keys(daily).length > 0) {
+        stats.daily = daily;
+        try {
+          fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
+        } catch (e) {}
+      }
+    }
+    return {
+      totalSolved,
+      lastSolvedAt: stats.lastSolvedAt || null,
+      daily: daily || {}
+    };
+  }
+
+  const bootstrapped = bootstrapDailyFromRequests();
+  const bootstrappedTotal = Object.values(bootstrapped).reduce((sum, d) => sum + (d.total || 0), 0);
+  const initialCount = Math.max(16, bootstrappedTotal);
+
   const initial = {
     totalSolved: initialCount,
-    lastSolvedAt: Date.now()
+    lastSolvedAt: Date.now(),
+    daily: bootstrapped
   };
   try {
     fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
@@ -1170,6 +1211,23 @@ function recordCaptchaSolved(profileId, details = {}) {
     const stats = getCaptchaStats();
     stats.totalSolved = (stats.totalSolved || 0) + 1;
     stats.lastSolvedAt = Date.now();
+    if (!stats.daily || typeof stats.daily !== 'object') {
+      stats.daily = {};
+    }
+    const todayKey = getThaiDateKey(stats.lastSolvedAt);
+    if (!stats.daily[todayKey]) {
+      stats.daily[todayKey] = {
+        date: todayKey,
+        total: 0,
+        byProfile: {}
+      };
+    }
+    const dayEntry = stats.daily[todayKey];
+    dayEntry.total = (dayEntry.total || 0) + 1;
+    if (profileId) {
+      if (!dayEntry.byProfile) dayEntry.byProfile = {};
+      dayEntry.byProfile[profileId] = (dayEntry.byProfile[profileId] || 0) + 1;
+    }
     fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
     fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
     return stats;
@@ -1308,7 +1366,28 @@ const server = http.createServer(async (req, res) => {
   // GET /api/captcha-stats
   if (req.method === "GET" && pathname === "/api/captcha-stats") {
     const stats = getCaptchaStats();
-    return sendJSON({ success: true, ...stats });
+    const profiles = loadProfiles() || [];
+    const profileMap = {};
+    for (const p of profiles) {
+      if (p && p.id) {
+        profileMap[p.id] = {
+          id: p.id,
+          name: p.name || p.id,
+          characterName: p.characterName || ""
+        };
+      }
+    }
+    const todayKey = getThaiDateKey();
+    const todayTotal = (stats.daily && stats.daily[todayKey]) ? (stats.daily[todayKey].total || 0) : 0;
+    return sendJSON({
+      success: true,
+      totalSolved: stats.totalSolved || 0,
+      todaySolved: todayTotal,
+      todayDate: todayKey,
+      lastSolvedAt: stats.lastSolvedAt,
+      daily: stats.daily || {},
+      profiles: profileMap
+    });
   }
 
   // Answer human check from Manager UI or remote link

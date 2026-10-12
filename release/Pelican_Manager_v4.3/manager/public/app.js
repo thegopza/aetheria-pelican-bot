@@ -250,14 +250,264 @@ function updateCaptchaSolvedDisplay(count) {
 }
 window.updateCaptchaSolvedDisplay = updateCaptchaSolvedDisplay;
 
+let lastCaptchaStatsData = null;
+
 async function fetchCaptchaStats() {
   try {
     const res = await fetch(`${API_BASE}/api/captcha-stats`).then(r => r.json());
     if (res && res.success && typeof res.totalSolved === 'number') {
       updateCaptchaSolvedDisplay(res.totalSolved);
+      lastCaptchaStatsData = res;
     }
   } catch (e) {}
 }
+
+// ==========================================
+// CAPTCHA HISTORY & DAILY BREAKDOWN MODAL
+// ==========================================
+
+function formatThaiDateLabel(dateStr, todayKey) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-').map(Number);
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  const thaiMonths = [
+    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+  ];
+  const dateFormatted = `${d} ${thaiMonths[m - 1] || ''} ${y}`;
+  if (dateStr === todayKey) {
+    return `วันนี้ (${dateFormatted})`;
+  }
+  try {
+    const dObj = new Date(`${dateStr}T12:00:00+07:00`);
+    const todayObj = new Date(`${todayKey}T12:00:00+07:00`);
+    const diffDays = Math.round((todayObj - dObj) / (1000 * 3600 * 24));
+    if (diffDays === 1) return `เมื่อวาน (${dateFormatted})`;
+    if (diffDays > 1 && diffDays <= 7) return `${diffDays} วันที่แล้ว (${dateFormatted})`;
+  } catch (e) {}
+  return dateFormatted;
+}
+
+function formatThaiTime(timestamp) {
+  if (!timestamp) return '-';
+  try {
+    const d = new Date(Number(timestamp));
+    const thaiMonths = [
+      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+    ];
+    const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit' };
+    const timeStr = new Intl.DateTimeFormat('th-TH', options).format(d);
+    const day = d.getDate();
+    const month = thaiMonths[d.getMonth()];
+    return `${day} ${month} ${timeStr} น.`;
+  } catch (e) {
+    return new Date(timestamp).toLocaleString();
+  }
+}
+
+async function loadCaptchaHistory() {
+  const container = document.getElementById("captcha-history-list");
+  if (!container) return;
+  if (!lastCaptchaStatsData) {
+    container.innerHTML = `<div style="text-align: center; color: #64748b; padding: 36px 12px; font-size: 12px;">กำลังโหลดสถิติ...</div>`;
+  } else {
+    renderCaptchaHistoryModal(lastCaptchaStatsData);
+  }
+  try {
+    const res = await fetch(`/api/captcha-stats`).then(r => r.json());
+    if (!res || !res.success) throw new Error(res?.error || "Failed to load stats");
+    lastCaptchaStatsData = res;
+    renderCaptchaHistoryModal(res);
+  } catch (err) {
+    if (!lastCaptchaStatsData) {
+      container.innerHTML = `<div style="text-align: center; color: #ef4444; padding: 24px 12px; font-size: 12px;">⚠️ ไม่สามารถโหลดประวัติได้: ${err.message}</div>`;
+    }
+  }
+}
+
+function renderCaptchaHistoryModal(data) {
+  const container = document.getElementById("captcha-history-list");
+  if (!container) return;
+
+  const todayEl = document.getElementById("ch-stat-today");
+  const totalEl = document.getElementById("ch-stat-total");
+  const lastEl = document.getElementById("ch-stat-last");
+  if (todayEl) todayEl.innerText = (data.todaySolved || 0).toLocaleString();
+  if (totalEl) totalEl.innerText = (data.totalSolved || 0).toLocaleString();
+  if (lastEl) lastEl.innerText = formatThaiTime(data.lastSolvedAt);
+
+  const daily = data.daily || {};
+  const dateKeys = Object.keys(daily).sort().reverse();
+
+  if (dateKeys.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: #64748b; padding: 40px 14px; font-size: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.08);">
+        <div style="font-size: 28px; margin-bottom: 8px;">🌱</div>
+        <div style="color: #94a3b8; font-weight: 600; font-size: 13px;">ยังไม่มีประวัติการแก้ Captcha ที่บันทึกไว้</div>
+        <div style="color: #64748b; font-size: 11px; margin-top: 4px;">เมื่อบอทตอบคำถามเช็คผู้เล่นสำเร็จ ระบบจะแยกสถิติตามวันและจอให้อัตโนมัติ</div>
+      </div>
+    `;
+    return;
+  }
+
+  const profileMap = data.profiles || {};
+  let html = "";
+
+  dateKeys.forEach((dateStr, idx) => {
+    const dayEntry = daily[dateStr] || { total: 0, byProfile: {} };
+    const dateLabel = formatThaiDateLabel(dateStr, data.todayDate);
+    const dayTotal = dayEntry.total || 0;
+    const isFirst = idx === 0;
+    const byProfile = dayEntry.byProfile || {};
+    const profileIds = Object.keys(byProfile).sort((a, b) => (byProfile[b] || 0) - (byProfile[a] || 0));
+
+    let profilesHtml = "";
+    if (profileIds.length === 0) {
+      profilesHtml = `<div style="color: #64748b; font-size: 11px; padding: 6px 4px; text-align: center;">ไม่มีข้อมูลแยกจอ</div>`;
+    } else {
+      profileIds.forEach(pid => {
+        const count = byProfile[pid] || 0;
+        const pct = dayTotal > 0 ? Math.round((count / dayTotal) * 100) : 0;
+        
+        let pName = pid;
+        if (profileMap[pid] && profileMap[pid].name) {
+          pName = profileMap[pid].name;
+        } else if (typeof currentProfiles !== 'undefined') {
+          const found = currentProfiles.find(p => p.id === pid);
+          if (found && found.name) pName = found.name;
+        }
+
+        const shortId = pid.replace(/^profile_/, 'P-');
+
+        profilesHtml += `
+          <div class="ch-profile-item">
+            <div class="ch-profile-name">
+              <span class="ch-profile-dot"></span>
+              <span class="ch-profile-label" title="${pid}">${pName}</span>
+              <span class="ch-profile-id">#${shortId}</span>
+            </div>
+            <div class="ch-profile-bar-wrap" title="${pct}% ของวันนี้">
+              <div class="ch-profile-bar" style="width: ${pct}%;"></div>
+            </div>
+            <div class="ch-profile-stat">
+              <span>${count.toLocaleString()}</span> <small style="font-size: 10px; color: #6ee7b7;">ครั้ง</small>
+              <span class="ch-profile-pct">(${pct}%)</span>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    html += `
+      <div class="ch-day-card ${isFirst ? 'open' : ''}" data-date="${dateStr}">
+        <div class="ch-day-header">
+          <div class="ch-day-info">
+            <span class="ch-day-toggle-icon">▶</span>
+            <span class="ch-day-title">
+              <span>${dateLabel}</span>
+              ${dateStr === data.todayDate ? '<span style="font-size: 9.5px; background: rgba(52, 211, 153, 0.25); color: #34d399; padding: 1px 6px; border-radius: 999px; font-weight: 700;">วันนี้</span>' : ''}
+            </span>
+          </div>
+          <div class="ch-day-badge">
+            <span class="ch-count-num">${dayTotal.toLocaleString()}</span> ครั้ง
+          </div>
+        </div>
+        <div class="ch-day-detail" style="display: ${isFirst ? 'flex' : 'none'};">
+          ${profilesHtml}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.ch-day-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = header.closest('.ch-day-card');
+      if (!card) return;
+      const detail = card.querySelector('.ch-day-detail');
+      if (!detail) return;
+      const isOpen = card.classList.contains('open');
+      if (isOpen) {
+        card.classList.remove('open');
+        detail.style.display = 'none';
+      } else {
+        card.classList.add('open');
+        detail.style.display = 'flex';
+      }
+    });
+  });
+}
+
+function openCaptchaHistoryModal() {
+  const modal = document.getElementById("modal-captcha-history");
+  if (!modal) return;
+  modal.classList.add("active");
+  modal.style.display = "flex";
+  loadCaptchaHistory();
+}
+window.openCaptchaHistoryModal = openCaptchaHistoryModal;
+
+function closeCaptchaHistoryModal() {
+  const modal = document.getElementById("modal-captcha-history");
+  if (modal) {
+    modal.classList.remove("active");
+    modal.style.display = "none";
+  }
+}
+window.closeCaptchaHistoryModal = closeCaptchaHistoryModal;
+
+function initCaptchaHistoryModal() {
+  const pill = document.getElementById("captcha-solved-pill");
+  if (pill) {
+    pill.onclick = openCaptchaHistoryModal;
+    pill.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openCaptchaHistoryModal();
+      }
+    };
+  }
+
+  const btnClose = document.getElementById("btn-captcha-history-close");
+  const btnOk = document.getElementById("btn-captcha-history-ok");
+  if (btnClose) btnClose.onclick = closeCaptchaHistoryModal;
+  if (btnOk) btnOk.onclick = closeCaptchaHistoryModal;
+
+  const btnRefresh = document.getElementById("btn-captcha-history-refresh");
+  if (btnRefresh) {
+    btnRefresh.onclick = () => {
+      btnRefresh.innerText = "⏳ กำลังรีเฟรช...";
+      loadCaptchaHistory().finally(() => {
+        setTimeout(() => { btnRefresh.innerText = "🔄 รีเฟรช"; }, 400);
+      });
+    };
+  }
+
+  const modal = document.getElementById("modal-captcha-history");
+  if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) closeCaptchaHistoryModal();
+    };
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal && modal.style.display !== "none") {
+      closeCaptchaHistoryModal();
+    }
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initCaptchaHistoryModal);
+} else {
+  initCaptchaHistoryModal();
+}
+
 
 window.answerHumanCheckQuick = async function(profileId, pick) {
   if (!confirm(`ยืนยันการตอบตัวเลือกที่ ${pick + 1} ให้จอ [${profileId}] ใช่หรือไม่?`)) return;

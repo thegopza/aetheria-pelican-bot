@@ -35,12 +35,13 @@
       </div>
 
       <div class="header-actions">
-        <!-- CAPTCHA SOLVED COUNTER BADGE -->
-        <div id="captcha-solved-pill" class="captcha-solved-badge" title="จำนวนครั้งที่ระบบตอบคำถามเช็คผู้เล่น (Captcha) สำเร็จทั้งหมด">
+        <!-- CAPTCHA SOLVED COUNTER BADGE (CLICKABLE) -->
+        <div id="captcha-solved-pill" class="captcha-solved-badge" role="button" tabindex="0" title="คลิกเพื่อดูประวัติการแก้ Captcha รายวัน">
           <span class="captcha-icon">🤖</span>
           <span class="captcha-label">แก้ Captcha:</span>
           <span id="captcha-solved-count" class="captcha-count">0</span>
           <span class="captcha-unit">ครั้ง</span>
+          <span class="captcha-chevron">▼</span>
         </div>
 
         <div class="btn-group">
@@ -1340,6 +1341,79 @@
           ปิด
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- CAPTCHA HISTORY MODAL -->
+  <div id="modal-captcha-history" class="modal-overlay modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.78); z-index: 99999; backdrop-filter: blur(5px);">
+    <div class="modal-content" style="background: #0b1329; border: 1.5px solid rgba(52, 211, 153, 0.4); border-radius: 14px; width: 640px; max-width: 95vw; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.95), 0 0 35px rgba(16, 185, 129, 0.2); color: #f8fafc; padding: 22px; font-family: inherit; max-height: 90vh; display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 14px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 26px;">📊</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16.5px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 8px;">
+              <span>ประวัติการแก้ Captcha รายวัน</span>
+              <span style="font-size: 10.5px; background: rgba(16, 185, 129, 0.2); color: #6ee7b7; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(52, 211, 153, 0.4); font-weight: 600;">ตัดรอบเที่ยงคืน (00:00 ICT)</span>
+            </h3>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">สถิติการตอบคำถามเช็คผู้เล่น (Human Check) แยกตามวันและจอตัวละคร</div>
+          </div>
+        </div>
+        <button type="button" id="btn-captcha-history-close" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
+      </div>
+
+      <!-- Top Summary Statistics Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; flex-shrink: 0;">
+        <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>📅</span> วันนี้ (00:00 - ปัจจุบัน)
+          </div>
+          <div style="font-size: 22px; font-weight: 800; color: #34d399; margin-top: 3px; font-family: monospace;">
+            <span id="ch-stat-today">0</span> <small style="font-size: 12px; font-weight: normal; color: #a7f3d0;">ครั้ง</small>
+          </div>
+        </div>
+
+        <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>🏆</span> รวมทั้งหมดสะสม
+          </div>
+          <div style="font-size: 22px; font-weight: 800; color: #38bdf8; margin-top: 3px; font-family: monospace;">
+            <span id="ch-stat-total">0</span> <small style="font-size: 12px; font-weight: normal; color: #bae6fd;">ครั้ง</small>
+          </div>
+        </div>
+
+        <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>⏱️</span> แก้ล่าสุด
+          </div>
+          <div id="ch-stat-last" style="font-size: 12px; font-weight: 700; color: #c084fc; margin-top: 8px;">
+            -
+          </div>
+        </div>
+      </div>
+
+      <!-- History List Section Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+        <div style="font-size: 12px; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
+          <span>📋</span> รายการประวัติย้อนหลัง (คลิกแถวเพื่อดูแยกตามจอ)
+        </div>
+        <button type="button" id="btn-captcha-history-refresh" class="btn btn-ghost btn-sm" style="font-size: 11px; padding: 2px 8px; color: #94a3b8;">
+          🔄 รีเฟรช
+        </button>
+      </div>
+
+      <!-- Scrollable History List Container -->
+      <div id="captcha-history-list" style="flex: 1; overflow-y: auto; max-height: 480px; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; min-height: 120px;">
+        <div style="text-align: center; color: #64748b; padding: 30px; font-size: 12px;">กำลังโหลดประวัติ...</div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;">
+        <span style="font-size: 11px; color: #64748b;">สถิติจะอัปเดตอัตโนมัติเมื่อระบบตอบคำถามเช็คผู้เล่นสำเร็จ</span>
+        <button type="button" id="btn-captcha-history-ok" class="btn btn-secondary" style="font-size: 12px; padding: 6px 18px;">ปิด</button>
+      </div>
+
     </div>
   </div>
 
