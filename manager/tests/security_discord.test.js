@@ -157,6 +157,10 @@ test('onCaptchaSolved is invoked when answerCheckInGame succeeds', async () => {
   assert.equal(res.success, true);
   assert.equal(solvedProfile, 'p-test');
 });
-
-
+test('installer defaults launchMode to browser and browserKind to chrome', () => {
+  const installer = require('../installer.js');
+  const st = installer.loadSettings();
+  assert.equal(st.launchMode, 'browser');
+  assert.equal(st.browserKind, 'chrome');
+});
 

@@ -1107,7 +1107,10 @@ const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfil
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials });
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
 const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles });
-const isBrowserMode = () => (installer.loadSettings() || {}).launchMode === "browser";
+const isBrowserMode = () => {
+  const st = installer.loadSettings() || {};
+  return (st.launchMode || "browser") === "browser";
+};
 
 const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
@@ -2601,7 +2604,15 @@ public class PmFocus {
   if (pathname === "/api/launch-mode") {
     if (req.method === "GET") {
       const st = installer.loadSettings() || {};
-      return sendJSON({ success: true, launchMode: st.launchMode || "electron", browserKind: st.browserKind || "chrome", chrome: !!browserMode.findBrowser("chrome"), browserPath: browserMode.findBrowser(st.browserKind) });
+      const launchMode = st.launchMode || "browser";
+      const browserKind = st.browserKind || "chrome";
+      return sendJSON({
+        success: true,
+        launchMode,
+        browserKind,
+        chrome: !!browserMode.findBrowser("chrome"),
+        browserPath: browserMode.findBrowser(browserKind)
+      });
     }
     if (req.method === "POST") {
       let body = "";

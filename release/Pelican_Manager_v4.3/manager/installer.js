@@ -25,14 +25,19 @@ const LOADER_SRC = fs.existsSync(path.join(__dirname, 'game_loader', 'main.js'))
     : path.join(ROOT_DIR, 'main.js');
 
 function loadSettings() {
+    let s = {};
     try {
         if (fs.existsSync(SETTINGS_FILE)) {
-            return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+            s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) || {};
         }
     } catch (e) {
         console.warn('[Installer] Failed to read settings.json:', e.message);
     }
-    return {};
+    return {
+        ...s,
+        launchMode: s.launchMode || 'browser',
+        browserKind: s.browserKind || 'chrome'
+    };
 }
 
 function saveSettings(settings) {
