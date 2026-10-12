@@ -380,6 +380,7 @@
         ${canLock ? `<button type="button" class="im-btn ghost" data-act="lock">${item.locked ? '🔓 ปลดล็อค' : '🔒 ล็อค'}</button>` : ''}
         ${item.destroyable ? `<button type="button" class="im-btn danger" data-act="destroy" ${item.locked ? 'disabled title="ไอเทมถูกล็อคอยู่"' : ''}>ทิ้ง</button>` : ''}
         <button type="button" class="im-btn ghost" data-act="wl" title="เพิ่มเข้า Whitelist (รายการห้ามขายให้ NPC)">🛡️ เพิ่ม WL</button>
+        <button type="button" class="im-btn ghost" data-act="autosell" title="เพิ่มเข้ารายการ Auto Sell — บอทจะลงขายตลาดกลางให้เอง (ราคาถูกกว่าคนอื่น 1 z)">🏷️ เพิ่ม Auto Sell</button>
         <button type="button" class="im-btn market" data-act="market">🏪 ขายลงตลาด</button>
       </div>`;
   }
@@ -409,6 +410,31 @@
     const res = await fetch(`${API_BASE}${base}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ whitelist: list.join(', ') }) });
     const r = await res.json().catch(() => null);
     toast(r && r.success !== false ? `🛡️ เพิ่ม "${name}" เข้า Whitelist แล้ว` : '❌ บันทึก Whitelist ไม่สำเร็จ', r && r.success !== false ? 'ok' : 'err');
+  }
+
+  // "🏷️ เพิ่ม Auto Sell": a rule added inside the game (read + add there, so a list changed in the game meanwhile
+  // is never overwritten by an older copy from this page)
+  async function addToAutoSell(item) {
+    const name = String(item.name || '').trim();
+    if (!name) return;
+    const ans = prompt(`ลงขาย "${name}" ในตลาดกลางอัตโนมัติ เมื่อมีในกระเป๋าครบกี่ชิ้น?`, '1');
+    if (ans === null) return;
+    const minQty = Math.max(1, parseInt(ans, 10) || 1);
+    const code = `(() => {
+      const c = window.__autoMarketSellConfig || (window.__autoMarketSellConfig = { rules: [] });
+      if (!Array.isArray(c.rules)) c.rules = [];
+      const name = ${JSON.stringify(name)};
+      if (c.rules.some(r => r && String(r.itemName || '').trim().toLowerCase() === name.toLowerCase())) return { success: true, exists: true };
+      c.rules.push({ id: 'rule_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), itemName: name, minQty: ${minQty}, sellMode: 'all', enabled: true });
+      try { localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(c)); } catch (e) { return { success: false, error: e.message }; }
+      try { const box = document.getElementById('p-autosell-hud-rules-container'); if (box && typeof window.renderAutoSellHudRulesHtml === 'function') box.innerHTML = window.renderAutoSellHudRulesHtml(); } catch (e) {}
+      return { success: true, added: true, count: c.rules.length, enabled: !!c.enabled };
+    })()`;
+    const r = await api(`/api/profiles/${encodeURIComponent(bag.profileId)}/client-action`, { type: 'eval', code });
+    const out = r && r.result && r.result.result;
+    if (!out || out.success === false) return toast('❌ เพิ่มรายการ Auto Sell ไม่สำเร็จ: ' + ((out && out.error) || (r && r.error) || 'จอเกมไม่ตอบ'), 'err');
+    if (out.exists) return toast(`ℹ️ "${name}" อยู่ในรายการ Auto Sell แล้ว`);
+    toast(`🏷️ เพิ่ม "${name}" เข้า Auto Sell แล้ว (ครบ ≥ ${minQty} ชิ้น)${out.enabled ? '' : ' — ระบบ Auto Sell ยังปิดอยู่ เปิดได้ที่เมนูบอท > ตลาด'}`);
   }
 
   async function onBagClick(e) {
@@ -445,6 +471,7 @@
       return;
     }
     if (act === 'wl') return addToWhitelist(item.name);
+    if (act === 'autosell') return addToAutoSell(item);
     if (act === 'market') return openMarketFor(item);
   }
 
