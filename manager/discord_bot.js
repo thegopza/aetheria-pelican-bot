@@ -527,9 +527,6 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     if (!autoAnswerEnabled) {
       manualReason = 'ไม่ได้เปิด Auto Captcha';
       pointMessage = 'ℹ️ **สถานะ:** ไม่ได้เปิดระบบตอบอัตโนมัติ (Auto Captcha) ไว้ — กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง';
-    } else if (hcSettings.pointSystemEnabled && (hcSettings.points || 0) <= 0 && solver?.isRemoteService) {
-      manualReason = 'Point หมด (0 P)';
-      pointMessage = '🪙 **สถานะ:** Point สำหรับตอบอัตโนมัติหมดแล้ว (0 P) — กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง หรือเติม Point ใน Manager';
     }
 
     // Cached points are display data. Only the remote service authorizes and charges a solve.
@@ -554,15 +551,29 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           if (authorized && stillEnabled) {
             ansRes = await answerCheckInGame(profileId, solution.pickIndex, solution.matchedName, { id: trackedCheck.checkId, prompt: trackedCheck.prompt });
           } else {
-            manualReason = manualReason || 'Point ไม่เพียงพอ หรือระบบไม่อนุมัติ';
-            pointMessage = '⚠️ บริการส่วนกลางไม่อนุมัติการตอบอัตโนมัติ (Point ไม่พอ) กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+            if (!stillEnabled) {
+              manualReason = 'ปิดการตอบอัตโนมัติแล้ว';
+              pointMessage = 'ℹ️ ปิด Auto Humancheck แล้ว กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+            } else if (solution?.code === 'INSUFFICIENT_POINTS' || solution?.status === 402) {
+              manualReason = 'Point ไม่เพียงพอ';
+              pointMessage = '⚠️ เซิร์ฟเวอร์แจ้งว่า Point ไม่เพียงพอ กรุณาตอบด้วยตนเองหรือเติม Point ใน Manager';
+            } else if (solution?.code === 'NO_MATCH') {
+              manualReason = 'จับคู่คำตอบไม่สำเร็จ';
+              pointMessage = '⚠️ ระบบจับคู่คำตอบไม่สำเร็จ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+            } else if (solution?.code === 'INVALID_SERVICE_RESPONSE' || solution?.success === true) {
+              manualReason = 'ตรวจสอบคำตอบจาก API ไม่ผ่าน';
+              pointMessage = '⚠️ ไม่สามารถยืนยันคำตอบจาก API ได้ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+            } else {
+              manualReason = solution?.code === 'MAINTENANCE' ? 'API กำลังปรับปรุง' : 'บริการ API ขัดข้อง';
+              pointMessage = '⚠️ บริการ Auto Humancheck ไม่พร้อมใช้งานชั่วคราว กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+            }
             ansRes = { success: false, error: 'บริการส่วนกลางไม่อนุมัติคำตอบ หรือปิดการตอบอัตโนมัติแล้ว' };
           }
         }
       } catch (err) {
         manualReason = 'การเชื่อมต่อขัดข้อง';
         pointMessage = '⚠️ ไม่สามารถยืนยันคำตอบจากบริการส่วนกลางได้ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
-        console.warn('[HumanCheckSolver] Remote authorization unavailable; auto-answer disabled.');
+        console.warn('[PmheeAether HumanCheck] Remote authorization unavailable; auto-answer disabled.');
       }
 
       if (ansRes && ansRes.success) {
@@ -614,6 +625,10 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         }
         return;
       } else {
+        if (!manualReason) {
+          manualReason = 'ส่งคำตอบเข้าเกมไม่สำเร็จ';
+          pointMessage = '⚠️ ส่งคำตอบเข้าเกมไม่สำเร็จ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+        }
         console.warn(`[Discord Bot] ⚠️ Auto-answer execution returned error: ${ansRes?.error}. Falling back to manual alert.`);
       }
     }

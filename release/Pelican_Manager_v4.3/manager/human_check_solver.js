@@ -82,6 +82,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
           if (res.statusCode < 200 || res.statusCode >= 300) {
             const error = new Error(typeof result.message === 'string' ? result.message : 'CAPTCHA service rejected request');
             error.status = res.statusCode;
+            error.code = typeof result.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(result.code) ? result.code : 'SERVICE_REJECTED';
             return reject(error);
           }
           resolve(result);
@@ -133,11 +134,11 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
           !Number.isInteger(result.pickIndex) || result.pickIndex < 0 || result.pickIndex > 5 ||
           result.pickIndex >= Math.max(options.length, items?.length || 0) ||
           !Number.isSafeInteger(result.remaining) || result.remaining < 0) {
-        return { success: false, reason: 'ไม่สามารถยืนยันคำตอบและการหัก Point จากเซิร์ฟเวอร์' };
+        return { success: false, code: 'INVALID_SERVICE_RESPONSE', reason: 'ไม่สามารถยืนยันคำตอบและการหัก Point จากเซิร์ฟเวอร์' };
       }
       updateBalance(result);
       return result;
-    } catch (e) { return { success: false, reason: e.message }; }
+    } catch (e) { return { success: false, reason: e.message, code: typeof e.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(e.code) ? e.code : 'SERVICE_UNAVAILABLE', status: Number.isInteger(e.status) ? e.status : null }; }
   }
   async function reportSecurityEvent(kind, context = {}) {
     if (!['local_credit_override', 'offline_solver_probe'].includes(kind)) return false;

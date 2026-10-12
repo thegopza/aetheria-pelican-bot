@@ -130,6 +130,17 @@ test('provider errors fail closed with no local spend or answer', async t => {
   assert.equal(settings.points, 0); assert.equal(settings.serviceAvailable, false);
 });
 
+test('remote HTTP failure preserves payment versus maintenance status for alerts', async t => {
+  for (const [status, code] of [[402,'INSUFFICIENT_POINTS'],[503,'MAINTENANCE']]) {
+    const f = fixture(t, async route => {
+      if (route.endsWith('/enroll')) return {success:true,accountId:'test',token:TOKEN};
+      const error = new Error('ไม่สามารถทำรายการได้'); error.status=status; error.code=code; throw error;
+    });
+    const result = await f.create().solveHumanCheck('question',options,null,'fixture-request');
+    assert.equal(result.success,false); assert.equal(result.status,status); assert.equal(result.code,code);
+  }
+});
+
 test('voucher submits to backend with token, never gateway; refresh follows topup', async t => {
   const f = fixture(t); const solver = f.create();
   const voucher = 'https://gift.truemoney.com/campaign/?v=FAKEONLYNOTREAL';
