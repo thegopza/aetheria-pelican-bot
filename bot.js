@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.35.5
+// @version      4.35.6
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.35.5';
+    const PELICAN_BOT_VERSION = '4.35.6';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -4732,6 +4732,25 @@
 
     window.scanForActiveSocket();
     setInterval(window.scanForActiveSocket, 1000);
+
+    // Money consolidation stops the bot — and with it the death watchdog. A sender / receiver that died on the way
+    // (walking home without a Butterfly Wing, hit before the wing landed...) just lay there and the trade task hung.
+    // While consolidating: respawn in the capital (the game's "กลับเมืองหลวง" button), where the trade happens.
+    let consolRespawnAt = 0;
+    setInterval(() => {
+        try {
+            if (!(window.__isConsolidating || window.__consolidationReceiverMode || window.__senderTradeBusy)) return;
+            if (!isCharacterDead() || Date.now() - consolRespawnAt < 6000) return;
+            consolRespawnAt = Date.now();
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            if (!room || typeof room.send !== 'function') return;
+            window.__lastRespawnAt = Date.now();
+            window.__isNavigating = false;
+            room.send('respawn', { to: 'capital' });
+            console.log('%c[PmheeAether Consolidation] 💀 ตัวละครตายระหว่างรวมเงิน -> ฟื้นที่เมืองหลวง (กลับเมืองหลวง) แล้วรวมเงินต่อ', 'color: #ef4444; font-weight: bold;');
+        } catch (e) {}
+    }, 1500);
+    window.isCharacterDeadNow = () => { try { return isCharacterDead(); } catch (e) { return false; } };
 
     window.sendRespawn = function() {
         window.__lastRespawnAt = Date.now();
