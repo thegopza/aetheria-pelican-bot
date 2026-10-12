@@ -507,6 +507,436 @@ if (document.readyState === "loading") {
 } else {
   initCaptchaHistoryModal();
 }
+// ==========================================
+// USAGE STATEMENT & DEBT HISTORY MODAL CONTROLLER
+// ==========================================
+let lastStatementData = null;
+let currentStatementTab = 'usage'; // 'usage' | 'ledger'
+
+async function fetchStatementData(force = false) {
+  try {
+    const res = await fetch(`${API_BASE}/api/script/statement`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data && data.success) {
+      lastStatementData = data;
+      const onlineCount = currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0;
+      updateUsageStatementDisplay(onlineCount);
+      const modal = document.getElementById("modal-usage-statement");
+      if (modal && modal.style.display !== "none") {
+        renderUsageStatementModal(data);
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch usage statement:", err);
+  }
+  return null;
+}
+window.fetchStatementData = fetchStatementData;
+
+function updateUsageStatementDisplay(onlineCount) {
+  const pill = document.getElementById("btn-open-usage-statement");
+  if (!pill) return;
+  const textEl = document.getElementById("online-expense-text");
+  const count = typeof onlineCount === 'number' ? onlineCount : (currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0);
+
+  const data = lastStatementData || {};
+  const rateUnits = typeof data.rateUnits === 'number' ? data.rateUnits : 200;
+  const ratePoints = rateUnits / 100;
+  const balanceUnits = typeof data.balanceUnits === 'number' ? data.balanceUnits : 100000;
+  const balancePoints = balanceUnits / 100;
+
+  // Running expense today (in แต้มบุญ)
+  let todayPoints = 0;
+  if (typeof data.estimatedUnits === 'number' && data.estimatedUnits > 0) {
+    todayPoints = data.estimatedUnits / 100;
+  } else if (typeof data.shadowEstimatedUnits === 'number' && data.shadowEstimatedUnits > 0) {
+    todayPoints = data.shadowEstimatedUnits / 100;
+  } else if (count > 0) {
+    todayPoints = count * ratePoints;
+  }
+
+  // Debt logic:
+  // If balancePoints < 0, account has an outstanding unpaid debt
+  if (balancePoints < 0) {
+    const debtPoints = Math.abs(balancePoints);
+    pill.classList.add("has-debt");
+    if (textEl) {
+      textEl.innerHTML = `หนี้ค้าง: <strong id="online-expense-val">${debtPoints.toLocaleString()}</strong> แต้มบุญ <span style="font-size: 10px; opacity: 0.85;">(วันนี้ ${todayPoints.toLocaleString()})</span>`;
+    }
+    pill.title = `มียอดหนี้ค้างชำระ ${debtPoints.toLocaleString()} แต้มบุญ · ค่าใช้จ่ายวันนี้ประมาณ ${todayPoints.toLocaleString()} แต้มบุญ (คลิกเพื่อดูประวัติ)`;
+  } else {
+    pill.classList.remove("has-debt");
+    if (textEl) {
+      textEl.innerHTML = `หนี้วันนี้: <strong id="online-expense-val">${todayPoints.toLocaleString()}</strong> แต้มบุญ`;
+    }
+    pill.title = `ค่าใช้จ่าย/หนี้วันนี้ ${todayPoints.toLocaleString()} แต้มบุญ · แต้มบุญคงเหลือ ${balancePoints.toLocaleString()} แต้มบุญ (คลิกเพื่อดูประวัติ)`;
+  }
+}
+window.updateUsageStatementDisplay = updateUsageStatementDisplay;
+
+function renderUsageStatementModal(data) {
+  if (!data) return;
+  const onlineCount = currentProfiles ? currentProfiles.filter(p => p.isRunning).length : 0;
+  const rateUnits = typeof data.rateUnits === 'number' ? data.rateUnits : 200;
+  const ratePoints = rateUnits / 100;
+  const balanceUnits = typeof data.balanceUnits === 'number' ? data.balanceUnits : 0;
+  const balancePoints = balanceUnits / 100;
+
+  let todayPoints = 0;
+  if (typeof data.estimatedUnits === 'number' && data.estimatedUnits > 0) {
+    todayPoints = data.estimatedUnits / 100;
+  } else if (typeof data.shadowEstimatedUnits === 'number' && data.shadowEstimatedUnits > 0) {
+    todayPoints = data.shadowEstimatedUnits / 100;
+  } else if (onlineCount > 0) {
+    todayPoints = onlineCount * ratePoints;
+  }
+
+  const activeSlots = typeof data.usedSlotsToday === 'number' && data.usedSlotsToday > 0 
+    ? data.usedSlotsToday 
+    : (typeof data.billableSlotsToday === 'number' && data.billableSlotsToday > 0 ? data.billableSlotsToday : onlineCount);
+
+  // Card 1: Balance / Debt
+  const cardBal = document.getElementById("us-card-balance");
+  const balIcon = document.getElementById("us-stat-balance-icon");
+  const balTitle = document.getElementById("us-stat-balance-title");
+  const balVal = document.getElementById("us-stat-balance-val");
+  const balSub = document.getElementById("us-stat-balance-sub");
+
+  if (balancePoints < 0) {
+    const debt = Math.abs(balancePoints);
+    if (cardBal) {
+      cardBal.style.background = "linear-gradient(135deg, rgba(239, 68, 68, 0.16), rgba(15, 23, 42, 0.9))";
+      cardBal.style.borderColor = "rgba(239, 68, 68, 0.4)";
+    }
+    if (balIcon) balIcon.innerText = "🚨";
+    if (balTitle) balTitle.innerText = "หนี้ค้างชำระ";
+    if (balVal) {
+      balVal.innerText = `-${debt.toLocaleString()}`;
+      balVal.style.color = "#f87171";
+    }
+    if (balSub) balSub.innerText = "มียอดค้างชำระ กรุณาเติมแต้มบุญ";
+  } else {
+    if (cardBal) {
+      cardBal.style.background = "linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.9))";
+      cardBal.style.borderColor = "rgba(52, 211, 153, 0.35)";
+    }
+    if (balIcon) balIcon.innerText = "🟢";
+    if (balTitle) balTitle.innerText = "แต้มบุญคงเหลือ";
+    if (balVal) {
+      balVal.innerText = `+${balancePoints.toLocaleString()}`;
+      balVal.style.color = "#34d399";
+    }
+    if (balSub) balSub.innerText = "ไม่มีหนี้ค้างชำระ (หนี้ = 0)";
+  }
+
+  // Card 2: Today's Expense
+  const todayVal = document.getElementById("us-stat-today-val");
+  const todaySub = document.getElementById("us-stat-today-sub");
+  if (todayVal) todayVal.innerText = todayPoints.toLocaleString();
+  if (todaySub) todaySub.innerText = `วันที่ ${data.bangkokDay || 'วันนี้'} (รอตัดเที่ยงคืน)`;
+
+  // Card 3: Active Slots
+  const slotsVal = document.getElementById("us-stat-slots-val");
+  const slotsSub = document.getElementById("us-stat-slots-sub");
+  if (slotsVal) slotsVal.innerText = activeSlots.toLocaleString();
+  if (slotsSub) slotsSub.innerText = `เรท ${ratePoints} แต้มบุญ / จอ / วัน`;
+
+  // Card 4: Billing Mode
+  const modeVal = document.getElementById("us-stat-mode-val");
+  const modeSub = document.getElementById("us-stat-mode-sub");
+  if (modeVal) {
+    if (data.billingMode === 'shadow') {
+      modeVal.innerText = "โหมดทดลอง (สังเกตการณ์)";
+      modeVal.style.color = "#facc15";
+    } else {
+      modeVal.innerText = "คิดตามการใช้งานจริง";
+      modeVal.style.color = "#34d399";
+    }
+  }
+  if (modeSub) {
+    modeSub.innerText = data.billingMode === 'shadow' ? "ยังไม่มีการหักแต้มบุญจริง" : "หักแต้มบุญตอนเที่ยงคืน (00:00 ICT)";
+  }
+
+  // Content List
+  const container = document.getElementById("usage-statement-content");
+  if (!container) return;
+
+  if (currentStatementTab === 'usage') {
+    renderDailyUsageTab(container, data, todayPoints, activeSlots, ratePoints);
+  } else {
+    renderLedgerTab(container, data);
+  }
+}
+
+function renderDailyUsageTab(container, data, todayPoints, activeSlots, ratePoints) {
+  const usages = Array.isArray(data.usage) ? data.usage : [];
+  
+  let html = '';
+  // Top Item: Today's running estimate
+  html += `
+    <div class="us-row-item" style="border-left: 3px solid #38bdf8; background: linear-gradient(90deg, rgba(56, 189, 248, 0.08), rgba(15, 23, 42, 0.7));">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; font-size: 16px;">
+          📅
+        </div>
+        <div>
+          <div style="font-weight: 700; color: #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+            <span>วันที่ ${data.bangkokDay || 'วันนี้'}</span>
+            <span style="font-size: 10px; background: rgba(56, 189, 248, 0.2); color: #7dd3fc; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 600;">รอบวันนี้ (กำลังรัน)</span>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">
+            ${activeSlots} จอที่ใช้งาน · เรท ${ratePoints} แต้มบุญ/จอ/วัน
+          </div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 16px; font-weight: 800; color: #38bdf8; font-family: monospace;">
+          ${todayPoints > 0 ? '-' + todayPoints.toLocaleString() : '0'} <small style="font-size: 11px; font-weight: normal; color: #bae6fd;">แต้มบุญ</small>
+        </div>
+        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
+          ${data.billingMode === 'shadow' ? '🧪 สังเกตการณ์ (ยังไม่หักจริง)' : '⏳ สรุปยอดตัดรอบเที่ยงคืน'}
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (usages.length === 0) {
+    html += `
+      <div style="text-align: center; color: #64748b; padding: 24px; font-size: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.08); margin-top: 6px;">
+        <div style="font-size: 22px; margin-bottom: 6px;">📋</div>
+        ยังไม่มีบันทึกสรุปย้อนหลังของวันก่อนหน้า<br>
+        <span style="font-size: 11px; color: #475569;">(ระบบจะบันทึกประวัติการเสียแต้มบุญและสรุปยอดอัตโนมัติทุกเที่ยงคืน 00:00 ICT)</span>
+      </div>
+    `;
+  } else {
+    usages.forEach(u => {
+      const slots = u.slots || u.billable_slots || u.used_slots || 0;
+      const rate = (u.rate_units || data.rateUnits || 200) / 100;
+      const charged = (u.charged_units != null ? u.charged_units : (u.estimated_units || 0)) / 100;
+      const isShadow = u.mode === 'shadow' || data.billingMode === 'shadow';
+      html += `
+        <div class="us-row-item">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.2); display: flex; align-items: center; justify-content: center; font-size: 16px;">
+              🗓️
+            </div>
+            <div>
+              <div style="font-weight: 700; color: #e2e8f0; font-size: 13px;">
+                วันที่ ${escapeHTML(u.bangkok_day || '—')}
+              </div>
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+                ${slots} จอ · อัตรา ${rate} แต้มบุญ/จอ/วัน
+              </div>
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 15px; font-weight: 800; color: ${isShadow ? '#facc15' : '#cbd5e1'}; font-family: monospace;">
+              -${charged.toLocaleString()} <small style="font-size: 11px; font-weight: normal;">แต้มบุญ</small>
+            </div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
+              ${isShadow ? '🧪 โหมดทดลอง (ไม่หักจริง)' : '✅ สรุปยอดแล้ว'}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  container.innerHTML = html;
+}
+
+function renderLedgerTab(container, data) {
+  const ledger = Array.isArray(data.ledger) ? data.ledger : [];
+  if (ledger.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; color: #64748b; padding: 36px; font-size: 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.08);">
+        <div style="font-size: 26px; margin-bottom: 6px;">💳</div>
+        ยังไม่มีประวัติการหักแต้มบุญ การติดหนี้ หรือการชำระเงิน<br>
+        <span style="font-size: 11px; color: #475569;">(เมื่อมีการหักค่าบริการรายวัน การติดหนี้ หรือการเติมแต้มบุญชำระหนี้ รายการจะปรากฏที่นี่)</span>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  ledger.forEach(item => {
+    const deltaUnits = typeof item.delta_units === 'number' ? item.delta_units : 0;
+    const deltaPoints = deltaUnits / 100;
+    const isNegative = deltaPoints < 0;
+    const absPoints = Math.abs(deltaPoints);
+
+    let kindLabel = 'รายการเดินบัญชี';
+    let kindBadgeColor = '#94a3b8';
+    let kindBadgeBg = 'rgba(148, 163, 184, 0.15)';
+    let icon = '💳';
+
+    if (item.kind === 'charge' || item.kind === 'daily_charge') {
+      kindLabel = 'หักค่าบริการรายวัน';
+      kindBadgeColor = '#fca5a5';
+      kindBadgeBg = 'rgba(239, 68, 68, 0.2)';
+      icon = '🔻';
+    } else if (item.kind === 'topup' || item.kind === 'payment') {
+      kindLabel = 'ชำระหนี้ / เติมแต้มบุญ';
+      kindBadgeColor = '#6ee7b7';
+      kindBadgeBg = 'rgba(16, 185, 129, 0.2)';
+      icon = '➕';
+    } else if (item.kind === 'adjustment') {
+      kindLabel = 'ปรับปรุงยอดหนี้';
+      kindBadgeColor = '#c084fc';
+      kindBadgeBg = 'rgba(168, 85, 247, 0.2)';
+      icon = '⚖️';
+    }
+
+    const dateStr = item.bangkok_day || item.created_at || '—';
+    const reasonStr = item.reason || (isNegative ? 'หักค่าบริการ' : 'เพิ่มแต้มบุญ');
+    const balAfterStr = typeof item.balance_after_units === 'number' 
+      ? `คงเหลือ ${(item.balance_after_units / 100).toLocaleString()} แต้มบุญ` 
+      : '';
+
+    html += `
+      <div class="us-row-item">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 8px; background: ${isNegative ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)'}; border: 1px solid ${isNegative ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+            ${icon}
+          </div>
+          <div>
+            <div style="font-weight: 700; color: #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+              <span>${escapeHTML(reasonStr)}</span>
+              <span style="font-size: 10px; background: ${kindBadgeBg}; color: ${kindBadgeColor}; padding: 1px 7px; border-radius: 999px; font-weight: 600;">${kindLabel}</span>
+            </div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">
+              ${escapeHTML(dateStr)} ${balAfterStr ? '· ' + balAfterStr : ''}
+            </div>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 15px; font-weight: 800; color: ${isNegative ? '#f87171' : '#34d399'}; font-family: monospace;">
+            ${isNegative ? '-' : '+'}${absPoints.toLocaleString()} <small style="font-size: 11px; font-weight: normal;">แต้มบุญ</small>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function openUsageStatementModal() {
+  const modal = document.getElementById("modal-usage-statement");
+  if (!modal) return;
+  modal.classList.add("active");
+  modal.style.display = "flex";
+  fetchStatementData(true);
+}
+window.openUsageStatementModal = openUsageStatementModal;
+
+function closeUsageStatementModal() {
+  const modal = document.getElementById("modal-usage-statement");
+  if (modal) {
+    modal.classList.remove("active");
+    modal.style.display = "none";
+  }
+}
+window.closeUsageStatementModal = closeUsageStatementModal;
+
+function initUsageStatementModal() {
+  const pill = document.getElementById("btn-open-usage-statement");
+  if (pill) {
+    pill.onclick = openUsageStatementModal;
+    pill.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openUsageStatementModal();
+      }
+    };
+  }
+
+  const btnClose = document.getElementById("btn-usage-statement-close");
+  const btnOk = document.getElementById("btn-usage-statement-ok");
+  if (btnClose) btnClose.onclick = closeUsageStatementModal;
+  if (btnOk) btnOk.onclick = closeUsageStatementModal;
+
+  const btnTopup = document.getElementById("btn-usage-statement-topup");
+  if (btnTopup) {
+    btnTopup.onclick = () => {
+      closeUsageStatementModal();
+      const topupBtn = document.getElementById("btn-topup-captcha");
+      if (topupBtn) topupBtn.click();
+    };
+  }
+
+  const tabUsage = document.getElementById("us-tab-usage");
+  const tabLedger = document.getElementById("us-tab-ledger");
+
+  if (tabUsage && tabLedger) {
+    tabUsage.onclick = () => {
+      currentStatementTab = 'usage';
+      tabUsage.style.background = "rgba(56, 189, 248, 0.2)";
+      tabUsage.style.color = "#38bdf8";
+      tabUsage.style.border = "1px solid rgba(56, 189, 248, 0.4)";
+      tabUsage.style.fontWeight = "700";
+
+      tabLedger.style.background = "transparent";
+      tabLedger.style.color = "#94a3b8";
+      tabLedger.style.border = "none";
+      tabLedger.style.fontWeight = "normal";
+
+      if (lastStatementData) renderUsageStatementModal(lastStatementData);
+    };
+
+    tabLedger.onclick = () => {
+      currentStatementTab = 'ledger';
+      tabLedger.style.background = "rgba(56, 189, 248, 0.2)";
+      tabLedger.style.color = "#38bdf8";
+      tabLedger.style.border = "1px solid rgba(56, 189, 248, 0.4)";
+      tabLedger.style.fontWeight = "700";
+
+      tabUsage.style.background = "transparent";
+      tabUsage.style.color = "#94a3b8";
+      tabUsage.style.border = "none";
+      tabUsage.style.fontWeight = "normal";
+
+      if (lastStatementData) renderUsageStatementModal(lastStatementData);
+    };
+  }
+
+  const btnRefresh = document.getElementById("btn-usage-statement-refresh");
+  if (btnRefresh) {
+    btnRefresh.onclick = () => {
+      btnRefresh.innerText = "⏳ กำลังรีเฟรช...";
+      fetchStatementData(true).finally(() => {
+        setTimeout(() => { btnRefresh.innerText = "🔄 รีเฟรช"; }, 400);
+      });
+    };
+  }
+
+  const modal = document.getElementById("modal-usage-statement");
+  if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) closeUsageStatementModal();
+    };
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal && modal.style.display !== "none") {
+      closeUsageStatementModal();
+    }
+  });
+
+  // Initial statement fetch
+  fetchStatementData();
+  // Poll statement every 60s
+  setInterval(() => fetchStatementData(), 60000);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initUsageStatementModal);
+} else {
+  initUsageStatementModal();
+}
+
 
 
 window.answerHumanCheckQuick = async function(profileId, pick) {
@@ -546,6 +976,10 @@ function updateMetrics() {
   };
   setBar("metric-online-bar", "metric-online-of", onlineCount);
   setBar("metric-farming-bar", "metric-farming-of", farmingCount);
+
+  if (typeof updateUsageStatementDisplay === 'function') {
+    updateUsageStatementDisplay(onlineCount);
+  }
 
   const totalZeny = currentProfiles.reduce((sum, p) => {
     const z = p.liveState && typeof p.liveState.zeny === 'number' ? p.liveState.zeny : 0;

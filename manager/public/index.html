@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=42512">
+  <link rel="stylesheet" href="style.css?v=42513">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
   <link rel="stylesheet" href="plan_editor.css?v=42900">
@@ -66,8 +66,6 @@
         <button id="btn-refresh" class="btn btn-icon" title="รีเฟรชข้อมูล">
           <span class="icon">🔄</span>
         </button>
-        <a class="btn" href="script_status.html?v=2" target="_blank" rel="noopener">สิทธิ์สคริปต์ / ใบสรุป</a>
-        <a class="btn" href="https://api.noggunsshop.xyz/v1/aetheria/admin/usage/ui" target="_blank" rel="noopener" title="เข้าสู่หน้าผู้ดูแลผ่าน Cloudflare Access และ MFA">ผู้ดูแลส่วนบุญ</a>
       </div>
     </header>
 
@@ -80,12 +78,17 @@
           <div class="metric-val" id="metric-total-profiles">0</div>
         </div>
       </div>
-      <div class="metric-card">
+      <div class="metric-card" id="metric-card-online">
         <div class="metric-icon" style="--h: 155;">🖥️</div>
         <div class="metric-body">
           <div class="metric-label">จอที่ออนไลน์</div>
           <div class="metric-val text-success"><span id="metric-online-profiles">0</span><small class="metric-of" id="metric-online-of">/ 0</small></div>
           <div class="metric-bar"><div class="metric-bar-fill ok" id="metric-online-bar"></div></div>
+          <div id="btn-open-usage-statement" class="online-expense-pill" role="button" tabindex="0" title="คลิกเพื่อดูประวัติการติดหนี้และชำระแต้มบุญ">
+            <span class="expense-pill-icon">🧾</span>
+            <span class="expense-pill-text" id="online-expense-text">หนี้วันนี้: <strong id="online-expense-val">0</strong> แต้มบุญ</span>
+            <span class="expense-pill-arrow">❯</span>
+          </div>
         </div>
       </div>
       <div class="metric-card">
@@ -1037,7 +1040,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42735"></script>
+  <script src="app.js?v=42736"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1413,6 +1416,100 @@
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;">
         <span style="font-size: 11px; color: #64748b;">สถิติจะอัปเดตอัตโนมัติเมื่อระบบตอบคำถามเช็คผู้เล่นสำเร็จ</span>
         <button type="button" id="btn-captcha-history-ok" class="btn btn-secondary" style="font-size: 12px; padding: 6px 18px;">ปิด</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- USAGE STATEMENT & DEBT HISTORY MODAL -->
+  <div id="modal-usage-statement" class="modal-overlay modal" style="display: none; align-items: center; justify-content: center; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.8); z-index: 99999; backdrop-filter: blur(6px);">
+    <div class="modal-content" style="background: #0b1329; border: 1.5px solid rgba(56, 189, 248, 0.4); border-radius: 14px; width: 720px; max-width: 95vw; box-shadow: 0 25px 70px rgba(0, 0, 0, 0.95), 0 0 35px rgba(56, 189, 248, 0.2); color: #f8fafc; padding: 22px; font-family: inherit; max-height: 90vh; display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 12px; margin-bottom: 14px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 26px;">🧾</span>
+          <div>
+            <h3 style="margin: 0; font-size: 16.5px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+              <span>ประวัติการติดหนี้และชำระแต้มบุญ</span>
+              <span id="us-statement-badge" style="font-size: 10.5px; background: rgba(56, 189, 248, 0.2); color: #7dd3fc; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 600;">ตัดรอบเที่ยงคืน (00:00 ICT)</span>
+            </h3>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">สรุปค่าใช้จ่ายตามจำนวนจอ ค่าบริการรายวัน และรายการชำระ/หักแต้มบุญ</div>
+          </div>
+        </div>
+        <button type="button" id="btn-usage-statement-close" style="background: transparent; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; padding: 0 4px; font-weight: bold;">✕</button>
+      </div>
+
+      <!-- Top Summary Statistics Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; flex-shrink: 0;">
+        <!-- Card 1: Balance / Debt -->
+        <div id="us-card-balance" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span id="us-stat-balance-icon">🟢</span> <span id="us-stat-balance-title">แต้มบุญคงเหลือ</span>
+          </div>
+          <div style="font-size: 20px; font-weight: 800; color: #34d399; margin-top: 3px; font-family: monospace;">
+            <span id="us-stat-balance-val">0</span> <small style="font-size: 11px; font-weight: normal; color: #a7f3d0;">แต้มบุญ</small>
+          </div>
+          <div id="us-stat-balance-sub" style="font-size: 10px; color: #64748b; margin-top: 2px;">ไม่มีหนี้ค้างชำระ</div>
+        </div>
+
+        <!-- Card 2: Today's Expense -->
+        <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>📅</span> วันนี้ (ประมาณการ)
+          </div>
+          <div style="font-size: 20px; font-weight: 800; color: #38bdf8; margin-top: 3px; font-family: monospace;">
+            <span id="us-stat-today-val">0</span> <small style="font-size: 11px; font-weight: normal; color: #bae6fd;">แต้มบุญ</small>
+          </div>
+          <div id="us-stat-today-sub" style="font-size: 10px; color: #64748b; margin-top: 2px;">คำนวณจากจอที่ออนไลน์</div>
+        </div>
+
+        <!-- Card 3: Active Slots Today -->
+        <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>🖥️</span> จำนวนจอคิดค่าบริการ
+          </div>
+          <div style="font-size: 20px; font-weight: 800; color: #c084fc; margin-top: 3px; font-family: monospace;">
+            <span id="us-stat-slots-val">0</span> <small style="font-size: 11px; font-weight: normal; color: #e9d5ff;">จอ</small>
+          </div>
+          <div id="us-stat-slots-sub" style="font-size: 10px; color: #64748b; margin-top: 2px;">เรท 2 แต้มบุญ/จอ/วัน</div>
+        </div>
+
+        <!-- Card 4: Billing Mode -->
+        <div style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.12), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(250, 204, 21, 0.35); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 5px;">
+            <span>⚙️</span> สถานะนโยบาย
+          </div>
+          <div style="font-size: 13.5px; font-weight: 700; color: #facc15; margin-top: 6px;">
+            <span id="us-stat-mode-val">โหมดทดลอง (ยังไม่หัก)</span>
+          </div>
+          <div id="us-stat-mode-sub" style="font-size: 10px; color: #64748b; margin-top: 4px;">สังเกตการณ์ฟรี</div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Usage vs Ledger) -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-shrink: 0;">
+        <div style="display: flex; gap: 6px;">
+          <button type="button" id="us-tab-usage" class="btn btn-sm" style="font-size: 11.5px; padding: 4px 12px; border-radius: 6px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 700;">📅 ค่าใช้จ่ายรายวัน</button>
+          <button type="button" id="us-tab-ledger" class="btn btn-sm btn-ghost" style="font-size: 11.5px; padding: 4px 12px; border-radius: 6px; color: #94a3b8;">💳 ประวัติหนี้ & การชำระเงิน</button>
+        </div>
+        <button type="button" id="btn-usage-statement-refresh" class="btn btn-ghost btn-sm" style="font-size: 11px; padding: 2px 8px; color: #94a3b8;">
+          🔄 รีเฟรช
+        </button>
+      </div>
+
+      <!-- Scrollable Container for Lists -->
+      <div id="usage-statement-content" style="flex: 1; overflow-y: auto; max-height: 440px; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; min-height: 140px;">
+        <div style="text-align: center; color: #64748b; padding: 30px; font-size: 12px;">กำลังโหลดข้อมูลใบสรุป...</div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;">
+        <span style="font-size: 11px; color: #64748b;">💡 100 units = 1 ส่วนบุญ (แต้มบุญ) · หากมียอดหนี้ ระบบจะหักลบอัตโนมัติเมื่อเติมเงิน</span>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="btn-usage-statement-topup" class="btn" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(202, 138, 4, 0.15)); border: 1px solid rgba(250, 204, 21, 0.5); color: #facc15; font-size: 12px; padding: 5px 14px; font-weight: 600;">💰 เติมแต้มบุญ</button>
+          <button type="button" id="btn-usage-statement-ok" class="btn btn-secondary" style="font-size: 12px; padding: 5px 16px;">ปิด</button>
+        </div>
       </div>
 
     </div>
