@@ -8,7 +8,7 @@ Production daily billing was already enabled by the prior rollout (activation da
 
 API tests 60/60; Security 12/12; Manager 92/92; actual isolated Edge/Chrome 4.37.1 delivery/renew/reconnect/reload/expiry passed and screenshots reviewed. Production payload smoke passed without execution/usage/topup. Provider connectivity passed with an invalid fixture, but no real voucher was redeemed; valid payment end-to-end remains unverified.
 
-Proxy exposed credential literals were removed from current source/release; owner must rotate the previously published provider credentials. Reservations now use atomic quota/funds admission and exact retry ACKs, sticky IP sessions, bounded deadlines and durable ambiguous-result review. UI uses actual slot/ledger fields, honors zero usage, and does not invent balance or debt from open-game counts.
+Proxy exposed credential literals were removed from current source/release; owner explicitly declined credential rotation; existing locally stored credentials are permitted, never restored to distributed source. Reservations now use atomic quota/funds admission and exact retry ACKs, sticky IP sessions, bounded deadlines and durable ambiguous-result review. UI uses actual slot/ledger fields, honors zero usage, and does not invent balance or debt from open-game counts.
 
 For operational updates follow AGENTS.md / agent.md and the private API cloudflare/DEPLOYMENT_STATUS.md. GitHub updates Manager/bootstrap/tooling; private payload requires explicit build + D1 import + Worker deploy. Rollback must preserve latest financial ledger and both lease-pinned releases. The sections below are the historical 2026-10-12 preparation record, not the current deployment state.
 

@@ -1414,7 +1414,7 @@ function applyProxyConnectionSettings(settings) {
   const fields={'proxy-config-host':settings.proxyHost||'','proxy-config-port':settings.proxyPort||'','proxy-config-country':settings.country||'th'};
   for(const [id,value]of Object.entries(fields)){const input=document.getElementById(id);if(input&&document.activeElement!==input)input.value=value;}
   const note=document.getElementById('proxy-config-note');
-  if(note)note.textContent=settings.rotationRequired?'credential เดิมถูกบล็อก ให้ยกเลิก/เปลี่ยนที่ผู้ให้บริการแล้วกรอกชุดใหม่':settings.configured?'มี credential ที่ตั้งไว้แล้ว กรอกผู้ใช้และรหัสผ่านเฉพาะเมื่อต้องการเปลี่ยน':'ยังไม่ได้ตั้งค่า credential ชุดใหม่จากผู้ให้บริการ';
+  if(note)note.textContent=settings.configured?'ใช้ข้อมูลรับรองที่เก็บในเครื่องได้ กรอกใหม่เฉพาะเมื่อต้องการเปลี่ยน':'กรอกข้อมูลรับรอง Proxy ที่ต้องการใช้ในเครื่องนี้';
   const confirm=document.getElementById('btn-proxy-modal-confirm');if(confirm)confirm.disabled=!settings.enabled&&!settings.configured;
 }
 async function saveProxyConnectionSettings(){
@@ -1424,7 +1424,7 @@ async function saveProxyConnectionSettings(){
   if(!!user!==!!password)return showToast('กรอกชื่อผู้ใช้ Proxy และรหัสผ่านใหม่ทั้งคู่ หรือเว้นทั้งคู่เพื่อคงค่าเดิม','error');
   if(user){body.proxyUser=user;body.proxyPass=password;}
   try{const response=await fetch(`${API_BASE}/api/proxy-register/settings`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),data=await response.json();if(!response.ok||data.success!==true)throw Error(data.error||'ยังบันทึกค่า Proxy ไม่ได้');
-    document.getElementById('proxy-config-user').value='';document.getElementById('proxy-config-pass').value='';applyProxyConnectionSettings(data.settings);updateProxyRegisterToolbarBtn(data.settings.enabled);showToast('บันทึกไว้ในเครื่องแล้ว Proxy ยังปิดอยู่ เปิดใช้งานหลังตรวจ credential ชุดใหม่','success');
+    document.getElementById('proxy-config-user').value='';document.getElementById('proxy-config-pass').value='';applyProxyConnectionSettings(data.settings);updateProxyRegisterToolbarBtn(data.settings.enabled);showToast('บันทึกไว้ในเครื่องแล้ว Proxy ยังปิดอยู่ สามารถเปิดใช้งานเมื่อพร้อม','success');
   }catch(error){showToast(error.message,'error');}
 }
 async function fetchProxyRegisterSettings() {

@@ -1043,7 +1043,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=43622"></script>
+  <script src="app.js?v=43623"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1559,15 +1559,15 @@
 
         <section style="background:rgba(15,23,42,.6);border:1px solid #334155;border-radius:8px;padding:12px">
           <strong>ตั้งค่า Proxy ในเครื่องนี้</strong>
-          <p id="proxy-config-note" style="color:#facc15;font-size:11px">ให้เจ้าของเปลี่ยน credential ที่เคยเผยแพร่กับผู้ให้บริการก่อนกรอกชุดใหม่ ไม่ใช้รหัสผ่านเกม</p>
+          <p id="proxy-config-note" style="color:#facc15;font-size:11px">ใช้ข้อมูลรับรอง Proxy ที่เก็บในเครื่องได้ หรือกรอกชุดที่ต้องการใช้ ไม่ใช้รหัสผ่านเกม</p>
           <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;font-size:11px">
             <label>Host<input id="proxy-config-host" class="form-input" placeholder="proxy.provider.example" autocomplete="off"></label>
             <label>Port<input id="proxy-config-port" class="form-input" type="number" min="1" max="65535" placeholder="8000"></label>
             <label>ประเทศ<input id="proxy-config-country" class="form-input" maxlength="2" value="th"></label>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:11px">
-            <label>ชื่อผู้ใช้ Proxy ใหม่<input id="proxy-config-user" class="form-input" autocomplete="off" placeholder="เว้นว่างเพื่อคง credential เดิม"></label>
-            <label>รหัสผ่าน Proxy ใหม่<input id="proxy-config-pass" class="form-input" type="password" autocomplete="new-password" placeholder="ไม่แสดงรหัสผ่านที่บันทึกไว้"></label>
+            <label>ชื่อผู้ใช้ Proxy<input id="proxy-config-user" class="form-input" autocomplete="off" placeholder="เว้นว่างเพื่อคง credential เดิม"></label>
+            <label>รหัสผ่าน Proxy<input id="proxy-config-pass" class="form-input" type="password" autocomplete="new-password" placeholder="ไม่แสดงรหัสผ่านที่บันทึกไว้"></label>
           </div>
           <button id="btn-proxy-config-save" type="button" class="btn btn-secondary btn-sm" style="margin-top:8px">บันทึกในเครื่อง (ยังไม่เปิดใช้งาน)</button>
         </section>
