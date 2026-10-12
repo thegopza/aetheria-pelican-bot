@@ -111,3 +111,16 @@ test('corrupt durable request state fails closed without paying or answering', a
   assert.equal(f.evals.length, 0);
   assert.equal(f.debitCount(), 0);
 });
+
+test('device nickname defaults to configured getter and can be updated dynamically', () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [],
+    getDeviceNickname: () => 'CustomPC'
+  });
+  assert.equal(service.getDeviceNickname(), 'CustomPC');
+  service.setDeviceNickname('Office-Main');
+  assert.equal(service.getDeviceNickname(), 'Office-Main');
+});
+

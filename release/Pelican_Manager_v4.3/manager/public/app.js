@@ -1121,6 +1121,67 @@ function initTopupCaptchaModal() {
   refreshTopupData();
 }
 
+function initDeviceNickname() {
+  const input = document.getElementById("device-nickname-input");
+  const savedBadge = document.getElementById("device-nickname-saved");
+  if (!input) return;
+
+  let currentSavedValue = "";
+  let hideSavedTimer = null;
+
+  async function loadNickname() {
+    try {
+      const res = await fetch(`${API_BASE}/api/device-nickname`).then(r => r.json());
+      if (res && res.success) {
+        currentSavedValue = res.nickname || "";
+        input.value = currentSavedValue;
+        if (res.defaultNickname) {
+          input.placeholder = res.defaultNickname;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load device nickname:", err);
+    }
+  }
+
+  async function saveNickname() {
+    const val = input.value.trim();
+    if (val === currentSavedValue) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/device-nickname`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: val })
+      }).then(r => r.json());
+
+      if (res && res.success) {
+        currentSavedValue = res.nickname || "";
+        input.value = currentSavedValue;
+        if (savedBadge) {
+          savedBadge.style.display = "inline";
+          if (hideSavedTimer) clearTimeout(hideSavedTimer);
+          hideSavedTimer = setTimeout(() => {
+            if (savedBadge) savedBadge.style.display = "none";
+          }, 2000);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save device nickname:", err);
+    }
+  }
+
+  input.addEventListener("change", saveNickname);
+  input.addEventListener("blur", saveNickname);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    }
+  });
+
+  loadNickname();
+}
+
 (async () => {
   try {
     const res = await fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json());
@@ -1134,6 +1195,7 @@ function initTopupCaptchaModal() {
     }
   } catch (e) {}
   initTopupCaptchaModal();
+  initDeviceNickname();
 })();
 document.getElementById("btn-start-bot-all").onclick = e => setBotOnAllClients(true, e.currentTarget);
 document.getElementById("btn-stop-bot-all").onclick = e => setBotOnAllClients(false, e.currentTarget);

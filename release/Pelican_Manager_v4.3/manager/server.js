@@ -58,6 +58,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { spawn, exec } = require("child_process");
 
 const PORT = 3888;
@@ -1115,6 +1116,18 @@ const managerUpdater = createManagerSelfUpdater({
   isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
 });
 
+function getDefaultDeviceNickname() {
+  return process.env.USERNAME || (typeof os.userInfo === 'function' ? os.userInfo()?.username : '') || os.hostname() || 'PmheeUser';
+}
+
+function getEffectiveDeviceNickname() {
+  const st = installer.loadSettings() || {};
+  if (st.deviceNickname && typeof st.deviceNickname === 'string' && st.deviceNickname.trim()) {
+    return st.deviceNickname.trim();
+  }
+  return getDefaultDeviceNickname();
+}
+
 const discordService = createDiscordBotService({
   dataDir: path.join(__dirname, "data"),
   loadProfiles,
@@ -1125,7 +1138,8 @@ const discordService = createDiscordBotService({
       http.get(`http://127.0.0.1:${profile.debugPort}/api/window?action=top`, () => {}).on('error', () => {});
     }
   },
-  humanCheckSolver
+  humanCheckSolver,
+  getDeviceNickname: getEffectiveDeviceNickname
 });
 
 // Background monitor for Human Check (alerts Discord even if Manager UI is closed/idle)
@@ -2531,6 +2545,35 @@ public class PmFocus {
           installer.saveSettings(st);
           sendJSON({ success: true, launchMode: st.launchMode, browserKind: st.browserKind });
         } catch (e) { sendJSON({ success: false, error: e.message }, 400); }
+      });
+      return;
+    }
+  }
+
+  // GET/POST /api/device-nickname ({ nickname: '...' })
+  if (pathname === "/api/device-nickname") {
+    if (req.method === "GET") {
+      const defaultNick = getDefaultDeviceNickname();
+      const currentNick = getEffectiveDeviceNickname();
+      return sendJSON({ success: true, nickname: currentNick, defaultNickname: defaultNick });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const st = installer.loadSettings() || {};
+          const cleaned = typeof data.nickname === 'string' ? data.nickname.trim().slice(0, 32) : '';
+          st.deviceNickname = cleaned;
+          installer.saveSettings(st);
+          if (discordService && typeof discordService.setDeviceNickname === 'function') {
+            discordService.setDeviceNickname(st.deviceNickname || getDefaultDeviceNickname());
+          }
+          sendJSON({ success: true, nickname: st.deviceNickname || getDefaultDeviceNickname(), defaultNickname: getDefaultDeviceNickname() });
+        } catch (e) {
+          sendJSON({ success: false, error: e.message }, 400);
+        }
       });
       return;
     }

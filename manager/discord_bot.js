@@ -8,12 +8,28 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { createHumanCheckSolver } = require('./human_check_solver.js');
 
-function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver }) {
+function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver, getDeviceNickname }) {
   const SETTINGS_FILE = path.join(dataDir, 'discord_settings.json');
   const solver = humanCheckSolver || createHumanCheckSolver({ dataDir });
+
+  let currentDeviceNickname = '';
+  function resolveDeviceNickname() {
+    if (currentDeviceNickname && currentDeviceNickname.trim()) return currentDeviceNickname.trim();
+    if (typeof getDeviceNickname === 'function') {
+      try {
+        const nick = getDeviceNickname();
+        if (nick && typeof nick === 'string' && nick.trim()) return nick.trim();
+      } catch (e) {}
+    }
+    return process.env.USERNAME || (typeof os.userInfo === 'function' ? os.userInfo()?.username : '') || os.hostname() || 'PmheeUser';
+  }
+  function setDeviceNickname(name) {
+    currentDeviceNickname = typeof name === 'string' ? name.trim() : '';
+  }
 
   const DEFAULT_DISCORD_SETTINGS = {
     enabled: true,
@@ -359,26 +375,27 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       );
     };
 
+    const nick = resolveDeviceNickname();
     if (action === 'focus') {
       if (typeof focusProfileWindow === 'function') {
         focusProfileWindow(profileId);
       }
-      await respondInteraction(`🖥️ ดึงหน้าต่างจอเกม [${profileId}] ขึ้นมาหน้าสุดเรียบร้อยแล้ว!`);
+      await respondInteraction(`🖥️ [${nick}] ดึงหน้าต่างจอเกม [${profileId}] ขึ้นมาหน้าสุดเรียบร้อยแล้ว!`);
       return;
     }
 
     const pickIndex = /^[0-5]$/.test(action) ? Number(action) : NaN;
     if (isNaN(pickIndex)) {
-      await respondInteraction(`❌ คำสั่งไม่ถูกต้อง: ${action}`);
+      await respondInteraction(`❌ [${nick}] คำสั่งไม่ถูกต้อง: ${action}`);
       return;
     }
 
     // Answer in game
     const result = await answerCheckInGame(profileId, pickIndex, '', { id: active.checkId, prompt: active.prompt });
     if (result.success) {
-      await respondInteraction(`✅ **ตอบตัวเลือกที่ ${pickIndex + 1}** ให้จอ [${profileId}] เรียบร้อยแล้ว! กำลังตรวจสอบผลลัพธ์...`);
+      await respondInteraction(`✅ [${nick}] **ตอบตัวเลือกที่ ${pickIndex + 1}** ให้จอ [${profileId}] เรียบร้อยแล้ว! กำลังตรวจสอบผลลัพธ์...`);
     } else {
-      await respondInteraction(`⚠️ สั่งตอบไม่สำเร็จ: ${result.error || 'ไม่ทราบสาเหตุ'}`);
+      await respondInteraction(`⚠️ [${nick}] สั่งตอบไม่สำเร็จ: ${result.error || 'ไม่ทราบสาเหตุ'}`);
     }
   }
 
@@ -412,11 +429,12 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return;
     }
 
+    const nick = resolveDeviceNickname();
     const active = activeChecks.get(targetProfileId);
     const result = await answerCheckInGame(targetProfileId, pickIndex, '', { id: active.checkId, prompt: active.prompt });
     const replyText = result.success
-      ? `✅ [ตอบผ่านแชท] เลือกตัวเลือกที่ **${pickNum}** ให้จอ **${targetProfileId}** เรียบร้อยแล้ว!`
-      : `⚠️ [ตอบผ่านแชท] สั่งตอบไม่สำเร็จ: ${result.error}`;
+      ? `✅ [${nick} · ตอบผ่านแชท] เลือกตัวเลือกที่ **${pickNum}** ให้จอ **${targetProfileId}** เรียบร้อยแล้ว!`
+      : `⚠️ [${nick} · ตอบผ่านแชท] สั่งตอบไม่สำเร็จ: ${result.error}`;
 
     await discordRequest(
       `/channels/${msg.channel_id}/messages`,
@@ -492,10 +510,22 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     const promptText = check.prompt || '(ไม่มีข้อความโจทย์)';
     const metaText = check.meta || '';
     const optionsCount = resolvedOptions.length || 4;
+    const nick = resolveDeviceNickname();
 
     let pointMessage = '';
+    let manualReason = '';
+
+    const autoAnswerEnabled = (hcSettings.autoAnswer && cfg.autoAnswer !== false);
+    if (!autoAnswerEnabled) {
+      manualReason = 'ไม่ได้เปิด Auto Captcha';
+      pointMessage = 'ℹ️ **สถานะ:** ไม่ได้เปิดระบบตอบอัตโนมัติ (Auto Captcha) ไว้ — กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง';
+    } else if (hcSettings.pointSystemEnabled && (hcSettings.points || 0) <= 0 && solver?.isRemoteService) {
+      manualReason = 'Point หมด (0 P)';
+      pointMessage = '🪙 **สถานะ:** Point สำหรับตอบอัตโนมัติหมดแล้ว (0 P) — กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง หรือเติม Point ใน Manager';
+    }
+
     // Cached points are display data. Only the remote service authorizes and charges a solve.
-    const shouldAutoAnswer = hcSettings.autoAnswer && cfg.autoAnswer !== false && solver?.isRemoteService === true;
+    const shouldAutoAnswer = autoAnswerEnabled && solver?.isRemoteService === true;
     if (shouldAutoAnswer) {
       const baseDelay = parseInt(hcSettings.answerDelayMs || cfg.answerDelayMs, 10) || 1800;
       const jitter = Math.floor(Math.random() * 600) - 250;
@@ -516,12 +546,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
           if (authorized && stillEnabled) {
             ansRes = await answerCheckInGame(profileId, solution.pickIndex, solution.matchedName, { id: trackedCheck.checkId, prompt: trackedCheck.prompt });
           } else {
-            pointMessage = '⚠️ บริการส่วนกลางไม่อนุมัติการตอบอัตโนมัติ กรุณาตรวจสอบ Point หรือการเชื่อมต่อ';
+            manualReason = manualReason || 'Point ไม่เพียงพอ หรือระบบไม่อนุมัติ';
+            pointMessage = '⚠️ บริการส่วนกลางไม่อนุมัติการตอบอัตโนมัติ (Point ไม่พอ) กรุณาเลือกตอบด้วยตนเองผ่านปุ่มด้านล่าง';
             ansRes = { success: false, error: 'บริการส่วนกลางไม่อนุมัติคำตอบ หรือปิดการตอบอัตโนมัติแล้ว' };
           }
         }
       } catch (err) {
-        pointMessage = '⚠️ ไม่สามารถยืนยันคำตอบจากบริการส่วนกลางได้ กรุณาตอบด้วยตนเอง';
+        manualReason = 'การเชื่อมต่อขัดข้อง';
+        pointMessage = '⚠️ ไม่สามารถยืนยันคำตอบจากบริการส่วนกลางได้ กรุณาตอบด้วยตนเองผ่านปุ่มด้านล่าง';
         console.warn('[HumanCheckSolver] Remote authorization unavailable; auto-answer disabled.');
       }
 
@@ -542,7 +574,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
         const embed = {
           title: `🤖 [Auto Human Check] ตรวจพบและตอบเช็คผู้เล่นสำเร็จ!`,
-          description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ยืนยันจากบริการส่วนกลาง)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
+          description: `💻 **เครื่อง:** \`${nick}\`\n🎮 **จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n🎯 **ระบบจับคู่อัตโนมัติ:**\n✅ เลือกตัวเลือกที่ **${solution.pickIndex + 1}**: **${solution.matchedName}** (ยืนยันจากบริการส่วนกลาง)\n⏱️ หน่วงเวลาตอบ: **${delayMs} ms** (เลียนแบบผู้เล่น)${pointDeductText}`,
           color: 0x10B981, // Emerald Green
           fields: [
             {
@@ -551,7 +583,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
               inline: false
             }
           ],
-          footer: { text: `Aetheria Online · PmheeAether Auto-Solver · จอ #${profile.name}` },
+          footer: { text: `Aetheria Online · เครื่อง: ${nick} · จอ #${profile.name}` },
           timestamp: new Date().toISOString()
         };
 
@@ -561,14 +593,14 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
         if (cfg.botToken && cfg.channelId) {
           await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', {
-            content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) มีโจทย์เช็คผู้เล่น -> บอทจับคู่และตอบ **"${solution.matchedName}"** ให้อัตโนมัติเรียบร้อยแล้ว!`,
+            content: `🤖 **[Auto-Solver · เครื่อง: ${nick}]** จอ **${charName}** (${profile.name}) มีโจทย์เช็คผู้เล่น -> บอทจับคู่และตอบ **"${solution.matchedName}"** ให้อัตโนมัติเรียบร้อยแล้ว!`,
             embeds: [embed]
           }, cfg.botToken, fileAttachment);
         } else if (cfg.webhookUrl) {
           await discordRequest(cfg.webhookUrl, 'POST', {
-            username: 'PmheeAether Anti-Bot Solver',
+            username: `PmheeAether (${nick})`,
             avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
-            content: `🤖 **[Auto-Solver]** จอ **${charName}** (${profile.name}) ตอบเช็คผู้เล่นอัตโนมัติสำเร็จ!`,
+            content: `🤖 **[Auto-Solver · เครื่อง: ${nick}]** จอ **${charName}** (${profile.name}) ตอบเช็คผู้เล่นอัตโนมัติสำเร็จ!`,
             embeds: [embed]
           }, null, fileAttachment);
         }
@@ -587,11 +619,11 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
     const embed = {
       title: `🚨 ตรวจพบเช็คผู้เล่น (Human Check)!`,
-      description: `**จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}` +
-        (pointMessage ? `\n\n${pointMessage}` : '') + '\n\nตอบผ่านแชทด้วยการ Reply ข้อความแจ้งเตือนนี้แล้วพิมพ์เลขตัวเลือก',
+      description: `💻 **เครื่อง:** \`${nick}\`\n🎮 **จอเกม:** \`${profile.name}\` (ตัวละคร: **${charName}**)\n\n### ❓ โจทย์คำถาม:\n> **${promptText}**\n\n⏱️ **สถานะ:** ${metaText || 'กรุณาตอบภายในเวลา มิฉะนั้นจะถูกส่งเข้าคุก!'}` +
+        (pointMessage ? `\n\n${pointMessage}` : '') + '\n\n👉 **วิธีตอบ:** กดปุ่มตัวเลือกด้านล่าง หรือ Reply ข้อความนี้แล้วพิมพ์เลขข้อ',
       color: 0xEF4444, // Red
       fields: [],
-      footer: { text: `Aetheria Online · PmheeAether Manager · จอ #${profile.name}` },
+      footer: { text: `Aetheria Online · เครื่อง: ${nick} · จอ #${profile.name}` },
       timestamp: new Date().toISOString()
     };
 
@@ -644,9 +676,10 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
 
     // Send via Bot Token (to channel) or Webhook with image attachment
     if (cfg.enabled) {
+      const reasonBadge = manualReason ? `[${manualReason}] ` : '';
       if (cfg.botToken && cfg.channelId) {
         const payload = {
-          content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
+          content: `🚨 **แจ้งเตือนด่วน [เครื่อง: ${nick}]** ${reasonBadge}จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น! กดปุ่มด้านล่างเพื่อตอบได้ทันที:`,
           embeds: [embed],
           components
         };
@@ -657,9 +690,9 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
         }
       } else if (cfg.webhookUrl) {
         const payload = {
-          username: 'PmheeAether Anti-Bot Alert',
+          username: `PmheeAether (${nick})`,
           avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
-          content: `🚨 **แจ้งเตือนด่วน!** จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น!`,
+          content: `🚨 **แจ้งเตือนด่วน [เครื่อง: ${nick}]** ${reasonBadge}จอ **${charName}** (${profile.name}) มีคำถามเช็คผู้เล่น!`,
           embeds: [embed]
         };
         await discordRequest(cfg.webhookUrl, 'POST', payload, null, fileAttachment);
@@ -694,9 +727,10 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       timestamp: new Date().toISOString()
     };
 
+    const nick = resolveDeviceNickname();
     if (cfg.botToken && cfg.channelId) {
       const payload = {
-        content: '👋 **ทดสอบการเชื่อมต่อสำเร็จ!**',
+        content: `👋 **[เครื่อง: ${nick}] ทดสอบการเชื่อมต่อสำเร็จ!**`,
         embeds: [embed],
         components: [
           {
@@ -711,7 +745,8 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       return await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken);
     } else if (cfg.webhookUrl) {
       const payload = {
-        username: 'PmheeAether Alert Test',
+        username: `PmheeAether (${nick})`,
+        content: `👋 **[เครื่อง: ${nick}] ทดสอบการเชื่อมต่อสำเร็จ!**`,
         embeds: [embed]
       };
       return await discordRequest(cfg.webhookUrl, 'POST', payload);
@@ -734,29 +769,32 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     const mm = Math.floor(remainingSec / 60);
     const ss = remainingSec % 60;
     const timeText = `${mm}:${ss < 10 ? '0' : ''}${ss} นาที`;
+    const nick = resolveDeviceNickname();
 
     const embed = {
       title: '🚨 [เตือนภัยบอท] ตรวจพบตัวละครกลับเมืองโดยไม่ทราบสาเหตุ!',
-      description: `ตัวละคร **${profile.name}** กำลังอยู่ในเมืองหลวงโซลเฮเวนโดยตรวจไม่พบสาเหตุ\n(ไม่ได้เสียชีวิต / ไม่ได้กด Butterfly Wing / ไม่ได้กำลังเดินทางผ่านเมือง)\n\nระบบสั่งสุ่มพักรอนิรภัย **${timeText}** เพื่อความปลอดภัยสูงสุดของไอดี`,
+      description: `💻 **เครื่อง:** \`${nick}\`\nตัวละคร **${profile.name}** กำลังอยู่ในเมืองหลวงโซลเฮเวนโดยตรวจไม่พบสาเหตุ\n(ไม่ได้เสียชีวิต / ไม่ได้กด Butterfly Wing / ไม่ได้กำลังเดินทางผ่านเมือง)\n\nระบบสั่งสุ่มพักรอนิรภัย **${timeText}** เพื่อความปลอดภัยสูงสุดของไอดี`,
       color: 0xEF4444,
       fields: [
+        { name: '💻 เครื่อง', value: nick, inline: true },
         { name: '👤 จอโปรไฟล์', value: profile.name, inline: true },
         { name: '⏱️ ระยะเวลาพักรอ', value: timeText, inline: true },
         { name: '🛡️ สถานะระบบ', value: 'ระงับการเดินและรอครบเวลา หรือกดปุ่ม [ข้าม] ในหน้าจอเกม', inline: false }
       ],
-      footer: { text: 'PmheeAether Anti-Detection System · Discord Alert' },
+      footer: { text: `PmheeAether Anti-Detection System · เครื่อง: ${nick} · Discord Alert` },
       timestamp: new Date().toISOString()
     };
 
     if (cfg.botToken && cfg.channelId) {
       const payload = {
-        content: `🚨 **แจ้งเตือนความปลอดภัย:** ตรวจพบตัวละคร **${profile.name}** กลับเมืองโดยไม่ทราบสาเหตุ!`,
+        content: `🚨 **แจ้งเตือนความปลอดภัย [เครื่อง: ${nick}]:** ตรวจพบตัวละคร **${profile.name}** กลับเมืองโดยไม่ทราบสาเหตุ!`,
         embeds: [embed]
       };
       return await discordRequest(`/channels/${cfg.channelId}/messages`, 'POST', payload, cfg.botToken);
     } else if (cfg.webhookUrl) {
       const payload = {
-        username: 'PmheeAether Safety Guard',
+        username: `PmheeAether (${nick})`,
+        avatar_url: 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/manager/public/icon.png',
         embeds: [embed]
       };
       return await discordRequest(cfg.webhookUrl, 'POST', payload);
@@ -774,7 +812,9 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     clearHumanCheck,
     answerCheckInGame,
     testNotification,
-    syncGatewayConnection
+    syncGatewayConnection,
+    getDeviceNickname: resolveDeviceNickname,
+    setDeviceNickname
   };
 }
 

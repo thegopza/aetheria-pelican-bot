@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=42510">
+  <link rel="stylesheet" href="style.css?v=42511">
   <link rel="stylesheet" href="inventory_market.css?v=4360">
   <link rel="stylesheet" href="bot_update.css?v=4390">
   <link rel="stylesheet" href="plan_editor.css?v=42900">
@@ -21,7 +21,15 @@
           <span>🎮</span>
         </div>
         <div class="brand-text">
-          <h1>Aetheria Online Manager</h1>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <h1 style="margin: 0;">Aetheria Online Manager</h1>
+            <div class="device-nickname-badge" title="ชื่อเครื่องที่แสดงในการแจ้งเตือน Discord (คลิกเพื่อแก้ไข)">
+              <span class="device-icon">💻</span>
+              <span class="device-label">เครื่อง:</span>
+              <input type="text" id="device-nickname-input" class="device-nickname-field" placeholder="ชื่อเครื่อง..." maxlength="25" spellcheck="false" title="ตั้งชื่อเล่นประจำเครื่องนี้ เพื่อให้รู้ว่าแจ้งเตือน Discord มาจากเครื่องไหน">
+              <span id="device-nickname-saved" style="display: none; font-size: 11px; color: #34d399; font-weight: bold;" title="บันทึกแล้ว">✓</span>
+            </div>
+          </div>
           <span class="subtext">Multi-Client Isolated Sessions & Bot Control <span class="ver-pill">v4.3.0</span></span>
         </div>
       </div>
@@ -1018,7 +1026,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=42732"></script>
+  <script src="app.js?v=42733"></script>
   <script src="patcher_module.js?v=41743"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>

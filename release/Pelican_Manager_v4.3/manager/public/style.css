@@ -133,6 +133,65 @@ body {
   padding: 1px 7px;
 }
 
+.device-nickname-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 999px;
+  padding: 2px 8px 2px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+}
+
+.device-nickname-badge:hover,
+.device-nickname-badge:focus-within {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.2);
+}
+
+.device-nickname-badge .device-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.device-nickname-badge .device-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #38bdf8;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.device-nickname-field {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  width: 95px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.device-nickname-field:focus {
+  width: 140px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.device-nickname-field::placeholder {
+  color: #64748b;
+  font-weight: 400;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
