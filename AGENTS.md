@@ -215,3 +215,15 @@ PmheeAether เป็นซอฟต์แวร์ที่ใช้งาน�
 - Billing: อ่าน enabled/wallet_units_ready/activation_day/acceptance ใน D1 และ statement จริง ห้าม hardcode UI ว่าไม่คิดเงิน ห้ามคำนวณหนี้จากจำนวนเกมที่เปิดหรือใช้ยอดสมมุติ; นับ actual script usage ตาม immutable slot+วันไทย และไม่เปิด/ปิด billing เปลี่ยนเรทหรือวันเริ่มเองจากการ deploy
 - หลัง deploy ตรวจ API/Licensing health, balance/statement read-only, provider connectivity ด้วย invalid fixture (ไม่ใช้ซอง/เบอร์จริง), signed payload/renewal ทั้งรุ่นเดิมและใหม่, schemaและยอดเดิม; อัปเดต DEPLOYMENT_STATUS.md ให้ตรงของจริงพร้อม deployment ID/hash/test limitations
 - Rollback ใช้ Worker revision ก่อนหน้าและ D1 ledger ล่าสุด เก็บ payload รุ่นก่อน; ห้าม restore backup เก่าทับรายการเติม/หักใหม่ ห้าม downgrade wallet_units_ready ที่ย้ายเป็น units แล้ว; ห้ามฝังข้อมูลรับรองในชุดแจก; เจ้าของยืนยันวันที่ 2026-10-13 ให้ใช้ Proxy credential เดิมในเครื่องได้โดยไม่บังคับ rotate ตามการตัดสินใจนี้ ห้ามนำค่าจริงกลับเข้า source/GitHub/ZIP
+
+## Owner-hosted friends mode / งานส่งต่อ — 2026-10-13
+
+ทางเข้ารวมโปรเจกต์คือ D:\MyProject\PmheeAether (manager-project และ private-api เป็น junction ไป source เดิม ไม่ใช่สำเนาใหม่) อ่าน TASKS.md และ TEST_PLAN.md ในโฟลเดอร์นี้ก่อนแก้งานต่อ หรือ docs/FRIENDS_OFFLINE_TASKS.md และ docs/FRIENDS_OFFLINE_TEST_PLAN.md ใน repo นี้
+
+เจ้าของยืนยันแบบ friends-offline: signed cached encrypted payload ไม่ต้องต่ออายุสิทธิ์ออนไลน์, solver/catalog ฝังใน private bot, เก็บสถิติใน Manager, local daily debt แยกวันไทย/slotId, ส่งทุกชั่วโมง/เที่ยงคืน/reconnect, ล้างเฉพาะ ACK สำเร็จ, ยอดแสดงคำนวณต่อจาก local pending ขณะ host เจ้าของออฟไลน์; เติมเงินตรวจรับกลางเมื่อ host ออนไลน์เท่านั้น นี่คือการปรับแบบที่เจ้าของอนุญาต ไม่ใช่การให้ผู้ใช้ข้าม billing โดยพลการ
+
+สถานะรอบนี้: มี candidate code ใน working tree และ partial tests แล้ว แต่ **ยังไม่ deploy/cutover** Cloudflare ยังเป็น ledger หลัก; PMheeAetheriaApi ยัง Stopped/Manual; ห้ามเริ่ม service จากฐาน SQLite เก่า เจ้าของสั่งให้จัดโฟลเดอร์/ร่างงานแล้วให้ agent อื่นพัฒนาต่อและ Codex ตรวจ ดังนั้นอย่า commit/push candidate code หรือย้าย route เองเพียงเพราะไฟล์ถูกสร้างแล้ว อ่านรายการค้างและผ่าน test gates ก่อนปล่อยจริง เอกสาร handoff เผยแพร่ได้โดยไม่รวม candidate code หรือ customer edits
+
+Private implementation candidate อยู่ Server/PMhee.AetheriaApi/owner-host/ และ protected-script/bot.source.js รุ่น4.38.0; public bot.js เป็น compatibility4.36.2 และยังห้ามซิงค์ private source/payload เข้า public Git/ZIP/gamefolder ตราบใดที่ runtime4.37.x เดิมยังเปิดอยู่ ต้องเก็บ protocol1 compatibility/lease renewalไว้จน safe refresh โหลด protocol2สำเร็จ
+
+trash มีเฉพาะ one-off patch helper ที่ตรวจแล้วว่าไม่ได้ใช้ ไม่ใช่ที่ทิ้งฐานเก่า/secrets/sourceเดิม/rollbackโดยเดา ห้าม recursively move/delete junction ของ repo และห้ามสร้าง source hand-edit สำเนาที่สาม
