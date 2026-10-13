@@ -1932,6 +1932,7 @@ const server = http.createServer(async (req, res) => {
       browserMode.launch(profile)
         .then(r => {
           if (r && r.alreadyOpen) scriptCoordinator.cycle?.().catch(() => {});
+          if (profile.autoRegister) setTimeout(() => authSync.syncOne(profile).catch(() => {}), 2500);
           sendJSON(r);
         })
         .catch(e => sendJSON({ success: false, error: `เปิดในเบราว์เซอร์ไม่สำเร็จ: ${e.message}` }, 500));
@@ -1973,6 +1974,7 @@ const server = http.createServer(async (req, res) => {
       };
 
       console.log(`[PmheeAether Manager] 🚀 Launched client "${profile.name}" (PID: ${child.pid}, Port: ${profile.debugPort})`);
+      if (profile.autoRegister) setTimeout(() => authSync.syncOne(profile).catch(() => {}), 3500);
       return sendJSON({ success: true, pid: child.pid, port: profile.debugPort, movedFromPort: profile.movedFromPort });
     } catch (err) {
       return sendJSON({ success: false, error: err.message }, 500);

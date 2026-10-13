@@ -9,7 +9,7 @@ function validRegistrationState(value){
   if(r.ip!==undefined&&(typeof r.ip!=='string'||!/^(\d{1,3}\.){3}\d{1,3}$/.test(r.ip)||r.ip.split('.').some(n=>Number(n)>255)))return false;
   if(['reserved','submission-unknown','completion-pending'].includes(r.phase)&&(!r.ip||typeof r.ticketId!=='string'||!r.ticketId||!Number.isSafeInteger(r.expiresAt)||r.expiresAt<=0))return false;
   if(r.phase==='completion-pending'&&(!plainObject(r.outcome)||typeof r.outcome.success!=='boolean'||r.outcome.code!==(r.outcome.success?'REGISTERED':'USERNAME_TAKEN')))return false;
-  if(r.phase==='done'&&(!plainObject(r.result)||typeof r.result.success!=='boolean'||(r.result.success&&(!r.ticketId||!plainObject(r.outcome)||r.outcome.success!==true))||(!r.result.success&&!['IP_RATE_LIMITED','USERNAME_TAKEN'].includes(r.result.code))))return false;
+  if(r.phase==='done'&&(!plainObject(r.result)||typeof r.result.success!=='boolean'||(r.result.success&&(!r.ticketId||!plainObject(r.outcome)||r.outcome.success!==true))||(!r.result.success&&!['IP_RATE_LIMITED','USERNAME_TAKEN','REGISTRATION_REJECTED'].includes(r.result.code))))return false;
  }
  return true;
 }
@@ -27,7 +27,7 @@ async function requestThroughProxy(host,route,s,user,payload){
   const fail=code=>{if(settled)return;settled=true;clearTimeout(deadline);req?.destroy();response?.destroy();socket.destroy();reject(Error(code));};
   // Absolute full-body deadline cannot be prolonged by a peer sending occasional chunks.
   const deadline=setTimeout(()=>fail('PROXY_REQUEST_DEADLINE'),limit);
-  req=https.request({host,port:443,path:route,method:body?'POST':'GET',headers:{Host:host,Accept:'application/json',...(body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),Origin:'https://www.aetheria-online.in.th',Referer:'https://www.aetheria-online.in.th/'}:{})},createConnection:()=>socket,timeout:limit},res=>{
+  req=https.request({host,port:443,path:route,method:body?'POST':'GET',headers:{Host:host,Accept:'application/json','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',...(body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),Origin:'https://www.aetheria-online.in.th',Referer:'https://www.aetheria-online.in.th/'}:{})},createConnection:()=>socket,timeout:limit},res=>{
    response=res;let text='';res.setEncoding('utf8');res.on('error',()=>fail('PROXY_RESPONSE_FAILED'));
    res.on('data',chunk=>{text+=chunk;if(Buffer.byteLength(text)>65536)fail('PROXY_RESPONSE_TOO_LARGE');});
    res.on('end',()=>{if(settled)return;settled=true;clearTimeout(deadline);let json=null;try{json=JSON.parse(text);}catch(_){}socket.destroy();resolve({statusCode:res.statusCode,json});});
@@ -77,7 +77,15 @@ function createProxyRegisterService({dataDir,solver,fetchEgressIp:testIp,registe
    const ip=await fetchIp(s,user);if(ip!==record.ip){record.phase='submission-unknown';record.reviewCode='EGRESS_IP_CHANGED_BEFORE_SIGNUP';write(stateFile,state);return {success:false,code:'REGISTRATION_REVIEW_REQUIRED',pending:true,error:'IP ของ session เปลี่ยน หยุดก่อนส่งคำสั่งสมัคร'};}
    if(record.expiresAt<=now()+60000)return refreshExpiredReservation();
    record.phase='submission-unknown';write(stateFile,state);let response;try{response=await signup(s,user,username,password);}catch(_){return {success:false,code:'REGISTRATION_REVIEW_REQUIRED',pending:true,error:'ยังไม่ทราบผลสมัคร ห้ามส่งคำสั่งซ้ำจนตรวจสอบแล้ว'};}
-   const ok=response.statusCode>=200&&response.statusCode<300&&(response.json?.success===true||response.json?.ok===true),taken=response.statusCode===409;if(!ok&&!taken)return {success:false,code:'REGISTRATION_REVIEW_REQUIRED',pending:true,error:'รูปแบบผลตอบกลับยังยืนยันไม่ได้ ต้องตรวจสอบรายการสมัคร'};record.outcome={success:ok,code:ok?'REGISTERED':'USERNAME_TAKEN'};record.phase='completion-pending';write(stateFile,state);
+   const ok=response.statusCode>=200&&response.statusCode<300&&(response.json?.success===true||response.json?.ok===true||typeof response.json?.token==='string'||!!response.json?.token);
+   const taken=response.statusCode===409||/ชื่อผู้ใช้.*(ใช้แล้ว|ซ้ำ)|USERNAME_TAKEN/i.test(response.json?.error||'');
+   const rateLimited=response.statusCode===429||/โควต้า|จำกัด|rate limit|too many/i.test(response.json?.error||'');
+   if(rateLimited){record.phase='done';record.result={success:false,code:'IP_RATE_LIMITED',error:response.json?.error||'IP นี้ติดโควต้าการสมัคร 3 ไอดี/ชม. กรุณาลองใหม่อีกครั้ง'};write(stateFile,state);return record.result;}
+   if(!ok&&!taken){
+    if(response.statusCode>=400&&response.statusCode<500&&response.json?.error){record.phase='done';record.result={success:false,code:'REGISTRATION_REJECTED',error:response.json.error};write(stateFile,state);return record.result;}
+    return {success:false,code:'REGISTRATION_REVIEW_REQUIRED',pending:true,error:'รูปแบบผลตอบกลับยังยืนยันไม่ได้ ต้องตรวจสอบรายการสมัคร'};
+   }
+   record.outcome={success:ok,code:ok?'REGISTERED':'USERNAME_TAKEN'};record.phase='completion-pending';write(stateFile,state);
   }
   if(record.phase==='completion-pending'){const r=await solver.proxyComplete(record.ticketId,record.username,record.outcome.success);if(r?.success!==true)throw Error('PROXY_COMPLETION_PENDING');record.result=record.outcome.success?{success:true,username:record.username,ip:record.ip,ticketId:record.ticketId,chargedPoints:0.1,newBalance:r.balance}:{success:false,code:'USERNAME_TAKEN',error:'ชื่อผู้ใช้นี้ถูกใช้แล้ว'};record.phase='done';write(stateFile,state);if(record.result.success)saveSettings({registeredCount:loadSettings().registeredCount+1,lastRegisteredAt:Date.now(),lastTestedIp:record.ip});return record.result;}
   throw Error('PROXY_STATE_REVIEW_REQUIRED');

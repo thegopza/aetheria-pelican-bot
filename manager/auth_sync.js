@@ -3,9 +3,10 @@
 // - profile with ID + password: the client's Auto-login gets them (and is switched on) whenever its saved
 //   ID/password differ from the profile's.
 // - profile created without a password (profile.autoRegister): the Manager generates the missing ID and
-//   password, saves them in the profile FIRST, then tells the bot to sign up (authConfig.register) and
-//   to create a character. If the bot had to pick another ID (taken), that ID is copied back here.
-//   When the bot reports registerDone the profile becomes a normal ID + password profile.
+//   password in candidate memory (WITHOUT saving unverified credentials to the profile beforehand).
+//   Registration is performed either via Proxy or in-game sign-up form.
+//   Only when registration SUCCEEDS are the ID and password committed to the profile / credentials,
+//   and the client logs in normally.
 // Passwords never leave the Manager except to the profile's own game client.
 
 const crypto = require('crypto');
@@ -34,6 +35,8 @@ const pushJs = cfg => `(() => {
 function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials, proxyRegister }) {
   // passwords live in data/credentials.json (git-ignored), not in profiles.json
   const pw = p => credentials.getPassword(p.id);
+  const pendingCreds = new Map(); // profileId -> { username, password, generatedUser }
+
   function updateProfile(id, patch) {
     const profiles = loadProfiles();
     const p = profiles.find(x => x.id === id);
@@ -43,31 +46,85 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
     return p;
   }
 
-  // Generate whatever an auto-register profile is still missing (saved before anything is sent)
-  function ensureRegisterCredentials(profile) {
-    if (!pw(profile)) credentials.setPassword(profile.id, genPassword());
-    if (!profile.account) return updateProfile(profile.id, { account: genUserId(), generatedAccount: true });
-    return profile;
+  function getCandidateCreds(profile) {
+    let c = pendingCreds.get(profile.id);
+    const hasAccount = !!(profile.account && profile.account.trim());
+    if (!c || (hasAccount && c.username !== profile.account.trim())) {
+      c = {
+        username: hasAccount ? profile.account.trim() : genUserId(),
+        password: pw(profile) || genPassword(),
+        generatedUser: !hasAccount
+      };
+      pendingCreds.set(profile.id, c);
+    }
+    return c;
   }
+
+  function rotateCandidateUser(profile) {
+    const c = getCandidateCreds(profile);
+    c.username = genUserId();
+    c.generatedUser = true;
+    pendingCreds.set(profile.id, c);
+    return c;
+  }
+
+  function commitSuccessfulRegistration(profile, username, password) {
+    credentials.setPassword(profile.id, password);
+    const updated = updateProfile(profile.id, {
+      account: username,
+      autoRegister: false,
+      generatedAccount: true,
+      registeredAt: Date.now(),
+      proxyRegistrationState: 'done',
+      registerError: '',
+      loginSyncPending: true
+    });
+    pendingCreds.delete(profile.id);
+    return updated || profile;
+  }
+
   async function syncProxyRegistration(profile) {
+    const cred = getCandidateCreds(profile);
     try {
-      const result=await proxyRegister.registerAccountWithProxy({profileId:profile.id,username:profile.account,password:pw(profile)});
-      if(result?.success===true) {
-        // Persist the known signup outcome before delivering login settings; a lost game ACK cannot sign up again.
-        updateProfile(profile.id,{autoRegister:false,registeredAt:Date.now(),proxyRegistrationState:'done',registerError:'',loginSyncPending:true});
-        const delivered=await evalProfilePort(profile.debugPort,pushJs({enabled:true,autoResumeBot:true,username:profile.account,password:pw(profile),register:false,registerDone:true,autoCreateChar:true}),3000);
-        if(!delivered?.success||delivered.result?.success!==true) updateProfile(profile.id,{registerError:'สมัครสำเร็จแล้ว แต่ยังส่งค่าล็อกอินเข้าจอไม่ได้ รอซิงค์อีกครั้ง'});
-        else updateProfile(profile.id,{loginSyncPending:false});
-      } else if(result?.code==='USERNAME_TAKEN' && profile.generatedAccount) {
-        updateProfile(profile.id,{account:genUserId(),generatedAccount:true,proxyRegistrationState:'known-rejected',registerError:''});
-      } else if(result?.pending) {
-        updateProfile(profile.id,{proxyRegistrationState:'review-required',registerError:result.error||'รายการสมัครยังรอตรวจสอบ'});
+      const result = await proxyRegister.registerAccountWithProxy({
+        profileId: profile.id,
+        username: cred.username,
+        password: cred.password
+      });
+      if (result?.success === true) {
+        commitSuccessfulRegistration(profile, cred.username, cred.password);
+        const delivered = await evalProfilePort(profile.debugPort, pushJs({
+          enabled: true, autoResumeBot: true, username: cred.username, password: cred.password,
+          register: false, registerDone: true, autoCreateChar: true
+        }), 3000);
+        if (!delivered?.success || delivered.result?.success !== true) {
+          updateProfile(profile.id, { registerError: 'สมัครสำเร็จแล้ว แต่ยังส่งค่าล็อกอินเข้าจอไม่ได้ รอซิงค์อีกครั้ง' });
+        } else {
+          updateProfile(profile.id, { loginSyncPending: false });
+        }
+        console.log(`[AuthSync] ✅ ${profile.name}: สมัครบัญชีผ่าน Proxy สำเร็จ ("${cred.username}") -> ส่งคำสั่งล็อกอินเข้าเกม`);
+      } else if (result?.code === 'USERNAME_TAKEN') {
+        const nextUser = rotateCandidateUser(profile).username;
+        if (profile.generatedAccount) {
+          updateProfile(profile.id, { account: nextUser, generatedAccount: true, proxyRegistrationState: 'known-rejected', registerError: '' });
+        } else if (!profile.account) {
+          updateProfile(profile.id, { proxyRegistrationState: 'known-rejected', registerError: '' });
+        } else {
+          updateProfile(profile.id, { proxyRegistrationState: 'known-rejected', registerError: 'ชื่อผู้ใช้นี้ถูกใช้แล้ว' });
+        }
+      } else if (result?.pending) {
+        updateProfile(profile.id, { proxyRegistrationState: 'review-required', registerError: result.error || 'รายการสมัครยังรอตรวจสอบ' });
       } else {
-        // Known refusal (nothing was sent to the game): sign up on the game's own form instead of giving up.
-        updateProfile(profile.id,{proxyRegistrationState:'known-rejected',proxyFallbackBrowser:true,registerError:'Proxy ไม่อนุมัติ ('+(result?.error||'ไม่ทราบสาเหตุ')+') — เปลี่ยนไปสมัครผ่านหน้าเกมแทน'});
+        updateProfile(profile.id, {
+          proxyRegistrationState: 'known-rejected',
+          proxyFallbackBrowser: true,
+          registerError: 'Proxy ไม่อนุมัติ (' + (result?.error || 'ไม่ทราบสาเหตุ') + ') — เปลี่ยนไปสมัครผ่านหน้าเกมแทน'
+        });
         console.warn(`[AuthSync] ⚠️ ${profile.name}: Proxy ไม่อนุมัติการสมัคร -> สมัครผ่านหน้าเกมแทน`);
       }
-    } catch(_) {updateProfile(profile.id,{proxyRegistrationState:'retry-pending',registerError:'ยังยืนยันผล Proxy ไม่ได้ เก็บรายการเดิมไว้ก่อนลองใหม่'});}
+    } catch (_) {
+      updateProfile(profile.id, { proxyRegistrationState: 'retry-pending', registerError: 'ยังยืนยันผล Proxy ไม่ได้ เก็บรายการเดิมไว้ก่อนลองใหม่' });
+    }
   }
 
   async function syncOne(profile) {
@@ -78,41 +135,53 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
     if (!cur) return;   // offline or bot not loaded yet
 
     if (profile.autoRegister) {
-      profile = ensureRegisterCredentials(profile) || profile;
-      if(proxyRegister?.hasPending?.(profile.id)){await syncProxyRegistration(profile);return;}
+      if (proxyRegister?.hasPending?.(profile.id)) {
+        await syncProxyRegistration(profile);
+        return;
+      }
       if (cur.registerDone && cur.username) {
-        if (cur.password && cur.password !== pw(profile)) credentials.setPassword(profile.id, cur.password);
-        updateProfile(profile.id, { account: cur.username, autoRegister: false, registeredAt: Date.now() });
-        console.log(`[AuthSync] ✅ ${profile.name}: สมัครบัญชี "${cur.username}" สำเร็จ`);
+        const cred = getCandidateCreds(profile);
+        commitSuccessfulRegistration(profile, cur.username, cur.password || cred.password);
+        console.log(`[AuthSync] ✅ ${profile.name}: สมัครบัญชีผ่านหน้าเกม "${cur.username}" สำเร็จ`);
         return;
       }
       if (cur.register) {
-        // the bot switched to another ID because ours was taken: keep the profile in step
-        if (cur.username && cur.username !== profile.account) updateProfile(profile.id, { account: cur.username });
+        if (cur.username) {
+          const cred = getCandidateCreds(profile);
+          if (cur.username !== cred.username) cred.username = cur.username;
+        }
         return;
       }
       if (cur.registerError) {
-        // sign-up refused for a user-given ID: the bot now logs in with it instead -> normal profile
         updateProfile(profile.id, { autoRegister: false, registerError: cur.registerError });
         return;
       }
 
-      // If Proxy Registration is enabled, sign up directly through proxy tunnel
-      if (!profile.proxyFallbackBrowser && proxyRegister && typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) {
-        await syncProxyRegistration(profile);return;
+      // If Proxy is available and not in browser fallback, use proxy registration
+      const proxyAvailable = !profile.proxyFallbackBrowser && proxyRegister && (
+        (typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) ||
+        (typeof proxyRegister.publicSettings === 'function' && proxyRegister.publicSettings().configured)
+      );
+      if (proxyAvailable) {
+        await syncProxyRegistration(profile);
+        return;
       }
 
+      const cred = getCandidateCreds(profile);
       await evalProfilePort(profile.debugPort, pushJs({
-        enabled: true, autoResumeBot: true, username: profile.account, password: pw(profile),
-        register: true, registerDone: false, autoCreateChar: true, generatedUser: !!profile.generatedAccount
+        enabled: true, autoResumeBot: true, username: cred.username, password: cred.password,
+        register: true, registerDone: false, autoCreateChar: true, generatedUser: !!cred.generatedUser
       }), 3000);
-      console.log(`[AuthSync] 📝 ${profile.name}: ส่งคำสั่งสมัครบัญชี "${profile.account}" ไปที่จอ`);
+      console.log(`[AuthSync] 📝 ${profile.name}: ส่งคำสั่งสมัครบัญชี "${cred.username}" ไปที่จอ`);
       return;
     }
 
     if (profile.loginSyncPending || cur.username !== profile.account || cur.password !== pw(profile)) {
-      const delivered=await evalProfilePort(profile.debugPort, pushJs({ enabled: true, username: profile.account, password: pw(profile), register: false,...(profile.loginSyncPending?{registerDone:true,autoCreateChar:true,autoResumeBot:true}:{}) }), 3000);
-      if(delivered?.success&&delivered.result?.success===true)updateProfile(profile.id,{loginSyncPending:false,registerError:''});
+      const delivered = await evalProfilePort(profile.debugPort, pushJs({
+        enabled: true, username: profile.account, password: pw(profile), register: false,
+        ...(profile.loginSyncPending ? { registerDone: true, autoCreateChar: true, autoResumeBot: true } : {})
+      }), 3000);
+      if (delivered?.success && delivered.result?.success === true) updateProfile(profile.id, { loginSyncPending: false, registerError: '' });
     }
   }
 
@@ -133,7 +202,7 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
     setTimeout(() => { tick(); setInterval(tick, SYNC_MS); }, 8000);
   }
 
-  return { start, tick };
+  return { start, tick, syncOne };
 }
 
 module.exports = { createAuthSync };

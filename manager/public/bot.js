@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.36.4
+// @version      4.36.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.36.4';
+    const PELICAN_BOT_VERSION = '4.36.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8687,6 +8687,9 @@
         } catch(e) {
             element.value = value;
         }
+        if (element._valueTracker) {
+            try { element._valueTracker.setValue(''); } catch (e) {}
+        }
         try {
             const reactPropsKey = Object.keys(element).find(k => k.startsWith('__reactProps'));
             if (reactPropsKey && element[reactPropsKey] && typeof element[reactPropsKey].onChange === 'function') {
@@ -9006,19 +9009,18 @@
         registerSubmittedAt = now;
         setTimeout(() => {
             try {
-                const reactPropsKey = Object.keys(form).find(k => k.startsWith('__reactProps'));
-                if (reactPropsKey && form[reactPropsKey] && typeof form[reactPropsKey].onSubmit === 'function') {
-                    form[reactPropsKey].onSubmit({ preventDefault: () => {}, stopPropagation: () => {} });
-                    return;
-                }
-            } catch (e) {}
-            try {
                 if (typeof form.requestSubmit === 'function') {
                     form.requestSubmit(submit);
                     return;
                 }
             } catch (e) {}
             try { submit.click(); } catch(e) {}
+            try {
+                const reactPropsKey = Object.keys(form).find(k => k.startsWith('__reactProps'));
+                if (reactPropsKey && form[reactPropsKey] && typeof form[reactPropsKey].onSubmit === 'function') {
+                    form[reactPropsKey].onSubmit({ preventDefault: () => {}, stopPropagation: () => {} });
+                }
+            } catch (e) {}
         }, 400);
     }
     // Called while not on the login screen: a sign-up from this page went through
