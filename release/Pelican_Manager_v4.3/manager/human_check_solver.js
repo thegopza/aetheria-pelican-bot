@@ -211,6 +211,13 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
       return res;
     },
     proxyStatus: ip => call('/v1/aetheria/proxy/status', { ip }),
+    proxyBrokerCapabilities: () => call('/v1/aetheria/proxy/capabilities'),
+    proxyBrokerSignup: async ({ requestId, profileId, username, password }) => {
+      const res = await call('/v1/aetheria/proxy/signup', { requestId, profileId, username, password });
+      if (res?.unitScale === 100 && Number.isSafeInteger(res.balanceUnits)) updateBalance({ ...res, schemaVersion: 2 });
+      return res;
+    },
+    proxyBrokerSignupStatus: ({ jobId, requestId }) => call('/v1/aetheria/proxy/signup-status', { jobId, requestId }),
     updateLocalCatalog: (catalog, hash) => localMatcher.update(catalog, hash),
     localCatalogReady: () => localMatcher.ready(),
     // A client must never mint, debit or refund credit locally.
