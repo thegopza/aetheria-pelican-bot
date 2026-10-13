@@ -16,9 +16,19 @@ const { spawn } = require('child_process');
 const GAME_URL = 'https://www.aetheria-online.in.th/play';
 const BOT_URL = 'https://raw.githubusercontent.com/thegopza/aetheria-pelican-bot/main/bot.js';
 const DEFAULT_CDP_PORT = 9339;
-const HEALTH_JS = `(() => ({href:location.href,documentId:String(performance.timeOrigin),ready:document.readyState,
- version:window.__pelicanBotVersion||null,hud:!!document.getElementById('pelican-hud'),liveHook:typeof window.__getClientLiveState==='function',
- initialized:!!window.__pmPayloadInitialized||!!window.__pmScriptBootstrap||!!window.__pmBrowserInjectionAttempted||('__isBotRunning' in window)||typeof window.startMasterBot==='function'||typeof window.startAutoLoop==='function'}))()`;
+const HEALTH_JS = `(() => {
+  const bs = window.__pmScriptBootstrap?.status?.() || null;
+  return {
+    href: location.href,
+    documentId: String(performance.timeOrigin),
+    ready: document.readyState,
+    version: window.__pelicanBotVersion || null,
+    hud: !!document.getElementById('pelican-hud'),
+    liveHook: typeof window.__getClientLiveState === 'function',
+    bootstrapPhase: bs?.phase || null,
+    initialized: !!window.__pmPayloadInitialized || (bs && bs.phase !== 'waiting') || !!window.__pmBrowserInjectionAttempted || ('__isBotRunning' in window) || typeof window.startMasterBot === 'function' || typeof window.startAutoLoop === 'function'
+  };
+})()`;
 
 function findBrowser(kind) {
   const pf = process.env.ProgramFiles || 'C:\\Program Files';
@@ -159,6 +169,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   async function botSource(profileId) {
     const selected=profileScriptSource?.(profileId);
     if(typeof selected==='string')return selected;
+    if(profileScriptSource) throw Error('MANAGED_SCRIPT_SOURCE_UNAVAILABLE');
     if (preferLocalBot) return fs.readFileSync(localBotPath, 'utf8');
     try {
       const code = await getText(BOT_URL + '?t=' + Date.now(), 8000);
@@ -176,7 +187,8 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   }
   const current=(c,token)=>clients.get(c.profileId)===c&&!stoppedProfiles.has(c.profileId)&&c.generation===token.generation&&c.sessionId===token.sessionId;
   function classify(c,h) {
-    if(h.version||h.initialized||h.hud||h.liveHook) {diagnostic(c,h.version&&h.hud&&h.liveHook?'ready':'partial-runtime',{version:h.version,documentId:h.documentId,hud:h.hud,liveHook:h.liveHook});return true;}
+    if(h.version&&h.hud&&h.liveHook){diagnostic(c,'ready',{version:h.version,documentId:h.documentId,hud:h.hud,liveHook:h.liveHook});return true;}
+    if(h.version||h.hud||h.liveHook||(h.initialized&&h.bootstrapPhase!=='waiting')){diagnostic(c,'partial-runtime',{version:h.version,documentId:h.documentId,hud:h.hud,liveHook:h.liveHook});return true;}
     return false;
   }
 
@@ -189,7 +201,14 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     try {
       const before=await health(c);token={generation:c.generation,sessionId:c.sessionId};
       if(classify(c,before))return;
-      if(!isGameUrl(before.href)||new URL(before.href).pathname!=='/play'||before.ready!=='complete'){diagnostic(c,'document-pending');return;}
+      if(!isGameUrl(before.href)||new URL(before.href).pathname!=='/play'||before.ready!=='complete'){
+        diagnostic(c,'document-pending');
+        if(c.attempts<5 && current(c,token)){
+          c.retryTimer=setTimeout(()=>{c.retryTimer=null;injectBot(c);},retryDelays[Math.min(c.attempts,retryDelays.length-1)]||1000);
+          c.retryTimer.unref?.();
+        }
+        return;
+      }
       if(c.attempts>=3){diagnostic(c,'load-failed',{code:'RETRY_LIMIT'});return;}
       c.attempts++;diagnostic(c,'loading');
       const selectedSource=profileScriptSource?.(c.profileId);
@@ -201,7 +220,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       await evaluate(c,MSGPACK);
       if(!current(c,token))return;
       // Atomic document/runtime guard closes the race with a delayed legacy loader response.
-      const expression=`(() => { if(String(performance.timeOrigin)!==${JSON.stringify(before.documentId)} || window.__pelicanBotVersion || window.__pmPayloadInitialized || window.__pmScriptBootstrap || window.__pmBrowserInjectionAttempted || ('__isBotRunning' in window) || typeof window.startMasterBot==='function' || document.getElementById('pelican-hud') || typeof window.__getClientLiveState==='function') return {skipped:true}; window.__pmBrowserInjectionAttempted=true; (0,eval)(${JSON.stringify(code)}); return {attempted:true}; })()`;
+      const expression=`(() => { if(String(performance.timeOrigin)!==${JSON.stringify(before.documentId)}) return {skipped:true,reason:'DOCUMENT_CHANGED'}; if(window.__pelicanBotVersion || window.__pmPayloadInitialized || ('__isBotRunning' in window) || typeof window.startMasterBot==='function' || document.getElementById('pelican-hud') || typeof window.__getClientLiveState==='function') return {skipped:true,reason:'ALREADY_RUNNING'}; if(window.__pmScriptBootstrap?.status?.()?.phase === 'failed') return {skipped:true,reason:'INITIALIZATION_FAILED'}; window.__pmBrowserInjectionAttempted=true; (0,eval)(${JSON.stringify(code)}); return {attempted:true}; })()`;
       await evaluate(c,expression);
       if(!current(c,token))return;
       const result=await health(c);if(!classify(c,result))diagnostic(c,'partial-runtime',{code:'POSTCONDITION_MISSING'});
@@ -355,13 +374,30 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   async function launch(profile) {
     stoppedProfiles.delete(profile.id);
     await ensureBrowser();
+    const wasReady = diagnostics.get(profile.id)?.botReady === true;
     await rediscover();
     const existing = clients.get(profile.id);
     if (existing) {
       const { targetInfos } = await send('Target.getTargets');
       if (targetInfos.some(t => t.targetId === existing.targetId)) {
+        startProxy(existing, profile.debugPort);
+        let h = null;
+        try { h = await health(existing); } catch (_) {}
+        if (!h || !h.version || !h.hud) {
+          try {
+            await injectBot(existing);
+            h = await health(existing).catch(() => null);
+          } catch (_) {}
+        }
+        const isReady = !!(h && h.version && h.hud);
+        const recovered = !wasReady && isReady;
         await windowAction(existing, 'focus', new URLSearchParams()).catch(() => {});
-        return { success: true, message: 'หน้าต่างนี้เปิดอยู่แล้ว', alreadyOpen: true };
+        return {
+          success: true,
+          message: recovered ? 'กู้คืนและเชื่อมต่อจอเดิมสำเร็จ' : 'หน้าต่างนี้เปิดอยู่แล้ว',
+          alreadyOpen: true,
+          recovered
+        };
       }
       drop(existing);
     }

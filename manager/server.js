@@ -1905,7 +1905,10 @@ const server = http.createServer(async (req, res) => {
 
     if (isBrowserMode()) {
       browserMode.launch(profile)
-        .then(r => sendJSON(r))
+        .then(r => {
+          if (r && r.alreadyOpen) scriptCoordinator.cycle?.().catch(() => {});
+          sendJSON(r);
+        })
         .catch(e => sendJSON({ success: false, error: `เปิดในเบราว์เซอร์ไม่สำเร็จ: ${e.message}` }, 500));
       return;
     }
@@ -1982,7 +1985,16 @@ const server = http.createServer(async (req, res) => {
         const launched = [], failed = [];
         for (const p0 of toOpen) {
           const p = (await ensureUsableDebugPort(p0.id)) || p0;
-          try { const r = await browserMode.launch(p); if (r && r.alreadyOpen) skipped.push(p.name); else launched.push({ id: p.id, name: p.name }); }
+          try {
+            const r = await browserMode.launch(p);
+            if (r && r.alreadyOpen) {
+              scriptCoordinator.cycle?.().catch(() => {});
+              if (!r.recovered) skipped.push(p.name);
+              else launched.push({ id: p.id, name: p.name });
+            } else {
+              launched.push({ id: p.id, name: p.name });
+            }
+          }
           catch (e) { failed.push(`${p.name}: ${e.message}`); }
         }
         sendJSON({ success: failed.length === 0, launched, skipped, error: failed.length ? failed.join('\n') : undefined });
