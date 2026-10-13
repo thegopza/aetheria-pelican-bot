@@ -139,3 +139,98 @@ test('failsafe triggers stop-all if challenge format is completely unknown', () 
   assert.ok(fetchCalls.some(url => url.includes('/api/stop-all')), 'Should trigger /api/stop-all for unknown format');
 });
 
+test('embedded bot solves frame-based prompt (กดรูปด้านล่างที่เหมือนกับรูปในกรอบ)', async () => {
+  const f = fixture();
+  const roomMessages = [];
+  const room = { send: (msg, data) => roomMessages.push({ msg, data }) };
+  f.window.getColyseusRoom = () => room;
+
+  const bw = 480, bh = 330;
+  const boardBuffer = Buffer.alloc(bw * bh * 4, 30);
+  // Golden frame at x: 200..280, y: 50..130
+  const fx = 200, fy = 50, fw = 80, fh = 80;
+  for (let y = fy; y <= fy + fh; y++) {
+    for (let x = fx; x <= fx + fw; x++) {
+      if (x === fx || x === fx + fw || y === fy || y === fy + fh) {
+        const idx = (y * bw + x) * 4;
+        boardBuffer[idx] = 210; boardBuffer[idx + 1] = 180; boardBuffer[idx + 2] = 60; boardBuffer[idx + 3] = 255;
+      }
+    }
+  }
+  // Target item in frame at (240, 90)
+  for (let dy = -6; dy <= 6; dy++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const idx = ((90 + dy) * bw + (240 + dx)) * 4;
+      boardBuffer[idx] = 240; boardBuffer[idx + 1] = 40; boardBuffer[idx + 2] = 40; boardBuffer[idx + 3] = 255;
+    }
+  }
+  // Matching item at bottom at (165, 235)
+  for (let dy = -6; dy <= 6; dy++) {
+    for (let dx = -6; dx <= 6; dx++) {
+      const idx = ((235 + dy) * bw + (165 + dx)) * 4;
+      boardBuffer[idx] = 240; boardBuffer[idx + 1] = 40; boardBuffer[idx + 2] = 40; boardBuffer[idx + 3] = 255;
+    }
+  }
+
+  const promptText = 'กดรูปด้านล่างที่เหมือนกับรูปในกรอบ';
+  f.window.__latestHumanCheck = {
+    id: 'uuid-frame-challenge',
+    prompt: promptText,
+    image: 'data:image/png;base64,synthetic',
+    width: 480,
+    height: 330,
+    timestamp: Date.now()
+  };
+  f.setPrompt(promptText);
+
+  // Mock canvas getImageData in context
+  const mockCtx = {
+    drawImage: () => {},
+    getImageData: () => ({ width: bw, height: bh, data: boardBuffer })
+  };
+  const mockCanvas = {
+    getContext: () => mockCtx,
+    width: bw,
+    height: bh
+  };
+
+  const boardClicks = [];
+  const imgEl = {
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 480, height: 330 }),
+    dispatchEvent: ev => boardClicks.push(ev),
+    click: () => boardClicks.push({ type: 'click' })
+  };
+  const boardEl = {
+    classList: { contains: c => c === 'human-check-board' },
+    tagName: 'DIV',
+    querySelector: sel => sel === 'img' ? imgEl : null,
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 480, height: 330 }),
+    dispatchEvent: ev => boardClicks.push(ev),
+    click: () => boardClicks.push({ type: 'click' })
+  };
+  const hcWithBoard = {
+    querySelector: sel => sel === '.human-check-board' ? boardEl : (sel === '.human-check-prompt' ? { innerText: promptText } : null),
+    querySelectorAll: () => []
+  };
+
+  vm.runInContext('document.querySelector = (sel) => sel === ".human-check" ? hcBoard : null', vm.createContext({ ...f.context, hcBoard: hcWithBoard }));
+  vm.runInContext('document.createElement = (tag) => tag === "canvas" ? mockCanvas : null', vm.createContext({ ...f.context, mockCanvas }));
+  f.context.Image = class {
+    constructor() {
+      setTimeout(() => this.onload && this.onload(), 1);
+    }
+  };
+
+  f.tick();
+  await new Promise(r => setTimeout(r, 40));
+  f.run();
+
+  assert.equal(roomMessages.length, 1, 'should send 1 room packet');
+  assert.equal(roomMessages[0].msg, 'human_check_answer');
+  assert.equal(roomMessages[0].data.id, 'uuid-frame-challenge');
+  assert.equal(roomMessages[0].data.x, 165);
+  assert.equal(roomMessages[0].data.y, 235);
+  assert.ok(boardClicks.length > 0, 'should dispatch click to img element');
+});
+
+

@@ -104,3 +104,62 @@ test('matchTemplateOnBoard returns low confidence when item is missing', () => {
   assert.ok(match);
   assert.ok(match.confidence < 50, `confidence should be low for missing item, got ${match.confidence}`);
 });
+
+test('solveFrameChallenge detects golden frame and finds identical duplicate item', () => {
+  const { findGoldenFrame, solveFrameChallenge } = require('../image_board_solver');
+  const bw = 480, bh = 330;
+  const data = Buffer.alloc(bw * bh * 4, 30); // dark background
+
+  // Golden frame at x: 200..280, y: 50..130
+  const fx = 200, fy = 50, fw = 80, fh = 80;
+  for (let y = fy; y <= fy + fh; y++) {
+    for (let x = fx; x <= fx + fw; x++) {
+      if (x === fx || x === fx + fw || y === fy || y === fy + fh) {
+        const idx = (y * bw + x) * 4;
+        data[idx] = 210; data[idx + 1] = 180; data[idx + 2] = 60; data[idx + 3] = 255;
+      }
+    }
+  }
+
+  // Draw item in frame: red cross at x: 232..248, y: 82..98 (center at 240, 90)
+  for (let dy = -8; dy <= 8; dy++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      if (Math.abs(dx) <= 2 || Math.abs(dy) <= 2) {
+        const idx = ((90 + dy) * bw + (240 + dx)) * 4;
+        data[idx] = 240; data[idx + 1] = 40; data[idx + 2] = 40; data[idx + 3] = 255;
+      }
+    }
+  }
+
+  // Draw distractor item at bottom: green cross at x: 100, y: 240
+  for (let dy = -8; dy <= 8; dy++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      if (Math.abs(dx) <= 2 || Math.abs(dy) <= 2) {
+        const idx = ((240 + dy) * bw + (100 + dx)) * 4;
+        data[idx] = 40; data[idx + 1] = 240; data[idx + 2] = 40; data[idx + 3] = 255;
+      }
+    }
+  }
+
+  // Draw identical matching item at bottom: red cross at x: 320, y: 250
+  for (let dy = -8; dy <= 8; dy++) {
+    for (let dx = -8; dx <= 8; dx++) {
+      if (Math.abs(dx) <= 2 || Math.abs(dy) <= 2) {
+        const idx = ((250 + dy) * bw + (320 + dx)) * 4;
+        data[idx] = 240; data[idx + 1] = 40; data[idx + 2] = 40; data[idx + 3] = 255;
+      }
+    }
+  }
+
+  const frame = findGoldenFrame({ width: bw, height: bh, data });
+  assert.ok(frame, 'should detect frame');
+  assert.equal(frame.x, fx);
+  assert.equal(frame.y, fy);
+
+  const solution = solveFrameChallenge({ width: bw, height: bh, data });
+  assert.ok(solution, 'should solve challenge');
+  assert.equal(solution.targetX, 320);
+  assert.equal(solution.targetY, 250);
+  assert.ok(solution.confidence >= 95, `confidence should be >= 95, got ${solution.confidence}`);
+});
+

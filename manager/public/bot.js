@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.0
+// @version      4.38.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.0';
+    const PELICAN_BOT_VERSION = '4.38.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -594,13 +594,197 @@
         });
     }
 
+    function findGoldenFrame(boardData) {
+        if (!boardData || !boardData.data) return null;
+        const bw = boardData.width;
+        const bh = boardData.height;
+        const bp = boardData.data;
+
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let count = 0;
+
+        for (let y = 20; y < Math.min(160, bh); y++) {
+            for (let x = 120; x < Math.min(360, bw); x++) {
+                const idx = (y * bw + x) * 4;
+                const r = bp[idx];
+                const g = bp[idx + 1];
+                const b = bp[idx + 2];
+                if (r > 150 && g > 120 && b < 120 && r >= g - 15 && r - b > 40) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    count++;
+                }
+            }
+        }
+
+        const fw = maxX - minX;
+        const fh = maxY - minY;
+        if (count >= 30 && fw >= 45 && fw <= 130 && fh >= 45 && fh <= 130) {
+            return { x: minX, y: minY, width: fw, height: fh };
+        }
+        return { x: 200, y: 50, width: 80, height: 80 };
+    }
+
+    function solveFrameChallenge(boardData) {
+        if (!boardData || !boardData.data) return null;
+        const bw = boardData.width;
+        const bh = boardData.height;
+        const bp = boardData.data;
+
+        const frame = findGoldenFrame(boardData);
+        if (!frame) return null;
+
+        const inset = 8;
+        const fx1 = frame.x + inset;
+        const fy1 = frame.y + inset;
+        const fx2 = frame.x + frame.width - inset;
+        const fy2 = frame.y + frame.height - inset;
+
+        const corners = [
+            [fx1, fy1], [fx2, fy1], [fx1, fy2], [fx2, fy2],
+            [fx1 + 4, fy1 + 4], [fx2 - 4, fy1 + 4], [fx1 + 4, fy2 - 4], [fx2 - 4, fy2 - 4]
+        ];
+        let bgR = 0, bgG = 0, bgB = 0;
+        for (const [cx, cy] of corners) {
+            const idx = (cy * bw + cx) * 4;
+            bgR += bp[idx];
+            bgG += bp[idx + 1];
+            bgB += bp[idx + 2];
+        }
+        bgR /= corners.length;
+        bgG /= corners.length;
+        bgB /= corners.length;
+
+        let itemMinX = Infinity, itemMaxX = -Infinity;
+        let itemMinY = Infinity, itemMaxY = -Infinity;
+        const foregroundPixels = [];
+
+        for (let y = fy1; y <= fy2; y++) {
+            for (let x = fx1; x <= fx2; x++) {
+                const idx = (y * bw + x) * 4;
+                const r = bp[idx];
+                const g = bp[idx + 1];
+                const b = bp[idx + 2];
+                const diffFromBg = Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB);
+                if (diffFromBg > 45 || (r + g + b) > 180) {
+                    if (x < itemMinX) itemMinX = x;
+                    if (x > itemMaxX) itemMaxX = x;
+                    if (y < itemMinY) itemMinY = y;
+                    if (y > itemMaxY) itemMaxY = y;
+                    foregroundPixels.push({ x, y, r, g, b });
+                }
+            }
+        }
+
+        let template = [];
+        let itemCenterX, itemCenterY;
+
+        if (foregroundPixels.length >= 20 && itemMaxX > itemMinX && itemMaxY > itemMinY) {
+            itemCenterX = Math.round((itemMinX + itemMaxX) / 2);
+            itemCenterY = Math.round((itemMinY + itemMaxY) / 2);
+            for (const p of foregroundPixels) {
+                template.push(p.x - itemCenterX, p.y - itemCenterY, p.r, p.g, p.b);
+            }
+        } else {
+            itemCenterX = Math.round(frame.x + frame.width / 2);
+            itemCenterY = Math.round(frame.y + frame.height / 2);
+            for (let dy = -20; dy <= 20; dy += 2) {
+                for (let dx = -20; dx <= 20; dx += 2) {
+                    const idx = ((itemCenterY + dy) * bw + (itemCenterX + dx)) * 4;
+                    template.push(dx, dy, bp[idx], bp[idx + 1], bp[idx + 2]);
+                }
+            }
+        }
+
+        const sampleCount = template.length / 5;
+        if (sampleCount < 10) return null;
+
+        const startY = 175;
+        const endY = bh - 25;
+        const startX = 25;
+        const endX = bw - 25;
+        const step = 3;
+
+        let bestScore = Infinity;
+        let bestCX = 0;
+        let bestCY = 0;
+
+        for (let cy = startY; cy <= endY; cy += step) {
+            for (let cx = startX; cx <= endX; cx += step) {
+                let diffSum = 0;
+                for (let m = 0; m < template.length; m += 5) {
+                    const px = cx + template[m];
+                    const py = cy + template[m + 1];
+                    if (px < 0 || px >= bw || py < 0 || py >= bh) {
+                        diffSum += 500;
+                        continue;
+                    }
+                    const bIdx = (py * bw + px) * 4;
+                    diffSum += Math.abs(bp[bIdx] - template[m + 2])
+                             + Math.abs(bp[bIdx + 1] - template[m + 3])
+                             + Math.abs(bp[bIdx + 2] - template[m + 4]);
+                }
+                const mae = diffSum / sampleCount;
+                if (mae < bestScore) {
+                    bestScore = mae;
+                    bestCX = cx;
+                    bestCY = cy;
+                }
+            }
+        }
+
+        let fineBestScore = bestScore;
+        let fineBestCX = bestCX;
+        let fineBestCY = bestCY;
+
+        for (let cy = Math.max(startY, bestCY - step); cy <= Math.min(endY, bestCY + step); cy++) {
+            for (let cx = Math.max(startX, bestCX - step); cx <= Math.min(endX, bestCX + step); cx++) {
+                let diffSum = 0;
+                for (let m = 0; m < template.length; m += 5) {
+                    const px = cx + template[m];
+                    const py = cy + template[m + 1];
+                    if (px < 0 || px >= bw || py < 0 || py >= bh) {
+                        diffSum += 500;
+                        continue;
+                    }
+                    const bIdx = (py * bw + px) * 4;
+                    diffSum += Math.abs(bp[bIdx] - template[m + 2])
+                             + Math.abs(bp[bIdx + 1] - template[m + 3])
+                             + Math.abs(bp[bIdx + 2] - template[m + 4]);
+                }
+                const mae = diffSum / sampleCount;
+                if (mae < fineBestScore) {
+                    fineBestScore = mae;
+                    fineBestCX = cx;
+                    fineBestCY = cy;
+                }
+            }
+        }
+
+        const confidence = Math.max(0, Math.min(100, Math.round(100 - (fineBestScore / 2.5))));
+
+        return {
+            targetX: fineBestCX,
+            targetY: fineBestCY,
+            centerX: fineBestCX,
+            centerY: fineBestCY,
+            x: fineBestCX,
+            y: fineBestCY,
+            mae: fineBestScore,
+            score: fineBestScore,
+            confidence,
+            frame,
+            matchedName: 'รูปในกรอบ'
+        };
+    }
+
     async function solveBoardChallenge(snapshot) {
         if (typeof window.__mockImageBoardMatcher === 'function') {
             return window.__mockImageBoardMatcher(snapshot);
         }
-        if (!embeddedHumanCheckMatch.resolveTarget) return null;
-        const target = embeddedHumanCheckMatch.resolveTarget(snapshot.prompt);
-        if (!target || !target.iconPath) return null;
 
         const bw = snapshot.packet.width || 480;
         const bh = snapshot.packet.height || 330;
@@ -612,38 +796,56 @@
         }
         if (!boardImg) return null;
 
-        let iconImg = loadedIconCache.get(target.iconPath);
-        if (!iconImg) {
-            try {
-                iconImg = await loadBrowserImage(target.iconUrl || ('/art/icons/' + target.iconPath));
-                loadedIconCache.set(target.iconPath, iconImg);
-            } catch (_) {}
-        }
-        if (!iconImg) return null;
-
         const boardData = getCanvasImageData(boardImg, bw, bh);
         if (!boardData) return null;
 
-        const candidateSizes = [64, 48, 56, 72];
-        let best = null;
-        for (const size of candidateSizes) {
-            const tData = getCanvasImageData(iconImg, size, size);
-            if (!tData) continue;
-            const match = matchTemplateOnBoard(boardData, tData, { subsample: 2, coarseStep: 4 });
-            if (match && (!best || match.confidence > best.confidence)) {
-                best = match;
-                if (best.confidence >= 80) break;
+        const isFramePrompt = /รูปในกรอบ|ในกรอบ|ภาพในกรอบ/i.test(snapshot.prompt || '');
+        const target = (typeof embeddedHumanCheckMatch?.resolveTarget === 'function')
+            ? embeddedHumanCheckMatch.resolveTarget(snapshot.prompt)
+            : null;
+
+        if (target && target.iconPath && !isFramePrompt) {
+            let iconImg = loadedIconCache.get(target.iconPath);
+            if (!iconImg) {
+                try {
+                    iconImg = await loadBrowserImage(target.iconUrl || ('/art/icons/' + target.iconPath));
+                    loadedIconCache.set(target.iconPath, iconImg);
+                } catch (_) {}
+            }
+            if (iconImg) {
+                const candidateSizes = [64, 48, 56, 72];
+                let best = null;
+                for (const size of candidateSizes) {
+                    const tData = getCanvasImageData(iconImg, size, size);
+                    if (!tData) continue;
+                    const match = matchTemplateOnBoard(boardData, tData, { subsample: 2, coarseStep: 4 });
+                    if (match && (!best || match.confidence > best.confidence)) {
+                        best = match;
+                        if (best.confidence >= 80) break;
+                    }
+                }
+                if (best && best.confidence >= 60) {
+                    return {
+                        x: best.centerX,
+                        y: best.centerY,
+                        confidence: best.confidence,
+                        matchedName: target.name
+                    };
+                }
             }
         }
 
-        if (!best || best.confidence < 60) return null;
+        const frameSolution = solveFrameChallenge(boardData);
+        if (frameSolution && frameSolution.confidence >= 50) {
+            return {
+                x: frameSolution.targetX,
+                y: frameSolution.targetY,
+                confidence: frameSolution.confidence,
+                matchedName: target?.name || 'รูปในกรอบ'
+            };
+        }
 
-        return {
-            x: best.centerX,
-            y: best.centerY,
-            confidence: best.confidence,
-            matchedName: target.name
-        };
+        return null;
     }
 
     function embeddedHumanCheckSnapshot() {
@@ -738,25 +940,26 @@
                         }
                     } catch (_) {}
 
-                    // 2. Synthetic DOM click on board element
+                    // 2. Synthetic DOM click on board element / img
                     try {
                         const boardEl = current.boardEl || (typeof current.hc.querySelector === 'function' ? current.hc.querySelector('.human-check-board') : null);
                         if (boardEl) {
-                            const rect = (typeof boardEl.getBoundingClientRect === 'function')
-                                ? boardEl.getBoundingClientRect()
-                                : { left: 0, top: 0, width: current.packet.width || 480, height: current.packet.height || 330 };
+                            const targetEl = (typeof boardEl.querySelector === 'function' ? boardEl.querySelector('img') : null) || boardEl;
+                            const rect = (typeof targetEl.getBoundingClientRect === 'function')
+                                ? targetEl.getBoundingClientRect()
+                                : (typeof boardEl.getBoundingClientRect === 'function' ? boardEl.getBoundingClientRect() : { left: 0, top: 0, width: current.packet.width || 480, height: current.packet.height || 330 });
                             const bw = current.packet.width || 480;
                             const bh = current.packet.height || 330;
                             const clientX = rect.left + (targetX / bw) * rect.width;
                             const clientY = rect.top + (targetY / bh) * rect.height;
                             const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
-                            if (typeof PointerEvent !== 'undefined') boardEl.dispatchEvent(new PointerEvent('pointerdown', opts));
+                            if (typeof PointerEvent !== 'undefined') targetEl.dispatchEvent(new PointerEvent('pointerdown', opts));
                             if (typeof MouseEvent !== 'undefined') {
-                                boardEl.dispatchEvent(new MouseEvent('mousedown', opts));
-                                boardEl.dispatchEvent(new MouseEvent('mouseup', opts));
-                                boardEl.dispatchEvent(new MouseEvent('click', opts));
-                            } else if (typeof boardEl.click === 'function') {
-                                boardEl.click();
+                                targetEl.dispatchEvent(new MouseEvent('mousedown', opts));
+                                targetEl.dispatchEvent(new MouseEvent('mouseup', opts));
+                                targetEl.dispatchEvent(new MouseEvent('click', opts));
+                            } else if (typeof targetEl.click === 'function') {
+                                targetEl.click();
                             }
                         }
                     } catch (_) {}
