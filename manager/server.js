@@ -85,6 +85,7 @@ const PLANS_FILE = path.join(__dirname, "plans.json");
 const PRESETS_FILE = path.join(__dirname, "presets.json");
 const installer = require("./installer");
 const { handleInventoryMarketRoute } = require("./inventory_market_api");
+const { createPartyService } = require("./party_api");
 const { createBotAutoUpdater } = require("./bot_auto_update");
 const { createManagerSelfUpdater } = require("./manager_self_update");
 const { handleConfigCopyRoute } = require("./config_copy_api");
@@ -1156,6 +1157,15 @@ const managerUpdater = createManagerSelfUpdater({
   isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
 });
 
+// Party system: auto-form in-game parties from Manager clients (manager/party_api.js)
+const partyService = createPartyService({
+  loadProfiles,
+  evalProfilePort,
+  dataFile: path.join(__dirname, "data", "parties.json"),
+  isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
+});
+partyService.start();
+
 function getDefaultDeviceNickname() {
   return process.env.USERNAME || (typeof os.userInfo === 'function' ? os.userInfo()?.username : '') || os.hostname() || 'PmheeUser';
 }
@@ -1337,6 +1347,9 @@ const server = http.createServer(async (req, res) => {
 
   // Bag (inventory) & market endpoints — see inventory_market_api.js
   if (await handleInventoryMarketRoute(req, res, pathname, { loadProfiles, evalProfilePort, sendJSON })) return;
+
+  // Party system — see party_api.js
+  if (await partyService.handleRoute(req, res, pathname, sendJSON)) return;
 
   // Discord Bot & Webhook Settings & Controls
   if (pathname === "/api/discord/settings") {

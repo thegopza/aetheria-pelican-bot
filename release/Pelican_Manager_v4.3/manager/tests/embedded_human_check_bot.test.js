@@ -57,6 +57,7 @@ test('uncertain click is never retried and ACK failure keeps event',()=>{
   const g=fixture(); g.tick(); g.run(); vm.runInContext('localStorage.setItem=()=>{throw Error("disk full");}',g.context); assert.equal(g.window.__pmAckHumanCheckEvents(['test-event']),false); assert.equal(g.window.__pmGetHumanCheckEvents().length,1);
 });
 test('hotfix stays inside main IIFE and versions match',()=>{
-  assert.match(source,/\/\/ @version\s+4\.36\.3/); assert.match(source,/const PELICAN_BOT_VERSION = '4\.36\.3'/);
+  const hv=(source.match(/\/\/ @version\s+(\d+\.\d+\.\d+)/)||[])[1], cv=(source.match(/const PELICAN_BOT_VERSION = '(\d+\.\d+\.\d+)'/)||[])[1];
+  assert.ok(hv&&cv,'version markers missing'); assert.equal(hv,cv);
   assert.ok(source.indexOf('    // END EMBEDDED HUMAN CHECK HOTFIX') < source.indexOf('    // AUTO JOB CHANGE ENGINE'));
 });

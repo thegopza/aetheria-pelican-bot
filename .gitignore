@@ -45,3 +45,5 @@ manager/data/wallet_snapshot_v1.json
 manager/data/wallet_snapshot_v1.json.tmp
 release/Pelican_Manager_v4.3/manager/data/offline/
 release/Pelican_Manager_v4.3/manager/data/offline-cache/
+manager/data/parties.json
+manager/data/parties.json.tmp

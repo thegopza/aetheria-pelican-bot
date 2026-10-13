@@ -1,0 +1,181 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { createPartyService, pickCandidates, channelTarget, normalizeStates, READ_JS } = require('../party_api');
+
+const snap = (name, level, extra = {}) => Object.assign({ ok: true, name, level, mapId: 'm1', mapName: 'แมพ1', channel: 1, targetMap: 'แมพ1', botRunning: true, busy: [], partyKnown: true, party: null, invite: null, move: null, helpers: { moveToChannel: true, findLeast: true, setTargetFarmMap: true } }, extra);
+
+test('pickCandidates: closest level first, skips assigned / offline / foreign parties, respects slots', () => {
+  const parties = [{ id: 'a', leaderId: 'L', memberIds: [] }, { id: 'b', leaderId: 'X', memberIds: ['taken'] }];
+  const states = new Map([
+    ['L', snap('Lead', 50)],
+    ['X', snap('Other', 50)],
+    ['taken', snap('Taken', 50)],
+    ['c1', snap('C1', 70)],
+    ['c2', snap('C2', 48)],
+    ['c3', snap('C3', 55)],
+    ['off', null],
+    ['foreign', snap('F', 50, { party: { leader: 'Stranger', members: [] } })],
+    ['stale', snap('S', 49, { party: { leader: 'Other', members: [] } })]
+  ]);
+  const managed = new Set(['Lead', 'Other', 'Taken', 'C1', 'C2', 'C3', 'S']);
+  assert.deepStrictEqual(pickCandidates(parties[0], parties, states, managed, 3, new Set()), ['stale', 'c2', 'c3']);
+  assert.deepStrictEqual(pickCandidates(parties[0], parties, states, managed, 10, new Set(['stale'])), ['c2', 'c3', 'c1']);
+  assert.deepStrictEqual(pickCandidates(parties[0], parties, states, managed, 0, new Set()), []);
+});
+
+test('channelTarget: only on the same map and a different CH', () => {
+  assert.strictEqual(channelTarget(snap('L', 1, { channel: 5 }), snap('M', 1, { channel: 2 })), 5);
+  assert.strictEqual(channelTarget(snap('L', 1, { channel: 5 }), snap('M', 1, { channel: 5 })), null);
+  assert.strictEqual(channelTarget(snap('L', 1, { channel: 5 }), snap('M', 1, { channel: 2, mapId: 'm2' })), null);
+});
+
+test('READ_JS is valid JavaScript', () => {
+  assert.doesNotThrow(() => new Function('return ' + READ_JS));
+});
+
+test('normalizeStates drops a stale party the leader no longer has', () => {
+  const st = new Map([
+    ['L', snap('Lead', 50, { party: { leader: 'Lead', members: [{ name: 'Lead' }, { name: 'A' }] } })],
+    ['A', snap('A', 50, { party: { leader: 'Lead', members: [] } })],
+    ['B', snap('B', 50, { party: { leader: 'Lead', members: [] } })],
+    ['C', snap('C', 50, { party: { leader: 'Stranger', members: [] } })]
+  ]);
+  normalizeStates(st);
+  assert.ok(st.get('A').party);
+  assert.strictEqual(st.get('B').party, null);
+  assert.ok(st.get('C').party, 'unknown leader cannot be verified, keep it');
+});
+
+// ---- simulated game world -------------------------------------------------
+function makeWorld(chars) {
+  // chars: { profileId: { name, level, channel, mapId, full? } }
+  const world = { chars, parties: {}, invites: {}, sent: [], fullChannels: new Set(), least: 9 };
+  const partyOf = name => Object.values(world.parties).find(p => p.members.includes(name));
+  const partyView = name => {
+    const p = partyOf(name); if (!p) return null;
+    return { leader: p.leader, expMode: p.expMode, lootMode: p.lootMode, evenShareAllowed: true, levelRange: 10, maxMembers: 6,
+      members: p.members.map(n => { const c = Object.values(chars).find(x => x.name === n); return { name: n, online: true, mapId: c.mapId, channel: c.channel, level: c.level }; }) };
+  };
+  async function evalProfilePort(port, code) {
+    const id = Object.keys(chars).find(k => chars[k].port === port);
+    const c = chars[id];
+    if (!c) return { success: false, error: 'ECONNREFUSED' };
+    if (code === READ_JS) {
+      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, move: c.move || null }) };
+    }
+    const m = code.match(/room\.send\('party', (\{.*?\})\);/s);
+    if (m) {
+      const msg = JSON.parse(m[1]);
+      world.sent.push([c.name, msg]);
+      if (msg.action === 'invite') {
+        world.invites[msg.name] = c.name;
+        if (!partyOf(c.name)) world.parties[c.name] = { leader: c.name, members: [c.name], expMode: 'individual', lootMode: 'personal' };
+      } else if (msg.action === 'accept') {
+        if (!/no-invite/.test(code) || world.invites[c.name]) {
+          const lead = world.invites[c.name]; delete world.invites[c.name];
+          if (lead && world.parties[lead]) world.parties[lead].members.push(c.name);
+        }
+      } else if (msg.action === 'settings') {
+        Object.assign(world.parties[c.name], msg.expMode ? { expMode: msg.expMode } : {}, msg.lootMode ? { lootMode: msg.lootMode } : {});
+      } else if (msg.action === 'leave') {
+        const p = partyOf(c.name); if (p) { p.members = p.members.filter(n => n !== c.name); if (p.leader === c.name) delete world.parties[c.name]; }
+      }
+      return { success: true, result: { success: true } };
+    }
+    if (code.includes('window.__targetFarmMap = map')) {
+      c.targetMap = JSON.parse(code.match(/const map = (".*?");/)[1]);
+      return { success: true, result: { success: true } };
+    }
+    if (code.includes('window.moveToChannel(')) {
+      const ch = Number(code.match(/const st = \{ ch: (\d+)/)[1]);
+      const ok = !world.fullChannels.has(ch);
+      if (ok) c.channel = ch;
+      c.move = { ch, at: Date.now() + Math.random(), done: true, ok };
+      return { success: true, result: { success: true } };
+    }
+    if (code.includes('findLeastPopulatedChannel()')) return { success: true, result: { success: true, channel: world.least } };
+    return { success: true, result: { success: true } };
+  }
+  return { world, evalProfilePort };
+}
+
+function service(chars, extra = {}) {
+  const { world, evalProfilePort } = makeWorld(chars);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'party-test-'));
+  const profiles = Object.keys(chars).map(id => ({ id, name: 'จอ ' + id, debugPort: chars[id].port }));
+  const svc = createPartyService({
+    loadProfiles: () => profiles, evalProfilePort, dataFile: path.join(dir, 'parties.json'),
+    sleep: async () => {}, log: () => {}, timing: Object.assign({ inviteCooldownMs: 0, settingsCooldownMs: 0, mapCooldownMs: 0, channelCooldownMs: 0, fallbackCooldownMs: 0, disbandGapMs: 0 }, extra)
+  });
+  return { svc, world, dir };
+}
+
+async function post(svc, url, body) {
+  let out = null;
+  const req = { method: 'POST', setEncoding() {}, on(ev, cb) { if (ev === 'data') cb(JSON.stringify(body || {})); if (ev === 'end') cb(); } };
+  await svc.handleRoute(req, {}, url, j => { out = j; });
+  return out;
+}
+
+test('tick: fills to 6 by level, invites + accepts, applies modes, no member in two parties', async () => {
+  const chars = {};
+  const levels = [50, 51, 49, 80, 52, 47, 60, 10, 50];
+  levels.forEach((lv, i) => { chars['p' + i] = { name: 'C' + i, level: lv, channel: 1, mapId: 'm1', port: 1000 + i }; });
+  const { svc, world } = service(chars);
+  await post(svc, '/api/parties', { leaderId: 'p0' });
+  await new Promise(r => setTimeout(r, 120));
+  await svc.tick(); await svc.tick();
+  const p1 = svc._parties()[0];
+  assert.strictEqual(p1.memberIds.length, 5);
+  assert.deepStrictEqual(p1.memberIds.slice().sort(), ['p1', 'p2', 'p4', 'p5', 'p8'].sort());
+  assert.strictEqual(world.parties.C0.members.length, 6);
+  assert.strictEqual(world.parties.C0.expMode, 'even-share');
+
+  // Second party can't take anyone from the first
+  await post(svc, '/api/parties', { leaderId: 'p6' });
+  await svc.tick(); await svc.tick();
+  const p2 = svc._parties()[1];
+  assert.deepStrictEqual(p2.memberIds.slice().sort(), ['p3', 'p7'].sort());
+  for (const id of p2.memberIds) assert.ok(!p1.memberIds.includes(id));
+
+  // A leader already used can't lead again
+  const dup = await post(svc, '/api/parties', { leaderId: 'p1' });
+  assert.strictEqual(dup.success, false);
+
+  // Loot mode change from the web page reaches the game
+  await post(svc, '/api/parties/' + p1.id + '/settings', { lootMode: 'round-robin' });
+  await svc.tick();
+  assert.strictEqual(world.parties.C0.lootMode, 'round-robin');
+});
+
+test('tick: members follow leader map and CH; full CH → leader moves to least populated CH', async () => {
+  const chars = {
+    L: { name: 'Lead', level: 50, channel: 3, mapId: 'm1', port: 2000 },
+    A: { name: 'A', level: 50, channel: 1, mapId: 'm1', port: 2001 },
+    B: { name: 'B', level: 50, channel: 1, mapId: 'm2', port: 2002 }
+  };
+  const { svc, world } = service(chars);
+  world.fullChannels.add(3);
+  world.least = 9;
+  await post(svc, '/api/parties', { leaderId: 'L' });
+  await new Promise(r => setTimeout(r, 120));
+  for (let i = 0; i < 6; i++) await svc.tick();
+  assert.strictEqual(chars.B.targetMap, 'm1', 'member B gets the leader farm map');
+  assert.strictEqual(chars.L.channel, 9, 'leader moved to the least populated CH');
+  assert.strictEqual(chars.A.channel, 9, 'member followed the leader to the new CH');
+});
+
+test('delete disbands the party in game', async () => {
+  const chars = { L: { name: 'Lead', level: 50, channel: 1, mapId: 'm1', port: 3000 }, A: { name: 'A', level: 51, channel: 1, mapId: 'm1', port: 3001 } };
+  const { svc, world } = service(chars);
+  await post(svc, '/api/parties', { leaderId: 'L' });
+  await new Promise(r => setTimeout(r, 120));
+  await svc.tick();
+  assert.strictEqual(world.parties.Lead.members.length, 2);
+  await post(svc, '/api/parties/' + svc._parties()[0].id + '/delete', {});
+  assert.strictEqual(svc._parties().length, 0);
+  assert.ok(!world.parties.Lead);
+});
