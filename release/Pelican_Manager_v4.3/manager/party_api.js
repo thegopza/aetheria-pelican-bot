@@ -46,7 +46,8 @@ const TIMING = {
   disbandGapMs: 1200,
   gatherCooldownMs: 45000,
   memberMoveWaitMs: 120000,
-  leaderMoveWaitMs: 45000
+  leaderMoveWaitMs: 45000,
+  unfollowCooldownMs: 20000
 };
 
 // ---------------------------------------------------------------- in-page snippets
@@ -59,7 +60,7 @@ const READ_JS = `(() => {
       if (!key) return out;
       let start = rootEl[key]; if (start && start.stateNode && start.stateNode.current) start = start.stateNode.current;
       const stack = [start]; let n = 0;
-      while (stack.length && n++ < 100000 && !(out.party && out.invite)) {
+      while (stack.length && n++ < 100000 && !(out.party && out.invite && out.follow)) {
         const f = stack.pop(); if (!f) continue;
         let h = f.memoizedState, g = 0;
         while (h && typeof h === 'object' && g++ < 80) {
@@ -68,6 +69,7 @@ const READ_JS = `(() => {
             const src = String(q.getSnapshot).replace(/\\s+/g, '');
             if (!out.party && /^\\(\\)=>[A-Za-z_$][\\w$]*\\.party$/.test(src)) out.party = q.getSnapshot;
             if (!out.invite && /^\\(\\)=>[A-Za-z_$][\\w$]*\\.invite$/.test(src)) out.invite = q.getSnapshot;
+            if (!out.follow && /^\\(\\)=>[A-Za-z_$][\\w$]*\\.follow$/.test(src)) out.follow = q.getSnapshot;
           }
           h = h.next;
         }
@@ -78,7 +80,7 @@ const READ_JS = `(() => {
     return out;
   };
   let g = window.__pmPartyGetters;
-  if (!g || !g.party || !g.invite) { g = findGetters(); window.__pmPartyGetters = g; }
+  if (!g || !g.party || !g.invite || !g.follow) { g = findGetters(); window.__pmPartyGetters = g; }
   const room = typeof window.getGameRoom === 'function' ? window.getGameRoom() : null;
   if (!room || !room.state) return { ok: false, reason: 'not-in-game' };
   let me = null; try { me = room.state.players.get(room.sessionId); } catch (e) {}
@@ -86,6 +88,10 @@ const READ_JS = `(() => {
   let party = null, invite = null;
   try { party = g.party ? g.party() : null; } catch (e) {}
   try { invite = g.invite ? g.invite() : null; } catch (e) {}
+  // The game's own "follow" (set by รวมทีม / ติดตามหัวหน้า): walks after that player and AUTO assists them
+  let follow = null;
+  try { follow = g.follow ? g.follow() : null; } catch (e) {}
+  try { if (!follow && document.querySelector('.follow-chip')) follow = '?'; } catch (e) {}
   const busy = ${JSON.stringify(BUSY_FLAGS)}.filter(k => window[k] === true);
   // Plan Script: only Base / Job level triggers keep the character on its own maps. Zeny / gear triggers don't.
   // Judge by the real level + class too: a plan loaded on an already-levelled character has an empty 'done' list.
@@ -132,6 +138,7 @@ const READ_JS = `(() => {
     busy,
     plan,
     partyKnown: !!g.party,
+    follow: follow || null,
     party: party ? {
       leader: party.leader, expMode: party.expMode, lootMode: party.lootMode,
       evenShareAllowed: party.evenShareAllowed !== false, levelRange: party.levelRange, maxMembers: party.maxMembers || 6,
@@ -159,6 +166,13 @@ const ACTIONS = {
   leave: () => sendPartyJs({ action: 'leave' }),
   kick: name => sendPartyJs({ action: 'kick', name }),
   summon: () => sendPartyJs({ action: 'summon' }),
+  // Same as pressing the game's "ยกเลิกติดตาม" chip (calls the game's own stopFollow)
+  stopFollow: () => `(() => {
+    const b = document.querySelector('.follow-chip button');
+    if (!b) return { success: false, error: 'no-follow' };
+    b.click();
+    return { success: true };
+  })()`,
   settings: patch => sendPartyJs(Object.assign({ action: 'settings' }, patch)),
   setMap: (map, walkNow) => `(() => {
     const map = ${JSON.stringify(map)};
@@ -449,6 +463,17 @@ function createPartyService(opts) {
         } else { rt.settingsAt = now(); await act(leaderP, ACTIONS.settings({ expMode: party.expMode }), 'exp-mode'); }
       }
       if (L.party.lootMode !== party.lootMode) { rt.settingsAt = now(); await act(leaderP, ACTIONS.settings({ lootMode: party.lootMode }), 'loot-mode'); }
+    }
+
+    // The game's follow (after รวมทีม / ติดตามหัวหน้า) makes members walk after the leader and AUTO only assist
+    // the leader's target → everyone clumps on the leader. Cancel it so each member farms the map on its own.
+    for (const id of party.memberIds) {
+      const P = profiles.get(id), S = states.get(id), m = mrt(party.id, id);
+      if (!S || !S.ok || !S.follow || !inGame.has(S.name)) continue;
+      if (now() - (m.unfollowAt || 0) < T.unfollowCooldownMs) continue;
+      m.unfollowAt = now();
+      const r = await act(P, ACTIONS.stopFollow(), 'stop-follow');
+      if (r.ok) log('stop-follow', S.name, '(was following ' + S.follow + ')');
     }
 
     // Same map + same CH as the leader

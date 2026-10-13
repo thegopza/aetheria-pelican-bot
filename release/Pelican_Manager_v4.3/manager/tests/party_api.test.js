@@ -108,7 +108,7 @@ function makeWorld(chars) {
     const c = chars[id];
     if (!c) return { success: false, error: 'ECONNREFUSED' };
     if (code === READ_JS) {
-      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null }) };
+      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null, follow: c.follow || null }) };
     }
     const m = code.match(/room\.send\('party', (\{.*?\})\);/s);
     if (m) {
@@ -141,6 +141,11 @@ function makeWorld(chars) {
       return { success: true, result: { success: ok, channel: c.channel, error: ok ? null : 'CH full' } };
     }
     if (code.includes('findLeastPopulatedChannel()')) return { success: true, result: { success: true, channel: world.least } };
+    if (code.includes(".follow-chip button")) {
+      if (!c.follow) return { success: true, result: { success: false, error: 'no-follow' } };
+      world.unfollowed = (world.unfollowed || []).concat(c.name); c.follow = null;
+      return { success: true, result: { success: true } };
+    }
     return { success: true, result: { success: true } };
   }
   return { world, evalProfilePort };
@@ -233,4 +238,18 @@ test('delete disbands the party in game', async () => {
   await post(svc, '/api/parties/' + svc._parties()[0].id + '/delete', {});
   assert.strictEqual(svc._parties().length, 0);
   assert.ok(!world.parties.Lead);
+});
+
+test('tick: members following the leader with the game follow get it cancelled (they farm on their own)', async () => {
+  const chars = { L: { name: 'Lead', level: 50, channel: 1, mapId: 'm1', port: 4000 }, A: { name: 'A', level: 51, channel: 1, mapId: 'm1', port: 4001 }, B: { name: 'B', level: 50, channel: 1, mapId: 'm1', port: 4002 } };
+  const { svc, world } = service(chars, { unfollowCooldownMs: 0 });
+  await post(svc, '/api/parties', { leaderId: 'L' });
+  await new Promise(r => setTimeout(r, 120));
+  await svc.tick();
+  chars.A.follow = 'Lead'; // e.g. after รวมทีม
+  chars.L.follow = 'Someone'; // the leader is not touched
+  await svc.tick();
+  assert.deepStrictEqual(world.unfollowed, ['A']);
+  assert.strictEqual(chars.A.follow, null);
+  assert.strictEqual(chars.L.follow, 'Someone');
 });
