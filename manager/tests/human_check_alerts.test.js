@@ -117,3 +117,50 @@ test('board human check answerCheckInGame computes slot coordinates and sends hu
   assert.deepEqual(JSON.parse(JSON.stringify(roomSent)), { type: 'human_check_answer', payload: { id: 'board-check-77', x: 291, y: 216 } });
 });
 
+test('embeddedSolver waits for in-game solver and sends green Auto Human Check notification when closed', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-embedded-alert-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dataDir, 'discord_settings.json'), JSON.stringify({ enabled: true, botToken: 'test-token', channelId: 'test-channel', autoAnswer: true, autoBringToFront: false }));
+  const sent = [];
+  const fakeHttp = {
+    request(url, options, receive) {
+      const req = new EventEmitter(); let payload = '';
+      req.write = bytes => { payload += bytes.toString('utf8'); };
+      req.end = () => {
+        sent.push(JSON.parse(payload));
+        queueMicrotask(() => { const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {}; receive(res); res.emit('data', '{"id":"msg-green"}'); res.emit('end'); });
+      };
+      req.destroy = () => {};
+      return req;
+    }
+  };
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'setTimeout', 'WebSocket', fs.readFileSync(path.join(__dirname, '../discord_bot.js'), 'utf8'))(name => {
+    if (name === 'http' || name === 'https') return fakeHttp;
+    if (name.startsWith('.')) return require(path.join(__dirname, '..', name));
+    return require(name);
+  }, module, module.exports, cb => { queueMicrotask(cb); return 0; }, undefined);
+
+  const profile = { id: 'p-emb', name: 'Meanel33', debugPort: 19991 };
+  const service = module.exports.createDiscordBotService({
+    dataDir,
+    loadProfiles: () => [profile],
+    evalProfilePort: async () => ({
+      result: {
+        stillOpen: false,
+        solved: { pickIndex: 2, slot: 3, matchedName: 'รูปในกรอบ (ช่องที่ 3)', timestamp: Date.now() }
+      }
+    })
+  });
+  await service.notifyHumanCheck({
+    profile,
+    check: { id: 'emb-check-1', prompt: 'กดรูปด้านล่างที่เหมือนกับรูปในกรอบ', embeddedSolver: true }
+  });
+  assert.equal(sent.length, 1);
+  const text = JSON.stringify(sent[0]);
+  assert.match(text, /Auto Human Check/);
+  assert.match(text, /รูปในกรอบ \(ช่องที่ 3\)/);
+  assert.doesNotMatch(text, /🚨 ตรวจพบเช็คผู้เล่น/);
+});
+
+

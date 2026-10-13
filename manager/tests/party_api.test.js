@@ -101,7 +101,7 @@ function makeWorld(chars) {
   const partyView = name => {
     const p = partyOf(name); if (!p) return null;
     return { leader: p.leader, expMode: p.expMode, lootMode: p.lootMode, evenShareAllowed: true, levelRange: 10, maxMembers: 6,
-      members: p.members.map(n => { const c = Object.values(chars).find(x => x.name === n); return { name: n, online: true, mapId: c.mapId, channel: c.channel, level: c.level }; }) };
+      members: p.members.map(n => { const c = Object.values(chars).find(x => x.name === n); return { name: n, online: c ? c.online !== false : false, mapId: c ? c.mapId : null, channel: c ? c.channel : null, level: c ? c.level : 1 }; }) };
   };
   async function evalProfilePort(port, code) {
     const id = Object.keys(chars).find(k => chars[k].port === port);
@@ -126,6 +126,8 @@ function makeWorld(chars) {
         Object.assign(world.parties[c.name], msg.expMode ? { expMode: msg.expMode } : {}, msg.lootMode ? { lootMode: msg.lootMode } : {});
       } else if (msg.action === 'leave') {
         const p = partyOf(c.name); if (p) { p.members = p.members.filter(n => n !== c.name); if (p.leader === c.name) delete world.parties[c.name]; }
+      } else if (msg.action === 'kick') {
+        const p = partyOf(c.name); if (p && p.leader === c.name) { p.members = p.members.filter(n => n !== msg.name); }
       }
       return { success: true, result: { success: true } };
     }
@@ -253,3 +255,28 @@ test('tick: members following the leader with the game follow get it cancelled (
   assert.strictEqual(chars.A.follow, null);
   assert.strictEqual(chars.L.follow, 'Someone');
 });
+
+test('tick: kicks offline unassigned members from 6/6 in-game party so new members can be invited and accepted', async () => {
+  const chars = {
+    L: { name: 'G4YSuuuuu', level: 80, channel: 1, mapId: 'm1', port: 5000 },
+    M1: { name: 'Member1', level: 80, channel: 1, mapId: 'm1', port: 5001 },
+    M2: { name: 'Member2', level: 80, channel: 1, mapId: 'm1', port: 5002 },
+    M3: { name: 'Member3', level: 80, channel: 1, mapId: 'm1', port: 5003 },
+    M4: { name: 'SuuuG4y', level: 80, channel: 1, mapId: 'm1', port: 5004 }
+  };
+  const { svc, world } = service(chars);
+  // Pre-seed leader's in-game party as 6/6 full with 2 offline dropped ghosts
+  world.parties['G4YSuuuuu'] = {
+    leader: 'G4YSuuuuu',
+    members: ['G4YSuuuuu', 'Member1', 'Member2', 'Member3', 'OfflineGhost1', 'OfflineGhost2'],
+    expMode: 'even-share',
+    lootMode: 'personal'
+  };
+  await post(svc, '/api/parties', { leaderId: 'L', memberIds: ['M1', 'M2', 'M3', 'M4'], autoFill: true });
+  await new Promise(r => setTimeout(r, 120));
+  await svc.tick();
+  assert.ok(!world.parties['G4YSuuuuu'].members.includes('OfflineGhost1'), 'should kick OfflineGhost1');
+  assert.ok(!world.parties['G4YSuuuuu'].members.includes('OfflineGhost2'), 'should kick OfflineGhost2');
+  assert.ok(world.parties['G4YSuuuuu'].members.includes('SuuuG4y'), 'should invite and accept SuuuG4y after freeing slots');
+});
+

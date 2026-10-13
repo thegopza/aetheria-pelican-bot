@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.4
+// @version      4.38.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.4';
+    const PELICAN_BOT_VERSION = '4.38.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -695,8 +695,8 @@
                         if (d > maxDiff) maxDiff = d;
                     }
                 }
-                if (maxDiff <= 14) {
-                    const kr = Math.round(R[p] / 6), kg = Math.round(G[p] / 6), kb = Math.round(B[p] / 6);
+                if (maxDiff <= 15) {
+                    const kr = Math.round(R[p] / 8), kg = Math.round(G[p] / 8), kb = Math.round(B[p] / 8);
                     const key = (kr << 12) | (kg << 6) | kb;
                     let entry = colorBins.get(key);
                     if (!entry) {
@@ -716,7 +716,7 @@
             const mr = entry.sumR / entry.count, mg = entry.sumG / entry.count, mb = entry.sumB / entry.count;
             const sum = mr + mg + mb;
             const sat = Math.max(mr, mg, mb) - Math.min(mr, mg, mb);
-            if (sum < 270 && sat < 140 && (entry.count >= 22 || (entry.count >= 10 && sum < 245))) {
+            if (sum < 270 && sat < 140 && (entry.count >= 14 || (entry.count >= 5 && sum < 245))) {
                 bgColors.push({ r: mr, g: mg, b: mb });
             }
         }
@@ -956,20 +956,20 @@
                 const normMask = maskDiff / Math.max(1, unionWeight);
                 const normLum = overlapWeight > 1 ? lumDiff / overlapWeight : 2.0;
                 const normGrad = overlapWeight > 1 ? gradDiff / overlapWeight : 1.0;
-                const dist = normMask * 2.2 + normLum * 0.55 + normGrad * 0.25;
+                const dist = normMask * 2.6 + normLum * 0.65 + normGrad * 0.30;
                 if (dist < bestPolarDist) bestPolarDist = dist;
             }
         }
 
-        const elongDiff = Math.abs(Math.log(top.elongation / slot.elongation)) * 1.8;
-        const fillDiff = Math.abs(Math.log(top.fillRatio / slot.fillRatio)) * 1.4;
+        const elongDiff = Math.abs(Math.log(top.elongation / slot.elongation)) * 0.95;
+        const fillDiff = Math.abs(Math.log(top.fillRatio / slot.fillRatio)) * 0.95;
         const scaleRatio = slot.rmsRadius / top.rmsRadius;
         const scalePenalty = (scaleRatio < 0.75 || scaleRatio > 1.15)
             ? Math.abs(Math.log(scaleRatio)) * 1.2
             : Math.abs(Math.log(scaleRatio / 0.94)) * 0.35;
         const areaRatio = slot.area / (top.area * 0.85);
-        const areaPenalty = Math.abs(Math.log(Math.max(0.25, Math.min(4.0, areaRatio)))) * 0.45;
-        const lumStatPenalty = (Math.abs(top.meanLum - slot.meanLum) / 140 + Math.abs(top.stdLum - slot.stdLum) / 90 + Math.abs(top.meanSat - slot.meanSat) / 120) * 0.35;
+        const areaPenalty = Math.abs(Math.log(Math.max(0.25, Math.min(4.0, areaRatio)))) * 0.16;
+        const lumStatPenalty = (Math.abs(top.meanLum - slot.meanLum) / 130 + Math.abs(top.stdLum - slot.stdLum) / 85 + Math.abs(top.meanSat - slot.meanSat) / 55) * 0.45;
         const rgbDiff = (Math.abs(top.meanR - slot.meanR) + Math.abs(top.meanG - slot.meanG) + Math.abs(top.meanB - slot.meanB));
         const rgbPenalty = rgbDiff > 180 ? ((rgbDiff - 180) / 300) * 0.35 : 0;
 
@@ -990,7 +990,7 @@
             [365, 468]
         ];
         const y1 = Math.round(175 * sy);
-        const y2 = Math.min(bh - 5, Math.round(318 * sy));
+        const y2 = Math.min(bh - 5, Math.round(306 * sy));
 
         return rawCols.map(([cx1, cx2], idx) => {
             const x1 = Math.round(cx1 * sx);
@@ -1021,7 +1021,9 @@
         });
     }
 
-    function solveFrameChallenge(boardData) {
+    const triedSlotsByImage = new Map();
+
+    function solveFrameChallenge(boardData, options = {}) {
         if (!boardData || !boardData.data) return null;
         const frame = findGoldenFrame(boardData);
         if (!frame) return null;
@@ -1048,8 +1050,14 @@
                 };
             });
             scored.sort((a, b) => a.score - b.score);
-            const best = scored[0];
-            const secondScore = scored.length > 1 ? scored[1].score : best.score + 1.5;
+            const excludeRaw = options && options.excludeSlots;
+            const excludeSet = excludeRaw instanceof Set
+                ? excludeRaw
+                : new Set(Array.isArray(excludeRaw) ? excludeRaw.map(Number) : []);
+            const available = excludeSet.size > 0 ? scored.filter(s => !excludeSet.has(s.slot)) : scored;
+            const best = available[0] || scored[0];
+            const runnerUp = available.length > 1 ? available[1] : (scored.find(s => s !== best) || null);
+            const secondScore = runnerUp ? runnerUp.score : best.score + 1.5;
             const margin = Math.max(0, secondScore - best.score);
 
             const rawConf = 100 - Math.max(0, best.score - 0.5) * 14 + Math.min(18, margin * 18);
@@ -1069,6 +1077,7 @@
                 confidence,
                 frame,
                 candidates: candidates.map(c => ({ slot: c.slot, x: c.x, y: c.y })),
+                ranked: scored.map(s => ({ slot: s.slot, x: s.x, y: s.y, score: s.score })),
                 matchedName: `รูปในกรอบ (ช่องที่ ${best.slot})`
             };
         }
@@ -1086,7 +1095,7 @@
         const bh = snapshot.packet.height || 330;
 
         let boardImg = null;
-        const rawSrc = snapshot.packet.image || snapshot.boardEl?.querySelector?.('img')?.src;
+        const rawSrc = snapshot.rawSrc || snapshot.packet.image || snapshot.boardEl?.querySelector?.('img')?.src;
         if (rawSrc) {
             try { boardImg = await loadBrowserImage(rawSrc); } catch (_) {}
         }
@@ -1131,13 +1140,15 @@
             }
         }
 
-        const frameSolution = solveFrameChallenge(boardData);
-        if (frameSolution && frameSolution.confidence >= 50) {
+        const excludeSlots = snapshot.imageSig ? triedSlotsByImage.get(snapshot.imageSig) : null;
+        const frameSolution = solveFrameChallenge(boardData, { excludeSlots });
+        if (frameSolution && frameSolution.confidence >= 40) {
             return {
                 x: frameSolution.targetX,
                 y: frameSolution.targetY,
                 slot: frameSolution.slot,
                 candidates: frameSolution.candidates,
+                ranked: frameSolution.ranked,
                 confidence: frameSolution.confidence,
                 matchedName: frameSolution.matchedName || target?.name || 'รูปในกรอบ'
             };
@@ -1161,13 +1172,30 @@
         const isBoardMode = Boolean(packet.image || isRealBoardEl);
 
         if (isBoardMode) {
+            const boardImgEl = (isRealBoardEl && typeof rawBoard.querySelector === 'function') ? rawBoard.querySelector('img') : null;
+            const rawSrc = (boardImgEl && typeof boardImgEl.getAttribute === 'function' ? boardImgEl.getAttribute('src') : (boardImgEl?.src || '')) || packet.image || '';
+            const imageSig = (typeof rawSrc === 'string' && rawSrc.length > 0)
+                ? `${rawSrc.length}:${rawSrc.slice(Math.max(0, Math.floor(rawSrc.length / 2) - 24), Math.floor(rawSrc.length / 2) + 24)}`
+                : '';
+            const metaEl = (typeof hc.querySelector === 'function') ? hc.querySelector('.human-check-meta') : null;
+            const metaText = (metaEl && typeof metaEl.innerText === 'string') ? metaEl.innerText : '';
+            const triesMatch = metaText.match(/ตอบผิดได้อีก\s*(\d+)/);
+            const triesLeft = triesMatch ? Number(triesMatch[1]) : (Number.isInteger(packet.triesLeft) ? packet.triesLeft : null);
+            const keyParts = [String(packet.id), prompt];
+            if (imageSig || triesLeft != null) {
+                keyParts.push(imageSig);
+                if (triesLeft != null) keyParts.push(triesLeft);
+            }
             return {
                 mode: 'board',
                 hc,
                 boardEl: rawBoard,
                 packet,
                 prompt,
-                key: JSON.stringify([String(packet.id), prompt])
+                rawSrc,
+                imageSig,
+                triesLeft,
+                key: JSON.stringify(keyParts)
             };
         }
 
@@ -1222,10 +1250,18 @@
                     if (window.__autoHumanCheckEnabled === false || activeCfg.autoAnswer === false) return;
                     const current = embeddedHumanCheckSnapshot();
                     if (!current || current.key !== pending.key || current.packet !== pending.packet || current.hc !== pending.hc || current.key === embeddedHumanCheckAttempt) return;
-                    if ((window.__lastHumanCheckSolved?.timestamp || 0) >= current.packet.timestamp) return;
+                    const prevSolved = window.__lastHumanCheckSolved;
+                    if (prevSolved && (prevSolved.key === current.key || (prevSolved.source !== 'embedded-local-catalog' && (prevSolved.timestamp || 0) >= current.packet.timestamp))) return;
 
                     embeddedHumanCheckAttempt = current.key;
                     try { localStorage.setItem(humanCheckAttemptKey, current.key); } catch (_) {}
+                    if (current.imageSig && Number.isInteger(solution.slot)) {
+                        if (!triedSlotsByImage.has(current.imageSig)) {
+                            if (triedSlotsByImage.size >= 30) triedSlotsByImage.clear();
+                            triedSlotsByImage.set(current.imageSig, new Set());
+                        }
+                        triedSlotsByImage.get(current.imageSig).add(solution.slot);
+                    }
 
                     const targetX = solution.x;
                     const targetY = solution.y;
@@ -1263,7 +1299,8 @@
                     } catch (_) {}
 
                     const timestamp = Date.now();
-                    window.__lastHumanCheckSolved = { x: targetX, y: targetY, confidence: solution.confidence, matchedName: solution.matchedName, timestamp, source: 'embedded-local-catalog' };
+                    const pickedIndex = (Number.isInteger(solution.slot) && solution.slot >= 1 && solution.slot <= 4) ? (solution.slot - 1) : -1;
+                    window.__lastHumanCheckSolved = { pickIndex: pickedIndex, slot: solution.slot || null, x: targetX, y: targetY, confidence: solution.confidence, matchedName: solution.matchedName, timestamp, key: current.key, source: 'embedded-local-catalog' };
                     let character = '';
                     try { const c = typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null; character = String(c?.name || c?.characterName || ''); } catch (_) {}
                     const event = {
@@ -1272,7 +1309,8 @@
                         profileId: String(window.__pmProfileId || ''),
                         character,
                         timestamp,
-                        pickIndex: -1,
+                        pickIndex: pickedIndex,
+                        slot: solution.slot || null,
                         x: targetX,
                         y: targetY,
                         confidence: solution.confidence,

@@ -233,4 +233,86 @@ test('embedded bot solves frame-based prompt (กดรูปด้านล่�
   assert.ok(boardClicks.length > 0, 'should dispatch click to img element');
 });
 
+test('embedded bot retries up to 3 attempts when triesLeft decrements on same image or new image arrives', async () => {
+  const f = fixture();
+  const roomMessages = [];
+  const room = { send: (msg, data) => roomMessages.push({ msg, data }) };
+  f.window.getColyseusRoom = () => room;
+
+  let currentMeta = 'เวลา 89 วิ · ตอบผิดได้อีก 3 ครั้ง';
+  let currentSrc = 'data:image/png;base64,' + 'A'.repeat(120);
+  const promptText = 'กดรูปด้านล่างที่เหมือนกับรูปในกรอบ';
+  f.window.__latestHumanCheck = {
+    id: 'uuid-retry-3',
+    prompt: promptText,
+    image: currentSrc,
+    width: 480,
+    height: 330,
+    timestamp: Date.now()
+  };
+  f.setPrompt(promptText);
+
+  const imgEl = {
+    getAttribute: name => name === 'src' ? currentSrc : null,
+    get src() { return currentSrc; },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 480, height: 330 }),
+    dispatchEvent: () => {},
+    click: () => {}
+  };
+  const boardEl = {
+    classList: { contains: c => c === 'human-check-board' },
+    tagName: 'DIV',
+    querySelector: sel => sel === 'img' ? imgEl : null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 480, height: 330 }),
+    dispatchEvent: () => {},
+    click: () => {}
+  };
+  const hcWithBoard = {
+    querySelector: sel => {
+      if (sel === '.human-check-board') return boardEl;
+      if (sel === '.human-check-prompt') return { innerText: promptText };
+      if (sel === '.human-check-meta') return { innerText: currentMeta };
+      return null;
+    },
+    querySelectorAll: () => []
+  };
+  vm.runInContext('document.querySelector = (sel) => sel === ".human-check" ? hcBoard : null', vm.createContext({ ...f.context, hcBoard: hcWithBoard }));
+
+  const slotCoords = { 1: { x: 68, y: 240 }, 2: { x: 185, y: 240 }, 3: { x: 295, y: 240 }, 4: { x: 405, y: 240 } };
+  let pickedSlots = [];
+  f.window.__mockImageBoardMatcher = (snap) => {
+    // Pick first untried slot in order [3, 2, 1, 4] based on snap.triesLeft or internal state
+    const order = [3, 2, 1, 4];
+    const slot = order[pickedSlots.length] || 3;
+    pickedSlots.push({ slot, triesLeft: snap.triesLeft, imageSig: snap.imageSig });
+    return { x: slotCoords[slot].x, y: slotCoords[slot].y, slot, confidence: 90, matchedName: 'รูปในกรอบ (ช่องที่ ' + slot + ')' };
+  };
+
+  // Attempt 1 (triesLeft = 3)
+  f.tick();
+  await new Promise(r => setTimeout(r, 20));
+  f.run();
+  assert.equal(roomMessages.length, 1);
+  assert.equal(roomMessages[0].data.x, 295);
+
+  // Attempt 2 on SAME image (triesLeft decrements to 2)
+  currentMeta = 'เวลา 85 วิ · ตอบผิดได้อีก 2 ครั้ง';
+  f.tick();
+  await new Promise(r => setTimeout(r, 20));
+  f.run();
+  assert.equal(roomMessages.length, 2);
+  assert.equal(roomMessages[1].data.x, 185);
+
+  // Attempt 3 on NEW image (triesLeft decrements to 1, image changes)
+  currentMeta = 'เวลา 80 วิ · ตอบผิดได้อีก 1 ครั้ง';
+  currentSrc = 'data:image/png;base64,' + 'B'.repeat(120);
+  f.window.__latestHumanCheck.image = currentSrc;
+  f.tick();
+  await new Promise(r => setTimeout(r, 20));
+  f.run();
+  assert.equal(roomMessages.length, 3);
+  assert.equal(roomMessages[2].data.x, 68);
+});
+
+
 
