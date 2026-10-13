@@ -1325,16 +1325,49 @@ setInterval(async () => {
   } catch (e) {}
 }, 2500);
 
+// Poll remote commands from Central Admin Dashboard (https://api.noggunsshop.xyz)
+let centralCommandPollInFlight = false;
+async function pollCentralCommands() {
+  if (centralCommandPollInFlight) return;
+  centralCommandPollInFlight = true;
+  try {
+    const accountSettings = humanCheckSolver.loadSettings();
+    if (!accountSettings || !accountSettings.accountId) return;
+    const deviceId = getEffectiveDeviceNickname();
+    const res = await humanCheckSolver.serviceRequest('/v1/aetheria/machine/commands', {
+      machineId: deviceId
+    });
+    if (res && res.success && Array.isArray(res.commands) && res.commands.length > 0) {
+      const ackIds = [];
+      for (const cmd of res.commands) {
+        console.log(`[Central Admin] Received remote command: ${cmd.action} target: ${cmd.target}`);
+        if (cmd.action === 'stop') {
+          if (cmd.target === 'all') {
+            await stopAllProfiles();
+          } else {
+            await stopSingleProfile(cmd.target);
+          }
+        }
+        ackIds.push(cmd.id);
+      }
+      if (ackIds.length > 0) {
+        await humanCheckSolver.serviceRequest('/v1/aetheria/machine/commands/ack', {
+          commandIds: ackIds,
+          machineId: deviceId
+        }).catch(() => {});
+      }
+    }
+  } catch (_) {} finally {
+    centralCommandPollInFlight = false;
+  }
+}
+setInterval(pollCentralCommands, 3000);
+
 const server = http.createServer(async (req, res) => {
   req.setEncoding('utf8');   // request bodies are built with += (Thai split across chunks -> U+FFFD)
   if (!allowLocalRequest(req, PORT)) {
-    const isPeerAdminRoute = pathname === '/api/admin/peer-status' || pathname === '/api/admin/remote-stop';
-    if (isPeerAdminRoute && req.headers['sec-fetch-site'] !== 'cross-site') {
-      // Allow peer admin communication across LAN / local network
-    } else {
-      res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
-      return res.end(JSON.stringify({ success: false, error: "Forbidden request origin or host" }));
-    }
+    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+    return res.end(JSON.stringify({ success: false, error: "Forbidden request origin or host" }));
   }
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -3569,188 +3602,6 @@ public class PmFocus {
       }
     });
     return;
-  }
-
-  // GET /api/admin/fleet — status of this machine + all remote peers
-  if (req.method === "GET" && pathname === "/api/admin/fleet") {
-    const allProfiles = loadProfiles();
-    const localRunning = allProfiles.filter(p => browserMode.isOpen(p.id) || (runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid))).map(p => ({
-      id: p.id,
-      name: p.name,
-      charName: p.liveState?.charName || p.lastCharName || p.name,
-      baseLv: p.liveState?.baseLv || null,
-      jobLv: p.liveState?.jobLv || null,
-      currentMap: p.liveState?.currentMap || null,
-      status: p.liveState?.status || 'Online',
-      debugPort: p.debugPort
-    }));
-
-    const peers = loadAdminPeers();
-    // Query each peer status in parallel with 2500ms timeout
-    const peerResults = await Promise.all(peers.map(async (peer) => {
-      return new Promise((resolve) => {
-        const startTime = Date.now();
-        const [host, portStr] = (peer.address || '').split(':');
-        const pPort = parseInt(portStr, 10) || 3888;
-        const reqPeer = http.get(`http://${host}:${pPort}/api/admin/peer-status`, { timeout: 2500 }, (res) => {
-          let data = '';
-          res.setEncoding('utf8');
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              resolve({
-                id: peer.id,
-                name: peer.name || parsed.nickname || host,
-                address: peer.address,
-                online: true,
-                latency: Date.now() - startTime,
-                data: parsed
-              });
-            } catch (_) {
-              resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: 'Bad response' });
-            }
-          });
-        });
-        reqPeer.on('error', (err) => resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: err.message }));
-        reqPeer.on('timeout', () => { reqPeer.destroy(); resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: 'Timeout' }); });
-      });
-    }));
-
-    return sendJSON({
-      success: true,
-      local: {
-        nickname: getEffectiveDeviceNickname(),
-        hostname: os.hostname(),
-        port: PORT,
-        onlineCount: localRunning.length,
-        profiles: localRunning
-      },
-      peers: peerResults
-    });
-  }
-
-  // POST /api/admin/fleet/peers — add / remove remote peer machine
-  if (req.method === "POST" && pathname === "/api/admin/fleet/peers") {
-    let body = "";
-    req.on("data", c => body += c);
-    req.on("end", () => {
-      try {
-        const payload = JSON.parse(body || "{}");
-        const peers = loadAdminPeers();
-        if (payload.action === "add") {
-          const rawAddr = String(payload.address || '').trim().replace(/^https?:\/\//, '');
-          if (!rawAddr) return sendJSON({ success: false, error: "กรุณาระบุ IP หรือ Hostname ของเครื่อง" }, 400);
-          const address = rawAddr.includes(':') ? rawAddr : (rawAddr + ':3888');
-          const existing = peers.find(p => p.address === address);
-          if (existing) {
-            existing.name = (payload.name || '').trim() || existing.name;
-          } else {
-            peers.push({
-              id: 'peer_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
-              name: (payload.name || '').trim() || address,
-              address,
-              addedAt: Date.now()
-            });
-          }
-          saveAdminPeers(peers);
-          return sendJSON({ success: true, peers });
-        } else if (payload.action === "remove") {
-          const filtered = peers.filter(p => p.id !== payload.id && p.address !== payload.address);
-          saveAdminPeers(filtered);
-          return sendJSON({ success: true, peers: filtered });
-        }
-        return sendJSON({ success: false, error: "Action invalid" }, 400);
-      } catch (err) {
-        return sendJSON({ success: false, error: err.message }, 500);
-      }
-    });
-    return;
-  }
-
-  // POST /api/admin/fleet/stop — stop single screen or all screens on target
-  if (req.method === "POST" && pathname === "/api/admin/fleet/stop") {
-    let body = "";
-    req.on("data", c => body += c);
-    req.on("end", async () => {
-      try {
-        const payload = JSON.parse(body || "{}");
-        // If target is local machine
-        if (!payload.address || payload.address === 'local') {
-          if (payload.mode === "single" && payload.profileId) {
-            await stopSingleProfile(payload.profileId);
-            return sendJSON({ success: true, target: 'local', stopped: payload.profileId });
-          }
-          await stopAllProfiles();
-          return sendJSON({ success: true, target: 'local', stopped: 'all' });
-        }
-
-        // Target is remote peer machine
-        const [host, portStr] = payload.address.split(':');
-        const pPort = parseInt(portStr, 10) || 3888;
-        const postData = JSON.stringify({ mode: payload.mode || 'all', profileId: payload.profileId });
-        const remoteReq = http.request({
-          hostname: host,
-          port: pPort,
-          path: '/api/admin/remote-stop',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(postData)
-          },
-          timeout: 4000
-        }, (remoteRes) => {
-          let rData = '';
-          remoteRes.on('data', chunk => rData += chunk);
-          remoteRes.on('end', () => {
-            try {
-              const parsed = JSON.parse(rData);
-              sendJSON({ success: true, remoteResult: parsed });
-            } catch (_) {
-              sendJSON({ success: false, error: 'Remote response invalid' }, 500);
-            }
-          });
-        });
-        remoteReq.on('error', (e) => sendJSON({ success: false, error: e.message }, 500));
-        remoteReq.on('timeout', () => { remoteReq.destroy(); sendJSON({ success: false, error: 'Remote timeout' }, 500); });
-        remoteReq.write(postData);
-        remoteReq.end();
-      } catch (err) {
-        return sendJSON({ success: false, error: err.message }, 500);
-      }
-    });
-    return;
-  }
-
-  // POST /api/admin/fleet/global-stop — Emergency stop ALL machines everywhere!
-  if (req.method === "POST" && pathname === "/api/admin/fleet/global-stop") {
-    // 1. Stop local immediately
-    await stopAllProfiles();
-
-    // 2. Broadcast stop to all remote peers
-    const peers = loadAdminPeers();
-    const results = await Promise.allSettled(peers.map(peer => new Promise((resolve) => {
-      const [host, portStr] = peer.address.split(':');
-      const pPort = parseInt(portStr, 10) || 3888;
-      const postData = JSON.stringify({ mode: 'all' });
-      const rReq = http.request({
-        hostname: host,
-        port: pPort,
-        path: '/api/admin/remote-stop',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-        timeout: 4000
-      }, res => {
-        res.resume();
-        resolve({ peer: peer.address, ok: true });
-      });
-      rReq.on('error', err => resolve({ peer: peer.address, ok: false, error: err.message }));
-      rReq.on('timeout', () => { rReq.destroy(); resolve({ peer: peer.address, ok: false, error: 'timeout' }); });
-      rReq.write(postData);
-      rReq.end();
-    })));
-
-    return sendJSON({ success: true, localStopped: true, peerCount: peers.length, results });
   }
 
   // STATIC FILE SERVING
