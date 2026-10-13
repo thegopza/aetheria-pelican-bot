@@ -50,6 +50,8 @@ PmheeAether เป็นซอฟต์แวร์ที่ใช้งาน�
 
 ## 🔄 3. การส่งอัปเดตบอทไปยังเกมที่เปิดอยู่
 
+**โหมดปัจจุบัน owner-host/private protocol2:** อ่าน docs/BOT_UPDATE_GUIDE.md การ push public bot.js อย่างเดียวไม่ส่ง private release; ขั้นตอน GitHub bot.js ด้านล่างใช้เฉพาะ compatibility/legacy อย่าคัดลอก private payload ตามกฎ sync ของ compatibility
+
 - ตัวโหลดเกม (`main.js`) ดึง `bot.js` ล่าสุดจาก GitHub (`raw.githubusercontent.com/.../main/bot.js`) **ทุกครั้งที่หน้าเกมโหลด**
 - Manager มีระบบ Auto-update (`manager/bot_auto_update.js`): เช็ก GitHub ทุก 5 นาที → รอ CDN ส่งไฟล์ใหม่จริง (เทียบ git blob sha) → รีเฟรชเกมทีละจอเฉพาะตอนปลอดภัย → ให้บอทกลับมาฟาร์มต่อ
 - ดังนั้นเมื่อแก้ `bot.js` แล้ว **push ขึ้น GitHub = จอเกมที่เปิดอยู่จะอัปเดตเอง** (ดูสถานะ/เวอร์ชันแต่ละจอได้ที่ปุ่ม "Auto-update" บนแถบด้านบนของ Manager)
@@ -222,8 +224,8 @@ PmheeAether เป็นซอฟต์แวร์ที่ใช้งาน�
 
 เจ้าของยืนยันแบบ friends-offline: signed cached encrypted payload ไม่ต้องต่ออายุสิทธิ์ออนไลน์, solver/catalog ฝังใน private bot, เก็บสถิติใน Manager, local daily debt แยกวันไทย/slotId, ส่งทุกชั่วโมง/เที่ยงคืน/reconnect, ล้างเฉพาะ ACK สำเร็จ, ยอดแสดงคำนวณต่อจาก local pending ขณะ host เจ้าของออฟไลน์; เติมเงินตรวจรับกลางเมื่อ host ออนไลน์เท่านั้น นี่คือการปรับแบบที่เจ้าของอนุญาต ไม่ใช่การให้ผู้ใช้ข้าม billing โดยพลการ
 
-สถานะรอบนี้: มี candidate code ใน working tree และ partial tests แล้ว แต่ **ยังไม่ deploy/cutover** Cloudflare ยังเป็น ledger หลัก; PMheeAetheriaApi ยัง Stopped/Manual; ห้ามเริ่ม service จากฐาน SQLite เก่า เจ้าของสั่งให้จัดโฟลเดอร์/ร่างงานแล้วให้ agent อื่นพัฒนาต่อและ Codex ตรวจ ดังนั้นอย่า commit/push candidate code หรือย้าย route เองเพียงเพราะไฟล์ถูกสร้างแล้ว อ่านรายการค้างและผ่าน test gates ก่อนปล่อยจริง เอกสาร handoff เผยแพร่ได้โดยไม่รวม candidate code หรือ customer edits
+สถานะปัจจุบัน LIVE: owner-host เป็น ledger หลักหลัง cutover-20261013-1715; D1 เดิม maintenance=1, Cloudflare Access/Tunnel เป็นทางเข้า PMheeAetheriaApi เปิดใช้งานแล้ว ตรวจ health/service ล่าสุดก่อนทำงาน ห้ามใช้ฐาน SQLite เก่าหรือทำ cutover ใหม่เพื่ออัปเดตบอททั่วไป อ่าน docs/BOT_UPDATE_GUIDE.md เป็น workflow ปัจจุบันแทน candidate handoff เก่า
 
-Private implementation candidate อยู่ Server/PMhee.AetheriaApi/owner-host/ และ protected-script/bot.source.js รุ่น4.38.0; public bot.js เป็น compatibility4.36.2 และยังห้ามซิงค์ private source/payload เข้า public Git/ZIP/gamefolder ตราบใดที่ runtime4.37.x เดิมยังเปิดอยู่ ต้องเก็บ protocol1 compatibility/lease renewalไว้จน safe refresh โหลด protocol2สำเร็จ
+Private source รุ่นใช้งานอยู่ Server/PMhee.AetheriaApi/owner-host/ และ protected-script/bot.source.js (ตรวจ version จริงจากค่าคงที่) public bot.js เป็น compatibility snapshot; ห้ามซิงค์ private source/payload เข้า public Git/ZIP/gamefolder เก็บ protocol1 compatibility/lease renewal จน safe reload protocol2 สำเร็จ
 
 trash มีเฉพาะ one-off patch helper ที่ตรวจแล้วว่าไม่ได้ใช้ ไม่ใช่ที่ทิ้งฐานเก่า/secrets/sourceเดิม/rollbackโดยเดา ห้าม recursively move/delete junction ของ repo และห้ามสร้าง source hand-edit สำเนาที่สาม
