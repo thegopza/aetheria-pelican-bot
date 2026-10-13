@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.36.3
+// @version      4.36.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.36.3';
+    const PELICAN_BOT_VERSION = '4.36.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8661,9 +8661,21 @@
     let loginFailCount = 0;
     let isLoginInProgress = false;
 
+    function safeClickOnce(el) {
+        if (!el) return;
+        try {
+            const reactPropsKey = Object.keys(el).find(k => k.startsWith('__reactProps'));
+            if (reactPropsKey && el[reactPropsKey] && typeof el[reactPropsKey].onClick === 'function') {
+                el[reactPropsKey].onClick({ stopPropagation: () => {}, preventDefault: () => {} });
+                return;
+            }
+        } catch (e) {}
+        try { el.click(); } catch (e) {}
+    }
+
     function setNativeInputValue(element, value) {
         if (!element) return;
-        element.focus();
+        try { element.focus(); } catch (e) {}
         try {
             const prototype = Object.getPrototypeOf(element);
             const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
@@ -8675,6 +8687,12 @@
         } catch(e) {
             element.value = value;
         }
+        try {
+            const reactPropsKey = Object.keys(element).find(k => k.startsWith('__reactProps'));
+            if (reactPropsKey && element[reactPropsKey] && typeof element[reactPropsKey].onChange === 'function') {
+                element[reactPropsKey].onChange({ target: element, currentTarget: element });
+            }
+        } catch (e) {}
         element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
         element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
         element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }));
@@ -8722,9 +8740,16 @@
         }) || null;
         // The form can be in sign-up mode (3 fields, "สมัครและเข้าเกม"): logging in needs the login mode
         const loginForm = document.querySelector('form.login-form');
-        if (loginForm && loginForm.querySelectorAll('input').length >= 3 && !(window.__authConfig || {}).register) {
-            const toLogin = Array.from(loginForm.querySelectorAll('button.ghost')).find(b => /เข้าสู่ระบบ|Log in/.test(b.innerText || ''));
-            return { userInput, passInput, loginBtn: null, toLogin };
+        const cfg = window.__authConfig || {};
+        if (loginForm && loginForm.querySelectorAll('input').length >= 3 && !cfg.register) {
+            if (cfg.enabled && cfg.username && cfg.password) {
+                const toLogin = Array.from(loginForm.querySelectorAll('button.login-link, button.ghost, .login-links button, button, a')).find(b => {
+                    const txt = (b.innerText || b.textContent || b.value || '').trim();
+                    return /มีบัญชีแล้ว|เข้าสู่ระบบ|Log in|Sign in/i.test(txt);
+                });
+                return { userInput, passInput, loginBtn: null, toLogin };
+            }
+            return { userInput: null, passInput: null, loginBtn: null, toLogin: null };
         }
 
         return { userInput, passInput, loginBtn };
@@ -8928,10 +8953,16 @@
         const form = document.querySelector('form.login-form');
         if (!form || isLoginInProgress) return;
         const inputs = Array.from(form.querySelectorAll('input'));
-        const ghost = Array.from(form.querySelectorAll('button.ghost')).find(b => /สมัครบัญชีใหม่|Create an account/.test(b.innerText || ''));
+        const switchBtn = Array.from(form.querySelectorAll('button.login-link, button.ghost, .login-links button, button, a')).find(b => {
+            const txt = (b.innerText || b.textContent || b.value || '').trim();
+            return /สมัครบัญชีใหม่|Create an account|สมัครสมาชิก|สมัครไอดี|Sign up/i.test(txt);
+        });
         if (inputs.length < 3) {
             // login mode on screen: switch the form to "สมัครบัญชีใหม่"
-            if (ghost) { console.log('%c[PmheeAether Auth] 📝 สลับหน้าเป็น "สมัครบัญชีใหม่"', 'color: #a855f7;'); ghost.click(); }
+            if (switchBtn) {
+                console.log('%c[PmheeAether Auth] 📝 สลับหน้าเป็น "สมัครบัญชีใหม่"', 'color: #a855f7;');
+                safeClickOnce(switchBtn);
+            }
             return;
         }
         const now = Date.now();
@@ -8950,12 +8981,22 @@
                 cfg.registerError = msg;
                 saveAuth();
                 console.warn(`[PmheeAether Auth] ⚠️ สมัครด้วย ID "${cfg.username}" ไม่สำเร็จ (${msg}) -> เปลี่ยนเป็นเข้าสู่ระบบด้วย ID/รหัสนี้แทน`);
-                const back = Array.from(form.querySelectorAll('button.ghost')).find(b => /เข้าสู่ระบบ|Log in/.test(b.innerText || ''));
-                if (back) back.click();
+                const back = Array.from(form.querySelectorAll('button.login-link, button.ghost, .login-links button, button, a')).find(b => {
+                    const txt = (b.innerText || b.textContent || b.value || '').trim();
+                    return /มีบัญชีแล้ว|เข้าสู่ระบบ|Log in|Sign in/i.test(txt);
+                });
+                if (back) {
+                    safeClickOnce(back);
+                }
                 return;
             }
         }
-        const submit = Array.from(form.querySelectorAll('button')).find(b => !b.classList.contains('ghost') && b.type !== 'button');
+        const submit = form.querySelector('button.login-go') || Array.from(form.querySelectorAll('button')).find(b => {
+            if (b.classList.contains('ghost') || b.classList.contains('login-link') || b.type === 'button') return false;
+            const txt = (b.innerText || b.textContent || b.value || '').trim();
+            if (/เล่นทันที|ไม่ต้องสมัคร|Guest|สมัครบัญชีใหม่|มีบัญชีแล้ว/i.test(txt)) return false;
+            return true;
+        });
         if (!submit || submit.disabled) return;
         registerTries++;
         console.log(`%c[PmheeAether Auth] 📝 สมัครบัญชีใหม่อัตโนมัติ ID: "${cfg.username}" (ครั้งที่ ${registerTries})`, 'color: #a855f7; font-weight: bold;');
@@ -8964,8 +9005,20 @@
         setNativeInputValue(inputs[2], cfg.password);
         registerSubmittedAt = now;
         setTimeout(() => {
+            try {
+                const reactPropsKey = Object.keys(form).find(k => k.startsWith('__reactProps'));
+                if (reactPropsKey && form[reactPropsKey] && typeof form[reactPropsKey].onSubmit === 'function') {
+                    form[reactPropsKey].onSubmit({ preventDefault: () => {}, stopPropagation: () => {} });
+                    return;
+                }
+            } catch (e) {}
+            try {
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit(submit);
+                    return;
+                }
+            } catch (e) {}
             try { submit.click(); } catch(e) {}
-            triggerClick(submit);
         }, 400);
     }
     // Called while not on the login screen: a sign-up from this page went through
@@ -9034,7 +9087,7 @@
         if (isLoginInProgress) return;
 
         const { userInput, passInput, loginBtn, toLogin } = findLoginElements();
-        if (toLogin) { toLogin.click(); return; }
+        if (toLogin) { safeClickOnce(toLogin); return; }
         if (!passInput || !loginBtn) {
             if (force) {
                 console.warn('%c[PmheeAether Auth] ⚠️ ไม่พบหน้าต่าง Login บนหน้าจอ (ตัวละครอาจอยู่ในเกมอยู่แล้ว)', 'color: #f59e0b;');
