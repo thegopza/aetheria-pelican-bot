@@ -9,6 +9,11 @@ const managerDir=process.env.PMHEE_HC_MANAGER_DIR || path.resolve(__dirname,'..'
 const {createEmbeddedHumanCheckBridge}=require(path.join(managerDir,'embedded_human_check_bridge'));
 function realStats(dir){
   const source=fs.readFileSync(path.join(managerDir,'server.js'),'utf8');
+  if(source.includes('return captchaStats.record')){
+    const {createCaptchaStats}=require(path.join(managerDir,'captcha_stats'));
+    const stats=createCaptchaStats({file:path.join(dir,'data/captcha_stats.json'),log:{warn(){}}});
+    return {recordCaptchaSolved:(id,event)=>stats.record(id,event)};
+  }
   const dateFn=source.slice(source.indexOf('function getThaiDateKey('),source.indexOf('function bootstrapDailyFromRequests('));
   const stats=source.slice(source.indexOf('function getCaptchaStats()'),source.indexOf('const discordService ='));
   const context=vm.createContext({fs,path,Date,JSON,Math,Number,Object,console:{warn(){}},__dirname:dir,CAPTCHA_STATS_FILE:path.join(dir,'data/captcha_stats.json'),bootstrapDailyFromRequests:()=>({})});
