@@ -11,10 +11,10 @@ Checkout สำหรับแจก: `D:\MyProject\PmheeAether\manager-update-d
 2. ตรวจ syntax ทุก JS ที่แก้ รัน regression ที่เกี่ยวข้อง รวม `node --test manager/tests/github_update_repository.test.js manager/tests/security_restart_guard.test.js manager/tests/security_update_busy.test.js tools/publish-manager-updates.test.js` ถ้าแก้ช่องทางอัปเดต
 3. sync เฉพาะไฟล์งานไป release mirror และ rebuild ZIP จาก allowlist ตรวจ entry/hash ก่อน commit; review แล้ว explicit stage/commit/push origin main ที่ source repo
 4. หากเพิ่ม runtime file ใหม่ ต้องเพิ่มชื่อใน `tools/manager-distribution-files.json` และตรวจว่าไม่ใช่ private payload, bot.js, customer configs, credentials, sessions, offline debts/cache หรือ signing secret
-5. จาก source root รัน `node tools/publish-manager-updates.js D:\MyProject\PmheeAether\manager-update-distribution --publish` เครื่องมืออ่าน committed HEAD เท่านั้น ไม่อ่านโค้ดค้างใน working tree ตรวจ syntax/ZIP hashes และ push main ที่ public distribution
-6. ตรวจ public commit/raw URLs แบบไม่ส่ง GitHub token, distribution.json และ ZIP ให้ตรง sourceCommit แล้วบันทึกสถานะงาน อย่ารายงานว่าปล่อยสำเร็จหาก push เฉพาะ private source
+5. จาก source root รัน `node tools/publish-manager-updates.js D:\MyProject\PmheeAether\manager-update-distribution --publish` เครื่องมืออ่าน committed HEAD เท่านั้น ไม่อ่านโค้ดค้างใน working tree ตรวจ syntax/runtime hashes และ push main ที่ public distribution
+6. ตรวจ public commit/raw URLs แบบไม่ส่ง GitHub token, distribution.json ให้ตรง sourceCommit แล้วบันทึกสถานะงาน อย่ารายงานว่าปล่อยสำเร็จหาก push เฉพาะ private source
 
-ZIP ของ repo แจกไม่มี bot.js/private payload มี launcher, Node และ Manager runtime เท่านั้น บอทรุ่น private ใช้ owner API และ signed last-good cache เดิม หน้าแอดมิน/ledger/private service ไม่ได้ย้ายมาที่ GitHub
+repo แจกเป็นช่องทาง auto-update ของ Manager เท่านั้น ไม่มี ZIP ติดตั้งหรือ bot.js/private payload ไฟล์ ZIP ติดตั้งยังสร้างที่ release ใน source repo ให้เจ้าของแจกเอง เพราะตัวติดตั้งเดิมต้องใช้ compatibility bot.js บอทรุ่น private ใช้ owner API และ signed last-good cache เดิม หน้าแอดมิน/ledger/private service ไม่ได้ย้ายมาที่ GitHub
 
 ## ช่วงเปลี่ยนผ่าน
 
