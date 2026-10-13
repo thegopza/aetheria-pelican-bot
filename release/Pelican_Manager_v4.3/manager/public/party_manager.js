@@ -31,7 +31,7 @@
       <div class="pt-body" id="pt-body"></div>
       <footer class="pt-foot">
         <button class="pt-add" id="pt-add" type="button">➕ เพิ่มตี้</button>
-        <div class="pt-foot-hint">เลือกหัวตี้ แล้วระบบจะชวนจอที่เลเวลใกล้กันเข้าตี้ให้จนครบ 6 คน<br>สมาชิกจะตามไปฟาร์มแมพเดียวกันและ CH เดียวกับหัวตี้</div>
+        <div class="pt-foot-hint">เลือกหัวตี้ แล้วระบบจะชวนจอที่เลเวลใกล้กันเข้าตี้ให้จนครบ 6 คน<br>สมาชิกตามไปแมพ + CH เดียวกับหัวตี้ · จอที่แผนยังเก็บ Base/Job ไม่ครบจะไม่ถูกดึง</div>
       </footer>
       <section class="pt-picker" id="pt-picker" hidden>
         <div class="pt-picker-head">
@@ -153,7 +153,7 @@
         <div class="pt-ava" style="--pt-h:${hue(c.charName || c.name)}">${esc(initial(c.charName || c.name))}</div>
         <div class="pt-who">
           <div class="pt-name">${esc(c.charName || c.name)}${c.level ? `<span class="pt-lv">Lv.${esc(c.level)}</span>` : ''}</div>
-          <div class="pt-sub">${esc([c.name, c.online ? (c.mapName ? c.mapName + (c.channel ? ' · CH ' + c.channel : '') : 'ออนไลน์') : 'ออฟไลน์', c.inGameParty ? 'มีตี้ในเกมอยู่แล้ว' : null].filter(Boolean).join(' · '))}</div>
+          <div class="pt-sub">${esc([c.name, c.online ? (c.mapName ? c.mapName + (c.channel ? ' · CH ' + c.channel : '') : 'ออนไลน์') : 'ออฟไลน์', c.inGameParty ? 'มีตี้ในเกมอยู่แล้ว' : null, c.planPending ? 'แผนยังเก็บเลเวล (' + c.planPending + ')' : null].filter(Boolean).join(' · '))}</div>
         </div>
         <span class="pt-go">เลือก →</span>
       </button>`).join('') : `<div class="pt-empty">ไม่มีจอที่ว่าง — ทุกจออยู่ในตี้แล้ว</div>`;

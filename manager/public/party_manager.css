@@ -202,3 +202,4 @@ body.pt-open .pt-drawer { transform: translateX(0); }
 @media (prefers-reduced-motion: reduce) {
   .pt-tab, .pt-drawer, .pt-card, .pt-pick, .pt-btn, .pt-add { transition: none; animation: none; }
 }
+.pt-status.plan { color: #c4b5fd; background: rgba(167, 139, 250, 0.1); border-color: rgba(167, 139, 250, 0.3); }

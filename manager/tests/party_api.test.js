@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const vm = require('vm');
 const { createPartyService, pickCandidates, channelTarget, normalizeStates, READ_JS } = require('../party_api');
 
 const snap = (name, level, extra = {}) => Object.assign({ ok: true, name, level, mapId: 'm1', mapName: 'แมพ1', channel: 1, targetMap: 'แมพ1', botRunning: true, busy: [], partyKnown: true, party: null, invite: null, move: null, helpers: { moveToChannel: true, findLeast: true, setTargetFarmMap: true } }, extra);
@@ -49,10 +50,53 @@ test('normalizeStates drops a stale party the leader no longer has', () => {
   assert.ok(st.get('C').party, 'unknown leader cannot be verified, keep it');
 });
 
+// Run READ_JS in a fake page to check the Plan Script rule
+function readInPage({ base, job, cls, plan, enabled = true, state = null }) {
+  const store = {};
+  if (state) store['pelican_plan_state_Me_' + plan.id] = JSON.stringify(state);
+  const me = { name: 'Me', level: base, jobLevel: job, classId: cls };
+  const window = {
+    __planScriptEnabled: enabled, __currentScriptPlan: plan,
+    getGameRoom: () => ({ sessionId: 's', state: { mapId: 'm', displayName: 'M', channel: 3, players: { get: () => me } } }),
+    getCharacterName: () => 'Me'
+  };
+  const ctx = vm.createContext({ window, document: { getElementById: () => null, body: { firstElementChild: null } }, localStorage: { getItem: k => store[k] || null }, JSON, Date, Number, String, Array, Object });
+  return vm.runInContext(READ_JS, ctx);
+}
+
+test('plan rule: only unpassed Base/Job level triggers block, zeny/gear do not', () => {
+  const plan = { id: 'p', name: 'Bard', class1Target: 'archer', class2Target: 'bard', triggers: [
+    { id: 'b1', type: 'base_level', targetLevel: 20 }, { id: 'b2', type: 'base_level', targetLevel: 60 },
+    { id: 'j1', type: 'job_level', targetLevel: 10, classId: 'novice' }, { id: 'j2', type: 'job_level', targetLevel: 50, classId: 'archer' },
+    { id: 'j3', type: 'job_level', targetLevel: 40, classId: 'bard' }, { id: 'z', type: 'zeny', targetZeny: 999999999 }
+  ] };
+  // Lv99 bard job 50 with an empty plan state (plan loaded late) → everything passed
+  assert.deepStrictEqual(readInPage({ base: 99, job: 50, cls: 'bard', plan }).plan.levelPending, []);
+  // Archer Base 45 Job 30 → Base 60, Job 50 archer and Job 40 bard still to do
+  assert.deepStrictEqual(readInPage({ base: 45, job: 30, cls: 'archer', plan }).plan.levelPending, ['Base 60', 'Job 50 archer', 'Job 40 bard']);
+  // Level reached but the map step is still being retried → still blocked
+  const planA = JSON.parse(JSON.stringify(plan)); planA.triggers[1].actions = [{ type: 'equip_item' }, { type: 'change_map' }];
+  assert.deepStrictEqual(readInPage({ base: 99, job: 50, cls: 'bard', plan: planA, state: { done: {}, pending: { b2: { level: 60, actions: [1] } } } }).plan.levelPending, ['Base 60']);
+  // Only a gear step left (map already done) → does not block
+  assert.deepStrictEqual(readInPage({ base: 99, job: 50, cls: 'bard', plan: planA, state: { done: {}, pending: { b2: { level: 60, actions: [0] } } } }).plan.levelPending, []);
+  // Plan Script switched off → no plan rule
+  assert.strictEqual(readInPage({ base: 10, job: 1, cls: 'novice', plan, enabled: false }).plan, null);
+});
+
+test('pickCandidates skips characters still levelling with their plan', () => {
+  const parties = [{ id: 'a', leaderId: 'L', memberIds: [] }];
+  const states = new Map([
+    ['L', snap('Lead', 99)],
+    ['lv', snap('Levelling', 99, { plan: { levelPending: ['Base 60'] } })],
+    ['ok', snap('Done', 90, { plan: { levelPending: [] } })]
+  ]);
+  assert.deepStrictEqual(pickCandidates(parties[0], parties, states, new Set(), 5, new Set()), ['ok']);
+});
+
 // ---- simulated game world -------------------------------------------------
 function makeWorld(chars) {
   // chars: { profileId: { name, level, channel, mapId, full? } }
-  const world = { chars, parties: {}, invites: {}, sent: [], fullChannels: new Set(), least: 9 };
+  const world = { chars, parties: {}, invites: {}, sent: [], moves: [], fullChannels: new Set(), least: 9 };
   const partyOf = name => Object.values(world.parties).find(p => p.members.includes(name));
   const partyView = name => {
     const p = partyOf(name); if (!p) return null;
@@ -64,7 +108,7 @@ function makeWorld(chars) {
     const c = chars[id];
     if (!c) return { success: false, error: 'ECONNREFUSED' };
     if (code === READ_JS) {
-      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, move: c.move || null }) };
+      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null }) };
     }
     const m = code.match(/room\.send\('party', (\{.*?\})\);/s);
     if (m) {
@@ -90,11 +134,11 @@ function makeWorld(chars) {
       return { success: true, result: { success: true } };
     }
     if (code.includes('window.moveToChannel(')) {
-      const ch = Number(code.match(/const st = \{ ch: (\d+)/)[1]);
+      const ch = Number(code.match(/window\.moveToChannel\((\d+),/)[1]);
+      world.moves.push([c.name, ch]);
       const ok = !world.fullChannels.has(ch);
       if (ok) c.channel = ch;
-      c.move = { ch, at: Date.now() + Math.random(), done: true, ok };
-      return { success: true, result: { success: true } };
+      return { success: true, result: { success: ok, channel: c.channel, error: ok ? null : 'CH full' } };
     }
     if (code.includes('findLeastPopulatedChannel()')) return { success: true, result: { success: true, channel: world.least } };
     return { success: true, result: { success: true } };
@@ -108,7 +152,7 @@ function service(chars, extra = {}) {
   const profiles = Object.keys(chars).map(id => ({ id, name: 'จอ ' + id, debugPort: chars[id].port }));
   const svc = createPartyService({
     loadProfiles: () => profiles, evalProfilePort, dataFile: path.join(dir, 'parties.json'),
-    sleep: async () => {}, log: () => {}, timing: Object.assign({ inviteCooldownMs: 0, settingsCooldownMs: 0, mapCooldownMs: 0, channelCooldownMs: 0, fallbackCooldownMs: 0, disbandGapMs: 0 }, extra)
+    sleep: async () => {}, log: () => {}, timing: Object.assign({ inviteCooldownMs: 0, settingsCooldownMs: 0, mapCooldownMs: 0, channelCooldownMs: 0, fallbackCooldownMs: 0, disbandGapMs: 0, gatherCooldownMs: 0 }, extra)
   });
   return { svc, world, dir };
 }
@@ -151,21 +195,32 @@ test('tick: fills to 6 by level, invites + accepts, applies modes, no member in 
   assert.strictEqual(world.parties.C0.lootMode, 'round-robin');
 });
 
-test('tick: members follow leader map and CH; full CH → leader moves to least populated CH', async () => {
+test('tick: members follow leader map and CH like the consolidation; full CH → leader moves to least populated CH', async () => {
   const chars = {
     L: { name: 'Lead', level: 50, channel: 3, mapId: 'm1', port: 2000 },
     A: { name: 'A', level: 50, channel: 1, mapId: 'm1', port: 2001 },
-    B: { name: 'B', level: 50, channel: 1, mapId: 'm2', port: 2002 }
+    B: { name: 'B', level: 50, channel: 1, mapId: 'm2', port: 2002 },
+    D: { name: 'D', level: 50, channel: 5, mapId: 'm1', port: 2003 }
   };
   const { svc, world } = service(chars);
   world.fullChannels.add(3);
   world.least = 9;
   await post(svc, '/api/parties', { leaderId: 'L' });
   await new Promise(r => setTimeout(r, 120));
-  for (let i = 0; i < 6; i++) await svc.tick();
+  // D joins the party but its plan still has Base/Job levels to do
+  await svc.tick();
+  chars.D.plan = { levelPending: ['Base 60'] };
+  for (let i = 0; i < 6; i++) { await svc.tick(); await new Promise(r => setTimeout(r, 20)); }
   assert.strictEqual(chars.B.targetMap, 'm1', 'member B gets the leader farm map');
   assert.strictEqual(chars.L.channel, 9, 'leader moved to the least populated CH');
   assert.strictEqual(chars.A.channel, 9, 'member followed the leader to the new CH');
+  assert.strictEqual(chars.D.channel, 5, 'member still levelling with its plan is not moved');
+  assert.strictEqual(chars.D.targetMap, undefined, 'and its farm map is left to the plan');
+  // Moves are one at a time: A tried CH 3 first, then the leader, then A again
+  const order = world.moves.map(m => m.join('>'));
+  assert.deepStrictEqual(order.slice(0, 3), ['A>3', 'Lead>9', 'A>9']);
+  const view = svc.view().parties[0];
+  assert.strictEqual(view.members.find(m => m.id === 'D').status, 'plan');
 });
 
 test('delete disbands the party in game', async () => {

@@ -43,7 +43,10 @@ const TIMING = {
   fallbackCooldownMs: 3 * 60 * 1000,
   acceptDelayMs: 1500,
   leaveCooldownMs: 30000,
-  disbandGapMs: 1200
+  disbandGapMs: 1200,
+  gatherCooldownMs: 45000,
+  memberMoveWaitMs: 120000,
+  leaderMoveWaitMs: 45000
 };
 
 // ---------------------------------------------------------------- in-page snippets
@@ -84,6 +87,38 @@ const READ_JS = `(() => {
   try { party = g.party ? g.party() : null; } catch (e) {}
   try { invite = g.invite ? g.invite() : null; } catch (e) {}
   const busy = ${JSON.stringify(BUSY_FLAGS)}.filter(k => window[k] === true);
+  // Plan Script: only Base / Job level triggers keep the character on its own maps. Zeny / gear triggers don't.
+  // Judge by the real level + class too: a plan loaded on an already-levelled character has an empty 'done' list.
+  const plan = (() => {
+    const p = window.__currentScriptPlan;
+    if (!window.__planScriptEnabled || !p) return null;
+    const nm = (typeof window.getCharacterName === 'function' ? window.getCharacterName() : '') || (me && me.name) || '';
+    let st = null; try { st = JSON.parse(localStorage.getItem('pelican_plan_state_' + nm + '_' + (p.id || p.name || 'plan')) || 'null'); } catch (e) {}
+    const done = (st && st.done) || {}, pend = (st && st.pending) || {};
+    const base = (me && me.level) || (live && live.baseLv) || 0;
+    const job = (me && me.jobLevel) || (live && live.jobLv) || 0;
+    const cls = String((me && me.classId) || (live && live.classId) || '').toLowerCase();
+    const order = ['novice', p.class1Target, p.class2Target].filter(Boolean).map(x => String(x).toLowerCase());
+    const ci = order.indexOf(cls);
+    const levelPending = (p.triggers || []).filter(t => t && (t.type === 'base_level' || t.type === 'job_level')).filter(t => {
+      if (done[t.id]) return false;
+      if (pend[t.id]) {
+        // Still retrying: only blocks while a map / class step is left (gear, arrows, selling don't move the character)
+        const left = Array.isArray(pend[t.id].actions) ? pend[t.id].actions.map(i => (t.actions || [])[i]).filter(Boolean) : (t.actions || []);
+        return left.some(a => a && (a.type === 'change_map' || a.type === 'change_class'));
+      }
+      const lv = Number(t.targetLevel) || 0;
+      if (t.type === 'base_level') return base < lv;
+      if (t.classId) {
+        const ti = order.indexOf(String(t.classId).toLowerCase());
+        if (ti < 0 || ci < 0) return false;
+        if (ci > ti) return false;
+        if (ci < ti) return true;
+      }
+      return job < lv;
+    }).map(t => (t.type === 'base_level' ? 'Base ' : 'Job ') + t.targetLevel + (t.classId ? ' ' + t.classId : ''));
+    return { name: p.name || null, levelPending };
+  })();
   return {
     ok: true,
     name: (me && me.name) || (live && live.charName) || null,
@@ -95,6 +130,7 @@ const READ_JS = `(() => {
     targetMap: window.__targetFarmMap || (live && live.targetMap) || null,
     botRunning: window.__isBotRunning === true,
     busy,
+    plan,
     partyKnown: !!g.party,
     party: party ? {
       leader: party.leader, expMode: party.expMode, lootMode: party.lootMode,
@@ -102,7 +138,6 @@ const READ_JS = `(() => {
       members: (party.members || []).map(m => ({ name: m.name, online: m.online !== false, mapId: m.mapId, mapName: m.mapName, channel: m.channel, level: m.level }))
     } : null,
     invite: invite && invite.kind === 'party' && (!invite.expiresAt || invite.expiresAt > Date.now()) ? { from: invite.from, expiresAt: invite.expiresAt } : null,
-    move: window.__pmPartyMove || null,
     helpers: { moveToChannel: typeof window.moveToChannel === 'function', findLeast: typeof window.findLeastPopulatedChannel === 'function', setTargetFarmMap: typeof window.setTargetFarmMap === 'function' }
   };
 })()`;
@@ -134,19 +169,16 @@ const ACTIONS = {
     if (typeof window.setTargetFarmMap === 'function') window.setTargetFarmMap(map, ${walkNow ? 'true' : 'false'});
     return { success: true };
   })()`,
-  // Fire and forget: moveToChannel can wait up to ~90 s for cooldown / a free slot
-  moveChannel: ch => `(() => {
-    if (typeof window.moveToChannel !== 'function') return { success: false, error: 'no-helper' };
-    const cur = window.__pmPartyMove;
-    if (cur && !cur.done && Date.now() - cur.at < 120000) return { success: true, already: true };
-    const st = { ch: ${Number(ch)}, at: Date.now(), done: false, ok: null };
-    window.__pmPartyMove = st;
-    Promise.resolve().then(() => window.moveToChannel(${Number(ch)}, 90000)).then(r => {
-      const room = window.getGameRoom && window.getGameRoom();
-      st.ok = !!(room && room.state && room.state.channel === st.ch) || r === true;
-      st.done = true;
-    }).catch(e => { st.ok = false; st.done = true; st.error = String(e && e.message || e); });
-    return { success: true };
+  // Same idea as the zeny consolidation: moveToChannel waits for the cooldown / a free slot by itself;
+  // we wait for it and report where the character REALLY is afterwards.
+  moveChannelWait: (ch, waitMs) => `(async () => {
+    if (typeof window.moveToChannel !== 'function') return { success: false, error: 'บอทจอนี้ไม่มีระบบย้าย CH' };
+    let r = null;
+    try { r = await window.moveToChannel(${Number(ch)}, ${Number(waitMs)}); } catch (e) { r = { success: false, error: String(e && e.message || e) }; }
+    await new Promise(x => setTimeout(x, 1500));
+    const room = typeof window.getGameRoom === 'function' ? window.getGameRoom() : null;
+    const cur = room && room.state && typeof room.state.channel === 'number' ? room.state.channel : (typeof window.getCurrentChannel === 'function' ? window.getCurrentChannel() : null);
+    return { success: cur === ${Number(ch)}, channel: cur, error: cur === ${Number(ch)} ? null : ((r && r.error) || 'ย้าย CH ไม่สำเร็จ') };
   })()`,
   leastChannel: () => `(async () => {
     if (typeof window.findLeastPopulatedChannel !== 'function') return { success: false, error: 'no-helper' };
@@ -178,6 +210,7 @@ function pickCandidates(party, parties, states, managedNames, slots, excluded) {
   for (const [id, s] of states) {
     if (taken.has(id) || (excluded && excluded.has(id))) continue;
     if (!s || !s.ok || !s.name || typeof s.level !== 'number') continue;
+    if (planBlocked(s)) continue; // still levelling with its Plan Script
     if (s.party) {
       // In someone else's party: only usable when that party is ours (stale bot party) or led by our leader
       const lead = s.party.leader;
@@ -195,6 +228,11 @@ function channelTarget(leaderSnap, memberSnap) {
   if (!leaderSnap.mapId || memberSnap.mapId !== leaderSnap.mapId) return null;
   if (typeof leaderSnap.channel !== 'number' || memberSnap.channel === leaderSnap.channel) return null;
   return leaderSnap.channel;
+}
+
+// Plan Script still has Base / Job level steps to do → the plan decides the map, the party doesn't move it
+function planBlocked(s) {
+  return !!(s && s.plan && Array.isArray(s.plan.levelPending) && s.plan.levelPending.length);
 }
 
 function sanitizeParty(p) {
@@ -274,7 +312,7 @@ function createPartyService(opts) {
     return memberRt.get(k);
   };
   const prt = pid => {
-    if (!runtime.has(pid)) runtime.set(pid, { notes: [], settingsAt: 0, fallbackAt: 0, leaveAt: 0, lastTickAt: 0 });
+    if (!runtime.has(pid)) runtime.set(pid, { notes: [], settingsAt: 0, fallbackAt: 0, leaveAt: 0, lastTickAt: 0, gatherAt: 0, gathering: false, gatherNote: null, channelNote: null });
     return runtime.get(pid);
   };
 
@@ -416,41 +454,85 @@ function createPartyService(opts) {
     // Same map + same CH as the leader
     if (party.syncMap) {
       const leaderMap = L.targetMap || L.mapName;
-      let needFallback = false;
+      const movers = [];
       for (const id of party.memberIds) {
         const P = profiles.get(id), S = states.get(id), m = mrt(party.id, id);
         if (!S || !S.ok || !S.name || !inGame.has(S.name)) continue;
-        if (S.move && S.move.done && S.move.at > m.lastMoveAt) {
-          m.lastMoveAt = S.move.at;
-          if (S.move.ch === L.channel && S.move.ok === false) m.chFails++;
-          else if (S.move.ok) m.chFails = 0;
-        }
-        if (m.chFails >= T.channelFailsBeforeFallback) needFallback = true;
+        if (planBlocked(S)) continue; // the plan still levels this character on its own maps
         if (S.busy && S.busy.length) continue;
         if (leaderMap && S.targetMap !== leaderMap && S.helpers && S.helpers.setTargetFarmMap && now() - m.mapAt >= T.mapCooldownMs) {
           m.mapAt = now();
           await act(P, ACTIONS.setMap(leaderMap, S.botRunning), 'set-map');
         }
-        const ch = channelTarget(L, S);
-        if (ch != null && S.helpers && S.helpers.moveToChannel && now() - m.chAt >= T.channelCooldownMs && !(S.move && !S.move.done)) {
-          m.chAt = now();
-          await act(P, ACTIONS.moveChannel(ch), 'move-ch');
-        }
+        if (channelTarget(L, S) != null && S.helpers && S.helpers.moveToChannel) movers.push(id);
       }
-      if (needFallback && now() - rt.fallbackAt >= T.fallbackCooldownMs && !(L.busy && L.busy.length) && !(L.move && !L.move.done)) {
-        rt.fallbackAt = now();
-        const least = await act(leaderP, ACTIONS.leastChannel(), 'least-ch', 15000);
-        const ch = least.ok && least.result ? least.result.channel : null;
-        if (typeof ch === 'number' && ch !== L.channel) {
-          await act(leaderP, ACTIONS.moveChannel(ch), 'leader-move-ch');
-          notes.push('สมาชิกเข้า CH ' + L.channel + ' ไม่ได้ — หัวตี้ย้ายไป CH ' + ch + ' (คนน้อยสุด) ให้ทุกจอตามไป');
-        } else {
-          notes.push('สมาชิกเข้า CH ' + L.channel + ' ไม่ได้ และหา CH ที่ว่างกว่าไม่ได้');
-        }
-        for (const id of party.memberIds) mrt(party.id, id).chFails = 0;
+      if (movers.length && !rt.gathering && now() - rt.gatherAt >= T.gatherCooldownMs && !isBusy()) {
+        gatherChannels(party, profiles, L, movers).catch(e => log('gather error', e.message));
       }
+      if (rt.gathering && rt.gatherNote) notes.push(rt.gatherNote);
+      else if (rt.channelNote) notes.push(rt.channelNote);
     }
     rt.notes = notes;
+  }
+
+  // Bring members onto the leader's CH, the way the zeny consolidation does it: one character at a time,
+  // wait for moveToChannel (it waits out cooldown / a full CH itself), then check where it really is.
+  // A member that can't get in → the leader moves to the least populated CH and everyone follows to the
+  // CH the leader REALLY ended up on.
+  async function gatherChannels(party, profiles, L, movers) {
+    const rt = prt(party.id);
+    rt.gathering = true; rt.gatherAt = now();
+    const leaderP = profiles.get(party.leaderId);
+    const moveAll = async (ids, ch) => {
+      for (const id of ids) {
+        if (!parties.includes(party)) return { ok: false, aborted: true };
+        const S = states.get(id);
+        const nm = (S && S.name) || id;
+        rt.gatherNote = nm + ' กำลังย้ายไป CH ' + ch + ' (รอคูลดาวน์/ที่ว่างให้เอง)';
+        const r = await act(profiles.get(id), ACTIONS.moveChannelWait(ch, T.memberMoveWaitMs), 'move-ch', T.memberMoveWaitMs + 10000);
+        if (!(r.ok && r.result && r.result.success)) return { ok: false, who: nm, error: (r.result && r.result.error) || r.error };
+      }
+      return { ok: true };
+    };
+    try {
+      const first = await moveAll(movers, L.channel);
+      if (first.ok) { rt.channelNote = null; return; }
+      if (first.aborted) return;
+      if (now() - rt.fallbackAt < T.fallbackCooldownMs) {
+        rt.channelNote = first.who + ' เข้า CH ' + L.channel + ' ไม่ได้ — จะลองใหม่อีกครั้ง';
+        return;
+      }
+      rt.fallbackAt = now();
+      rt.gatherNote = first.who + ' เข้า CH ' + L.channel + ' ไม่ได้ — หัวตี้กำลังหา CH ที่คนน้อยสุด';
+      const least = await act(leaderP, ACTIONS.leastChannel(), 'least-ch', 15000);
+      const ch = least.ok && least.result ? least.result.channel : null;
+      if (typeof ch !== 'number' || ch === L.channel) {
+        rt.channelNote = first.who + ' เข้า CH ' + L.channel + ' ไม่ได้ และหา CH ที่ว่างกว่าไม่ได้';
+        return;
+      }
+      rt.gatherNote = 'หัวตี้กำลังย้ายไป CH ' + ch + ' (คนน้อยสุด)';
+      const lm = await act(leaderP, ACTIONS.moveChannelWait(ch, T.leaderMoveWaitMs), 'leader-move-ch', T.leaderMoveWaitMs + 10000);
+      const real = lm.result && typeof lm.result.channel === 'number' ? lm.result.channel : null;
+      if (real == null || real === L.channel) {
+        rt.channelNote = 'หัวตี้ย้ายไป CH ' + ch + ' ไม่ได้ — จะลองใหม่ภายหลัง';
+        return;
+      }
+      // Everyone on the leader's map follows to where the leader really is now
+      await refreshStates(true);
+      const L2 = states.get(party.leaderId);
+      const inGame2 = new Set(inGameMemberNames(L2));
+      const follow = party.memberIds.filter(id => {
+        const S = states.get(id);
+        return S && S.ok && S.name && inGame2.has(S.name) && !planBlocked(S) && !(S.busy && S.busy.length) && S.helpers && S.helpers.moveToChannel && channelTarget(L2, S) != null;
+      });
+      const second = await moveAll(follow, real);
+      rt.channelNote = second.ok
+        ? null
+        : (second.aborted ? null : second.who + ' ย้ายตามไป CH ' + real + ' ไม่ได้ — จะลองใหม่อีกครั้ง');
+      if (second.ok) log('party', party.id, 'regrouped on CH', real);
+    } finally {
+      rt.gathering = false; rt.gatherNote = null; rt.gatherAt = now();
+    }
   }
 
   async function tick() {
@@ -477,6 +559,7 @@ function createPartyService(opts) {
         const same = leaderSnap && S.mapId === leaderSnap.mapId && S.channel === leaderSnap.channel;
         status = same ? 'joined' : 'apart';
         text = same ? 'อยู่ด้วยกัน' : (S.mapId !== (leaderSnap && leaderSnap.mapId) ? 'กำลังไปแมพหัวตี้' : 'กำลังย้าย CH');
+        if (!same && planBlocked(S)) { status = 'plan'; text = 'แผนยังเก็บเลเวล (' + S.plan.levelPending[0] + ')'; }
       } else if (S.party && leaderSnap && S.party.leader !== leaderSnap.name) { status = 'other'; text = 'อยู่ตี้อื่น'; }
       else { status = 'inviting'; text = 'กำลังชวน'; }
     } else if (S && S.reason === 'not-in-game') { status = 'offline'; text = 'ยังไม่เข้าเกม'; }
@@ -506,6 +589,7 @@ function createPartyService(opts) {
       const S = states.get(p.id);
       return { id: p.id, name: p.name, charName: (S && S.name) || p.lastCharName || null, charClass: p.lastCharClass || null,
         level: S && S.ok ? S.level : null, online: !!(S && S.ok && S.name), inGameParty: !!(S && S.party), assigned: taken.has(p.id),
+        planPending: planBlocked(S) ? S.plan.levelPending[0] : null,
         mapName: S && S.mapName, channel: S && S.channel };
     });
     return { success: true, parties: list, clients, statesAt, maxMembers: MAX_MEMBERS };
