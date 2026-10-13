@@ -163,3 +163,108 @@ test('solveFrameChallenge detects golden frame and finds identical duplicate ite
   assert.ok(solution.confidence >= 95, `confidence should be >= 95, got ${solution.confidence}`);
 });
 
+test('solveFrameChallenge matches rotated, mirrored, and scaled sprite over background circles', () => {
+  const { solveFrameChallenge, findBottomCandidates } = require('../image_board_solver');
+  const bw = 480, bh = 330;
+  const data = Buffer.alloc(bw * bh * 4);
+  for (let i = 0; i < bw * bh; i++) {
+    data[i * 4] = 25;
+    data[i * 4 + 1] = 22;
+    data[i * 4 + 2] = 37;
+    data[i * 4 + 3] = 255;
+  }
+
+  // Draw golden frame at x: 175..305, y: 20..137
+  for (let y = 20; y <= 137; y++) {
+    for (let x = 175; x <= 305; x++) {
+      if (x < 179 || x > 301 || y < 24 || y > 133) {
+        const idx = (y * bw + x) * 4;
+        data[idx] = 210; data[idx + 1] = 175; data[idx + 2] = 60;
+      }
+    }
+  }
+
+  // Helper to draw a background circle
+  function drawCircle(cx, cy, rad, r, g, b) {
+    for (let dy = -rad; dy <= rad; dy++) {
+      for (let dx = -rad; dx <= rad; dx++) {
+        if (dx * dx + dy * dy <= rad * rad) {
+          const x = cx + dx, y = cy + dy;
+          if (x >= 0 && x < bw && y >= 0 && y < bh) {
+            const idx = (y * bw + x) * 4;
+            data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
+          }
+        }
+      }
+    }
+  }
+
+  // Helper to draw an L-shaped hammer sprite with rotation, flip, scale, and shading
+  function drawHammer(cx, cy, angleDeg, flipX, scale, baseR, baseG, baseB) {
+    const rad = (angleDeg * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    for (let sy = -30; sy <= 30; sy += 0.5) {
+      for (let sx = -30; sx <= 30; sx += 0.5) {
+        const ux = (sx / scale) * flipX;
+        const uy = sy / scale;
+        // Handle: ux in [-4..4], uy in [-18..22]; Head: ux in [-16..12], uy in [-22..-10]
+        const inHandle = Math.abs(ux) <= 4 && uy >= -18 && uy <= 22;
+        const inHead = ux >= -16 && ux <= 12 && uy >= -22 && uy <= -10;
+        if (inHandle || inHead) {
+          const rx = Math.round(cx + sx * cos - sy * sin);
+          const ry = Math.round(cy + sx * sin + sy * cos);
+          if (rx >= 0 && rx < bw && ry >= 0 && ry < bh) {
+            const idx = (ry * bw + rx) * 4;
+            const shade = inHead ? 1.25 : 0.85;
+            data[idx] = Math.min(255, Math.round(baseR * shade));
+            data[idx + 1] = Math.min(255, Math.round(baseG * shade));
+            data[idx + 2] = Math.min(255, Math.round(baseB * shade));
+          }
+        }
+      }
+    }
+  }
+
+  // Draw background circles
+  drawCircle(240, 78, 32, 65, 55, 68);
+  drawCircle(68, 240, 30, 45, 52, 42);
+  drawCircle(180, 240, 30, 38, 52, 60);
+  drawCircle(300, 235, 30, 52, 38, 55);
+  drawCircle(415, 240, 30, 55, 52, 40);
+
+  // Top frame: Hammer at (240, 78), angle +25 deg, flip=1, scale=1.0
+  drawHammer(240, 78, 25, 1, 1.0, 160, 175, 210);
+
+  // Slot 1: Solid disc distractor at (68, 240)
+  drawCircle(68, 240, 18, 190, 120, 80);
+
+  // Slot 2: Thin rod distractor at (180, 240)
+  for (let dy = -26; dy <= 26; dy++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const idx = ((240 + dy) * bw + (180 + dx)) * 4;
+      data[idx] = 200; data[idx + 1] = 90; data[idx + 2] = 110;
+    }
+  }
+
+  // Slot 3: Matching Hammer at (300, 235), rotated -40 deg, horizontally flipped (-1), scaled 0.9x, slight hue shift
+  drawHammer(300, 235, -40, -1, 0.9, 170, 165, 220);
+
+  // Slot 4: Wide square distractor at (415, 240)
+  for (let dy = -16; dy <= 16; dy++) {
+    for (let dx = -16; dx <= 16; dx++) {
+      const idx = ((240 + dy) * bw + (415 + dx)) * 4;
+      data[idx] = 120; data[idx + 1] = 190; data[idx + 2] = 140;
+    }
+  }
+
+  const cands = findBottomCandidates({ width: bw, height: bh, data });
+  assert.equal(cands.length, 4);
+
+  const sol = solveFrameChallenge({ width: bw, height: bh, data });
+  assert.ok(sol, 'should solve transformed frame challenge');
+  assert.equal(sol.slot, 3, `expected slot 3, got slot ${sol.slot}`);
+  assert.ok(Math.abs(sol.x - 300) <= 10 && Math.abs(sol.y - 235) <= 10, `expected near (300, 235), got (${sol.x}, ${sol.y})`);
+  assert.ok(sol.confidence >= 65, `expected confidence >= 65, got ${sol.confidence}`);
+});
+
+
