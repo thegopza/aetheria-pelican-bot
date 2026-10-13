@@ -204,6 +204,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
       let clickAttempted = false;
       try {
         const hc = document.querySelector('.human-check');
+        if(window.__pmEmbeddedHumanCheckSolver && ${JSON.stringify(Boolean(cleanName))}) return {success:false,error:'ตัวแก้คำถามในบอทกำลังจัดการอยู่'};
         if (!hc) return { success: false, error: 'ไม่พบหน้าต่างเช็คผู้เล่น (อาจปิดหรือตอบไปแล้ว)' };
         const expected = ${JSON.stringify(expectedCheck)};
         if (expected) {
@@ -530,7 +531,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     }
 
     // Catalog matches work offline; points are display data and never gate Humancheck.
-    const shouldAutoAnswer = autoAnswerEnabled && solver?.isRemoteService === true;
+    const shouldAutoAnswer = autoAnswerEnabled && solver?.isRemoteService === true && !check.embeddedSolver;
     if (shouldAutoAnswer) {
       const baseDelay = parseInt(hcSettings.answerDelayMs || cfg.answerDelayMs, 10) || 1800;
       const jitter = Math.floor(Math.random() * 600) - 250;

@@ -74,6 +74,11 @@ async function run(name,exe,cdpPort,bridgePort){
   assert.equal(await evaluate('window.__pmScriptBootstrap.status().phase'),'ready');
   assert.equal(await evaluate("(()=>{try{window.__applyScriptPlan({id:'blocked'},true);return false}catch(e){return e.message}})()"),'SCRIPT_AUTHORIZATION_REQUIRED');
   await evaluate('window.__isShopping=false');await pause(2200);const expiry=await evaluate('JSON.stringify({status:window.__pmScriptBootstrap.status(),flags:Object.keys(window).filter(k=>(k.startsWith("__is")||k.includes("Busy"))&&window[k]===true)})');assert.equal(await evaluate('window.__pmScriptBootstrap.status().phase'),'expired',expiry);assert.equal(await evaluate('window.__isBotRunning'),false);
+  if(process.env.PMHEE_PILOT_CAPTCHA==='1'){
+    await evaluate(`document.body.insertAdjacentHTML('beforeend','<div class="human-check"><p class="human-check-prompt">เลือก Red Potion</p><button class="human-check-pick">A</button><button class="human-check-pick">B</button></div>');window.__hcFixtureClicks=0;document.querySelectorAll('.human-check-pick').forEach(b=>b.addEventListener('click',()=>window.__hcFixtureClicks++));window.__latestHumanCheck={id:'fixture-hc-after-expiry',prompt:'เลือก Red Potion',items:[90301,90304],timestamp:Date.now()};window.__autoHumanCheckEnabled=true;window.__pmHumanCheckSolverConfig={autoAnswer:true,answerDelayMs:800};`);
+    await pause(2800);assert.equal(await evaluate('window.__hcFixtureClicks'),1);assert.equal(await evaluate('window.__isBotRunning'),false);assert.equal(await evaluate('window.__pmGetHumanCheckEvents().at(-1).charged'),0);
+    await evaluate('window.__pmAckHumanCheckEvents(window.__pmGetHumanCheckEvents().map(e=>e.eventId));document.querySelector(".human-check").remove()');assert.equal(await evaluate('window.__pmGetHumanCheckEvents().length'),0);
+  }
   const before=deliveries;await cdp.send('Page.reload');await pause(600);await coordinator.cycle();await coordinator.cycle();
   assert.equal(coordinator.status().clients[profile.id].state,'authorized',JSON.stringify(coordinator.status().clients));assert.equal(deliveries,before+1);assert.equal(await evaluate('window.__pmScriptBootstrap.status().slotId'),slot);
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});

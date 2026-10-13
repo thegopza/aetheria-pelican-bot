@@ -18,7 +18,7 @@
   const exports = new Map();
   const passthrough = new Set(['requestAnimationFrame', 'cancelAnimationFrame', 'dispatchEvent', 'WebSocket',
     'setLowPowerMode', 'getColyseusRoom', 'getGameRoom', '__getClientLiveState',
-    'getCurrentMapName', 'getCurrentChannel', 'getLiveCharacterData']);
+    'getCurrentMapName', 'getCurrentChannel', 'getLiveCharacterData', '__pmGetHumanCheckEvents', '__pmAckHumanCheckEvents']);
   const safeStops = new Set(['stopMasterBot', 'stopPelicanBot']);
   const facade = new Proxy(host, {
     get(target, key) {

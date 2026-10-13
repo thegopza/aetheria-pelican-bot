@@ -11,13 +11,13 @@ function instrument(source) {
   const changes = [];
   let functions = 0, awaits = 0;
   const observationExports = new Set(['getColyseusRoom', 'getGameRoom', '__getClientLiveState',
-    'getCurrentMapName', 'getCurrentChannel', 'getLiveCharacterData']);
+    'getCurrentMapName', 'getCurrentChannel', 'getLiveCharacterData', '__pmGetHumanCheckEvents', '__pmAckHumanCheckEvents']);
   function walk(node, parent, exempt = false, nativeTimers = false) {
     if (!node || typeof node !== 'object') return;
     const exportedName = parent?.type === 'AssignmentExpression' && parent.left?.type === 'MemberExpression' && parent.left.object?.name === 'window' ? parent.left.property?.name : null;
     const fn = ['FunctionExpression', 'FunctionDeclaration', 'ArrowFunctionExpression'].includes(node.type);
     if (fn && (node.id?.name === 'namespaceBotStorage' || node.id?.name === 'setupLowPower' ||
-      ['attachHumanCheckRoomListener', 'checkHumanCheckStatus'].includes(node.id?.name) || observationExports.has(node.id?.name) ||
+      ['attachHumanCheckRoomListener', 'checkHumanCheckStatus', 'validateCatalog', 'embeddedHumanCheckSnapshot', 'tickEmbeddedHumanCheck'].includes(node.id?.name) || observationExports.has(node.id?.name) ||
       observationExports.has(parent?.type === 'VariableDeclarator' ? parent.id?.name : null) || observationExports.has(exportedName))) exempt = true;
     if (fn && node.id?.name === 'setupLowPower') nativeTimers = true;
     // Native forwarding must survive authorization expiry. Bot observers remain gated.

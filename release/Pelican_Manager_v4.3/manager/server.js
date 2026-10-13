@@ -1203,7 +1203,8 @@ function getCaptchaStats() {
     return {
       totalSolved,
       lastSolvedAt: stats.lastSolvedAt || null,
-      daily: daily || {}
+      daily: daily || {},
+      embeddedEventIds: stats.embeddedEventIds || {}
     };
   }
 
@@ -1226,8 +1227,9 @@ function getCaptchaStats() {
 function recordCaptchaSolved(profileId, details = {}) {
   try {
     const stats = getCaptchaStats();
+    if(details.eventId){stats.embeddedEventIds ||= {};if(stats.embeddedEventIds[details.eventId])return stats;stats.embeddedEventIds[details.eventId]=true;}
     stats.totalSolved = (stats.totalSolved || 0) + 1;
-    stats.lastSolvedAt = Date.now();
+    stats.lastSolvedAt = Number.isSafeInteger(details.timestamp)&&details.timestamp>0&&details.timestamp<=Date.now()+30000?details.timestamp:Date.now();
     if (!stats.daily || typeof stats.daily !== 'object') {
       stats.daily = {};
     }
@@ -1246,11 +1248,12 @@ function recordCaptchaSolved(profileId, details = {}) {
       dayEntry.byProfile[profileId] = (dayEntry.byProfile[profileId] || 0) + 1;
     }
     fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
-    fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
+    fs.writeFileSync(CAPTCHA_STATS_FILE+".tmp", JSON.stringify(stats, null, 2), "utf8");
+    fs.renameSync(CAPTCHA_STATS_FILE+".tmp",CAPTCHA_STATS_FILE);
     return stats;
   } catch (e) {
     console.warn("[CaptchaStats] Failed to record solve:", e);
-    return getCaptchaStats();
+    return null;
   }
 }
 
@@ -1269,6 +1272,8 @@ const discordService = createDiscordBotService({
   onCaptchaSolved: recordCaptchaSolved
 });
 
+const embeddedHumanCheckBridge=require('./embedded_human_check_bridge').createEmbeddedHumanCheckBridge({evalProfilePort,recordCaptchaSolved,getConfig:()=>{const hc=humanCheckSolver.loadSettings(),dc=discordService.loadSettings();return {autoAnswer:hc.autoAnswer!==false&&dc.autoAnswer!==false,answerDelayMs:hc.answerDelayMs};}});
+
 // Background monitor for Human Check (alerts Discord even if Manager UI is closed/idle)
 setInterval(async () => {
   try {
@@ -1276,6 +1281,7 @@ setInterval(async () => {
     for (const p of profiles) {
       if (!p.debugPort) continue;
       const state = await queryClientState(p.debugPort);
+      await embeddedHumanCheckBridge.collect(p,state);
       if (state && state.humanCheck && state.humanCheck.active) {
         discordService.notifyHumanCheck({ profile: p, check: state.humanCheck });
       } else if (state) {
