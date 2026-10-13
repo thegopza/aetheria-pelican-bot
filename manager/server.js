@@ -86,6 +86,7 @@ const PRESETS_FILE = path.join(__dirname, "presets.json");
 const installer = require("./installer");
 const { handleInventoryMarketRoute } = require("./inventory_market_api");
 const { createPartyService } = require("./party_api");
+const { createPremiumService } = require("./premium_api");
 const { createBotAutoUpdater } = require("./bot_auto_update");
 const { createManagerSelfUpdater } = require("./manager_self_update");
 const { handleConfigCopyRoute } = require("./config_copy_api");
@@ -1166,6 +1167,15 @@ const partyService = createPartyService({
 });
 partyService.start();
 
+// Auto Premium (VIP): buy Token with zeny and keep Premium going (manager/premium_api.js)
+const premiumService = createPremiumService({
+  loadProfiles,
+  evalProfilePort,
+  dataFile: path.join(__dirname, "data", "premium.json"),
+  isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
+});
+premiumService.start();
+
 function getDefaultDeviceNickname() {
   return process.env.USERNAME || (typeof os.userInfo === 'function' ? os.userInfo()?.username : '') || os.hostname() || 'PmheeUser';
 }
@@ -1350,6 +1360,8 @@ const server = http.createServer(async (req, res) => {
 
   // Party system — see party_api.js
   if (await partyService.handleRoute(req, res, pathname, sendJSON)) return;
+  // Auto Premium — see premium_api.js
+  if (await premiumService.handleRoute(req, res, pathname, sendJSON)) return;
 
   // Discord Bot & Webhook Settings & Controls
   if (pathname === "/api/discord/settings") {

@@ -47,3 +47,5 @@ release/Pelican_Manager_v4.3/manager/data/offline/
 release/Pelican_Manager_v4.3/manager/data/offline-cache/
 manager/data/parties.json
 manager/data/parties.json.tmp
+manager/data/premium.json
+manager/data/premium.json.tmp
