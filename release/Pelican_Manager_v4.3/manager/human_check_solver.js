@@ -19,6 +19,7 @@ function getMachineFingerprint() {
 function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl: testServiceUrl, localCatalogSeed = true } = {}) {
   const settingsFile = path.join(dataDir, 'human_check_settings.json');
   const accountFile = path.join(dataDir, 'aetheria_service_account.json');
+  const walletSnapshotFile=path.join(dataDir,'wallet_snapshot_v1.json');
   fs.mkdirSync(dataDir, { recursive: true });
   const localMatcher = createLocalHumanCheck({ dataDir, seed: localCatalogSeed });
   const base = new URL(testServiceUrl || process.env.PMHEE_AETHERIA_API_URL || 'https://api.noggunsshop.xyz');
@@ -35,11 +36,13 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   let serviceAvailable = false;
   let account = null;
   let enrollment = null;
+  let offlineWallet = null;
   let lastCatalogAttempt = 0;
   try {
     const saved = JSON.parse(fs.readFileSync(accountFile, 'utf8'));
     if (saved.origin === base.origin && /^[a-f0-9]{64}$/.test(saved.token || '') && typeof saved.accountId === 'string') account = saved;
   } catch (_) {}
+  try{const saved=JSON.parse(fs.readFileSync(walletSnapshotFile,'utf8'));if(saved.origin===base.origin&&saved.accountId===account?.accountId&&Number.isSafeInteger(saved.balanceUnits)){balanceUnits=saved.balanceUnits;points=balanceUnits/100;if(Array.isArray(saved.topupHistory))topupHistory=saved.topupHistory;}}catch(_){}
   function atomicWrite(file, data) {
     fs.writeFileSync(file + '.tmp', JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(file + '.tmp', file);
@@ -50,7 +53,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     return {
       autoAnswer: s.autoAnswer !== false,
       answerDelayMs: Math.max(800, Math.min(10000, parseInt(s.answerDelayMs, 10) || 1800)),
-      pointSystemEnabled: true, points, balanceUnits, unitScale: 100, pointsPerSolve: localMatcher.ready() ? 0 : pointsPerSolve, localCatalogReady: localMatcher.ready(), pointsPerBaht: 1,
+      pointSystemEnabled: true, points: offlineWallet ? offlineWallet.balance()/100 : points, balanceUnits: offlineWallet ? offlineWallet.balance() : balanceUnits, unitScale: 100, pointsPerSolve: localMatcher.ready() ? 0 : pointsPerSolve, localCatalogReady: localMatcher.ready(), pointsPerBaht: 1,
       machineHwid, topupHistory, serviceAvailable, serviceOrigin: base.origin,
       accountId: account?.accountId || null
     };
@@ -68,7 +71,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     return loadSettings();
   }
   const requestJSON = testRequest || ((route, payload, token) => new Promise((resolve, reject) => {
-    const responseLimit = ['/v1/aetheria/script/payload-chunk','/v1/aetheria/script/catalog'].includes(route) ? 1024 * 1024 : 131072;
+    const responseLimit = ['/v1/aetheria/script/payload-chunk','/v1/aetheria/offline/payload-chunk','/v1/aetheria/script/catalog'].includes(route) ? 1024 * 1024 : 131072;
     const data = payload == null ? null : JSON.stringify(payload);
     const headers = { 'Accept': 'application/json' };
     if (token) headers.Authorization = 'Bearer ' + token;
@@ -127,8 +130,10 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     }
     if (result.pointsPerSolve === 0 || result.pointsPerSolve === 1) pointsPerSolve = result.pointsPerSolve;
     if (Array.isArray(result.topupHistory)) topupHistory = result.topupHistory;
+    if(account&&Number.isSafeInteger(balanceUnits))atomicWrite(walletSnapshotFile,{origin:base.origin,accountId:account.accountId,balanceUnits,topupHistory});
   }
   async function refreshBalance() {
+    if(offlineWallet){try{await offlineWallet.refresh();}catch(_){serviceAvailable=false;}return loadSettings();}
     try {
       const result = await call('/v1/aetheria/balance');
       if (!result?.success || !(result.schemaVersion === 2 ? result.unitScale === 100 && Number.isSafeInteger(result.balanceUnits) && (result.points === undefined || result.points === result.balanceUnits / 100) : Number.isSafeInteger(result.points) && result.points >= 0)) throw new Error('Invalid balance');
@@ -180,12 +185,15 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
   async function redeemTrueMoneyVoucher(voucherUrl) {
     try {
       const result = await call('/v1/aetheria/topup', { voucherUrl });
-      if (result?.success) { updateBalance(result); await refreshBalance(); }
+      if (result?.success) {try{updateBalance(result);if(offlineWallet){try{await offlineWallet.forceRefresh();}catch(_){serviceAvailable=false;}balanceUnits=offlineWallet.balance();points=balanceUnits/100;}else await refreshBalance();}catch(_){serviceAvailable=false;}}
       return result;
     } catch (e) { return { success: false, message: e.message }; }
   }
   return {
     get serviceOrigin() { return base.origin; },
+    setOfflineWallet(value){offlineWallet=value||null;},
+    applyOfflineBalance(value){if(offlineWallet&&Number.isSafeInteger(value)){balanceUnits=value;points=value/100;}},
+    applyOfflineWalletSnapshot(result){if(offlineWallet&&result?.unitScale===100&&Number.isSafeInteger(result.balanceUnits))updateBalance({...result,schemaVersion:2});},
     isRemoteService: true, loadSettings, saveSettings,
     publicSettings: (s = loadSettings()) => Object.fromEntries([
       'autoAnswer', 'answerDelayMs', 'pointSystemEnabled', 'points', 'pointsPerSolve',
@@ -193,7 +201,7 @@ function createHumanCheckSolver({ dataDir, requestJSON: testRequest, serviceUrl:
     ].map(key => [key, s[key]])),
     refreshBalance, solveHumanCheck, redeemTrueMoneyVoucher, getMachineFingerprint, reportSecurityEvent, recoverOfflineCredit,
     serviceRequest: (route, payload) => {
-      if (!/^\/v1\/aetheria\/(?:script|usage|billing|proxy)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
+      if (route !== '/v1/aetheria/health' && !/^\/v1\/aetheria\/(?:script|usage|billing|proxy|offline)\/[a-z-]+$/.test(route)) throw new Error('Unsupported coordinator route');
       return call(route, payload);
     },
     proxyReserve: (ip, requestId) => call('/v1/aetheria/proxy/reserve', { ip, ...(requestId ? { requestId } : {}) }),

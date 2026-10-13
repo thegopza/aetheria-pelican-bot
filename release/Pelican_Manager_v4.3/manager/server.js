@@ -70,7 +70,14 @@ if(TEST_INSTANCE) {
     const data=JSON.parse(fs.readFileSync(path.join(__dirname,'data',name),'utf8'));
     if(data.enabled!==false)throw Error('TEST_AUTO_UPDATE_MUST_BE_DISABLED');
   }
+  // Review R6: only a manager seeded by the fixture builder (fake data, no customer files) may run as a test
+  // instance, and it may only reach loopback fixture ports.
+  const marker=(()=>{try{return JSON.parse(fs.readFileSync(path.join(__dirname,'data','test_fixture_marker.json'),'utf8'));}catch(_){return null;}})();
+  if(marker?.fixture!==true||marker.customerData!==false)throw Error('TEST_FIXTURE_MARKER_REQUIRED');
 }
+const testFixturePort=Number(process.env.PELICAN_TEST_FIXTURE_PORT);
+if(TEST_INSTANCE&&(!Number.isInteger(testFixturePort)||testFixturePort<1024||testFixturePort>65535||[testPort,testCdpPort,3888].includes(testFixturePort)))throw Error('TEST_FIXTURE_PORT_REQUIRED');
+const testIsolation=TEST_INSTANCE?require('./test_isolation').installTestIsolation({allowedPorts:[testPort,testCdpPort,testFixturePort]}):null;
 const PORT = TEST_INSTANCE?testPort:3888;
 const BASE_DIR = path.resolve(__dirname, "..");
 const PROFILES_FILE = path.join(__dirname, "profiles.json");
@@ -88,7 +95,7 @@ const { createBrowserMode } = require("./browser_mode");
 const { createDiscordBotService } = require("./discord_bot");
 const { allowLocalRequest } = require("./local_request_security");
 const { createHumanCheckSolver } = require("./human_check_solver");
-const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data") });
+const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data"), ...(TEST_INSTANCE ? { requestJSON: require('./test_isolation').createFixtureRequestJSON(testFixturePort) } : {}) });
 const { createProxyRegisterService } = require("./proxy_register");
 const proxyRegister = createProxyRegisterService({ dataDir: path.join(__dirname, "data"), solver: humanCheckSolver });
 const { createScriptCoordinator } = require('./script_coordinator');
@@ -1109,17 +1116,30 @@ function runPowerShell(script) {
   });
 }
 
+const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
+// Observation only by default. Pilot keys/profile IDs require a separately reviewed activation.
+const scriptRollout = loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin});
+const legacyScriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout, reloadRollout:()=>loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin}) });
+const {createOfflineCoordinator}=require('./offline_coordinator');
+const offlineCoordinator = createOfflineCoordinator({dataDir:path.join(__dirname,'data'),loadProfiles,evalProfilePort,service:humanCheckSolver,trustedKeys:require('./script_release_keys'),legacyCoordinator:legacyScriptCoordinator,autoBindWallet:false});
+
+const { createCoordinatedScriptCoordinator } = require('./coordinated_coordinator');
+
+const scriptCoordinator = createCoordinatedScriptCoordinator({
+  legacyCoordinator: legacyScriptCoordinator,
+  offlineCoordinator,
+  service: humanCheckSolver,
+  getSettings: () => ({ ...installer.loadSettings(), accountId: humanCheckSolver.loadSettings()?.accountId || null }),
+  dataDir: path.join(__dirname, 'data')
+});
+
 const botAutoUpdater = createBotAutoUpdater({
   loadProfiles,
   evalProfilePort,
   getGameDir: () => installer.getEffectiveGamePath(),
+  getManagedRelease:()=>scriptCoordinator.release?.(),
   dataDir: path.join(__dirname, "data")
 });
-
-const planSync = createPlanSync({ loadPlans, savePlans, loadProfiles, evalProfilePort });
-// Observation only by default. Pilot keys/profile IDs require a separately reviewed activation.
-const scriptRollout = loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin});
-const scriptCoordinator = createScriptCoordinator({ dataDir: path.join(__dirname, 'data'), loadProfiles, evalProfilePort, service: humanCheckSolver, ...scriptRollout, reloadRollout:()=>loadScriptRollout({dataDir:path.join(__dirname,'data'),serviceOrigin:humanCheckSolver.serviceOrigin}) });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials, proxyRegister });
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
@@ -1180,82 +1200,10 @@ function bootstrapDailyFromRequests() {
   return daily;
 }
 
-function getCaptchaStats() {
-  let stats = null;
-  try {
-    if (fs.existsSync(CAPTCHA_STATS_FILE)) {
-      stats = JSON.parse(fs.readFileSync(CAPTCHA_STATS_FILE, "utf8"));
-    }
-  } catch (e) {}
-
-  if (stats) {
-    const totalSolved = Math.max(0, parseInt(stats.totalSolved, 10) || 0);
-    let daily = stats.daily;
-    if (!daily || typeof daily !== 'object' || Object.keys(daily).length === 0) {
-      daily = bootstrapDailyFromRequests();
-      if (Object.keys(daily).length > 0) {
-        stats.daily = daily;
-        try {
-          fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(stats, null, 2), "utf8");
-        } catch (e) {}
-      }
-    }
-    return {
-      totalSolved,
-      lastSolvedAt: stats.lastSolvedAt || null,
-      daily: daily || {},
-      embeddedEventIds: stats.embeddedEventIds || {}
-    };
-  }
-
-  const bootstrapped = bootstrapDailyFromRequests();
-  const bootstrappedTotal = Object.values(bootstrapped).reduce((sum, d) => sum + (d.total || 0), 0);
-  const initialCount = Math.max(16, bootstrappedTotal);
-
-  const initial = {
-    totalSolved: initialCount,
-    lastSolvedAt: Date.now(),
-    daily: bootstrapped
-  };
-  try {
-    fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
-    fs.writeFileSync(CAPTCHA_STATS_FILE, JSON.stringify(initial, null, 2), "utf8");
-  } catch (e) {}
-  return initial;
-}
-
-function recordCaptchaSolved(profileId, details = {}) {
-  try {
-    const stats = getCaptchaStats();
-    if(details.eventId){stats.embeddedEventIds ||= {};if(stats.embeddedEventIds[details.eventId])return stats;stats.embeddedEventIds[details.eventId]=true;}
-    stats.totalSolved = (stats.totalSolved || 0) + 1;
-    stats.lastSolvedAt = Number.isSafeInteger(details.timestamp)&&details.timestamp>0&&details.timestamp<=Date.now()+30000?details.timestamp:Date.now();
-    if (!stats.daily || typeof stats.daily !== 'object') {
-      stats.daily = {};
-    }
-    const todayKey = getThaiDateKey(stats.lastSolvedAt);
-    if (!stats.daily[todayKey]) {
-      stats.daily[todayKey] = {
-        date: todayKey,
-        total: 0,
-        byProfile: {}
-      };
-    }
-    const dayEntry = stats.daily[todayKey];
-    dayEntry.total = (dayEntry.total || 0) + 1;
-    if (profileId) {
-      if (!dayEntry.byProfile) dayEntry.byProfile = {};
-      dayEntry.byProfile[profileId] = (dayEntry.byProfile[profileId] || 0) + 1;
-    }
-    fs.mkdirSync(path.join(__dirname, "data"), { recursive: true });
-    fs.writeFileSync(CAPTCHA_STATS_FILE+".tmp", JSON.stringify(stats, null, 2), "utf8");
-    fs.renameSync(CAPTCHA_STATS_FILE+".tmp",CAPTCHA_STATS_FILE);
-    return stats;
-  } catch (e) {
-    console.warn("[CaptchaStats] Failed to record solve:", e);
-    return null;
-  }
-}
+// Real implementation lives in captcha_stats.js (tested directly by tests/captcha_stats_delayed.test.js).
+const captchaStats = require('./captcha_stats').createCaptchaStats({ file: CAPTCHA_STATS_FILE, bootstrapDaily: bootstrapDailyFromRequests });
+function getCaptchaStats() { return captchaStats.get(); }
+function recordCaptchaSolved(profileId, details = {}) { return captchaStats.record(profileId, details); }
 
 const discordService = createDiscordBotService({
   dataDir: path.join(__dirname, "data"),
@@ -1317,6 +1265,23 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(data));
   };
 
+  if (TEST_INSTANCE && pathname === '/api/test/outbound-blocked' && req.method === 'GET') {
+    return sendJSON({ success: true, blocked: testIsolation.blocked() });
+  }
+  if (TEST_INSTANCE && pathname === '/api/test/outbound-probe' && req.method === 'POST') {
+    // Proves the guard: each non-fixture destination must fail with TEST_OUTBOUND_BLOCKED before any socket opens.
+    const attempt = (fn) => new Promise(resolve => { try { fn(resolve); } catch (e) { resolve('THROW ' + (e.code || e.message)); } });
+    const viaHttp = (mod, url) => attempt(done => { const r = mod.get(url, { timeout: 3000 }, res => { res.resume(); done('STATUS ' + res.statusCode); }); r.on('error', e => done(e.code || e.message)); r.on('timeout', () => r.destroy(new Error('TIMEOUT'))); });
+    const results = {
+      githubHttps: await viaHttp(https, 'https://api.github.com/'),
+      ownerApiHttps: await viaHttp(https, 'https://api.noggunsshop.xyz/v1/aetheria/health'),
+      realGamePort: await viaHttp(http, 'http://127.0.0.1:49876/api/state'),
+      fetchExternal: await fetch('https://example.com/').then(r => 'STATUS ' + r.status, e => e.code || e.message),
+      fixture: await viaHttp(http, `http://127.0.0.1:${testFixturePort}/api/state`)
+    };
+    return sendJSON({ success: true, results, blocked: testIsolation.blocked() });
+  }
+
   if (pathname.startsWith('/api/human-check/') && req.method === 'POST') {
     if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) {
       return sendJSON({ success: false, error: 'JSON body required' }, 415);
@@ -1344,6 +1309,7 @@ const server = http.createServer(async (req, res) => {
     }catch(error){return sendJSON({success:false,error:error.message},409);}
   }
   if (pathname === '/api/script/statement' && req.method === 'GET') {
+    if(scriptCoordinator.statement)return sendJSON(scriptCoordinator.statement());
     try { return sendJSON(await humanCheckSolver.serviceRequest('/v1/aetheria/usage/statement')); }
     catch (_) { return sendJSON({ success: false, code: 'STATEMENT_UNAVAILABLE', message: 'ยังอ่านใบสรุปจากเซิร์ฟเวอร์ไม่ได้ โหมดสังเกตการณ์ไม่มีการเรียกเก็บเงิน' }, 503); }
   }
@@ -3484,7 +3450,7 @@ server.listen(PORT, "127.0.0.1", () => {
   if(!TEST_INSTANCE)botAutoUpdater.start();
   if(!TEST_INSTANCE)managerUpdater.start();
   planSync.start();
-  authSync.start();
+  if(!TEST_INSTANCE)authSync.start();
   browserMode.start();
   console.log(`========================================================`);
   console.log(`🚀 [Pmhee Ma weaw] Running on http://127.0.0.1:${PORT}`);

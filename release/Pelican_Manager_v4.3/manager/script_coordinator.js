@@ -99,6 +99,7 @@ function createScriptCoordinator({ dataDir, loadProfiles, evalProfilePort, servi
           const result=await evalProfilePort(profile.debugPort,PROBE_JS,5000);
           if(!result?.success || !result.result) {clients[profile.id]={state:'offline'};continue;}
           const probe=result.result; clients[profile.id]={state:'observed',version:probe.version,busy:probe.busy,protocol:probe.bootstrap?.protocol||0};
+          if(probe.bootstrap?.protocol===2){clients[profile.id].state='friends-offline';continue;}
           // Observation is local by default; no enrollment, lease or billable usage.
           const day=dateKey(); if(probe.running) {state.observed[day] ||= {};state.observed[day][profile.id]=true;persist();}
           if(!pilot.has(profile.id)) continue;

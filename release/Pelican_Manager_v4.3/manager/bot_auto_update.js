@@ -51,6 +51,7 @@ const CLIENT_PROBE_JS = `(() => {
   return {
     loadedAt: Math.round(performance.timeOrigin),
     version: window.__pelicanBotVersion || null,
+    payloadHash: window.__pmScriptBootstrap?.status?.()?.payloadHash || null,
     inGame: Boolean(nameEl && map && !map.startsWith('ไม่ทราบ')),
     running: Boolean(window.__isBotRunning),
     busy
@@ -79,10 +80,19 @@ function getBuffer(url) {
 const gitBlobSha = buf => crypto.createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataDir }) {
+function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataDir, getManagedRelease, sleep = ms => new Promise(r => setTimeout(r, ms)), clock = () => Date.now(), clientBackTimeoutMs = CLIENT_BACK_TIMEOUT_MS }) {
   const stateFile = path.join(dataDir, 'bot_update_state.json');
   let saved = { enabled: true };
   try { saved = Object.assign(saved, JSON.parse(fs.readFileSync(stateFile, 'utf8'))); } catch (e) {}
+  // profileId -> { key, at }: a refresh toward `key` already failed for this screen. Never reload it again
+  // automatically for the same target (prevents a refresh every TICK_MS after a failed recovery, also across
+  // Manager restarts). Cleared when a different release arrives or the owner presses "ตรวจตอนนี้".
+  const failedTargets = {};
+  if (saved.failedTargets && typeof saved.failedTargets === 'object') {
+    for (const [id, f] of Object.entries(saved.failedTargets)) {
+      if (f && typeof f.key === 'string' && f.key.length <= 200) failedTargets[id] = { key: f.key, at: Number(f.at) || 0 };
+    }
+  }
 
   const status = {
     enabled: saved.enabled !== false,
@@ -102,7 +112,7 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   const persist = () => {
     try {
       fs.mkdirSync(dataDir, { recursive: true });
-      fs.writeFileSync(stateFile, JSON.stringify({ enabled: status.enabled }, null, 2));
+      fs.writeFileSync(stateFile, JSON.stringify({ enabled: status.enabled, failedTargets }, null, 2));
     } catch (e) {}
   };
   const setClient = (p, state, note, version) => {
@@ -121,6 +131,20 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   async function checkGitHub() {
     status.lastCheckAt = Date.now();
     try {
+      if (getManagedRelease) {
+        const managed = getManagedRelease();
+        if (managed !== undefined) {
+          if (!managed) { status.lastError = 'รอ payload ที่ตรวจลายเซ็นแล้วในเครื่อง'; return; }
+          if (!/^\d+\.\d+\.\d+$/.test(managed.version || '') || !/^[a-f0-9]{64}$/.test(managed.hash || '')) throw Error('INVALID_MANAGED_RELEASE');
+          if (status.latest?.sha !== managed.hash) {
+            status.latest = { sha: managed.hash, blobSha: managed.hash, version: managed.version,
+              message: 'PmheeAether payload v' + managed.version, date: Date.now(), managed: true };
+            status.ready = { sha: managed.hash, at: Date.now(), observedLive: true };
+          }
+          status.lastError = null;
+          return;
+        }
+      }
       const head = await getMainHeadSha();
       if (!status.latest || checkedHead !== head) {
         const buf = await getBuffer(`https://raw.githubusercontent.com/${REPO}/${head}/bot.js`);
@@ -147,11 +171,11 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   // Wait until the raw URL the game loader uses serves this exact blob, then refresh the local fallback.
   async function waitForRaw() {
     const latest = status.latest;
-    if (!latest || !latest.blobSha || (status.ready && status.ready.sha === latest.sha)) return;
+    if (!latest || latest.managed || !latest.blobSha || (status.ready && status.ready.sha === latest.sha)) return;
     status.phase = 'waiting-cdn';
-    const started = Date.now();
+    const started = clock();
     let attempts = 0;
-    while (Date.now() - started < RAW_WAIT_LIMIT_MS && status.latest === latest) {
+    while (clock() - started < RAW_WAIT_LIMIT_MS && status.latest === latest) {
       attempts++;
       try {
         const buf = await getBuffer(`${RAW_BOT_URL}?t=${Date.now()}`);
@@ -175,14 +199,34 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
   const CDN_LAG_MS = 6 * 60 * 1000;
   function outdatedThreshold() {
     if (!status.latest || !status.ready) return null;
+    if (status.latest.managed) return null;
     if (status.ready.observedLive) return status.ready.at;
     return Math.min(status.latest.date + CDN_LAG_MS, status.ready.at);
   }
 
-  async function reloadClient(p, info) {
+  // Immutable snapshot of what a refresh must reach; status.latest may change while a refresh is running.
+  function currentTarget() {
+    const latest = status.latest;
+    if (!latest) return null;
+    return {
+      key: (latest.managed ? 'm:' : 'g:') + latest.sha,
+      sha: latest.sha,
+      version: latest.version || null,
+      managed: Boolean(latest.managed),
+      threshold: outdatedThreshold()
+    };
+  }
+  function isCurrentFor(target, info) {
+    if (!target || !info) return false;
+    const sameVersion = Boolean(info.version && target.version && info.version === target.version);
+    if (target.managed) return sameVersion && info.payloadHash === target.sha;
+    return sameVersion || (target.threshold !== null && info.loadedAt >= target.threshold);
+  }
+
+  async function reloadClient(p, info, target) {
     refreshInFlight = true;
     try {
-      const wasRunning = info.running;
+      const wasRunning = Boolean(info.running);
       setClient(p, 'reloading', 'กำลังรีเฟรชหน้าเกม...');
       // Wait for the dispatch to settle even when unload makes the eval time out.
       try {
@@ -192,26 +236,38 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
       }
       await sleep(8000);
 
-      const started = Date.now();
+      const started = clock();
       let resumedAt = null;
-      while (Date.now() - started < CLIENT_BACK_TIMEOUT_MS) {
+      while (clock() - started < clientBackTimeoutMs) {
         const now = await probe(p);
         if (now && now.inGame && now.loadedAt > info.loadedAt) {
-          if (!wasRunning || now.running) {
-            setClient(p, 'done', wasRunning ? 'อัปเดตแล้ว บอททำงานต่อ' : 'อัปเดตแล้ว', now.version);
-            return;
+          if (!isCurrentFor(target, now)) {
+            await sleep(3000);
+            continue;
           }
-          resumedAt = resumedAt || Date.now();
-          if (Date.now() - resumedAt > RESUME_GRACE_MS) {
+          if (failedTargets[p.id]) { delete failedTargets[p.id]; persist(); }
+          if (!wasRunning) {
+            setClient(p, 'done', 'อัปเดตแล้ว', now.version);
+            return true;
+          }
+          if (now.running) {
+            setClient(p, 'done', 'อัปเดตแล้ว บอททำงานต่อ', now.version);
+            return true;
+          }
+          resumedAt = resumedAt || clock();
+          if (clock() - resumedAt > RESUME_GRACE_MS) {
             await evalProfilePort(p.debugPort, START_BOT_JS, 4000);
             setClient(p, 'done', 'อัปเดตแล้ว (Manager สั่งเริ่มบอทให้)', now.version);
-            return;
+            return true;
           }
           setClient(p, 'resuming', 'รอบอทกลับมาทำงานต่อ...');
         }
         await sleep(5000);
       }
-      setClient(p, 'error', 'รีเฟรชแล้วแต่ตัวละครยังไม่กลับเข้าเกม — ตรวจสอบจอนี้');
+      failedTargets[p.id] = { key: target.key, at: clock() };
+      persist();
+      setClient(p, 'error', 'รีเฟรชแล้วแต่ตัวละครยังไม่กลับเข้าเกม หรือยังไม่ได้เวอร์ชันล่าสุด — ตรวจสอบจอนี้ (จะไม่รีเฟรชซ้ำจนกว่าจะมีเวอร์ชันใหม่หรือกด "ตรวจตอนนี้")');
+      return false;
     } finally {
       refreshInFlight = false;
     }
@@ -223,20 +279,25 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     try {
       if (!status.ready) return;
       const settleUntil = status.latest ? status.latest.date + SETTLE_MS : 0;
-      if (Date.now() < settleUntil && Date.now() - manualAt > SETTLE_MS) {
+      if (!status.latest?.managed && Date.now() < settleUntil && Date.now() - manualAt > SETTLE_MS) {
         status.phase = 'settling';
         status.settleUntil = settleUntil;
         return;
       }
       status.settleUntil = null;
-      const threshold = outdatedThreshold();
+      const target = currentTarget();
+      if (!target) return;
+      // A newer release supersedes old failures.
+      let dropped = false;
+      for (const [id, f] of Object.entries(failedTargets)) if (f.key !== target.key) { delete failedTargets[id]; dropped = true; }
+      if (dropped) persist();
       const profiles = loadProfiles().filter(p => p.debugPort);
       let pending = 0;
       for (const p of profiles) {
         const info = await probe(p);
         if (!info) { delete status.clients[p.id]; continue; }
-        const sameVersion = Boolean(info.version && status.latest && status.latest.version && info.version === status.latest.version);
-        if (sameVersion || info.loadedAt >= threshold) {
+        if (isCurrentFor(target, info)) {
+          if (failedTargets[p.id]) { delete failedTargets[p.id]; persist(); }
           if (!status.clients[p.id] || status.clients[p.id].state !== 'done') setClient(p, 'up-to-date', 'ใช้เวอร์ชันล่าสุดอยู่แล้ว', info.version);
           else status.clients[p.id].version = info.version;
           continue;
@@ -244,9 +305,13 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
         pending++;
         if (!status.enabled) { setClient(p, 'outdated', 'มีเวอร์ชันใหม่ (ปิดอัปเดตอัตโนมัติอยู่)', info.version); continue; }
         if (!info.inGame) { setClient(p, 'waiting', 'รอให้ตัวละครอยู่ในเกมก่อน', info.version); continue; }
+        if (failedTargets[p.id] && failedTargets[p.id].key === target.key) {
+          setClient(p, 'error', 'อัปเดตจอนี้ไม่สำเร็จรอบก่อน — ไม่รีเฟรชซ้ำอัตโนมัติ (กด "ตรวจตอนนี้" เพื่อลองใหม่)', info.version);
+          continue;
+        }
         if (info.busy.length) { setClient(p, 'waiting', `รอจังหวะปลอดภัย: ${info.busy.join(', ')}`, info.version); continue; }
         status.phase = 'updating';
-        await reloadClient(p, info);   // one client at a time
+        await reloadClient(p, info, target);   // one client at a time
         pending--;
       }
       status.phase = pending > 0 ? 'updating' : 'idle';
@@ -259,6 +324,13 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     await checkGitHub();
     await waitForRaw();
     await updateCycle();
+  }
+
+  // Explicit owner action: allow one more attempt for screens whose previous refresh failed.
+  async function retryFailed() {
+    for (const id of Object.keys(failedTargets)) delete failedTargets[id];
+    persist();
+    await checkNow();
   }
 
   function start() {
@@ -287,14 +359,14 @@ function createBotAutoUpdater({ loadProfiles, evalProfilePort, getGameDir, dataD
     }
     if (pathname === '/api/bot-update/check' && req.method === 'POST') {
       manualAt = Date.now();
-      checkNow();
+      retryFailed();
       sendJSON({ success: true });
       return true;
     }
     return false;
   }
 
-  return { start, handleRoute, status, isBusy: () => refreshInFlight };
+  return { start, handleRoute, status, isBusy: () => refreshInFlight, checkNow, retryFailed, updateCycle, _failedTargets: failedTargets };
 }
 
 module.exports = { createBotAutoUpdater };

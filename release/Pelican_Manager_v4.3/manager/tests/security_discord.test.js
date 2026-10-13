@@ -111,3 +111,75 @@ test('corrupt durable request state fails closed without paying or answering', a
   assert.equal(f.evals.length, 0);
   assert.equal(f.debitCount(), 0);
 });
+
+test('device nickname defaults to configured getter and can be updated dynamically', () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [],
+    getDeviceNickname: () => 'CustomPC'
+  });
+  assert.equal(service.getDeviceNickname(), 'CustomPC');
+  service.setDeviceNickname('Office-Main');
+  assert.equal(service.getDeviceNickname(), 'Office-Main');
+});
+
+test('townWebhookUrl can be configured, loaded, and saved', () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-town-test-'));
+  try {
+    const service = createDiscordBotService({
+      dataDir: tempDir,
+      loadProfiles: () => []
+    });
+    const initial = service.loadSettings();
+    assert.equal(initial.townWebhookUrl, '');
+    service.saveSettings({ townWebhookUrl: 'https://discord.com/api/webhooks/1234/testTown' });
+    const updated = service.loadSettings();
+    assert.equal(updated.townWebhookUrl, 'https://discord.com/api/webhooks/1234/testTown');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('onCaptchaSolved is invoked when answerCheckInGame succeeds', async () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  let solvedProfile = null;
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [{ id: 'p-test', name: 'ProfileTest', debugPort: 12345 }],
+    evalProfilePort: async () => ({ result: { success: true, picked: 2 } }),
+    onCaptchaSolved: (pid, details) => {
+      solvedProfile = pid;
+    }
+  });
+  const res = await service.answerCheckInGame('p-test', 2, 'Apple');
+  assert.equal(res.success, true);
+  assert.equal(solvedProfile, 'p-test');
+});
+test('installer defaults launchMode to browser and browserKind to chrome', () => {
+  const installer = require('../installer.js');
+  const st = installer.loadSettings();
+  assert.equal(st.launchMode, 'browser');
+  assert.equal(st.browserKind, 'chrome');
+});
+
+test('onCaptchaSolved callback passes profileId and challenge details accurately', async () => {
+  const { createDiscordBotService } = require('../discord_bot.js');
+  let captured = null;
+  const service = createDiscordBotService({
+    dataDir: os.tmpdir(),
+    loadProfiles: () => [{ id: 'p-client-99', name: 'Knight01', debugPort: 54321 }],
+    evalProfilePort: async () => ({ result: { success: true, picked: 1 } }),
+    onCaptchaSolved: (pid, details) => {
+      captured = { pid, details };
+    }
+  });
+  const res = await service.answerCheckInGame('p-client-99', 1, 'Banana');
+  assert.equal(res.success, true);
+  assert.equal(captured.pid, 'p-client-99');
+  assert.equal(captured.details.pickIndex, 1);
+  assert.equal(captured.details.matchedName, 'Banana');
+});
+
+

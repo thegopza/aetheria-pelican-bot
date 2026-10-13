@@ -6,8 +6,8 @@ async function refresh() {
   try {
     const response=await fetch('/api/script/status'), data=await response.json();
     if(!response.ok || !data.success) throw Error('ยังอ่านสถานะไม่ได้');
-    el('mode').textContent=data.billingEnabled===null?'ยังยืนยันสถานะการคิดส่วนบุญจากเซิร์ฟเวอร์ไม่ได้':data.billingEnabled?'กำลังใช้นโยบายที่เปิดใช้งานแล้ว':data.mode==='pilot-shadow'?'โหมดทดลองเฉพาะจอ — ยังไม่มีการเรียกเก็บเงิน':'โหมดสังเกตการณ์ — ยังไม่มีการเรียกเก็บเงิน';
-    el('mode-note').textContent=data.pilotProfileIds?.length?`จอที่เลือกทดลอง: ${(data.pilotProfileIds||[]).join(', ')} • ${data.serviceOrigin||''}`:'จอเดิมใช้งานตามเดิม การเปลี่ยนผ่านต้องผ่านการตรวจความพร้อมก่อน';
+    el('mode').textContent=data.billingEnabled===null?'ยังอ่านสถานะการคิดส่วนบุญไม่ได้':data.billingEnabled?'กำลังใช้นโยบายที่เปิดใช้งานแล้ว':data.mode==='pilot-shadow'?'โหมดทดลองเฉพาะจอ — ยังไม่มีการเรียกเก็บเงิน':'โหมดสังเกตการณ์ — ยังไม่มีการเรียกเก็บเงิน';
+    el('mode-note').textContent=data.mode==='friends-offline'?'บอทและการแก้คำถามทำงานในเครื่อง • อัปเดตข้อมูลส่วนบุญอัตโนมัติ':data.pilotProfileIds?.length?`จอที่เลือกทดลอง: ${(data.pilotProfileIds||[]).join(', ')} • ${data.serviceOrigin||''}`:'จอเดิมใช้งานตามเดิม การเปลี่ยนผ่านต้องผ่านการตรวจความพร้อมก่อน';
     el('observed').textContent=String(data.observedSlotsToday);el('pending').textContent=String(data.pendingEvents);el('reconcile').textContent=String(data.reconciliationRequired);
     el('clients').replaceChildren();
     for(const [id,client] of Object.entries(data.clients)) {
@@ -23,7 +23,7 @@ el('statement').addEventListener('click',async()=>{
   try {
     const response=await fetch('/api/script/statement'),data=await response.json();
     if(!response.ok || data.schemaVersion!==2 || data.unitScale!==100 || ![data.balanceUnits,data.rateUnits,data.estimatedUnits].every(Number.isSafeInteger)) throw Error(data.message||'ใบสรุปยังไม่พร้อม');
-    el('statement-message').textContent=`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ทดลอง ไม่มีการหักส่วนบุญ':'คิดตามการใช้จริง'} • ยอด ${data.balanceUnits/100} ส่วนบุญ • เรท ${data.rateUnits/100} ส่วนบุญ/จอ • ยอดรอสรุปจริง ${data.estimatedUnits/100} ส่วนบุญ${Number.isSafeInteger(data.shadowEstimatedUnits)?' • ตัวอย่างราคาตามจอที่สังเกต '+data.shadowEstimatedUnits/100+' ส่วนบุญ':''}`;
+    el('statement-message').textContent=`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ทดลอง ไม่มีการหักส่วนบุญ':'คิดตามการใช้จริง'} • ยอด ${data.balanceUnits/100} ส่วนบุญ • เรท ${data.rateUnits/100} ส่วนบุญ/จอ • ใช้จริงวันนี้ ${data.estimatedUnits/100} ส่วนบุญ${Number.isSafeInteger(data.shadowEstimatedUnits)?' • ตัวอย่างราคาตามจอที่สังเกต '+data.shadowEstimatedUnits/100+' ส่วนบุญ':''}`;
     termsVersion=null;el('terms-check').disabled=true;el('terms-check').checked=false;el('terms-accept').disabled=true;
     if(data.activationDay && typeof data.termsVersion==='string') {
       termsVersion=data.termsVersion;el('terms-check').disabled=false;

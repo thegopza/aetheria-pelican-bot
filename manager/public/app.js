@@ -527,7 +527,7 @@ async function fetchStatementData(force = false) {
       }
       return data;
     }
-    throw new Error('ใบสรุปยังไม่ตรงรูปแบบที่ยืนยันจากเซิร์ฟเวอร์');
+    throw new Error('ใบสรุปยังไม่ตรงรูปแบบที่ถูกต้อง');
   } catch (err) {
     console.warn("Failed to fetch usage statement:", err);
     const content=document.getElementById('usage-statement-content');
@@ -543,18 +543,18 @@ function validStatement(data) {
 }
 function updateUsageStatementDisplay() {
   const pill=document.getElementById('btn-open-usage-statement'),text=document.getElementById('online-expense-text');if(!pill)return;
-  if(!validStatement(lastStatementData)){if(text)text.textContent='ยังไม่มีใบสรุปจากเซิร์ฟเวอร์';pill.title='ไม่คำนวณค่าใช้จ่ายจากจำนวนจอออนไลน์';pill.classList.remove('has-debt');return;}
+  if(!validStatement(lastStatementData)){if(text)text.textContent='ยังไม่มีใบสรุป';pill.title='ไม่คำนวณค่าใช้จ่ายจากจำนวนจอออนไลน์';pill.classList.remove('has-debt');return;}
   const data=lastStatementData,balance=data.balanceUnits/100,today=data.estimatedUnits/100;
   pill.classList.toggle('has-debt',balance<0);
   if(text)text.textContent=balance<0?`ส่วนบุญ ${balance.toLocaleString()} • รอสรุปวันนี้ ${today.toLocaleString()}`:`รอสรุปวันนี้ ${today.toLocaleString()} ส่วนบุญ`;
-  pill.title=`ยอดจากเซิร์ฟเวอร์: ${balance.toLocaleString()} ส่วนบุญ • ${data.billingMode==='shadow'?'โหมดทดลอง ไม่หักจริง':'คิดจาก slot ที่ใช้สคริปต์จริง'} • ${data.usedSlotsToday} slot วันนี้`;
+  pill.title=`ยอดส่วนบุญปัจจุบัน: ${balance.toLocaleString()} ส่วนบุญ • ${data.billingMode==='shadow'?'โหมดทดลอง ไม่หักจริง':'คิดจาก slot ที่ใช้สคริปต์จริง'} • ${data.usedSlotsToday} slot วันนี้`;
 }
 function renderUsageStatementModal(data) {
   const container=document.getElementById('usage-statement-content');
-  if(!validStatement(data)){if(container)container.textContent='ยังอ่านใบสรุปที่ยืนยันจากเซิร์ฟเวอร์ไม่ได้';return;}
+  if(!validStatement(data)){if(container)container.textContent='ยังอ่านข้อมูลใบสรุปไม่ได้';return;}
   const set=(id,value)=>{const node=document.getElementById(id);if(node)node.innerText=value;},balance=data.balanceUnits/100,today=data.estimatedUnits/100;
-  set('us-stat-balance-icon',balance<0?'🚨':'🟢');set('us-stat-balance-title',balance<0?'ส่วนบุญติดลบ':'ส่วนบุญคงเหลือ');set('us-stat-balance-val',balance.toLocaleString());set('us-stat-balance-sub',balance<0?'ยอดค้างจากบัญชีเซิร์ฟเวอร์':'ยอดยืนยันจากบัญชีเซิร์ฟเวอร์');
-  set('us-stat-today-val',today.toLocaleString());set('us-stat-today-sub',`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ไม่มีการหักจริง':'รอสรุปหลังเที่ยงคืน'}`);
+  set('us-stat-balance-icon',balance<0?'🚨':'🟢');set('us-stat-balance-title',balance<0?'ส่วนบุญติดลบ':'ส่วนบุญคงเหลือ');set('us-stat-balance-val',balance.toLocaleString());set('us-stat-balance-sub',balance<0?'ยอดส่วนบุญติดลบ':'ยอดส่วนบุญปัจจุบัน');
+  set('us-stat-today-val',today.toLocaleString());set('us-stat-today-sub',`วันที่ ${data.bangkokDay} • ${data.billingMode==='shadow'?'ไม่มีการหักจริง':data.billingMode==='deferred'?'คิดตาม slot ที่ใช้จริง':'หักตามรอบ'}`);
   set('us-stat-slots-val',String(data.usedSlotsToday));set('us-stat-slots-sub',`คิดจริง ${data.billableSlotsToday} slot • เรท ${data.rateUnits/100} ส่วนบุญ/slot/วัน`);
   set('us-stat-mode-val',data.billingMode==='shadow'?'โหมดทดลอง ไม่หักจริง':'คิดตามการใช้จริง');set('us-stat-mode-sub',Number.isSafeInteger(data.shadowEstimatedUnits)?`ตัวอย่างจาก slot ที่สังเกต ${data.shadowEstimatedUnits/100} ส่วนบุญ (แยกจากยอดรอสรุปจริง)`:'ยอดตาม slot ที่ใช้สคริปต์จริง');
   const balanceNode=document.getElementById('us-stat-balance-val');if(balanceNode)balanceNode.style.color=balance<0?'#f87171':'#34d399';

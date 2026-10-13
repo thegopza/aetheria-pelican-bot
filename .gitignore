@@ -26,6 +26,8 @@ manager/data/script_rollout_v1.json
 manager/data/script_rollout_v1.json.tmp
 manager/data/script_coordinator_v1.json
 manager/data/script_coordinator_v1.json.tmp
+manager/data/script_coordinator_activation.json
+manager/data/script_coordinator_activation.json.tmp
 manager/data/script_device_v1.json
 manager/data/script_device_v1.json.tmp
 manager/data/human_check_catalog_v1.json
@@ -35,3 +37,11 @@ manager/data/proxy_settings.json
 
 manager/data/proxy_register_state_v1.json
 manager/data/proxy_register_state_v1.json.tmp
+
+manager/data/offline/
+manager/data/offline-cache/
+offline-cache/
+manager/data/wallet_snapshot_v1.json
+manager/data/wallet_snapshot_v1.json.tmp
+release/Pelican_Manager_v4.3/manager/data/offline/
+release/Pelican_Manager_v4.3/manager/data/offline-cache/
