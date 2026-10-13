@@ -233,3 +233,7 @@ trash มีเฉพาะ one-off patch helper ที่ตรวจแล้�
 ## Source cleanup — current instructions
 
 อ่าน docs/SOURCE_MAP.md ก่อนแก้ source; historical review/patch/deploy helpers ที่เสร็จแล้วอยู่ D:\MyProject\PmheeAether\trash\2026-10-13-obsolete ห้ามexecuteหรือใช้เป็นsource. scratch/release/installedเป็นtools/mirrorsไม่ใช่canonical bot. ย้ายเฉพาะที่ตรวจreferencesแล้ว ไม่แตะdata/sessions/keys/privateartifacts/rollback dependencies.
+
+## ช่องทาง Manager update ปัจจุบัน (2026-10-14)
+
+อ่าน docs/MANAGER_UPDATE_CHANNEL.md ก่อนปล่อย Manager: source คือ repo เดิมที่เจ้าของจะปิด private; public distribution คือ thegopza/aetheria-manager-updates เท่านั้น ต้อง commit/push source แล้วรัน tools/publish-manager-updates.js กับ checkout D:\MyProject\PmheeAether\manager-update-distribution --publish ทุกครั้ง การ push source อย่างเดียวไม่ส่งอัปเดต Manager รุ่นที่ย้ายช่องทางแล้ว ห้ามแก้ generated checkout เป็น source ห้ามนำ private bot/payload/configs/credentials/debts ลง public distribution ใช้ explicit allowlist และตรวจ ZIP/hash ก่อนปล่อย Legacy bot endpoint แยกจาก Manager channel; repo เดิมเปิด public ชั่วคราวเพื่อส่ง bridge และเจ้าของจะปิดเองเมื่อพร้อม

@@ -7,8 +7,10 @@
 const https = require('https');
 
 const REPO = 'thegopza/aetheria-pelican-bot';
+// Manager distributions are public separately from the private development repository.
+const MANAGER_UPDATE_REPO = 'thegopza/aetheria-manager-updates';
 const UA = 'PmheeAether-Manager';
-let headCache = { sha: null, at: 0 };
+const headCache = new Map();
 let apiBlockedUntil = 0;
 
 function request(url, { timeout = 15000, accept } = {}) {
@@ -30,13 +32,15 @@ function rateLimitError() {
 }
 
 // Commit sha of main, from git's smart-HTTP ref list (cached for a minute; both updaters share it)
-async function getMainHeadSha() {
-  if (headCache.sha && Date.now() - headCache.at < 60 * 1000) return headCache.sha;
-  const r = await request(`https://github.com/${REPO}.git/info/refs?service=git-upload-pack`);
+async function getMainHeadSha(repo = REPO) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(repo)) throw new Error('Invalid GitHub repository');
+  const cached = headCache.get(repo);
+  if (cached && Date.now() - cached.at < 60 * 1000) return cached.sha;
+  const r = await request(`https://github.com/${repo}.git/info/refs?service=git-upload-pack`);
   if (r.status !== 200) throw new Error(`GitHub HTTP ${r.status}`);
   const m = r.body.toString('utf8').match(/([0-9a-f]{40}) refs\/heads\/main/);
   if (!m) throw new Error('อ่าน commit ล่าสุดจาก GitHub ไม่ได้');
-  headCache = { sha: m[1], at: Date.now() };
+  headCache.set(repo, { sha: m[1], at: Date.now() });
   return m[1];
 }
 
@@ -52,4 +56,4 @@ async function apiGetJSON(url) {
   return JSON.parse(r.body.toString('utf8'));
 }
 
-module.exports = { REPO, getMainHeadSha, apiGetJSON };
+module.exports = { REPO, MANAGER_UPDATE_REPO, getMainHeadSha, apiGetJSON };

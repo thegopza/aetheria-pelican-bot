@@ -100,6 +100,7 @@ const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data"), ...(TEST_INSTANCE ? { requestJSON: require('./test_isolation').createFixtureRequestJSON(testFixturePort) } : {}) });
 const { createProxyRegisterService } = require("./proxy_register");
 const proxyRegister = createProxyRegisterService({ dataDir: path.join(__dirname, "data"), solver: humanCheckSolver });
+const imageBoardSolver = require('./image_board_solver');
 const { createScriptCoordinator } = require('./script_coordinator');
 const { loadScriptRollout, saveScriptRolloutSelection } = require('./script_rollout');
 function loadPresets() {
@@ -360,7 +361,8 @@ const LIVE_STATE_EVAL = `(() => {
       const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
       const boardEl = hc.querySelector('.human-check-board');
       const boardImg = boardEl ? boardEl.querySelector('img') : null;
-      const isUpdatedFormat = Boolean(boardEl || boardImg || window.__humanCheckFormatUpdated || (window.__latestHumanCheck && (window.__latestHumanCheck.image || !Array.isArray(window.__latestHumanCheck.items))));
+      const isBoard = Boolean(boardEl || boardImg || (window.__latestHumanCheck && window.__latestHumanCheck.image));
+      const isUpdatedFormat = Boolean(window.__humanCheckFormatUpdated || (!isBoard && (!Array.isArray(window.__latestHumanCheck?.items) || !window.__latestHumanCheck.items.length)));
 
       const options = btns.map((b, i) => {
         const img = b.querySelector('img');
@@ -466,6 +468,7 @@ const LIVE_STATE_EVAL = `(() => {
         lastSolved: window.__lastHumanCheckSolved || null,
         items: (window.__latestHumanCheck && Array.isArray(window.__latestHumanCheck.items)) ? window.__latestHumanCheck.items : null,
         image: (boardImg && (boardImg.getAttribute('src') || boardImg.src)) || window.__latestHumanCheck?.image || null,
+        isBoard,
         isUpdatedFormat,
         options,
         imageDataUrl
@@ -1621,6 +1624,37 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return sendJSON({ success: false, error: e.message }, 500);
     }
+  }
+
+  // POST /api/human-check/simulate-board
+  if (pathname === "/api/human-check/simulate-board" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => {
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > 65536) req.destroy();
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        let catalogSeed = null;
+        try {
+          catalogSeed = JSON.parse(fs.readFileSync(path.join(__dirname, "human_check_catalog_seed.json"), "utf8"));
+        } catch (_) {}
+        const prompt = payload.prompt || "เลือก Red Potion";
+        const resolved = imageBoardSolver.resolveTargetItem(prompt, catalogSeed);
+        return sendJSON({
+          success: true,
+          prompt,
+          resolvedTarget: resolved,
+          solverReady: true,
+          boardWidth: 480,
+          boardHeight: 330
+        });
+      } catch (e) {
+        return sendJSON({ success: false, error: e.message }, 500);
+      }
+    });
+    return;
   }
 
   // Retired compatibility endpoint: never grants credits.
@@ -3600,6 +3634,41 @@ public class PmFocus {
       } catch (err) {
         return sendJSON({ success: false, error: err.message }, 500);
       }
+    });
+    return;
+  }
+
+  // Serve or proxy game icon art assets
+  if (req.method === "GET" && pathname.startsWith("/art/icons/")) {
+    const rel = pathname.slice("/art/icons/".length);
+    const safeRel = path.normalize(rel).replace(/^(\.\.[\/\\])+/, "");
+    const localPath = path.join(__dirname, "data", "icons", safeRel);
+    if (fs.existsSync(localPath)) {
+      const ext = path.extname(localPath).toLowerCase();
+      res.writeHead(200, {
+        "Content-Type": ext === ".webp" ? "image/webp" : (ext === ".png" ? "image/png" : "application/octet-stream"),
+        "Cache-Control": "public, max-age=86400"
+      });
+      return fs.createReadStream(localPath).pipe(res);
+    }
+    const remoteUrl = "https://www.aetheria-online.in.th/art/icons/" + safeRel.replace(/\\/g, "/");
+    https.get(remoteUrl, (pRes) => {
+      if (pRes.statusCode === 200) {
+        fs.mkdirSync(path.dirname(localPath), { recursive: true });
+        const fileStream = fs.createWriteStream(localPath);
+        pRes.pipe(fileStream);
+        res.writeHead(200, {
+          "Content-Type": pRes.headers["content-type"] || "image/webp",
+          "Cache-Control": "public, max-age=86400"
+        });
+        pRes.pipe(res);
+      } else {
+        res.writeHead(pRes.statusCode, { "Content-Type": "text/plain" });
+        res.end("Icon Not Found");
+      }
+    }).on("error", () => {
+      res.writeHead(502, { "Content-Type": "text/plain" });
+      res.end("Bad Gateway");
     });
     return;
   }

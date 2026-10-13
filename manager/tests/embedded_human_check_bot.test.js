@@ -61,3 +61,81 @@ test('hotfix stays inside main IIFE and versions match',()=>{
   assert.ok(hv&&cv,'version markers missing'); assert.equal(hv,cv);
   assert.ok(source.indexOf('    // END EMBEDDED HUMAN CHECK HOTFIX') < source.indexOf('    // AUTO JOB CHANGE ENGINE'));
 });
+
+test('embedded bot solves image board with coordinates and sends room packet', async () => {
+  const f = fixture();
+  const roomMessages = [];
+  const room = { send: (msg, data) => roomMessages.push({ msg, data }) };
+  f.window.getColyseusRoom = () => room;
+  f.window.__latestHumanCheck = {
+    id: 'uuid-board-1',
+    prompt: 'เลือก Red Potion',
+    image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    width: 480,
+    height: 330,
+    timestamp: Date.now()
+  };
+  f.setPrompt('เลือก Red Potion');
+
+  const boardClicks = [];
+  const boardEl = {
+    classList: { contains: c => c === 'human-check-board' },
+    tagName: 'DIV',
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 480, height: 330 }),
+    dispatchEvent: ev => boardClicks.push(ev),
+    querySelector: () => null
+  };
+  const hcWithBoard = {
+    querySelector: sel => sel === '.human-check-board' ? boardEl : (sel === '.human-check-prompt' ? { innerText: 'เลือก Red Potion' } : null),
+    querySelectorAll: () => []
+  };
+  vm.runInContext('document.querySelector = (sel) => sel === ".human-check" ? hcBoard : null', vm.createContext({ ...f.context, hcBoard: hcWithBoard }));
+
+  f.window.__mockImageBoardMatcher = () => ({
+    x: 112,
+    y: 92,
+    confidence: 98,
+    matchedName: 'Red Potion'
+  });
+
+  f.tick();
+  // Allow async board promise to settle
+  await new Promise(r => setTimeout(r, 20));
+  f.run();
+
+  assert.equal(roomMessages.length, 1);
+  assert.equal(roomMessages[0].msg, 'human_check_answer');
+  assert.equal(roomMessages[0].data.id, 'uuid-board-1');
+  assert.equal(roomMessages[0].data.x, 112);
+  assert.equal(roomMessages[0].data.y, 92);
+
+  const events = f.window.__pmGetHumanCheckEvents();
+  assert.equal(events.length, 1);
+  assert.equal(events[0].x, 112);
+  assert.equal(events[0].y, 92);
+  assert.equal(events[0].matchedName, 'Red Potion');
+  assert.equal(events[0].confidence, 98);
+});
+
+test('failsafe triggers stop-all if challenge format is completely unknown', () => {
+  const fetchCalls = [];
+  const f = fixture();
+  f.context.fetch = url => { fetchCalls.push(url); return Promise.resolve(); };
+  f.window.__latestHumanCheck = {
+    id: 'uuid-unknown-format',
+    prompt: 'ตอบคำถามแปลกๆ',
+    items: null,
+    image: null,
+    timestamp: Date.now()
+  };
+  f.setPrompt('ตอบคำถามแปลกๆ');
+  const emptyHc = {
+    querySelector: sel => sel === '.human-check-prompt' ? { innerText: 'ตอบคำถามแปลกๆ' } : null,
+    querySelectorAll: () => []
+  };
+  vm.runInContext('document.querySelector = () => emptyHc', vm.createContext({ ...f.context, emptyHc }));
+
+  f.tick();
+  assert.ok(fetchCalls.some(url => url.includes('/api/stop-all')), 'Should trigger /api/stop-all for unknown format');
+});
+

@@ -27,3 +27,6 @@ owner-host เป็น ledgerหลักตั้งแต่ cutover-20261013
 มี runtime protocol1 เดิมค้างได้ เก็บ compatibility/immutableleasesจน safe reloadสำเร็จ ชื่อตัวแปร/คีย์ pelican_* ต้องคงเดิม การ rollback private release เปลี่ยนเฉพาะcode/config metadata ไม่ย้อนยอดเงินหรือคืนledgerbackupเก่า
 
 Promptเริ่มงาน: "ทำงานใน D:\MyProject\PmheeAether อ่าน AGENTS.md, TASKS.md และ BOT_UPDATE_GUIDE.md ก่อน ช่วยแก้ [รายละเอียด] ใน source ที่ใช้งานจริง ทดสอบและอัปเดตตามคู่มือ ห้ามแก้หรืออัปโหลดไฟล์ผู้ใช้/private payload ไป public และบันทึกสถานะงานทุก checkpoint"
+
+## Manager public update channel
+อ่าน docs/MANAGER_UPDATE_CHANNEL.md หลัง commit/push source ต้อง publish generated distribution ที่ thegopza/aetheria-manager-updates ด้วย ห้ามถือว่า push private source เท่ากับส่งอัปเดตผู้ใช้

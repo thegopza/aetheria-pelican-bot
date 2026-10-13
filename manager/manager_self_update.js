@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const { REPO, getMainHeadSha, apiGetJSON } = require('./github_check');
+const { MANAGER_UPDATE_REPO, getMainHeadSha, apiGetJSON } = require('./github_check');
 const RESTART_EXIT_CODE = 75;
 const CHECK_MS = 10 * 60 * 1000;
 const LOCAL_SCAN_MS = 30 * 1000;
@@ -185,13 +185,13 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
   async function checkRemote() {
     status.lastCheckAt = Date.now();
     try {
-      const head = await getMainHeadSha();
+      const head = await getMainHeadSha(MANAGER_UPDATE_REPO);
       if (checked.head !== head) {
-        const root = await apiGetJSON(`https://api.github.com/repos/${REPO}/git/trees/${head}`);
+        const root = await apiGetJSON(`https://api.github.com/repos/${MANAGER_UPDATE_REPO}/git/trees/${head}`);
         const dir = (root.tree || []).find(e => e.path === 'manager' && e.type === 'tree');
         if (!dir) throw new Error('ไม่พบโฟลเดอร์ manager/ บน GitHub');
         if (dir.sha !== checked.treeSha || !checked.files) {
-          const tree = await apiGetJSON(`https://api.github.com/repos/${REPO}/git/trees/${dir.sha}?recursive=1`);
+          const tree = await apiGetJSON(`https://api.github.com/repos/${MANAGER_UPDATE_REPO}/git/trees/${dir.sha}?recursive=1`);
           checked.files = (tree.tree || []).filter(e => e.type === 'blob').map(e => ({ path: e.path, sha: e.sha }));
           checked.treeSha = dir.sha;
         }
@@ -222,7 +222,7 @@ function createManagerSelfUpdater({ managerDir, dataDir, isBusy }) {
       // 1. Download everything first and verify each file against its git blob sha
       const downloads = [];
       for (const f of files) {
-        const buf = await getBuffer(`https://raw.githubusercontent.com/${REPO}/${sha}/manager/${f.path}`);
+        const buf = await getBuffer(`https://raw.githubusercontent.com/${MANAGER_UPDATE_REPO}/${sha}/manager/${f.path}`);
         if (blobSha(buf) !== f.sha) throw new Error(`ไฟล์ ${f.path} ที่ดาวน์โหลดมาไม่ตรงกับ GitHub`);
         downloads.push({ f, buf });
       }

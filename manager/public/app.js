@@ -507,6 +507,318 @@ if (document.readyState === "loading") {
 } else {
   initCaptchaHistoryModal();
 }
+
+// ==========================================
+// HUMAN CHECK IMAGE BOARD SIMULATOR CONTROLLER
+// ==========================================
+const HC_SIM_PRESETS = [
+  { id: 90301, name: 'Red Potion', icon: '/art/icons/items/red-potion.webp', color: '#ef4444' },
+  { id: 2101, name: 'Guard', icon: '/art/icons/items/rogear-guard.webp', color: '#3b82f6' },
+  { id: 90201, name: 'Phracon', icon: '/art/icons/items/phracon.webp', color: '#10b981' },
+  { id: 90304, name: 'Blue Potion', icon: '/art/icons/items/blue-potion.webp', color: '#06b6d4' },
+  { id: 5035, name: 'Poring Hat', icon: '/art/icons/items/rogear-poring-hat.webp', color: '#f43f5e' },
+  { id: 90103, name: 'Clover', icon: '/art/icons/items/clover.webp', color: '#84cc16' }
+];
+
+let simCurrentGroundTruth = null;
+let simLoadedImages = new Map();
+
+function loadSimImage(src) {
+  if (simLoadedImages.has(src)) return Promise.resolve(simLoadedImages.get(src));
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      simLoadedImages.set(src, img);
+      resolve(img);
+    };
+    img.onerror = () => {
+      resolve(null);
+    };
+    img.src = src;
+  });
+}
+
+function drawSimFallbackIcon(ctx, item, x, y, size) {
+  ctx.save();
+  ctx.fillStyle = item.color || '#64748b';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x + 4, y + 4, size - 8, size - 8, 8);
+  else ctx.rect(x + 4, y + 4, size - 8, size - 8);
+  ctx.fill();
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(item.name.slice(0, 7), x + size / 2, y + size / 2 + 4);
+  ctx.restore();
+}
+
+async function renderSimulatorBoard(presetVal) {
+  const canvas = document.getElementById('hc-sim-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+
+  const bw = 480, bh = 330;
+  canvas.width = bw;
+  canvas.height = bh;
+
+  // Background matching Aetheria captcha screen
+  const bgGrad = ctx.createLinearGradient(0, 0, bw, bh);
+  bgGrad.addColorStop(0, '#151528');
+  bgGrad.addColorStop(1, '#0c0c17');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, bw, bh);
+
+  // Subtle grid lines
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < bw; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, bh); ctx.stroke(); }
+  for (let y = 0; y < bh; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(bw, y); ctx.stroke(); }
+
+  // Select target
+  let target = null;
+  if (!presetVal || presetVal === 'random') {
+    target = HC_SIM_PRESETS[Math.floor(Math.random() * HC_SIM_PRESETS.length)];
+  } else {
+    target = HC_SIM_PRESETS.find(p => String(p.id) === String(presetVal)) || HC_SIM_PRESETS[0];
+  }
+
+  // Pick 3 distractors
+  const distractors = HC_SIM_PRESETS.filter(p => p.id !== target.id);
+  const shuffledDistractors = distractors.sort(() => Math.random() - 0.5).slice(0, 3);
+
+  // Place items at non-overlapping positions
+  const itemSize = 64;
+  const placed = [];
+
+  function getNonOverlappingPos() {
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const x = 30 + Math.floor(Math.random() * (bw - itemSize - 60));
+      const y = 30 + Math.floor(Math.random() * (bh - itemSize - 60));
+      const overlap = placed.some(p => Math.abs(p.x - x) < 70 && Math.abs(p.y - y) < 70);
+      if (!overlap) {
+        placed.push({ x, y });
+        return { x, y };
+      }
+    }
+    const fallbackX = 40 + placed.length * 80;
+    const fallback = { x: Math.min(bw - itemSize - 20, fallbackX), y: 100 };
+    placed.push(fallback);
+    return fallback;
+  }
+
+  const targetPos = getNonOverlappingPos();
+  const targetImg = await loadSimImage(target.icon);
+  if (targetImg) {
+    ctx.drawImage(targetImg, targetPos.x, targetPos.y, itemSize, itemSize);
+  } else {
+    drawSimFallbackIcon(ctx, target, targetPos.x, targetPos.y, itemSize);
+  }
+
+  // Draw distractors
+  for (const d of shuffledDistractors) {
+    const dPos = getNonOverlappingPos();
+    const dImg = await loadSimImage(d.icon);
+    if (dImg) {
+      ctx.drawImage(dImg, dPos.x, dPos.y, itemSize, itemSize);
+    } else {
+      drawSimFallbackIcon(ctx, d, dPos.x, dPos.y, itemSize);
+    }
+  }
+
+  simCurrentGroundTruth = {
+    target,
+    targetImg,
+    x: targetPos.x,
+    y: targetPos.y,
+    centerX: targetPos.x + itemSize / 2,
+    centerY: targetPos.y + itemSize / 2
+  };
+
+  // Update UI text
+  const promptEl = document.getElementById('hc-sim-prompt-text');
+  if (promptEl) promptEl.textContent = `เลือก ${target.name}`;
+
+  const groundTruthEl = document.getElementById('hc-sim-ground-truth');
+  if (groundTruthEl) groundTruthEl.textContent = `พิกัดจริง: (X: ${Math.round(simCurrentGroundTruth.centerX)}, Y: ${Math.round(simCurrentGroundTruth.centerY)})`;
+
+  // Hide marker and reset result
+  const marker = document.getElementById('hc-sim-target-marker');
+  if (marker) marker.style.display = 'none';
+
+  const coordEl = document.getElementById('hc-sim-res-coord');
+  if (coordEl) coordEl.textContent = '-';
+  const confEl = document.getElementById('hc-sim-res-conf');
+  if (confEl) confEl.textContent = '-';
+  const timeEl = document.getElementById('hc-sim-res-time');
+  if (timeEl) timeEl.textContent = '-';
+  const accEl = document.getElementById('hc-sim-res-acc');
+  if (accEl) {
+    accEl.textContent = 'รอสั่งแก้โจทย์';
+    accEl.style.color = '#e2e8f0';
+  }
+}
+
+async function solveSimulatorBoard() {
+  if (!simCurrentGroundTruth) return;
+  const canvas = document.getElementById('hc-sim-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+
+  const btnSolve = document.getElementById('btn-hc-sim-solve');
+  if (btnSolve) { btnSolve.disabled = true; btnSolve.textContent = '⏳ กำลังคำนวณ...'; }
+
+  const startTime = performance.now();
+
+  try {
+    const boardData = ctx.getImageData(0, 0, 480, 330);
+    const target = simCurrentGroundTruth.target;
+
+    // Create 64x64 template
+    const tCanvas = document.createElement('canvas');
+    tCanvas.width = 64;
+    tCanvas.height = 64;
+    const tCtx = tCanvas.getContext('2d', { willReadFrequently: true });
+
+    if (simCurrentGroundTruth.targetImg) {
+      tCtx.drawImage(simCurrentGroundTruth.targetImg, 0, 0, 64, 64);
+    } else {
+      drawSimFallbackIcon(tCtx, target, 0, 0, 64);
+    }
+    const templateData = tCtx.getImageData(0, 0, 64, 64);
+
+    const solver = window.ImageBoardSolver || (typeof ImageBoardSolver !== 'undefined' ? ImageBoardSolver : null);
+    if (!solver) throw new Error('ไม่พบโมดูล ImageBoardSolver');
+
+    const match = solver.matchTemplateOnBoard(boardData, templateData, { subsample: 2, coarseStep: 4 });
+    const elapsed = Math.round(performance.now() - startTime);
+
+    if (match && match.confidence >= 60) {
+      // Position marker
+      const marker = document.getElementById('hc-sim-target-marker');
+      if (marker) {
+        marker.style.left = `${match.centerX}px`;
+        marker.style.top = `${match.centerY}px`;
+        marker.style.display = 'block';
+      }
+
+      const dist = Math.round(Math.hypot(match.centerX - simCurrentGroundTruth.centerX, match.centerY - simCurrentGroundTruth.centerY));
+      const isAccurate = dist <= 6;
+
+      const coordEl = document.getElementById('hc-sim-res-coord');
+      if (coordEl) coordEl.textContent = `(${match.centerX}, ${match.centerY})`;
+      const confEl = document.getElementById('hc-sim-res-conf');
+      if (confEl) confEl.textContent = `${match.confidence}%`;
+      const timeEl = document.getElementById('hc-sim-res-time');
+      if (timeEl) timeEl.textContent = `${elapsed} ms`;
+
+      const accEl = document.getElementById('hc-sim-res-acc');
+      if (accEl) {
+        if (isAccurate) {
+          accEl.textContent = `✅ แม่นยำ 100% (ตรงเป๊ะ ${dist}px)`;
+          accEl.style.color = '#34d399';
+        } else {
+          accEl.textContent = `⚠️ คลาดเคลื่อน (${dist}px)`;
+          accEl.style.color = '#fbbf24';
+        }
+      }
+
+      // Also call server simulator endpoint for verification
+      fetch(`${API_BASE}/api/human-check/simulate-board`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: `เลือก ${target.name}`, itemId: target.id })
+      }).catch(() => {});
+
+    } else {
+      const coordEl = document.getElementById('hc-sim-res-coord');
+      if (coordEl) coordEl.textContent = 'ไม่พบพิกัด';
+      const confEl = document.getElementById('hc-sim-res-conf');
+      if (confEl) confEl.textContent = `${match?.confidence || 0}%`;
+      const timeEl = document.getElementById('hc-sim-res-time');
+      if (timeEl) timeEl.textContent = `${elapsed} ms`;
+      const accEl = document.getElementById('hc-sim-res-acc');
+      if (accEl) {
+        accEl.textContent = '❌ ความมั่นใจต่ำเกินไป';
+        accEl.style.color = '#ef4444';
+      }
+    }
+  } catch (err) {
+    showToast(`❌ เกิดข้อผิดพลาดในการคำนวณ: ${err.message}`, 'error');
+  } finally {
+    if (btnSolve) { btnSolve.disabled = false; btnSolve.textContent = '🚀 สั่งแก้โจทย์'; }
+  }
+}
+
+function openHumanCheckSimulatorModal() {
+  const modal = document.getElementById('modal-human-check-simulator');
+  if (!modal) return;
+  modal.classList.add('active');
+  modal.style.display = 'flex';
+  const sel = document.getElementById('hc-sim-preset-select');
+  renderSimulatorBoard(sel ? sel.value : '90301');
+}
+window.openHumanCheckSimulatorModal = openHumanCheckSimulatorModal;
+
+function closeHumanCheckSimulatorModal() {
+  const modal = document.getElementById('modal-human-check-simulator');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+}
+window.closeHumanCheckSimulatorModal = closeHumanCheckSimulatorModal;
+
+function initHumanCheckSimulator() {
+  const btnOpen = document.getElementById('btn-hc-simulate');
+  if (btnOpen) btnOpen.onclick = openHumanCheckSimulatorModal;
+
+  const btnClose = document.getElementById('btn-hc-sim-close');
+  const btnDone = document.getElementById('btn-hc-sim-done');
+  if (btnClose) btnClose.onclick = closeHumanCheckSimulatorModal;
+  if (btnDone) btnDone.onclick = closeHumanCheckSimulatorModal;
+
+  const sel = document.getElementById('hc-sim-preset-select');
+  if (sel) {
+    sel.onchange = () => renderSimulatorBoard(sel.value);
+  }
+
+  const btnGen = document.getElementById('btn-hc-sim-generate');
+  if (btnGen) {
+    btnGen.onclick = () => {
+      const selVal = sel ? sel.value : 'random';
+      renderSimulatorBoard(selVal);
+    };
+  }
+
+  const btnSolve = document.getElementById('btn-hc-sim-solve');
+  if (btnSolve) btnSolve.onclick = solveSimulatorBoard;
+
+  const modal = document.getElementById('modal-human-check-simulator');
+  if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) closeHumanCheckSimulatorModal();
+    };
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none') {
+      closeHumanCheckSimulatorModal();
+    }
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initHumanCheckSimulator);
+} else {
+  initHumanCheckSimulator();
+}
 // ==========================================
 // USAGE STATEMENT & DEBT HISTORY MODAL CONTROLLER
 // ==========================================
