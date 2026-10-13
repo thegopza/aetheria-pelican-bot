@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.5
+// @version      4.38.6
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.5';
+    const PELICAN_BOT_VERSION = '4.38.6';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -5386,17 +5386,15 @@
                                     quickZeny.innerText = `💰 ${charDec.zeny.toLocaleString()} z`;
                                 }
                             }
-                            // Auto-configure combat & settings when character loads (Only when Plan Script is active)
-                            if (window.__planScriptEnabled && window.__currentScriptPlan) {
-                                setTimeout(() => {
-                                    if (typeof window.autoConfigureCombat === 'function') {
-                                        window.autoConfigureCombat();
-                                    }
-                                    if (typeof window.applyPelicanSettings === 'function') {
-                                        window.applyPelicanSettings();
-                                    }
-                                }, 500);
-                            }
+                            // Auto-configure settings once on initial character load; combat config runs when Plan Script is active
+                            setTimeout(() => {
+                                if (typeof window.applyPelicanSettings === 'function') {
+                                    window.applyPelicanSettings();
+                                }
+                                if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.autoConfigureCombat === 'function') {
+                                    window.autoConfigureCombat();
+                                }
+                            }, 600);
                         }
                     } catch(err) {
                         console.warn('[PmheeAether Character] Error parsing character packet:', err);
@@ -13335,7 +13333,7 @@
                         </label>
                         <label class="p-check-box" style="margin-top: 1px;">
                             <input type="checkbox" id="p-auto-mute-display" ${window.__autoMuteDisplayEnabled !== false ? 'checked' : ''}>
-                            <b>ปิดประกาศบนจอ & ปิดข่าวสารเข้าเกม</b>
+                            <b>ตั้งค่าเกมอัตโนมัติเมื่อเข้าเกม (กราฟิกลื่นสุด/30FPS/ปิดส่องของ)</b>
                         </label>
                         <button class="p-btn" id="p-btn-apply-autoconfig" style="background: linear-gradient(135deg, #0284c7, #0284c7); color: #fff; font-size: 10px; font-weight: bold; padding: 5px; margin-top: 3px;">⚡ ปรับใช้ทั้งแมพ & สกิล Auto ทันที</button>
                     </div>
@@ -16436,58 +16434,195 @@
         }
     };
 
-    // 4.2 Automated Display & News Settings (Mute screen banners & Disable news on enter) (ทำงานเฉพาะเมื่อรัน Plan Script)
-    window.applyPelicanSettings = function(force = false) {
-        // ต้องเปิดใช้งาน Plan Script และมีแผนการเล่นที่เลือกไว้เท่านั้น (ยกเว้นกดปุ่ม Force Apply จาก UI)
-        if (!force && (!window.__planScriptEnabled || !window.__currentScriptPlan)) return;
-        if (!window.__autoMuteDisplayEnabled && !force) return;
-
-        // 1. บันทึกปิดประกาศบนจอ (banners: false) ลงใน webgame.camera
+    // 4.2 Automated Game Settings (Display, Graphics & Character Privacy — checked once upon initial character login/load into the game)
+    function writeOptimalGameSettingsToStorage() {
+        let updated = false;
         try {
             const rawCam = localStorage.getItem('webgame.camera');
             const cam = rawCam ? JSON.parse(rawCam) : {};
-            if (cam.banners !== false) {
-                cam.banners = false;
-                localStorage.setItem('webgame.camera', JSON.stringify(cam));
-                window.__pmDisplaySettingsSynced = false;
-                console.log('%c[PmheeAether Settings] 🔕 บันทึกตั้งค่า: ปิดประกาศบนจอ (banners: false)', 'color: #38bdf8; font-weight: bold;');
+            const desiredCam = {
+                render: 1,              // ความคมชัด: ลื่นสุด
+                maxPlayers: 10,         // ผู้เล่นอื่นที่แสดงบนจอ: 10 คน
+                effects: 'off',         // เอฟเฟกต์สกิลและการโจมตี: ปิด
+                fpsLimit: 30,           // เฟรมเรต: 30 FPS
+                ground: 'painted',      // พื้นแผนที่: ภาพวาด
+                hatBob: false,          // หมวกขยับตามจังหวะเดิน: ปิด
+                hatSparkle: false,      // ประกายวิบที่หมวก: ปิด
+                banners: false,         // แสดงประกาศบนจอ: ปิด
+                damageNumbers: 'off',   // ตัวเลขดาเมจ: ปิด
+                monsterHp: 'hit',       // แสดงหลอด HP มอนสเตอร์ทุกตัว: ปิด
+                playerNames: 'hover'    // ชื่อผู้เล่นอื่น: ชี้เมาส์
+            };
+            let camChanged = false;
+            for (const [k, v] of Object.entries(desiredCam)) {
+                if (cam[k] !== v) {
+                    cam[k] = v;
+                    camChanged = true;
+                }
             }
-        } catch(e) {}
+            if (camChanged) {
+                localStorage.setItem('webgame.camera', JSON.stringify(cam));
+                updated = true;
+            }
+        } catch (e) {}
 
-        // 2. บันทึกปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false) ลงใน webgame.mobile
         try {
             const rawMob = localStorage.getItem('webgame.mobile');
             const mob = rawMob ? JSON.parse(rawMob) : {};
             if (mob.newsOnEnter !== false) {
-                mob.newsOnEnter = false;
+                mob.newsOnEnter = false; // เปิดหน้าข่าวสารเองเมื่อเข้าเกม: ปิด
                 localStorage.setItem('webgame.mobile', JSON.stringify(mob));
-                window.__pmDisplaySettingsSynced = false;
-                console.log('%c[PmheeAether Settings] 📰 บันทึกตั้งค่า: ปิดเปิดหน้าข่าวสารเองเมื่อเข้าเกม (newsOnEnter: false)', 'color: #38bdf8; font-weight: bold;');
+                updated = true;
             }
-        } catch(e) {}
+        } catch (e) {}
+        return updated;
+    }
 
-        // 3. The game reads these settings into memory once at page load, so the localStorage above only counts
-        //    after a reload. Untick them in the game's settings window — opened (menu button "ตั้งค่า") and
-        //    closed again by the bot once per page load when it isn't open already.
+    // Pre-seed localStorage immediately at script startup
+    writeOptimalGameSettingsToStorage();
+
+    window.applyPelicanSettings = function(force = false) {
+        if (!window.__autoMuteDisplayEnabled && !force) return;
+
+        // ปิดหน้าต่างข่าวสารอัปเดต (News Window) หากเปิดค้างหรือเผลอเด้งขึ้นมา
         try {
-            const untick = () => {
-                let seen = 0;
-                document.querySelectorAll('.settings-body label.settings-check').forEach(lbl => {
-                    const text = lbl.innerText || '';
-                    const cb = lbl.querySelector('input[type="checkbox"]');
-                    if (!cb) return;
-                    const isBanner = text.includes('แสดงประกาศบนจอ') || text.includes('Show announcements on screen');
-                    const isNews = text.includes('เปิดหน้าข่าวสารเองเมื่อเข้าเกม') || text.includes('Open the news on entering');
-                    if (!isBanner && !isNews) return;
-                    seen++;
-                    if (cb.checked) cb.click();
+            const newsWindow = document.querySelector('.news-window');
+            if (newsWindow) {
+                const closeBtn = newsWindow.querySelector('.win-close');
+                if (closeBtn) closeBtn.click();
+            }
+        } catch (e) {}
+
+        const charName = (typeof window.getCharacterName === 'function' ? window.getCharacterName() : '')
+            || (window.__latestCharacterData && window.__latestCharacterData.name) || '';
+
+        if (force) {
+            window.__pmDisplaySettingsSynced = false;
+            window.__pmDisplaySettingsTries = 0;
+        }
+        // เช็คแค่ครั้งแรกที่ login เลือกตัวละคร โหลดเข้าเกมสำเร็จ (ต่อตัวละคร)
+        if (!force && window.__pmDisplaySettingsSynced && (!charName || window.__pmDisplaySettingsSyncedChar === charName)) {
+            return;
+        }
+
+        writeOptimalGameSettingsToStorage();
+
+        // ส่งคำสั่งปิดการส่องอุปกรณ์และสเตตัส (inspect_privacy: hidden = true)
+        try {
+            const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData;
+            if (liveChar && liveChar.inspectHidden !== true) {
+                const room = (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null)
+                    || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null)
+                    || window.__colyseusRoom;
+                if (room && typeof room.send === 'function') {
+                    room.send('inspect_privacy', { hidden: true });
+                    liveChar.inspectHidden = true;
+                }
+            }
+        } catch (e) {}
+
+        // รอจนกว่าจะโหลดเข้าตัวละครในเกมสำเร็จและไม่มีหน้าต่างเช็คผู้เล่น
+        if (!charName && !force) return;
+        if (document.querySelector('.human-check')) return;
+        if (window.__pmDisplaySettingsOpening) return;
+        if (!force && ((window.__pmDisplaySettingsTries || 0) >= 3 || planBusyReason() !== null)) return;
+
+        const setSwitch = (win, keywords, targetChecked) => {
+            const rows = Array.from(win.querySelectorAll('label.set-row, label.settings-check'));
+            for (const row of rows) {
+                const text = (row.innerText || row.textContent || '').trim();
+                if (!keywords.some(kw => text.includes(kw))) continue;
+                const cb = row.querySelector('input[type="checkbox"]');
+                if (cb && Boolean(cb.checked) !== Boolean(targetChecked)) {
+                    cb.click();
+                }
+            }
+        };
+
+        const setRadio = (win, rowKeywords, optionKeywords, fallbackIdx) => {
+            const blocks = Array.from(win.querySelectorAll('.set-row.set-block'));
+            for (const blk of blocks) {
+                const titleEl = blk.querySelector('.set-text b');
+                const titleText = ((titleEl && titleEl.textContent) || blk.innerText || '').trim();
+                if (!rowKeywords.some(kw => titleText.includes(kw))) continue;
+                const radios = Array.from(blk.querySelectorAll('.settings-choice button[role="radio"], .settings-choice button'));
+                if (!radios.length) continue;
+                let targetBtn = radios.find(b => {
+                    const bText = (b.innerText || b.textContent || '').trim();
+                    return optionKeywords.some(okw => bText.startsWith(okw) || bText.includes(okw));
                 });
-                return seen;
-            };
+                if (!targetBtn && Number.isInteger(fallbackIdx) && radios[fallbackIdx]) {
+                    targetBtn = radios[fallbackIdx];
+                }
+                if (targetBtn && targetBtn.getAttribute('aria-checked') !== 'true' && !targetBtn.classList.contains('active')) {
+                    targetBtn.click();
+                }
+            }
+        };
+
+        const clickTab = (win, keywords) => {
+            const navBtns = Array.from(win.querySelectorAll('.set-nav button'));
+            const tabBtn = navBtns.find(b => {
+                const t = (b.innerText || b.textContent || '').trim();
+                return keywords.some(kw => t.includes(kw));
+            });
+            if (tabBtn && !tabBtn.classList.contains('on')) {
+                tabBtn.click();
+            }
+            return !!tabBtn;
+        };
+
+        const syncAllSettingsTabs = async (openedByBot) => {
+            const delay = ms => new Promise(r => setTimeout(r, ms));
+            try {
+                const win = document.querySelector('.settings-window');
+                if (!win) return;
+
+                // 1) หมวด "การแสดงผล"
+                clickTab(win, ['การแสดงผล', 'Display']);
+                await delay(100);
+                setSwitch(win, ['แสดงประกาศบนจอ', 'Show announcements'], false);
+                setSwitch(win, ['เปิดหน้าข่าวสารเองเมื่อเข้าเกม', 'Open the news'], false);
+                setRadio(win, ['ตัวเลขดาเมจ', 'Damage numbers'], ['ปิด', 'Off'], 2);
+                setSwitch(win, ['แสดงหลอด HP มอนสเตอร์ทุกตัว', 'Show HP bar'], false);
+                setRadio(win, ['ชื่อผู้เล่นอื่น', 'Player names', 'Other player'], ['ชี้เมาส์', 'Hover'], 2);
+
+                // 2) หมวด "กราฟิกและความลื่น"
+                clickTab(win, ['กราฟิกและความลื่น', 'Graphics']);
+                await delay(100);
+                setRadio(win, ['ความคมชัด', 'Resolution', 'Render'], ['ลื่นสุด', 'Fastest', 'Low'], 0);
+                setRadio(win, ['ผู้เล่นอื่นที่แสดงบนจอ', 'Other players', 'Max players'], ['10 คน', '10 '], 4);
+                setRadio(win, ['เอฟเฟกต์สกิลและการโจมตี', 'เอฟเฟกต์สกิล', 'Effects'], ['ปิด', 'Off'], 2);
+                setRadio(win, ['เฟรมเรต', 'Frame rate', 'FPS'], ['30 FPS', '30'], 1);
+                setRadio(win, ['พื้นแผนที่', 'Ground', 'Map'], ['ภาพวาด', 'Painted'], 1);
+
+                // 3) หมวด "ตัวละคร"
+                clickTab(win, ['ตัวละคร', 'Character']);
+                await delay(100);
+                setSwitch(win, ['หมวกขยับตามจังหวะเดิน', 'Hat bob'], false);
+                setSwitch(win, ['ประกายวิบที่หมวก', 'Hat sparkle'], false);
+                setSwitch(win, ['ให้ผู้เล่นอื่นตรวจสอบอุปกรณ์', 'ตรวจสอบอุปกรณ์', 'inspect'], false);
+
+                await delay(80);
+                window.__pmDisplaySettingsSynced = true;
+                if (charName) window.__pmDisplaySettingsSyncedChar = charName;
+                console.log('%c[PmheeAether Settings] ✅ ตั้งค่าเกมอัตโนมัติครบทั้ง 3 หมวด (การแสดงผล / กราฟิกลื่นสุด 30FPS / ตัวละคร) เรียบร้อยแล้ว', 'color: #38bdf8; font-weight: bold;');
+
+                if (openedByBot) {
+                    const close = win.querySelector('.win-close');
+                    if (close) close.click();
+                }
+            } catch (e) {
+            } finally {
+                window.__pmDisplaySettingsOpening = false;
+            }
+        };
+
+        try {
             if (document.querySelector('.settings-window')) {
-                if (untick() >= 2) window.__pmDisplaySettingsSynced = true;
-            } else if (!window.__pmDisplaySettingsSynced && !window.__pmDisplaySettingsOpening
-                && (window.__pmDisplaySettingsTries || 0) < 3 && planBusyReason() === null) {
+                window.__pmDisplaySettingsOpening = true;
+                syncAllSettingsTabs(false);
+            } else {
                 const btn = Array.from(document.querySelectorAll('button.menu-btn')).find(b => {
                     const t = ((b.querySelector('small') || {}).textContent || '').trim();
                     return t === 'ตั้งค่า' || t === 'Settings';
@@ -16497,41 +16632,22 @@
                     window.__pmDisplaySettingsTries = (window.__pmDisplaySettingsTries || 0) + 1;
                     btn.click();
                     setTimeout(() => {
-                        try {
-                            const win = document.querySelector('.settings-window');
-                            if (win) {
-                                if (untick() >= 2) {
-                                    window.__pmDisplaySettingsSynced = true;
-                                    console.log('%c[PmheeAether Settings] 🔕 ปิดประกาศบนจอ/ข่าวสารในหน้าตั้งค่าของเกมแล้ว', 'color: #38bdf8;');
-                                }
-                                const close = win.querySelector('.win-close');
-                                if (close) close.click();
-                            }
-                        } catch (e) {}
-                        window.__pmDisplaySettingsOpening = false;
-                    }, 500);
+                        syncAllSettingsTabs(true);
+                    }, 180);
                 }
             }
-        } catch(e) {}
-
-        // 4. ปิดหน้าต่างข่าวสารอัปเดต (News Window) หากเปิดค้างหรือเผลอเด้งขึ้นมา
-        try {
-            const newsWindow = document.querySelector('.news-window');
-            if (newsWindow) {
-                const closeBtn = newsWindow.querySelector('.win-close');
-                if (closeBtn) {
-                    closeBtn.click();
-                    console.log('%c[PmheeAether Settings] ❎ ปิดหน้าต่างข่าวสารอัตโนมัติ', 'color: #38bdf8;');
-                }
-            }
-        } catch(e) {}
+        } catch (e) {
+            window.__pmDisplaySettingsOpening = false;
+        }
     };
 
-    // Plan Script loop (every 4 s). Display settings apply whenever the plan is enabled; everything that
-    // acts on the character (combat config, job change, skills, stats, level triggers) runs only while
-    // START BOT is on, so it never interferes with manual play.
+    // Plan Script loop (every 4 s). Initial game settings check runs once per character load even if Plan Script is off;
+    // combat config, job change, skills, stats, level triggers run only while Plan Script + START BOT are on.
     let planLoopRunning = false;
     setInterval(async () => {
+        if (!window.__pmDisplaySettingsSynced && typeof window.applyPelicanSettings === 'function') {
+            window.applyPelicanSettings();
+        }
         if (planLoopRunning || !window.__planScriptEnabled || !window.__currentScriptPlan) return;
         planLoopRunning = true;
         try {

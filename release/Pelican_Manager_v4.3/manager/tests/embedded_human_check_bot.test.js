@@ -314,5 +314,175 @@ test('embedded bot retries up to 3 attempts when triesLeft decrements on same im
   assert.equal(roomMessages[2].data.x, 68);
 });
 
+test('applyPelicanSettings configures all 3 settings tabs once on initial character load', async () => {
+  const botSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'bot.js'), 'utf8');
+  const startIdx = botSrc.indexOf('function writeOptimalGameSettingsToStorage()');
+  const endMarker = '// Plan Script loop (every 4 s)';
+  const endIdx = botSrc.indexOf(endMarker, startIdx);
+  assert.ok(startIdx > 0 && endIdx > startIdx, 'Could not locate applyPelicanSettings block in bot.js');
+  const codeBlock = botSrc.slice(startIdx, endIdx);
+
+  const storage = new Map();
+  const sentPackets = [];
+  let settingsClosed = false;
+  const clickedTabs = [];
+  const toggledSwitches = [];
+  const selectedRadios = [];
+
+  const makeSwitchRow = (title, initialChecked) => {
+    const cb = {
+      checked: initialChecked,
+      click() {
+        this.checked = !this.checked;
+        toggledSwitches.push({ title, checked: this.checked });
+      }
+    };
+    return {
+      innerText: title,
+      textContent: title,
+      querySelector: (s) => s === 'input[type="checkbox"]' ? cb : null
+    };
+  };
+
+  const makeRadioBlock = (title, options, activeIdx) => {
+    const btns = options.map((opt, idx) => ({
+      innerText: opt,
+      textContent: opt,
+      _active: idx === activeIdx,
+      getAttribute(attr) { return attr === 'aria-checked' ? (this._active ? 'true' : 'false') : null; },
+      classList: { contains(c) { return c === 'active' ? this._active : false; } },
+      click() {
+        btns.forEach(b => { b._active = false; });
+        this._active = true;
+        selectedRadios.push({ title, option: opt });
+      }
+    }));
+    return {
+      innerText: title,
+      querySelector: (s) => s === '.set-text b' ? { textContent: title } : null,
+      querySelectorAll: () => btns
+    };
+  };
+
+  const navBtns = ['การแสดงผล', 'กราฟิกและความลื่น', 'ตัวละคร'].map((t, i) => ({
+    innerText: t,
+    textContent: t,
+    _on: i === 0,
+    classList: { contains(c) { return c === 'on' ? this._on : false; } },
+    click() {
+      navBtns.forEach(b => { b._on = false; });
+      this._on = true;
+      clickedTabs.push(t);
+    }
+  }));
+
+  const switchRows = [
+    makeSwitchRow('แสดงประกาศบนจอ', true),
+    makeSwitchRow('เปิดหน้าข่าวสารเองเมื่อเข้าเกม', true),
+    makeSwitchRow('แสดงหลอด HP มอนสเตอร์ทุกตัว', true),
+    makeSwitchRow('หมวกขยับตามจังหวะเดิน', true),
+    makeSwitchRow('ประกายวิบที่หมวก', true),
+    makeSwitchRow('ให้ผู้เล่นอื่นตรวจสอบอุปกรณ์และสเตตัสของฉันได้', true)
+  ];
+
+  const radioBlocks = [
+    makeRadioBlock('ตัวเลขดาเมจ', ['ปกติ', 'ย่อ', 'ปิด'], 0),
+    makeRadioBlock('ชื่อผู้เล่นอื่น', ['แสดงตลอด', 'ซ่อน', 'ชี้เมาส์'], 0),
+    makeRadioBlock('ความคมชัด', ['ลื่นสุด', 'ปกติ', 'ชัดสุด'], 1),
+    makeRadioBlock('ผู้เล่นอื่นที่แสดงบนจอ', ['ไม่จำกัด', '50 คน', '30 คน', '20 คน', '10 คน'], 0),
+    makeRadioBlock('เอฟเฟกต์สกิลและการโจมตี', ['แสดงทั้งหมด', 'เฉพาะตัวเอง', 'ปิด'], 0),
+    makeRadioBlock('เฟรมเรต', ['60 FPS', '30 FPS', '20 FPS'], 0),
+    makeRadioBlock('พื้นแผนที่', ['พิกเซล', 'ภาพวาด'], 0)
+  ];
+
+  let settingsWinOpen = false;
+  const settingsWin = {
+    querySelectorAll(sel) {
+      if (sel === '.set-nav button') return navBtns;
+      if (sel.includes('label.set-row')) return switchRows;
+      if (sel === '.set-row.set-block') return radioBlocks;
+      return [];
+    },
+    querySelector(sel) {
+      if (sel === '.win-close') return { click() { settingsClosed = true; settingsWinOpen = false; } };
+      return null;
+    }
+  };
+
+  const sandboxWindow = {
+    __autoMuteDisplayEnabled: true,
+    __latestCharacterData: { name: 'TesterHero', inspectHidden: false },
+    getCharacterName: () => 'TesterHero',
+    getLiveCharacterData: () => sandboxWindow.__latestCharacterData,
+    getGameRoom: () => ({
+      send(type, payload) { sentPackets.push({ type, payload }); }
+    })
+  };
+
+  const ctx = vm.createContext({
+    window: sandboxWindow,
+    localStorage: {
+      getItem: (k) => storage.get(k) || null,
+      setItem: (k, v) => storage.set(k, v)
+    },
+    document: {
+      querySelector(sel) {
+        if (sel === '.settings-window') return settingsWinOpen ? settingsWin : null;
+        return null;
+      },
+      querySelectorAll(sel) {
+        if (sel === 'button.menu-btn') {
+          return [{
+            querySelector: () => ({ textContent: 'ตั้งค่า' }),
+            click() { settingsWinOpen = true; }
+          }];
+        }
+        return [];
+      }
+    },
+    planBusyReason: () => null,
+    setTimeout,
+    console: { log() {}, warn() {} }
+  });
+
+  vm.runInContext(codeBlock, ctx);
+  sandboxWindow.applyPelicanSettings();
+
+  await new Promise(r => setTimeout(r, 650));
+
+  const cam = JSON.parse(storage.get('webgame.camera'));
+  assert.equal(cam.render, 1);
+  assert.equal(cam.maxPlayers, 10);
+  assert.equal(cam.effects, 'off');
+  assert.equal(cam.fpsLimit, 30);
+  assert.equal(cam.ground, 'painted');
+  assert.equal(cam.hatBob, false);
+  assert.equal(cam.hatSparkle, false);
+  assert.equal(cam.banners, false);
+  assert.equal(cam.damageNumbers, 'off');
+  assert.equal(cam.monsterHp, 'hit');
+  assert.equal(cam.playerNames, 'hover');
+
+  const mob = JSON.parse(storage.get('webgame.mobile'));
+  assert.equal(mob.newsOnEnter, false);
+
+  assert.equal(sentPackets.length, 1);
+  assert.equal(sentPackets[0].type, 'inspect_privacy');
+  assert.equal(sentPackets[0].payload.hidden, true);
+  assert.equal(toggledSwitches.length, 6);
+  assert.equal(selectedRadios.length, 7);
+  assert.equal(settingsClosed, true);
+  assert.equal(sandboxWindow.__pmDisplaySettingsSynced, true);
+  assert.equal(sandboxWindow.__pmDisplaySettingsSyncedChar, 'TesterHero');
+
+  // Calling applyPelicanSettings() again for the same character should not re-open settings
+  settingsClosed = false;
+  sandboxWindow.applyPelicanSettings();
+  await new Promise(r => setTimeout(r, 250));
+  assert.equal(settingsWinOpen, false);
+  assert.equal(sandboxWindow.__pmDisplaySettingsTries, 1);
+});
+
+
 
 
