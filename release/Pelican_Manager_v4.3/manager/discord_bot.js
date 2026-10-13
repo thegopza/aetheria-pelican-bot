@@ -12,7 +12,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { createHumanCheckSolver } = require('./human_check_solver.js');
 
-function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver, getDeviceNickname, onCaptchaSolved }) {
+function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focusProfileWindow, humanCheckSolver, getDeviceNickname, onCaptchaSolved, stopProfile, stopAll, launchProfile, launchAll }) {
   const SETTINGS_FILE = path.join(dataDir, 'discord_settings.json');
   const solver = humanCheckSolver || createHumanCheckSolver({ dataDir });
 
@@ -416,6 +416,153 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     if (!cfg.enabled || !cfg.channelId || msg.channel_id !== cfg.channelId) return;
 
     const text = (msg.content || '').trim();
+
+    // Admin Manager Commands via Discord
+    if (text.startsWith('!')) {
+      const parts = text.split(/\s+/);
+      const cmd = (parts[0] || '').toLowerCase();
+
+      // 1. !admin or !help
+      if (cmd === '!admin' || cmd === '!help') {
+        const nick = resolveDeviceNickname();
+        const helpText = [
+          `🛡️ **[PmheeAether Admin Manager · เครื่อง: ${nick}]**`,
+          `📋 **คำสั่งควบคุมจอและเครื่องผ่าน Discord:**`,
+          `• \`!status\` หรือ \`!devices\` — ดูสถานะเครื่องนี้และจอที่กำลังเปิดอยู่`,
+          `• \`!stop all\` หรือ \`!close all\` — **ปิดทุกจอ ทุกเครื่อง** ทันที! 🛑`,
+          `• \`!stop ${nick} all\` — ปิดทุกจอเฉพาะเครื่อง \`${nick}\``,
+          `• \`!stop ${nick} <เลขจอ หรือ ชื่อตัวละคร>\` — ปิดเฉพาะจอที่ระบุของเครื่อง \`${nick}\``,
+          `• \`!launch ${nick} all\` — เปิดทุกจอของเครื่อง \`${nick}\``,
+          `• \`!launch ${nick} <เลขจอ หรือ ชื่อจอ>\` — เปิดจอระบุของเครื่อง \`${nick}\``
+        ].join('\n');
+
+        await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+          content: helpText,
+          message_reference: { message_id: msg.id }
+        }, token);
+        return;
+      }
+
+      // 2. !status or !devices or !machines
+      if (cmd === '!status' || cmd === '!devices' || cmd === '!machines') {
+        const nick = resolveDeviceNickname();
+        const profiles = typeof loadProfiles === 'function' ? loadProfiles() : [];
+        const openProfiles = [];
+        profiles.forEach((p, idx) => {
+          if (p.debugPort) {
+            const charName = p.liveState?.charName || p.lastCharName || p.name;
+            const lv = p.liveState?.baseLv ? `Lv.${p.liveState.baseLv}` : '';
+            const map = p.liveState?.currentMap ? `(${p.liveState.currentMap})` : '';
+            openProfiles.push(`  **${idx + 1}️⃣** ${charName} ${lv} ${map} [\`${p.id}\`]`);
+          }
+        });
+
+        const statusText = openProfiles.length > 0
+          ? `🖥️ **[${nick}]** กำลังเปิดอยู่ **${openProfiles.length} จอ**:\n${openProfiles.join('\n')}\n👉 *สั่งปิดได้ด้วย \`!stop ${nick} all\` หรือ \`!stop ${nick} <เลขจอ>\`*`
+          : `🖥️ **[${nick}]** ปัจจุบัน **ไม่มีจอเปิดอยู่**`;
+
+        await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+          content: statusText,
+          message_reference: { message_id: msg.id }
+        }, token);
+        return;
+      }
+
+      // 3. !stop all or !close all (Emergency Stop All Everywhere)
+      if ((cmd === '!stop' || cmd === '!close') && (parts[1] || '').toLowerCase() === 'all' && parts.length === 2) {
+        const nick = resolveDeviceNickname();
+        if (typeof stopAll === 'function') {
+          try { await stopAll(); } catch (_) {}
+        }
+        await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+          content: `🛑 **[${nick}] ปิดทุกจอในเครื่องเรียบร้อยแล้ว!**`,
+          message_reference: { message_id: msg.id }
+        }, token);
+        return;
+      }
+
+      // 4. !stop <device_nickname> all OR !stop <device_nickname> <profile>
+      if ((cmd === '!stop' || cmd === '!close') && parts.length >= 3) {
+        const targetNick = parts[1].toLowerCase();
+        const myNick = resolveDeviceNickname().toLowerCase();
+        if (targetNick === myNick || targetNick === 'all') {
+          const action = parts.slice(2).join(' ').toLowerCase();
+          if (action === 'all') {
+            if (typeof stopAll === 'function') {
+              try { await stopAll(); } catch (_) {}
+            }
+            await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+              content: `🛑 **[${resolveDeviceNickname()}] ปิดทุกจอในเครื่องเรียบร้อยแล้ว!**`,
+              message_reference: { message_id: msg.id }
+            }, token);
+            return;
+          } else {
+            const profiles = typeof loadProfiles === 'function' ? loadProfiles() : [];
+            const idxNum = parseInt(action, 10);
+            let targetP = null;
+            if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= profiles.length) {
+              targetP = profiles[idxNum - 1];
+            } else {
+              targetP = profiles.find(p => (p.id && p.id.toLowerCase() === action) || (p.name && p.name.toLowerCase() === action) || (p.liveState?.charName && p.liveState.charName.toLowerCase() === action));
+            }
+            if (targetP) {
+              if (typeof stopProfile === 'function') {
+                try { await stopProfile(targetP.id); } catch (_) {}
+              }
+              await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+                content: `🛑 **[${resolveDeviceNickname()}] ปิดจอ [${targetP.name}] เรียบร้อยแล้ว!**`,
+                message_reference: { message_id: msg.id }
+              }, token);
+            } else {
+              await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+                content: `⚠️ [${resolveDeviceNickname()}] ไม่พบจอ "${parts.slice(2).join(' ')}" ในเครื่องนี้`,
+                message_reference: { message_id: msg.id }
+              }, token);
+            }
+            return;
+          }
+        }
+      }
+
+      // 5. !launch <device_nickname> all OR !launch <device_nickname> <profile>
+      if (cmd === '!launch' && parts.length >= 3) {
+        const targetNick = parts[1].toLowerCase();
+        const myNick = resolveDeviceNickname().toLowerCase();
+        if (targetNick === myNick || targetNick === 'all') {
+          const action = parts.slice(2).join(' ').toLowerCase();
+          if (action === 'all') {
+            if (typeof launchAll === 'function') {
+              try { await launchAll(); } catch (_) {}
+            }
+            await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+              content: `🚀 **[${resolveDeviceNickname()}] สั่งเปิดทุกจอเรียบร้อยแล้ว!**`,
+              message_reference: { message_id: msg.id }
+            }, token);
+            return;
+          } else {
+            const profiles = typeof loadProfiles === 'function' ? loadProfiles() : [];
+            const idxNum = parseInt(action, 10);
+            let targetP = null;
+            if (!isNaN(idxNum) && idxNum >= 1 && idxNum <= profiles.length) {
+              targetP = profiles[idxNum - 1];
+            } else {
+              targetP = profiles.find(p => (p.id && p.id.toLowerCase() === action) || (p.name && p.name.toLowerCase() === action) || (p.liveState?.charName && p.liveState.charName.toLowerCase() === action));
+            }
+            if (targetP) {
+              if (typeof launchProfile === 'function') {
+                try { await launchProfile(targetP.id); } catch (_) {}
+              }
+              await discordRequest(`/channels/${msg.channel_id}/messages`, 'POST', {
+                content: `🚀 **[${resolveDeviceNickname()}] สั่งเปิดจอ [${targetP.name}] เรียบร้อยแล้ว!**`,
+                message_reference: { message_id: msg.id }
+              }, token);
+            }
+            return;
+          }
+        }
+      }
+    }
+
     // Match "1", "2", "3", "4" or "!ans 1"
     const match = text.match(/^(?:!ans\s+)?([1-6])$/i);
     if (!match) return;
@@ -861,6 +1008,61 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     return await discordRequest(url, 'POST', payload);
   }
 
+  // Emergency stop notification when an updated / unknown Human Check format is detected
+  async function notifyHumanCheckEmergency({ profile, check, reason = 'ตรวจพบ Human Check รูปแบบใหม่ (Image Board)' }) {
+    const cfg = loadSettings();
+    if (!cfg.enabled || !cfg.channelId) return;
+    const nick = resolveDeviceNickname();
+    const charName = profile.liveState?.charName || profile.lastCharName || profile.name;
+    const promptText = check.prompt || '(ไม่มีข้อความโจทย์)';
+
+    let fileAttachment = null;
+    const imgSource = check.image || check.imageDataUrl;
+    if (imgSource && typeof imgSource === 'string' && imgSource.startsWith('data:image/')) {
+      try {
+        const base64Str = imgSource.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+        const buf = Buffer.from(base64Str, 'base64');
+        if (buf.length > 200) {
+          fileAttachment = {
+            buffer: buf,
+            filename: 'human_check_new.png',
+            contentType: 'image/png'
+          };
+        }
+      } catch (_) {}
+    }
+
+    const embed = {
+      title: '🚨🚨 [EMERGENCY STOP] สั่งปิดทุกจออัตโนมัติแล้ว! 🚨🚨',
+      description: 'ระบบตรวจพบการอัปเดตรูปแบบคำถาม Human Check ใหม่จากเกม และได้ทำการ **"ปิดทุกจอในเครื่องทันที"** เรียบร้อยแล้ว เพื่อความปลอดภัยและป้องกันตัวละครถูกส่งเข้าคุก!',
+      color: 0xef4444,
+      fields: [
+        { name: '🖥️ เครื่อง', value: `\`${nick}\``, inline: true },
+        { name: '👤 จอที่พบปัญหา', value: `**${charName}** (\`${profile.id}\`)`, inline: true },
+        { name: '❓ โจทย์คำถาม', value: `\`${promptText}\``, inline: false },
+        { name: '⚠️ สาเหตุ', value: reason, inline: false },
+        { name: '🛑 สถานะ', value: 'สั่งปิดจอทุกจอในเครื่องเรียบร้อยแล้ว ปลอดภัย 100%', inline: false }
+      ],
+      footer: { text: `PmheeAether Anti-Jail Safety System · เครื่อง: ${nick}` },
+      timestamp: new Date().toISOString()
+    };
+
+    if (fileAttachment) {
+      embed.image = { url: 'attachment://human_check_new.png' };
+    }
+
+    await discordRequest(
+      `/channels/${cfg.channelId}/messages`,
+      'POST',
+      {
+        content: `🚨 **[@everyone Emergency Stop · เครื่อง: ${nick}]** ตรวจพบโจทย์เช็คผู้เล่นรูปแบบใหม่ — ปิดทุกจออัตโนมัติแล้ว!`,
+        embeds: [embed]
+      },
+      cfg.botToken,
+      fileAttachment
+    );
+  }
+
   // Initialize gateway on startup
   syncGatewayConnection();
 
@@ -868,6 +1070,7 @@ function createDiscordBotService({ dataDir, loadProfiles, evalProfilePort, focus
     loadSettings,
     saveSettings,
     notifyHumanCheck,
+    notifyHumanCheckEmergency,
     notifyUnexpectedTown,
     clearHumanCheck,
     answerCheckInGame,

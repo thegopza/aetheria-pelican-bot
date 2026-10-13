@@ -57,6 +57,9 @@
         <button id="btn-add-profile" class="btn btn-primary">
           <span class="icon">➕</span> เพิ่มโปรไฟล์
         </button>
+                <button id="btn-admin-fleet" class="btn btn-secondary" title="Admin Manager — จัดการเครื่องและปิดจอทุกเครื่องในเครือข่าย" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(30, 58, 138, 0.15)); border: 1px solid rgba(96, 165, 250, 0.45); color: #93c5fd; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+          <span class="icon">🛡️</span> <span>Admin Manager</span>
+        </button>
         <button id="btn-game-patcher" class="btn btn-patcher" title="ติดตั้ง / อัปเดตสคริปต์บอทลงตัวเกม">
           <span class="icon">⚡</span> <span>สคริปต์เกม</span>
           <span id="game-patcher-status-badge" class="badge patcher-badge">ตรวจสอบ...</span>
@@ -1045,7 +1048,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=43810"></script>
+  <script src="app.js?v=43820"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=42700"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1641,6 +1644,53 @@
             ✅ เปิดใช้งาน Proxy สมัคร
           </button>
         </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ADMIN MANAGER (FLEET & MULTI-MACHINE CONTROL) MODAL -->
+  <div id="admin-fleet-modal" class="modal-backdrop" style="display: none; z-index: 10000;">
+    <div class="modal-content" style="max-width: 840px; width: 95vw; max-height: 88vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid #3b82f6; box-shadow: 0 20px 40px rgba(0,0,0,0.8); border-radius: 12px; overflow: hidden; padding: 20px;">
+      
+      <!-- Modal Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 26px;">🛡️</span>
+          <div>
+            <h2 style="margin: 0; font-size: 18px; color: #f8fafc; font-weight: 700;">PmheeAether Admin Manager</h2>
+            <div style="font-size: 12px; color: #94a3b8;">ระบบควบคุมเครื่องและสั่งปิดจอข้ามเครื่อง (ทั้งเครือข่าย หรือทีละจอ)</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="btn-admin-global-stop" class="btn btn-danger" style="font-size: 12px; font-weight: 700; background: #dc2626; padding: 6px 14px; border: 1px solid #ef4444; box-shadow: 0 0 10px rgba(220,38,38,0.5);" title="สั่งปิดทุกจอ ทุกเครื่องในเครือข่ายทันที!">
+            🚨 ปิดทุกจอ ทุกเครื่อง
+          </button>
+          <button id="btn-close-admin-fleet" class="btn btn-ghost" style="font-size: 18px; padding: 2px 8px; color: #94a3b8; cursor: pointer;">✕</button>
+        </div>
+      </div>
+
+      <!-- Add Peer Toolbar -->
+      <div style="display: flex; gap: 10px; align-items: center; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; flex-wrap: wrap;">
+        <span style="font-size: 12px; font-weight: 600; color: #38bdf8;">➕ เชื่อมต่อเครื่องอื่น:</span>
+        <input type="text" id="admin-peer-name" placeholder="ชื่อเครื่อง (เช่น PC-2)" style="background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 5px 10px; border-radius: 6px; font-size: 12px; width: 140px;">
+        <input type="text" id="admin-peer-addr" placeholder="IP:Port (เช่น 192.168.1.55:3888)" style="background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 5px 10px; border-radius: 6px; font-size: 12px; width: 220px; font-family: monospace;">
+        <button id="btn-admin-add-peer" class="btn btn-primary btn-sm" style="font-size: 12px; padding: 5px 12px; cursor: pointer;">+ เพิ่มเครื่อง</button>
+        <button id="btn-admin-refresh-fleet" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 5px 12px; margin-left: auto; cursor: pointer;">🔄 รีเฟรช</button>
+      </div>
+
+      <!-- Fleet List Container -->
+      <div id="admin-fleet-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; min-height: 250px;">
+        <div style="text-align: center; color: #64748b; padding: 30px;">กำลังโหลดข้อมูลเครื่องในระบบ...</div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 11px; color: #64748b;">
+          💡 คุณสามารถสั่งปิดจอผ่าน Discord ได้เช่นกัน โดยพิมพ์ <code>!stop all</code> หรือ <code>!stop &lt;ชื่อเครื่อง&gt; &lt;เลขจอ&gt;</code>
+        </div>
+        <button id="btn-admin-fleet-done" class="btn btn-secondary" style="font-size: 12px; padding: 5px 16px; cursor: pointer;">ปิดหน้าต่าง</button>
       </div>
 
     </div>

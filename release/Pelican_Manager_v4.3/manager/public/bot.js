@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.36.5
+// @version      4.37.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.36.5';
+    const PELICAN_BOT_VERSION = '4.37.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -385,9 +385,20 @@
                         id: payload.id,
                         prompt: payload.prompt,
                         items: payload.items,
+                        image: payload.image,
+                        width: payload.width,
+                        height: payload.height,
                         triesLeft: payload.triesLeft,
                         timestamp: Date.now()
                     };
+                    const isUpdated = Boolean(payload.image || (payload.items == null && payload.width != null) || !Array.isArray(payload.items));
+                    if (isUpdated) {
+                        window.__humanCheckFormatUpdated = true;
+                        try {
+                            console.warn('[PmheeAether] 🚨 Human Check format update detected! Triggering emergency stop on all screens...');
+                            fetch('http://127.0.0.1:3888/api/stop-all', { method: 'POST' }).catch(() => {});
+                        } catch (_) {}
+                    }
                 });
             }
         } catch (e) {}
@@ -454,7 +465,18 @@
     function embeddedHumanCheckSnapshot() {
         const hc = document.querySelector('.human-check');
         const packet = window.__latestHumanCheck;
-        if (!hc || !packet || packet.id == null || typeof packet.prompt !== 'string') return null;
+        if (!hc) return null;
+        const boardEl = hc.querySelector('.human-check-board');
+        const boardImg = boardEl ? boardEl.querySelector('img') : null;
+        const isUpdated = Boolean(boardEl || boardImg || (packet && packet.image) || (packet && !Array.isArray(packet.items)) || window.__humanCheckFormatUpdated);
+        if (isUpdated) {
+            window.__humanCheckFormatUpdated = true;
+            try {
+                fetch('http://127.0.0.1:3888/api/stop-all', { method: 'POST' }).catch(() => {});
+            } catch (_) {}
+            return null;
+        }
+        if (!packet || packet.id == null || typeof packet.prompt !== 'string') return null;
         const prompt = (hc.querySelector('.human-check-prompt')?.innerText || '').trim();
         if (prompt !== packet.prompt.trim()) return null;
         const buttons = Array.from(hc.querySelectorAll('.human-check-pick'));

@@ -358,6 +358,9 @@ const LIVE_STATE_EVAL = `(() => {
       const promptEl = hc.querySelector('.human-check-prompt');
       const metaEl = hc.querySelector('.human-check-meta');
       const btns = Array.from(hc.querySelectorAll('.human-check-pick'));
+      const boardEl = hc.querySelector('.human-check-board');
+      const boardImg = boardEl ? boardEl.querySelector('img') : null;
+      const isUpdatedFormat = Boolean(boardEl || boardImg || window.__humanCheckFormatUpdated || (window.__latestHumanCheck && (window.__latestHumanCheck.image || !Array.isArray(window.__latestHumanCheck.items))));
 
       const options = btns.map((b, i) => {
         const img = b.querySelector('img');
@@ -450,14 +453,20 @@ const LIVE_STATE_EVAL = `(() => {
         }
       } catch (err) {}
 
+      if (boardImg && boardImg.src && boardImg.src.startsWith('data:image/')) {
+        imageDataUrl = boardImg.src;
+      }
+
       s.humanCheck = {
         active: true,
         id: window.__latestHumanCheck?.id ?? null,
-        prompt: promptEl ? (promptEl.innerText || '').trim() : '',
+        prompt: (promptEl ? (promptEl.innerText || '').trim() : '') || (window.__latestHumanCheck?.prompt || ''),
         meta: metaEl ? (metaEl.innerText || '').trim() : '',
         autoSolved: !!window.__lastHumanCheckSolved && (Date.now() - window.__lastHumanCheckSolved.timestamp < 15000),
         lastSolved: window.__lastHumanCheckSolved || null,
-        items: (window.__latestHumanCheck && window.__latestHumanCheck.items) ? window.__latestHumanCheck.items : null,
+        items: (window.__latestHumanCheck && Array.isArray(window.__latestHumanCheck.items)) ? window.__latestHumanCheck.items : null,
+        image: (boardImg && (boardImg.getAttribute('src') || boardImg.src)) || window.__latestHumanCheck?.image || null,
+        isUpdatedFormat,
         options,
         imageDataUrl
       };
@@ -1224,6 +1233,50 @@ function bootstrapDailyFromRequests() {
 const captchaStats = require('./captcha_stats').createCaptchaStats({ file: CAPTCHA_STATS_FILE, bootstrapDaily: bootstrapDailyFromRequests });
 function getCaptchaStats() { return captchaStats.get(); }
 function recordCaptchaSolved(profileId, details = {}) { return captchaStats.record(profileId, details); }
+const ADMIN_PEERS_FILE = path.join(__dirname, "data", "admin_peers.json");
+function loadAdminPeers() {
+  try {
+    if (fs.existsSync(ADMIN_PEERS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(ADMIN_PEERS_FILE, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (_) {}
+  return [];
+}
+function saveAdminPeers(peers) {
+  try {
+    fs.writeFileSync(ADMIN_PEERS_FILE, JSON.stringify(peers, null, 2), 'utf8');
+    return true;
+  } catch (_) { return false; }
+}
+
+async function stopSingleProfile(id) {
+  if (browserMode.isOpen(id)) {
+    try { await browserMode.stop(id); } catch (_) {}
+    return { success: true };
+  }
+  const proc = runningProcesses[id];
+  if (proc && proc.pid) {
+    try { exec(`taskkill /pid ${proc.pid} /f /t`); } catch (_) {}
+  }
+  delete runningProcesses[id];
+  return { success: true };
+}
+
+async function stopAllProfiles() {
+  for (const p of loadProfiles()) {
+    if (browserMode.isOpen(p.id)) browserMode.stop(p.id).catch(() => {});
+  }
+  for (const id in runningProcesses) {
+    const proc = runningProcesses[id];
+    if (proc && proc.pid) {
+      try { exec(`taskkill /pid ${proc.pid} /f /t`); } catch (_) {}
+    }
+    delete runningProcesses[id];
+  }
+  return { success: true };
+}
+
 
 const discordService = createDiscordBotService({
   dataDir: path.join(__dirname, "data"),
@@ -1237,7 +1290,9 @@ const discordService = createDiscordBotService({
   },
   humanCheckSolver,
   getDeviceNickname: getEffectiveDeviceNickname,
-  onCaptchaSolved: recordCaptchaSolved
+  onCaptchaSolved: recordCaptchaSolved,
+  stopProfile: stopSingleProfile,
+  stopAll: stopAllProfiles
 });
 
 const embeddedHumanCheckBridge=require('./embedded_human_check_bridge').createEmbeddedHumanCheckBridge({evalProfilePort,recordCaptchaSolved,getConfig:()=>{const hc=humanCheckSolver.loadSettings(),dc=discordService.loadSettings();return {autoAnswer:hc.autoAnswer!==false&&dc.autoAnswer!==false,answerDelayMs:hc.answerDelayMs};}});
@@ -1251,7 +1306,15 @@ setInterval(async () => {
       const state = await queryClientState(p.debugPort);
       await embeddedHumanCheckBridge.collect(p,state);
       if (state && state.humanCheck && state.humanCheck.active) {
-        discordService.notifyHumanCheck({ profile: p, check: state.humanCheck });
+        if (state.humanCheck.isUpdatedFormat) {
+          console.warn(`[EMERGENCY STOP] ตรวจพบ Human Check รูปแบบใหม่บนจอ ${p.name || p.id} — ปิดทุกจออัตโนมัติทันที!`);
+          stopAllProfiles();
+          if (typeof discordService.notifyHumanCheckEmergency === 'function') {
+            discordService.notifyHumanCheckEmergency({ profile: p, check: state.humanCheck, reason: 'ตรวจพบโจทย์รูปแบบใหม่ (Image Board / ไม่มีปุ่มเลือกไอคอนเดิม)' });
+          }
+        } else {
+          discordService.notifyHumanCheck({ profile: p, check: state.humanCheck });
+        }
       } else if (state) {
         discordService.clearHumanCheck(p.id);
       }
@@ -1265,8 +1328,13 @@ setInterval(async () => {
 const server = http.createServer(async (req, res) => {
   req.setEncoding('utf8');   // request bodies are built with += (Thai split across chunks -> U+FFFD)
   if (!allowLocalRequest(req, PORT)) {
-    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
-    return res.end(JSON.stringify({ success: false, error: "Forbidden request origin or host" }));
+    const isPeerAdminRoute = pathname === '/api/admin/peer-status' || pathname === '/api/admin/remote-stop';
+    if (isPeerAdminRoute && req.headers['sec-fetch-site'] !== 'cross-site') {
+      // Allow peer admin communication across LAN / local network
+    } else {
+      res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({ success: false, error: "Forbidden request origin or host" }));
+    }
   }
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -3454,6 +3522,237 @@ public class PmFocus {
   }
 
   // ==========================================
+
+  // ==========================================
+  // ADMIN MANAGER FLEET API
+  // ==========================================
+
+  // GET /api/admin/peer-status — queried by other Managers on the network
+  if (req.method === "GET" && pathname === "/api/admin/peer-status") {
+    const allProfiles = loadProfiles();
+    const openProfiles = allProfiles.filter(p => browserMode.isOpen(p.id) || (runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid))).map(p => ({
+      id: p.id,
+      name: p.name,
+      charName: p.liveState?.charName || p.lastCharName || p.name,
+      baseLv: p.liveState?.baseLv || null,
+      jobLv: p.liveState?.jobLv || null,
+      currentMap: p.liveState?.currentMap || null,
+      status: p.liveState?.status || 'Online',
+      debugPort: p.debugPort
+    }));
+    return sendJSON({
+      success: true,
+      nickname: getEffectiveDeviceNickname(),
+      hostname: os.hostname(),
+      onlineCount: openProfiles.length,
+      profiles: openProfiles,
+      port: PORT,
+      timestamp: Date.now()
+    });
+  }
+
+  // POST /api/admin/remote-stop — executed when remote admin orders stop
+  if (req.method === "POST" && pathname === "/api/admin/remote-stop") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        if (payload.mode === "single" && payload.profileId) {
+          await stopSingleProfile(payload.profileId);
+          return sendJSON({ success: true, stopped: payload.profileId });
+        }
+        await stopAllProfiles();
+        return sendJSON({ success: true, stopped: "all" });
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // GET /api/admin/fleet — status of this machine + all remote peers
+  if (req.method === "GET" && pathname === "/api/admin/fleet") {
+    const allProfiles = loadProfiles();
+    const localRunning = allProfiles.filter(p => browserMode.isOpen(p.id) || (runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid))).map(p => ({
+      id: p.id,
+      name: p.name,
+      charName: p.liveState?.charName || p.lastCharName || p.name,
+      baseLv: p.liveState?.baseLv || null,
+      jobLv: p.liveState?.jobLv || null,
+      currentMap: p.liveState?.currentMap || null,
+      status: p.liveState?.status || 'Online',
+      debugPort: p.debugPort
+    }));
+
+    const peers = loadAdminPeers();
+    // Query each peer status in parallel with 2500ms timeout
+    const peerResults = await Promise.all(peers.map(async (peer) => {
+      return new Promise((resolve) => {
+        const startTime = Date.now();
+        const [host, portStr] = (peer.address || '').split(':');
+        const pPort = parseInt(portStr, 10) || 3888;
+        const reqPeer = http.get(`http://${host}:${pPort}/api/admin/peer-status`, { timeout: 2500 }, (res) => {
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data);
+              resolve({
+                id: peer.id,
+                name: peer.name || parsed.nickname || host,
+                address: peer.address,
+                online: true,
+                latency: Date.now() - startTime,
+                data: parsed
+              });
+            } catch (_) {
+              resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: 'Bad response' });
+            }
+          });
+        });
+        reqPeer.on('error', (err) => resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: err.message }));
+        reqPeer.on('timeout', () => { reqPeer.destroy(); resolve({ id: peer.id, name: peer.name || host, address: peer.address, online: false, error: 'Timeout' }); });
+      });
+    }));
+
+    return sendJSON({
+      success: true,
+      local: {
+        nickname: getEffectiveDeviceNickname(),
+        hostname: os.hostname(),
+        port: PORT,
+        onlineCount: localRunning.length,
+        profiles: localRunning
+      },
+      peers: peerResults
+    });
+  }
+
+  // POST /api/admin/fleet/peers — add / remove remote peer machine
+  if (req.method === "POST" && pathname === "/api/admin/fleet/peers") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const peers = loadAdminPeers();
+        if (payload.action === "add") {
+          const rawAddr = String(payload.address || '').trim().replace(/^https?:\/\//, '');
+          if (!rawAddr) return sendJSON({ success: false, error: "กรุณาระบุ IP หรือ Hostname ของเครื่อง" }, 400);
+          const address = rawAddr.includes(':') ? rawAddr : (rawAddr + ':3888');
+          const existing = peers.find(p => p.address === address);
+          if (existing) {
+            existing.name = (payload.name || '').trim() || existing.name;
+          } else {
+            peers.push({
+              id: 'peer_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+              name: (payload.name || '').trim() || address,
+              address,
+              addedAt: Date.now()
+            });
+          }
+          saveAdminPeers(peers);
+          return sendJSON({ success: true, peers });
+        } else if (payload.action === "remove") {
+          const filtered = peers.filter(p => p.id !== payload.id && p.address !== payload.address);
+          saveAdminPeers(filtered);
+          return sendJSON({ success: true, peers: filtered });
+        }
+        return sendJSON({ success: false, error: "Action invalid" }, 400);
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // POST /api/admin/fleet/stop — stop single screen or all screens on target
+  if (req.method === "POST" && pathname === "/api/admin/fleet/stop") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        // If target is local machine
+        if (!payload.address || payload.address === 'local') {
+          if (payload.mode === "single" && payload.profileId) {
+            await stopSingleProfile(payload.profileId);
+            return sendJSON({ success: true, target: 'local', stopped: payload.profileId });
+          }
+          await stopAllProfiles();
+          return sendJSON({ success: true, target: 'local', stopped: 'all' });
+        }
+
+        // Target is remote peer machine
+        const [host, portStr] = payload.address.split(':');
+        const pPort = parseInt(portStr, 10) || 3888;
+        const postData = JSON.stringify({ mode: payload.mode || 'all', profileId: payload.profileId });
+        const remoteReq = http.request({
+          hostname: host,
+          port: pPort,
+          path: '/api/admin/remote-stop',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+          },
+          timeout: 4000
+        }, (remoteRes) => {
+          let rData = '';
+          remoteRes.on('data', chunk => rData += chunk);
+          remoteRes.on('end', () => {
+            try {
+              const parsed = JSON.parse(rData);
+              sendJSON({ success: true, remoteResult: parsed });
+            } catch (_) {
+              sendJSON({ success: false, error: 'Remote response invalid' }, 500);
+            }
+          });
+        });
+        remoteReq.on('error', (e) => sendJSON({ success: false, error: e.message }, 500));
+        remoteReq.on('timeout', () => { remoteReq.destroy(); sendJSON({ success: false, error: 'Remote timeout' }, 500); });
+        remoteReq.write(postData);
+        remoteReq.end();
+      } catch (err) {
+        return sendJSON({ success: false, error: err.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // POST /api/admin/fleet/global-stop — Emergency stop ALL machines everywhere!
+  if (req.method === "POST" && pathname === "/api/admin/fleet/global-stop") {
+    // 1. Stop local immediately
+    await stopAllProfiles();
+
+    // 2. Broadcast stop to all remote peers
+    const peers = loadAdminPeers();
+    const results = await Promise.allSettled(peers.map(peer => new Promise((resolve) => {
+      const [host, portStr] = peer.address.split(':');
+      const pPort = parseInt(portStr, 10) || 3888;
+      const postData = JSON.stringify({ mode: 'all' });
+      const rReq = http.request({
+        hostname: host,
+        port: pPort,
+        path: '/api/admin/remote-stop',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+        timeout: 4000
+      }, res => {
+        res.resume();
+        resolve({ peer: peer.address, ok: true });
+      });
+      rReq.on('error', err => resolve({ peer: peer.address, ok: false, error: err.message }));
+      rReq.on('timeout', () => { rReq.destroy(); resolve({ peer: peer.address, ok: false, error: 'timeout' }); });
+      rReq.write(postData);
+      rReq.end();
+    })));
+
+    return sendJSON({ success: true, localStopped: true, peerCount: peers.length, results });
+  }
+
   // STATIC FILE SERVING
   // ==========================================
   let filePath = path.join(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname);
