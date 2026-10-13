@@ -229,3 +229,7 @@ PmheeAether เป็นซอฟต์แวร์ที่ใช้งาน�
 Private source รุ่นใช้งานอยู่ Server/PMhee.AetheriaApi/owner-host/ และ protected-script/bot.source.js (ตรวจ version จริงจากค่าคงที่) public bot.js เป็น compatibility snapshot; ห้ามซิงค์ private source/payload เข้า public Git/ZIP/gamefolder เก็บ protocol1 compatibility/lease renewal จน safe reload protocol2 สำเร็จ
 
 trash มีเฉพาะ one-off patch helper ที่ตรวจแล้วว่าไม่ได้ใช้ ไม่ใช่ที่ทิ้งฐานเก่า/secrets/sourceเดิม/rollbackโดยเดา ห้าม recursively move/delete junction ของ repo และห้ามสร้าง source hand-edit สำเนาที่สาม
+
+## Source cleanup — current instructions
+
+อ่าน docs/SOURCE_MAP.md ก่อนแก้ source; historical review/patch/deploy helpers ที่เสร็จแล้วอยู่ D:\MyProject\PmheeAether\trash\2026-10-13-obsolete ห้ามexecuteหรือใช้เป็นsource. scratch/release/installedเป็นtools/mirrorsไม่ใช่canonical bot. ย้ายเฉพาะที่ตรวจreferencesแล้ว ไม่แตะdata/sessions/keys/privateartifacts/rollback dependencies.
