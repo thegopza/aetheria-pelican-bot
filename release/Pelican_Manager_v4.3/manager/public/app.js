@@ -1411,15 +1411,25 @@ function proxyQuotaFromSettings(settings) {
   return Math.max(0,Math.floor(settings.balanceUnits/10));
 }
 function applyProxyConnectionSettings(settings) {
+  const isBroker = settings.mode === 'owner-broker';
+  const brokerRadio = document.getElementById('proxy-mode-broker');
+  const localRadio = document.getElementById('proxy-mode-local');
+  if (brokerRadio) brokerRadio.checked = isBroker;
+  if (localRadio) localRadio.checked = !isBroker;
+
+  const brokerSection = document.getElementById('proxy-broker-info-section');
+  const localSection = document.getElementById('proxy-local-config-section');
+  if (brokerSection) brokerSection.style.display = isBroker ? 'block' : 'none';
+  if (localSection) localSection.style.display = isBroker ? 'none' : 'block';
   const fields={'proxy-config-host':settings.proxyHost||'','proxy-config-port':settings.proxyPort||'','proxy-config-country':settings.country||'th'};
   for(const [id,value]of Object.entries(fields)){const input=document.getElementById(id);if(input&&document.activeElement!==input)input.value=value;}
   const note=document.getElementById('proxy-config-note');
   if(note)note.textContent=settings.configured?'ใช้ข้อมูลรับรองที่เก็บในเครื่องได้ กรอกใหม่เฉพาะเมื่อต้องการเปลี่ยน':'กรอกข้อมูลรับรอง Proxy ที่ต้องการใช้ในเครื่องนี้';
-  const confirm=document.getElementById('btn-proxy-modal-confirm');if(confirm)confirm.disabled=!settings.enabled&&!settings.configured;
+  const confirm=document.getElementById('btn-proxy-modal-confirm');if(confirm)confirm.disabled = isBroker ? false : (!settings.enabled && !settings.configured);
 }
 async function saveProxyConnectionSettings(){
   const value=id=>(document.getElementById(id)?.value||'').trim(),user=value('proxy-config-user'),password=document.getElementById('proxy-config-pass')?.value||'';
-  const body={proxyHost:value('proxy-config-host'),proxyPort:Number(value('proxy-config-port')),country:value('proxy-config-country').toLowerCase(),enabled:false};
+  const body={mode:'local',proxyHost:value('proxy-config-host'),proxyPort:Number(value('proxy-config-port')),country:value('proxy-config-country').toLowerCase(),enabled:false};
   if(!body.proxyHost||!Number.isInteger(body.proxyPort)||body.proxyPort<1||body.proxyPort>65535||!/^[a-z]{2}$/.test(body.country))return showToast('กรอก Host, Port และรหัสประเทศสองตัวให้ถูกต้อง','error');
   if(!!user!==!!password)return showToast('กรอกชื่อผู้ใช้ Proxy และรหัสผ่านใหม่ทั้งคู่ หรือเว้นทั้งคู่เพื่อคงค่าเดิม','error');
   if(user){body.proxyUser=user;body.proxyPass=password;}
@@ -1434,7 +1444,17 @@ async function fetchProxyRegisterSettings() {
       fetch(`${API_BASE}/api/human-check/settings`).then(r => r.json()).catch(() => null)
     ]);
     if (proxyRes && proxyRes.success && proxyRes.settings) {
-      const s = proxyRes.settings;
+      let s = proxyRes.settings;
+      if (s.mode === 'local' && !s.configured && !s.hasCredentials) {
+        try {
+          const autoRes = await fetch(`${API_BASE}/api/proxy-register/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'owner-broker' })
+          }).then(r => r.json());
+          if (autoRes && autoRes.success && autoRes.settings) s = autoRes.settings;
+        } catch (_) {}
+      }
       applyProxyConnectionSettings(s);
       updateProxyRegisterToolbarBtn(s.enabled);
       const regCountEl = document.getElementById("proxy-modal-reg-count");
@@ -1450,6 +1470,46 @@ async function fetchProxyRegisterSettings() {
 }
 
 function initProxyRegisterControls() {
+  const modeBroker = document.getElementById('proxy-mode-broker');
+  const modeLocal = document.getElementById('proxy-mode-local');
+  if (modeBroker) {
+    modeBroker.addEventListener('change', async () => {
+      if (modeBroker.checked) {
+        try {
+          const res = await fetch(`${API_BASE}/api/proxy-register/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'owner-broker' })
+          }).then(r => r.json());
+          if (res && res.success) {
+            applyProxyConnectionSettings(res.settings);
+            showToast('สลับเป็นโหมด Proxy กลางของระบบแล้ว (ไม่ต้องกรอกข้อมูล)', 'success');
+          }
+        } catch (e) {
+          showToast('ไม่สามารถสลับโหมดได้: ' + e.message, 'error');
+        }
+      }
+    });
+  }
+  if (modeLocal) {
+    modeLocal.addEventListener('change', async () => {
+      if (modeLocal.checked) {
+        try {
+          const res = await fetch(`${API_BASE}/api/proxy-register/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'local' })
+          }).then(r => r.json());
+          if (res && res.success) {
+            applyProxyConnectionSettings(res.settings);
+            showToast('สลับเป็นโหมดกำหนด Proxy ในเครื่องแล้ว', 'info');
+          }
+        } catch (e) {
+          showToast('ไม่สามารถสลับโหมดได้: ' + e.message, 'error');
+        }
+      }
+    });
+  }
   const saveConfig=document.getElementById('btn-proxy-config-save');if(saveConfig)saveConfig.onclick=saveProxyConnectionSettings;
   const btnToolbar = document.getElementById("btn-toggle-proxy-register");
   if (btnToolbar) {
