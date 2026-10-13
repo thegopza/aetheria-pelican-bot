@@ -63,7 +63,9 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
       } else if(result?.pending) {
         updateProfile(profile.id,{proxyRegistrationState:'review-required',registerError:result.error||'รายการสมัครยังรอตรวจสอบ'});
       } else {
-        updateProfile(profile.id,{autoRegister:false,proxyRegistrationState:'known-rejected',registerError:result?.error||'Proxy ไม่อนุมัติรายการสมัคร'});
+        // Known refusal (nothing was sent to the game): sign up on the game's own form instead of giving up.
+        updateProfile(profile.id,{proxyRegistrationState:'known-rejected',proxyFallbackBrowser:true,registerError:'Proxy ไม่อนุมัติ ('+(result?.error||'ไม่ทราบสาเหตุ')+') — เปลี่ยนไปสมัครผ่านหน้าเกมแทน'});
+        console.warn(`[AuthSync] ⚠️ ${profile.name}: Proxy ไม่อนุมัติการสมัคร -> สมัครผ่านหน้าเกมแทน`);
       }
     } catch(_) {updateProfile(profile.id,{proxyRegistrationState:'retry-pending',registerError:'ยังยืนยันผล Proxy ไม่ได้ เก็บรายการเดิมไว้ก่อนลองใหม่'});}
   }
@@ -96,7 +98,7 @@ function createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentia
       }
 
       // If Proxy Registration is enabled, sign up directly through proxy tunnel
-      if (proxyRegister && typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) {
+      if (!profile.proxyFallbackBrowser && proxyRegister && typeof proxyRegister.isEnabled === 'function' && proxyRegister.isEnabled()) {
         await syncProxyRegistration(profile);return;
       }
 
