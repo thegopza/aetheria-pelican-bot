@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.39.2
+// @version      4.39.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.39.2';
+    const PELICAN_BOT_VERSION = '4.39.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -926,6 +926,34 @@
                         } catch (_) {}
                     }
                 });
+                room.onMessage('character', (charDec) => {
+                    if (typeof window.applyLiveCharacterPacket === 'function') {
+                        window.applyLiveCharacterPacket(charDec, true);
+                    }
+                });
+                room.onMessage('inventory', (invDec) => {
+                    if (typeof window.applyLiveInventoryPacket === 'function') {
+                        window.applyLiveInventoryPacket(invDec, false);
+                    }
+                });
+                room.onMessage('skill_catalog', (catDec) => {
+                    if (catDec && typeof catDec === 'object') {
+                        window.__skillCatalog = catDec;
+                        if (window.__planScriptEnabled && window.__currentScriptPlan) {
+                            setTimeout(() => {
+                                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat();
+                            }, 300);
+                        }
+                    }
+                });
+                room.onMessage('market_results', (marketDec) => {
+                    if (marketDec && Array.isArray(marketDec.listings) && typeof window.handleIncomingMarketResults === 'function') {
+                        window.handleIncomingMarketResults(marketDec);
+                    }
+                });
+            }
+            if (typeof window.syncLiveCharacterAndInventory === 'function') {
+                window.syncLiveCharacterAndInventory();
             }
         } catch (e) {}
     }
@@ -6112,6 +6140,101 @@
     // ==========================================
     // 2. UNIVERSAL WEBSOCKET HOOKING (All-Vector Sniffer)
     // ==========================================
+    window.applyLiveCharacterPacket = function(charDec, triggerAutoConfig = false) {
+        if (!charDec || typeof charDec !== 'object') return;
+        window.__latestCharacterData = charDec;
+        if (typeof charDec.zeny === 'number') {
+            window.__currentZeny = charDec.zeny;
+            try { localStorage.setItem('pelican_current_zeny', String(charDec.zeny)); } catch(e) {}
+            const quickZeny = document.getElementById('p-quick-zeny');
+            if (quickZeny) {
+                quickZeny.innerText = `💰 ${charDec.zeny.toLocaleString()} z`;
+            }
+        }
+        if (triggerAutoConfig) {
+            setTimeout(() => {
+                if (typeof window.applyPelicanSettings === 'function') {
+                    window.applyPelicanSettings();
+                }
+                if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.autoConfigureCombat === 'function') {
+                    window.autoConfigureCombat();
+                }
+            }, 600);
+        }
+    };
+
+    window.applyLiveInventoryPacket = function(dec, silent = false) {
+        if (!dec || typeof dec !== 'object') return;
+        window.__latestInventory = dec;
+        try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
+        const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
+        const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
+        let totalAmmo = 0;
+        let foundAny = false;
+
+        function inspectObject(obj, depth = 0) {
+            if (!obj || depth > 5) return;
+            if (Array.isArray(obj)) {
+                for (const item of obj) {
+                    inspectObject(item, depth + 1);
+                }
+            } else if (typeof obj === 'object') {
+                if (typeof isTargetArrow === 'function' && isTargetArrow(obj, targetArrowId)) {
+                    foundAny = true;
+                    totalAmmo += parseInt(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 0;
+                    return;
+                }
+                for (const k in obj) {
+                    inspectObject(obj[k], depth + 1);
+                }
+            }
+        }
+
+        inspectObject(dec);
+
+        // Also check equipped ammo on character if bag count is 0
+        try {
+            const ch = window.__latestCharacterData;
+            if (!foundAny && ch && ch.ammo && Number(ch.ammo.itemId) === targetArrowId && (Number(ch.ammo.qty) || 0) > 0) {
+                foundAny = true;
+                totalAmmo = Number(ch.ammo.qty) || 0;
+            }
+        } catch(e) {}
+
+        // Detect weight & weightLimit directly from server packet (Real-time Sync!)
+        try {
+            const curW = dec.weight ?? dec.curWeight ?? dec.cur_weight ?? dec.currentWeight;
+            const maxW = dec.weightLimit ?? dec.maxWeight ?? dec.max_weight ?? dec.weightMax ?? dec.totalWeight ?? dec.limitWeight ?? dec.weight_limit;
+            if (typeof curW === 'number' && typeof maxW === 'number' && maxW > 0) {
+                const prevPct = window.__serverWeight ? window.__serverWeight.percent : null;
+                window.__serverWeight = { current: curW, max: maxW, percent: Math.round((curW / maxW) * 1000) / 10 };
+                window.__lastKnownWeight = window.__serverWeight;
+                try { localStorage.setItem('pelican_last_weight', JSON.stringify(window.__serverWeight)); } catch(e) {}
+                if (window.__serverWeight.percent < (window.__sellConfig?.weightThreshold || 80)) {
+                    window.__isKnownOverweight = false;
+                } else {
+                    window.__isKnownOverweight = true;
+                }
+                updateWeightHUD(window.__serverWeight);
+                if (!silent || prevPct !== window.__serverWeight.percent) {
+                    console.log(`%c[PmheeAether Weight Sync] ⚖️ Server Weight Realtime: ${curW.toLocaleString()} / ${maxW.toLocaleString()} (${window.__serverWeight.percent}%)`, 'color: #00ffcc; font-weight: bold;');
+                }
+            }
+        } catch(e) {}
+
+        const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec.items) || Array.isArray(dec));
+        if (hasInventoryList) {
+            const realQty = foundAny ? totalAmmo : 0;
+            if (window.__currentAmmo !== realQty) {
+                console.log(`%c[PmheeAether Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+            }
+            window.__currentAmmo = realQty;
+            try { localStorage.setItem('pelican_current_ammo', realQty); } catch(e) {}
+            updateAmmoHUD();
+            if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+        }
+    };
+
     function processIncomingData(rawData) {
         recordPacket('IN', rawData);
         try {
@@ -6120,26 +6243,9 @@
                 // ตรวจสอบแพ็กเก็ต 'character' (0x0D + fixstr 9 'character')
                 if (u.length > 20 && u[1] === 0xa9 && u[2] === 0x63 && u[3] === 0x68 && u[4] === 0x61 && u[5] === 0x72 && u[6] === 0x61 && u[7] === 0x63 && u[8] === 0x74 && u[9] === 0x65 && u[10] === 0x72) {
                     try {
-                        const charDec = window.msgpack.decode(u.slice(11));
-                        if (charDec && typeof charDec === 'object') {
-                            window.__latestCharacterData = charDec;
-                            if (typeof charDec.zeny === 'number') {
-                                window.__currentZeny = charDec.zeny;
-                                try { localStorage.setItem('pelican_current_zeny', String(charDec.zeny)); } catch(e) {}
-                                const quickZeny = document.getElementById('p-quick-zeny');
-                                if (quickZeny) {
-                                    quickZeny.innerText = `💰 ${charDec.zeny.toLocaleString()} z`;
-                                }
-                            }
-                            // Auto-configure settings once on initial character load; combat config runs when Plan Script is active
-                            setTimeout(() => {
-                                if (typeof window.applyPelicanSettings === 'function') {
-                                    window.applyPelicanSettings();
-                                }
-                                if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.autoConfigureCombat === 'function') {
-                                    window.autoConfigureCombat();
-                                }
-                            }, 600);
+                        if (window.msgpack && typeof window.msgpack.decode === 'function') {
+                            const charDec = window.msgpack.decode(u.slice(11));
+                            window.applyLiveCharacterPacket(charDec, true);
                         }
                     } catch(err) {
                         console.warn('[PmheeAether Character] Error parsing character packet:', err);
@@ -6149,15 +6255,17 @@
                 // ตรวจสอบแพ็กเก็ต 'skill_catalog' (0x0D + fixstr 13 'skill_catalog')
                 if (u.length > 20 && u[1] === 0xad && u[2] === 0x73 && u[3] === 0x6b && u[4] === 0x69 && u[5] === 0x6c && u[6] === 0x6c && u[7] === 0x5f && u[8] === 0x63 && u[9] === 0x61 && u[10] === 0x74 && u[11] === 0x61 && u[12] === 0x6c && u[13] === 0x6f && u[14] === 0x67) {
                     try {
-                        const catDec = window.msgpack.decode(u.slice(15));
-                        if (catDec && typeof catDec === 'object') {
-                            window.__skillCatalog = catDec;
-                            if (window.__planScriptEnabled && window.__currentScriptPlan) {
-                                setTimeout(() => {
-                                    if (typeof window.autoConfigureCombat === 'function') {
-                                        window.autoConfigureCombat();
-                                    }
-                                }, 300);
+                        if (window.msgpack && typeof window.msgpack.decode === 'function') {
+                            const catDec = window.msgpack.decode(u.slice(15));
+                            if (catDec && typeof catDec === 'object') {
+                                window.__skillCatalog = catDec;
+                                if (window.__planScriptEnabled && window.__currentScriptPlan) {
+                                    setTimeout(() => {
+                                        if (typeof window.autoConfigureCombat === 'function') {
+                                            window.autoConfigureCombat();
+                                        }
+                                    }, 300);
+                                }
                             }
                         }
                     } catch(err) {
@@ -6168,9 +6276,11 @@
                 // ตรวจสอบแพ็กเก็ต 'market_results' (0x0D + fixstr 14 'market_results')
                 if (u.length > 20 && u[1] === 0xae && u[2] === 0x6d && u[3] === 0x61 && u[4] === 0x72 && u[5] === 0x6b && u[6] === 0x65 && u[7] === 0x74 && u[8] === 0x5f && u[9] === 0x72) {
                     try {
-                        const marketDec = window.msgpack.decode(u.slice(16));
-                        if (marketDec && Array.isArray(marketDec.listings)) {
-                            window.handleIncomingMarketResults(marketDec);
+                        if (window.msgpack && typeof window.msgpack.decode === 'function') {
+                            const marketDec = window.msgpack.decode(u.slice(16));
+                            if (marketDec && Array.isArray(marketDec.listings)) {
+                                window.handleIncomingMarketResults(marketDec);
+                            }
                         }
                     } catch(err) {
                         console.warn('[PmheeAether Market] Error parsing market_results packet:', err);
@@ -6196,67 +6306,12 @@
                     }
                 }
 
-                if (offsetsToTry.length > 0) {
+                if (offsetsToTry.length > 0 && window.msgpack && typeof window.msgpack.decode === 'function') {
                     for (const offset of offsetsToTry) {
                         try {
                             const dec = window.msgpack.decode(u.slice(offset));
                             if (dec && typeof dec === 'object') {
-                                window.__latestInventory = dec;
-                                try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
-                                const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-                                const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
-                                let totalAmmo = 0;
-                                let foundAny = false;
-
-                                function inspectObject(obj, depth = 0) {
-                                    if (!obj || depth > 5) return;
-                                    if (Array.isArray(obj)) {
-                                        for (const item of obj) {
-                                            inspectObject(item, depth + 1);
-                                        }
-                                    } else if (typeof obj === 'object') {
-                                        if (typeof isTargetArrow === 'function' && isTargetArrow(obj, targetArrowId)) {
-                                            foundAny = true;
-                                            totalAmmo += parseInt(obj.qty ?? obj.amount ?? obj.count ?? obj.val ?? 1) || 0;
-                                            return; // เจอลูกธนูแล้ว ไม่ต้องลงลึกต่อ
-                                        }
-                                        for (const k in obj) {
-                                            inspectObject(obj[k], depth + 1);
-                                        }
-                                    }
-                                }
-
-                                inspectObject(dec);
-
-                                // Detect weight & weightLimit directly from server packet (Real-time Sync!)
-                                try {
-                                    const curW = dec.weight ?? dec.curWeight ?? dec.cur_weight ?? dec.currentWeight;
-                                    const maxW = dec.weightLimit ?? dec.maxWeight ?? dec.max_weight ?? dec.weightMax ?? dec.totalWeight ?? dec.limitWeight ?? dec.weight_limit;
-                                    if (typeof curW === 'number' && typeof maxW === 'number' && maxW > 0) {
-                                        window.__serverWeight = { current: curW, max: maxW, percent: Math.round((curW / maxW) * 1000) / 10 };
-                                        window.__lastKnownWeight = window.__serverWeight;
-                                        try { localStorage.setItem('pelican_last_weight', JSON.stringify(window.__serverWeight)); } catch(e) {}
-                                        if (window.__serverWeight.percent < (window.__sellConfig?.weightThreshold || 80)) {
-                                            window.__isKnownOverweight = false;
-                                        } else {
-                                            window.__isKnownOverweight = true;
-                                        }
-                                        updateWeightHUD(window.__serverWeight);
-                                        console.log(`%c[PmheeAether Weight Sync] ⚖️ Server Weight Realtime: ${curW.toLocaleString()} / ${maxW.toLocaleString()} (${window.__serverWeight.percent}%)`, 'color: #00ffcc; font-weight: bold;');
-                                    }
-                                } catch(e) {}
-
-                                const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec) || typeof dec === 'object');
-                                if (hasInventoryList) {
-                                    const realQty = foundAny ? totalAmmo : 0;
-                                    if (window.__currentAmmo !== realQty) {
-                                        console.log(`%c[PmheeAether Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
-                                    }
-                                    window.__currentAmmo = realQty;
-                                    localStorage.setItem('pelican_current_ammo', realQty);
-                                    updateAmmoHUD();
-                                    if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
-                                }
+                                window.applyLiveInventoryPacket(dec, false);
                                 break;
                             }
                         } catch(err) {}
@@ -6806,18 +6861,6 @@
     // 3.5 Auto Merchant & Shop State Machine
     // ==========================================
     window.sendRemoteNpcTalk = function(key = (window.__shopConfig ? window.__shopConfig.npcKey : 'n2')) {
-        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
-        const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
-        const prefix = [0x0D, 0xA8, 0x6E, 0x70, 0x63, 0x5F, 0x74, 0x61, 0x6C, 0x6B];
-        const keyBytes = Array.from(key).map(c => c.charCodeAt(0));
-        const suffix = [0x91, 0xA6, 0x6E, 0x70, 0x63, 0x4B, 0x65, 0x79, 0xA0 + keyBytes.length, ...keyBytes];
-
-        const buf = new Uint8Array(prefix.length + token.length + suffix.length);
-        buf.set(prefix, 0);
-        buf.set(token, prefix.length);
-        buf.set(suffix, prefix.length + token.length);
-        window.__gameSocket.send(buf.buffer);
-
         let tag = '[PmheeAether Shop]';
         let color = '#f59e0b';
         if (key === 'n7') {
@@ -6830,10 +6873,33 @@
             tag = '[PmheeAether Storage]';
             color = '#a855f7';
         }
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('npc_talk', { npcKey: key });
+            console.log(`%c${tag} 📡 ส่ง Packet 'npc_talk' (NPC: ${key})...`, `color: ${color}; font-weight: bold;`);
+            return;
+        }
+        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
+        const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
+        const prefix = [0x0D, 0xA8, 0x6E, 0x70, 0x63, 0x5F, 0x74, 0x61, 0x6C, 0x6B];
+        const keyBytes = Array.from(key).map(c => c.charCodeAt(0));
+        const suffix = [0x91, 0xA6, 0x6E, 0x70, 0x63, 0x4B, 0x65, 0x79, 0xA0 + keyBytes.length, ...keyBytes];
+
+        const buf = new Uint8Array(prefix.length + token.length + suffix.length);
+        buf.set(prefix, 0);
+        buf.set(token, prefix.length);
+        buf.set(suffix, prefix.length + token.length);
+        window.__gameSocket.send(buf.buffer);
         console.log(`%c${tag} 📡 ส่ง Packet 'npc_talk' (NPC: ${key})...`, `color: ${color}; font-weight: bold;`);
     };
 
     window.sendRemoteNpcOption = function(index = 0) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('npc_option', { index: Number(index) });
+            console.log(`%c[PmheeAether Shop] 🛒 ส่ง Packet 'npc_option' (Index: ${index})...`, 'color: #38bdf8;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xAA, 0x6E, 0x70, 0x63, 0x5F, 0x6F, 0x70, 0x74, 0x69, 0x6F, 0x6E];
@@ -6848,6 +6914,12 @@
     };
 
     window.sendRemoteNpcHeal = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('npc_option', { index: 3 });
+            console.log('%c[PmheeAether Heal] 💖 ส่ง Packet ฟื้นฟูเลือด/มานา (npc_option index: 3) สำเร็จ!', 'color: #ec4899; font-weight: bold;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xAA, 0x6E, 0x70, 0x63, 0x5F, 0x6F, 0x70, 0x74, 0x69, 0x6F, 0x6E];
@@ -6917,7 +6989,11 @@
     };
 
     window.sendNpcClose = function() {
-        if (window.__gameSocket && window.__gameSocket.readyState === 1) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('npc_close', {});
+            console.log('%c[PmheeAether Shop] 🚪 ส่ง npc_close ปิดหน้าร้านค้า (Packet)', 'color: #94a3b8;');
+        } else if (window.__gameSocket && window.__gameSocket.readyState === 1) {
             const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
             const prefix = [0x0D, 0xA9, 0x6E, 0x70, 0x63, 0x5F, 0x63, 0x6C, 0x6F, 0x73, 0x65];
             const suffix = [0x90];
@@ -6992,7 +7068,14 @@
     };
 
     window.sendNpcWarp = function(mapId) {
-        if (!window.__gameSocket || window.__gameSocket.readyState !== 1 || !mapId) return;
+        if (!mapId) return;
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('npc_warp', { mapId });
+            console.log(`%c[PmheeAether Warp] ⚡ ยิง Packet 'npc_warp' (MapId: "${mapId}") สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+            return;
+        }
+        if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xA8, 0x6E, 0x70, 0x63, 0x5F, 0x77, 0x61, 0x72, 0x70];
         const mapBytes = Array.from(mapId).map(c => c.charCodeAt(0));
@@ -7299,6 +7382,12 @@
     // SHOP BUY PACKET BUILDER (shop_buy_many)
     // ==========================================
     window.sendShopBuy = function(itemId = (window.__shopConfig ? window.__shopConfig.buyItemId : 0x00015fae), qty = (window.__shopConfig ? window.__shopConfig.buyItemQty : 10)) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: Number(qty) }] });
+            console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${Number(itemId).toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
 
@@ -7338,6 +7427,12 @@
     // ITEMBAR & BUTTERFLY WING ACTIONS
     // ==========================================
     window.sendItembarSet = function(slot = 0, itemId = 0x00015fae) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('itembar_set', { slot: Number(slot), itemId: Number(itemId) });
+            console.log(`%c[PmheeAether] 📌 ตั้งค่า ItemBar ช่อง ${slot} เป็น Item: 0x${Number(itemId).toString(16)} (${itemId}) เรียบร้อย!`, 'color: #38bdf8;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xAB, 0x69, 0x74, 0x65, 0x6D, 0x62, 0x61, 0x72, 0x5F, 0x73, 0x65, 0x74];
@@ -7355,6 +7450,12 @@
     };
 
     window.sendEquip = function(slot = 0) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('equip', { slot: Number(slot) });
+            console.log(`%c[PmheeAether Inv] 🎒 ส่ง Packet สวมใส่จากกระเป๋า (sendEquip Inventory Slot: ${slot})!`, 'color: #22c55e;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xA5, 0x65, 0x71, 0x75, 0x69, 0x70];
@@ -7368,6 +7469,9 @@
     };
 
     function findItemInServerInv(filterFn) {
+        if (typeof window.getLiveInventoryData === 'function') {
+            try { window.getLiveInventoryData(); } catch (e) {}
+        }
         if (!window.__latestInventory) return null;
         let found = null;
         function scan(obj, depth = 0) {
@@ -7461,6 +7565,12 @@
     };
 
     window.sendInvUse = function(slot = 8) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            room.send('inv_use', { slot: Number(slot) });
+            console.log(`%c[PmheeAether] 🦋 ใช้วาร์ป Butterfly Wing (sendInvUse Slot: ${slot})!`, 'color: #38bdf8; font-weight: bold;');
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x40];
         const prefix = [0x0D, 0xA7, 0x69, 0x6E, 0x76, 0x5F, 0x75, 0x73, 0x65];
@@ -7589,7 +7699,7 @@
         window.__lastBwingUsedAt = Date.now();
         console.log('%c[PmheeAether] 🦋 กำลังใช้วาร์ป Butterfly Wing กลับเมืองหลวง...', 'color: #38bdf8; font-weight: bold;');
 
-        // 1. ค้นหาช่อง Butterfly Wing ในข้อมูล Packet เซิร์ฟเวอร์
+        // 1. ค้นหาช่อง Butterfly Wing ในข้อมูลกระเป๋าเซิร์ฟเวอร์ (ซิงก์จาก React Fiber / Colyseus ก่อนเสมอ)
         let bwingSlot = -1;
         const bwingInBag = findItemInServerInv(it => {
             const id = it.itemId || it.id || it.item_id;
@@ -7600,6 +7710,8 @@
             bwingSlot = bwingInBag.slot ?? bwingInBag.idx;
             console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ใน Server Inventory Slot: ${bwingSlot}`, 'color: #22c55e;');
             window.sendInvUse(bwingSlot);
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+            if (room && typeof room.send === 'function') return;
         }
 
         // 2. ค้นหาใน DOM ช่องกระเป๋า (ถ้าหน้าต่างกระเป๋าเปิดอยู่)
@@ -7615,7 +7727,7 @@
                 const img = s.querySelector('img');
                 const src = (img?.src || s.style?.backgroundImage || '').toLowerCase();
                 const title = (s.getAttribute('title') || s.getAttribute('data-name') || s.innerText || '').toLowerCase();
-                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || title.includes('butterfly') || title.includes('วิง')) {
+                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('butterfly') || title.includes('butterfly') || title.includes('วิง')) {
                     domFound = true;
                     console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ในช่องกระเป๋า DOM ช่องที่ ${idx} -> ดับเบิลคลิกใช้งาน!`, 'color: #22c55e; font-weight: bold;');
                     triggerClick(s);
@@ -7627,15 +7739,25 @@
             if (domFound) break;
         }
 
-        // 3. ตรวจสอบ Hotbar ช่องลัด 1-10
-        let hotbarKey = '8';
+        // 3. ตรวจสอบ Hotbar ช่องลัด 1-10 (จาก character.itembar หรือ DOM Hotbar เฉพาะช่องที่มี Butterfly Wing จริง)
+        let hotbarKey = null;
+        try {
+            const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+            if (ch && Array.isArray(ch.itembar)) {
+                const idx = ch.itembar.findIndex(id => Number(id) === 90311);
+                if (idx >= 0 && idx < 10) {
+                    hotbarKey = (idx === 9 ? '0' : String(idx + 1));
+                }
+            }
+        } catch(e) {}
+
         for (let i = 0; i < 10; i++) {
             const hotbarSlot = document.querySelector(`[data-slot="${i}"], .slot-${i}, #hotbar-${i}, .quick-slot-${i}, [class*="hotbar"] > *:nth-child(${i+1})`);
             if (hotbarSlot) {
                 const img = hotbarSlot.querySelector('img');
                 const src = (img?.src || hotbarSlot.style?.backgroundImage || '').toLowerCase();
                 const txt = (hotbarSlot.getAttribute('title') || hotbarSlot.innerText || '').toLowerCase();
-                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('wing') || txt.includes('butterfly') || txt.includes('วิง')) {
+                if (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('butterfly') || txt.includes('butterfly') || txt.includes('วิง')) {
                     hotbarKey = (i === 9 ? '0' : (i + 1).toString());
                     console.log(`%c[PmheeAether] 🦋 พบ Butterfly Wing ใน Hotbar ช่องลัดเลข ${hotbarKey} -> กดใช้งาน!`, 'color: #22c55e;');
                     triggerClick(hotbarSlot);
@@ -7643,7 +7765,10 @@
                 }
             }
         }
-        dispatchKeyAll(hotbarKey, 'Digit' + hotbarKey, hotbarKey.charCodeAt(0));
+        if (hotbarKey) {
+            dispatchKeyAll(hotbarKey, 'Digit' + hotbarKey, hotbarKey.charCodeAt(0));
+            return;
+        }
 
         // 4. คลิกไอคอน Bwing บนหน้าจอถ้ามี
         try {
@@ -7651,17 +7776,17 @@
                 if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
                 const src = (el.src || el.style?.backgroundImage || '').toLowerCase();
                 const txt = (el.innerText || el.textContent || '').toLowerCase();
-                return (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || txt.includes('butterfly')) && el.offsetWidth > 0;
+                return (src.includes('160c7') || src.includes('90311') || src.includes('bwing') || src.includes('butterfly') || txt.includes('butterfly')) && el.offsetWidth > 0;
             });
             if (bwingEl) {
                 triggerClick(bwingEl);
                 try { bwingEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); } catch(e) {}
                 console.log('%c[PmheeAether] 🦋 คลิกปุ่ม Butterfly Wing บนหน้าจอสำเร็จ!', 'color: #22c55e;');
+                return;
             }
         } catch(e) {}
 
-        // 5. Fallback: ไม่มีปีกในกระเป๋า -> เปิดกระเป๋าให้เกมส่งข้อมูลมาสแกนใหม่ (ไม่กดใช้ช่องที่ 8 มั่วๆ อีกแล้ว:
-        //    เดิมส่ง inv_use ช่อง 8 = ใช้ของอะไรก็ได้ที่อยู่ช่องนั้น)
+        // 5. Fallback: ไม่มีปีกในกระเป๋า -> เปิดกระเป๋าให้เกมส่งข้อมูลมาสแกนใหม่
         if (!bwingInBag && !domFound) {
             console.warn('[PmheeAether] 🦋 ไม่พบ Butterfly Wing ในกระเป๋า');
 
@@ -8570,6 +8695,21 @@
                 count += Number(it.qty) || 1;
             }
         });
+        if (count === 0 && targetId === 90311) {
+            try {
+                const slots = Array.from(document.querySelectorAll('.hotbars button, .hotbars [class*="slot"], [class*="hotbar"] > *'));
+                for (const s of slots) {
+                    const img = s.querySelector('img');
+                    const src = (img?.src || s.style?.backgroundImage || '').toLowerCase();
+                    const txt = (s.getAttribute('title') || s.innerText || s.textContent || '');
+                    if (src.includes('butterfly-wing') || src.includes('90311') || src.includes('160c7') || /butterfly\s*wing/i.test(txt)) {
+                        const m = txt.match(/[×xX]\s*(\d+)/) || txt.match(/(\d+)/);
+                        const qty = m ? parseInt(m[1], 10) : 1;
+                        if (qty > 0) return qty;
+                    }
+                }
+            } catch (e) {}
+        }
         return count;
     };
 
@@ -11822,6 +11962,9 @@
     // AUTO MARKET SELL ENGINE (⚖️ Market Median Algorithm)
     // ==========================================
     window.getBagItems = function() {
+        if (typeof window.getLiveInventoryData === 'function') {
+            try { window.getLiveInventoryData(); } catch (e) {}
+        }
         const rawInv = window.__latestInventory;
         const items = [];
         if (rawInv && Array.isArray(rawInv.items)) {
@@ -16686,20 +16829,22 @@
     // -------------------------------------------------------------
     window.getLiveCharacterData = function() {
         const root = document.querySelector('#root');
-        let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
+        const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
+        let fiber = (root && key) ? root[key] : null;
         let charData = null;
         function walk(n, depth = 0) {
-            if (!n || depth > 40 || charData) return;
+            if (!n || depth > 45 || charData) return;
             if (n.memoizedProps) {
                 if (n.memoizedProps.character && n.memoizedProps.character.stats) charData = n.memoizedProps.character;
                 else if (n.memoizedProps.stats && n.memoizedProps.skills) charData = n.memoizedProps;
             }
-            if (n.memoizedState) {
+            if (!charData && n.memoizedState) {
                 let s = n.memoizedState;
                 while (s) {
-                    if (s.memoizedState && typeof s.memoizedState === 'object') {
-                        if (s.memoizedState.character && s.memoizedState.character.stats) charData = s.memoizedState.character;
-                        else if (s.memoizedState.stats && s.memoizedState.skills) charData = s.memoizedState;
+                    const ms = s.memoizedState;
+                    if (ms && typeof ms === 'object') {
+                        if (ms.character && ms.character.stats) { charData = ms.character; break; }
+                        if (ms.stats && ms.skills) { charData = ms; break; }
                     }
                     s = s.next;
                 }
@@ -16708,8 +16853,63 @@
             if (n.sibling) walk(n.sibling, depth + 1);
         }
         if (fiber) walk(fiber);
-        return charData;
+        if (charData && typeof window.applyLiveCharacterPacket === 'function') {
+            window.applyLiveCharacterPacket(charData, false);
+        }
+        return charData || window.__latestCharacterData || null;
     };
+
+    window.getLiveInventoryData = function() {
+        const root = document.querySelector('#root');
+        const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
+        let fiber = (root && key) ? root[key] : null;
+        let invData = null;
+        function isInvObj(o) {
+            return o && typeof o === 'object' && Array.isArray(o.items) && (typeof o.weight === 'number' || typeof o.weightLimit === 'number' || typeof o.slots === 'number');
+        }
+        function walk(n, depth = 0) {
+            if (!n || depth > 45 || invData) return;
+            if (n.memoizedProps) {
+                if (isInvObj(n.memoizedProps.inventory)) invData = n.memoizedProps.inventory;
+                else if (isInvObj(n.memoizedProps)) invData = n.memoizedProps;
+            }
+            if (!invData && n.memoizedState) {
+                let s = n.memoizedState;
+                while (s) {
+                    const ms = s.memoizedState;
+                    if (ms && typeof ms === 'object') {
+                        if (isInvObj(ms.inventory)) { invData = ms.inventory; break; }
+                        if (isInvObj(ms)) { invData = ms; break; }
+                    }
+                    s = s.next;
+                }
+            }
+            if (n.child) walk(n.child, depth + 1);
+            if (n.sibling) walk(n.sibling, depth + 1);
+        }
+        if (fiber) walk(fiber);
+        if (invData && typeof window.applyLiveInventoryPacket === 'function') {
+            window.applyLiveInventoryPacket(invData, true);
+        }
+        return invData || window.__latestInventory || null;
+    };
+
+    window.syncLiveCharacterAndInventory = function() {
+        try {
+            if (typeof window.getColyseusRoom === 'function') window.getColyseusRoom();
+            window.getLiveCharacterData();
+            window.getLiveInventoryData();
+            if (typeof window.__currentZeny === 'number') {
+                const quickZeny = document.getElementById('p-quick-zeny');
+                const expected = `💰 ${window.__currentZeny.toLocaleString()} z`;
+                if (quickZeny && quickZeny.innerText !== expected) {
+                    quickZeny.innerText = expected;
+                }
+            }
+        } catch (e) {}
+    };
+    setInterval(window.syncLiveCharacterAndInventory, 1500);
+    setTimeout(window.syncLiveCharacterAndInventory, 500);
 
     // 1. Automated Skill Allocation (follows the plan's point queue)
     // A queued skill is skipped (not blocking the rest) while it can't be learned yet: wrong class
