@@ -3022,7 +3022,11 @@ const server = http.createServer(async (req, res) => {
         const data = JSON.parse(body || "{}");
         const current = proxyRegister.loadSettings();
         const nextState = typeof data.enabled === "boolean" ? data.enabled : !current.enabled;
-        const updated = proxyRegister.saveSettings({ enabled: nextState });
+        const patch = { enabled: nextState };
+        if (nextState && !current.configured && current.mode !== "owner-broker") {
+          patch.mode = "owner-broker";
+        }
+        const updated = proxyRegister.saveSettings(patch);
         if (updated.enabled) {
           authSync.resetProxyFallback?.();
           setImmediate(() => authSync.tick().catch(() => {}));

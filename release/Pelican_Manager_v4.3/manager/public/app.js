@@ -2099,7 +2099,7 @@ async function fetchProxyRegisterSettings() {
     const settings=hcRes?.success?hcRes.settings:null,quota=proxyQuotaFromSettings(settings);
     const balEl=document.getElementById('proxy-modal-balance-display'),quotaEl=document.getElementById('proxy-modal-quota-calc');
     if(balEl)balEl.textContent=quota===null?'—':(settings.balanceUnits/100).toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:2})+' ส่วนบุญ';
-    if(quotaEl)quotaEl.textContent=quota===null?'—':quota.toLocaleString();
+    if(quotaEl)quotaEl.textContent=quota===null?'—':(quota>0?quota.toLocaleString():'คิดตามรอบบิล (0.1/ไอดี)');
   } catch (_) {}
 }
 

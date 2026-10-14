@@ -165,3 +165,57 @@ test('broker connection test: queries broker capabilities without initiating reg
   assert.equal(testRes.country, 'th');
   assert.equal(capabilitiesQueried, 1);
 });
+
+test('broker deferred billing (balance <= 0) and IP_RATE_LIMITED retry rotation work without throwing PROXY_BALANCE_NOT_READY', async t => {
+  const seenRequestIds = [];
+  const { service } = fixture(t, {
+    balance: -1400,
+    brokerSignup: async input => {
+      seenRequestIds.push(input.requestId);
+      if (seenRequestIds.length === 1) {
+        return {
+          success: false,
+          code: 'IP_RATE_LIMITED',
+          message: 'IP นี้สมัครครบ 3 ไอดีในชั่วโมงนี้แล้ว'
+        };
+      }
+      return {
+        success: true,
+        jobId: 'job-deferred-2',
+        requestId: input.requestId,
+        profileId: input.profileId,
+        username: input.username,
+        ticketId: 't-deferred-2',
+        ip: '203.0.113.77',
+        chargedPoints: 0.1,
+        newBalance: -14.1
+      };
+    }
+  });
+
+  // Enabling without local credentials automatically selects owner-broker mode
+  const saved = service.saveSettings({ enabled: true });
+  assert.equal(saved.mode, 'owner-broker');
+  assert.equal(saved.enabled, true);
+
+  // Attempt 1: hits IP_RATE_LIMITED, does not get stuck in done state
+  const first = await service.registerAccountWithProxy({
+    profileId: 'p_deferred',
+    username: 'deferred_user',
+    password: 'deferred_pass'
+  });
+  assert.equal(first.success, false);
+  assert.equal(first.code, 'IP_RATE_LIMITED');
+
+  // Attempt 2: uses a fresh requestId and succeeds even with negative balance (-1400 units)
+  const second = await service.registerAccountWithProxy({
+    profileId: 'p_deferred',
+    username: 'deferred_user',
+    password: 'deferred_pass'
+  });
+  assert.equal(second.success, true);
+  assert.equal(second.ip, '203.0.113.77');
+  assert.equal(seenRequestIds.length, 2);
+  assert.notEqual(seenRequestIds[0], seenRequestIds[1]);
+});
+
