@@ -1427,7 +1427,7 @@ function buildProfileCard(p) {
                     <div class="cm-bw-item">
                       <span class="cm-bw-lbl">คาดการณ์ 24 ชม.</span>
                       <span class="cm-bw-val est">${bw.estDayBytes > 0 ? `~${formatBytes(bw.estDayBytes)}` : '--'}</span>
-                      <span class="cm-bw-sub">${isOnline ? `${formatBytes(bw.bps, 1)}/s` : 'ออฟไลน์'} · ~${formatBytesShort(bw.bytesPerHour)}/ชม.</span>
+                      <span class="cm-bw-sub">${isOnline ? `${formatBytesShort(bw.bps)}/s` : 'ออฟไลน์'} · ~${formatBytesShort(bw.bytesPerHour)}/ชม.</span>
                     </div>
                   </div>
                   <div class="cm-bw-total-row" title="ปริมาณการใช้เน็ตรวมทุกจอวันนี้และคาดการณ์ 24 ชม. สำหรับคำนวณแพ็กเกจ Proxy / VPN">
@@ -1568,13 +1568,25 @@ function buildProfileCard(p) {
         </div>
         <div class="bw-rate-row" onclick="resetProfileBandwidth('${p.id}', event)" title="ปริมาณการใช้เน็ตของจอนี้วันนี้ (↓${formatBytes(bw.todayRxBytes)} / ↑${formatBytes(bw.todayTxBytes)}) · ความเร็ว ${formatBytes(bw.bps, 1)}/s (~${formatBytes(bw.bytesPerHour)}/ชม.) · รวมทุกจอวันนี้ ${formatBytes(allBw.todayBytes)} (คาดการณ์รวม ~${formatBytes(allBw.totalEstDayBytes)}/วัน) — คลิกเพื่อรีเซ็ตสถิติของจอนี้">
           <div class="bw-rate-cell">
-            <span class="bw-rate-lbl">🌐 วันนี้ <small class="bw-sub-dir">↓${formatBytesShort(bw.todayRxBytes)} ↑${formatBytesShort(bw.todayTxBytes)}</small></span>
-            <span class="bw-rate-val bw-today">${(bw.todayBytes > 0 || isOnline) ? formatBytes(bw.todayBytes) : '--'}</span>
+            <div class="bw-cell-top">
+              <span class="bw-rate-lbl">🌐 วันนี้</span>
+              <span class="bw-rate-val bw-today">${(bw.todayBytes > 0 || isOnline) ? formatBytes(bw.todayBytes) : '--'}</span>
+            </div>
+            <div class="bw-cell-sub">
+              <span>↓${formatBytesShort(bw.todayRxBytes)}</span>
+              <span>↑${formatBytesShort(bw.todayTxBytes)}</span>
+            </div>
           </div>
           <div class="bw-rate-sep"></div>
           <div class="bw-rate-cell">
-            <span class="bw-rate-lbl">📊 ต่อวัน <small class="bw-sub-dir">${isOnline && bw.bps > 0 ? `${formatBytes(bw.bps, 1)}/s` : (bw.bytesPerHour > 0 ? `~${formatBytesShort(bw.bytesPerHour)}/ชม.` : '24h')}</small></span>
-            <span class="bw-rate-val bw-est">${(bw.estDayBytes > 0 || isOnline) ? `~${formatBytes(bw.estDayBytes)}<small>/d</small>` : '--'}</span>
+            <div class="bw-cell-top">
+              <span class="bw-rate-lbl">📊 ต่อวัน</span>
+              <span class="bw-rate-val bw-est">${(bw.estDayBytes > 0 || isOnline) ? `~${formatBytes(bw.estDayBytes)}<small>/d</small>` : '--'}</span>
+            </div>
+            <div class="bw-cell-sub">
+              <span>${isOnline && bw.bps > 0 ? `${formatBytes(bw.bps, 1)}/s` : 'ออฟไลน์'}</span>
+              <span>${bw.bytesPerHour > 0 ? `~${formatBytesShort(bw.bytesPerHour)}/ชม.` : '24h'}</span>
+            </div>
           </div>
         </div>
       </div>
