@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.40.0
+// @version      4.40.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.40.0';
+    const PELICAN_BOT_VERSION = '4.40.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -870,13 +870,33 @@
         let room = null;
         let visited = 0;
         function walk(n, depth = 0) {
-            if (!n || depth > 50 || room || ++visited > 400) return;
-            if (n.memoizedProps?.room) room = n.memoizedProps.room;
+            if (!n || depth > 90 || room || ++visited > 4000) return;
+            const rProp = n.memoizedProps?.room;
+            if (rProp && (!rProp.connection || rProp.connection.isOpen !== false)) {
+                room = rProp;
+                return;
+            }
+            if (n.memoizedState) {
+                let st = n.memoizedState;
+                let guard = 0;
+                while (st && guard++ < 30) {
+                    const cur = st.memoizedState?.current || st.memoizedState;
+                    if (cur && cur.roomId && cur.sessionId && typeof cur.send === 'function' && (!cur.connection || cur.connection.isOpen !== false)) {
+                        room = cur;
+                        return;
+                    }
+                    if (cur && cur.room && cur.room.roomId && typeof cur.room.send === 'function' && (!cur.room.connection || cur.room.connection.isOpen !== false)) {
+                        room = cur.room;
+                        return;
+                    }
+                    st = st.next;
+                }
+            }
             if (n.child) walk(n.child, depth + 1);
             if (n.sibling) walk(n.sibling, depth + 1);
         }
         if (fiber) walk(fiber);
-        if (room && (!room.connection || room.connection.isOpen)) {
+        if (room && (!room.connection || room.connection.isOpen !== false)) {
             window.__colyseusRoom = room;
             attachHumanCheckRoomListener(room);
         }
@@ -913,8 +933,11 @@
                         width: payload.width,
                         height: payload.height,
                         triesLeft: payload.triesLeft,
+                        expiresAt: payload.expiresAt,
                         timestamp: Date.now()
                     };
+                    setTimeout(() => { try { if (typeof checkHumanCheckStatus === 'function') checkHumanCheckStatus(); } catch (_) {} }, 100);
+                    setTimeout(() => { try { if (typeof checkHumanCheckStatus === 'function') checkHumanCheckStatus(); } catch (_) {} }, 450);
                     const isSupported = Boolean(
                         (payload.image && typeof payload.image === 'string') ||
                         (Array.isArray(payload.items) && payload.items.length > 0)
@@ -1712,6 +1735,129 @@
         return null;
     }
 
+    function extractLiveHumanCheckFromDom(hc, rawBoard) {
+        if (!hc) return null;
+        let fiberCheck = null;
+        let fiberId = null;
+        let reactOnClick = null;
+        const boardImgEl = (rawBoard && typeof rawBoard.querySelector === 'function') ? rawBoard.querySelector('img') : null;
+        try {
+            if (boardImgEl) {
+                const pk = Object.keys(boardImgEl).find(k => k.startsWith('__reactProps$'));
+                if (pk && boardImgEl[pk] && typeof boardImgEl[pk].onClick === 'function') {
+                    reactOnClick = boardImgEl[pk].onClick;
+                }
+                const ifk = Object.keys(boardImgEl).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+                const imgFiber = ifk ? boardImgEl[ifk] : null;
+                if (imgFiber) {
+                    if (!reactOnClick && typeof imgFiber.memoizedProps?.onClick === 'function') {
+                        reactOnClick = imgFiber.memoizedProps.onClick;
+                    }
+                    if (imgFiber.key != null && String(imgFiber.key).trim() !== '') {
+                        fiberId = imgFiber.key;
+                    }
+                }
+            }
+            const fk = Object.keys(hc).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+            let cur = fk ? hc[fk] : null;
+            for (let d = 0; d < 15 && cur; d++) {
+                const mp = cur.memoizedProps;
+                if (mp && mp.check && mp.check.id != null) {
+                    fiberCheck = mp.check;
+                    if (fiberId == null) fiberId = mp.check.id;
+                } else if (mp && mp.humanCheck && mp.humanCheck.id != null) {
+                    fiberCheck = mp.humanCheck;
+                    if (fiberId == null) fiberId = mp.humanCheck.id;
+                }
+                let st = cur.memoizedState;
+                let guard = 0;
+                while (st && guard++ < 25) {
+                    const ms = (st.memoizedState && typeof st.memoizedState === 'object' && st.memoizedState.id == null && st.memoizedState.value && typeof st.memoizedState.value === 'object')
+                        ? st.memoizedState.value
+                        : st.memoizedState;
+                    if (ms && typeof ms === 'object' && ms.id != null && (ms.prompt || ms.image)) {
+                        fiberCheck = ms;
+                        if (fiberId == null) fiberId = ms.id;
+                        break;
+                    }
+                    st = st.next;
+                }
+                if (fiberCheck) break;
+                cur = cur.return;
+            }
+        } catch (_) {}
+        return { fiberCheck, fiberId, reactOnClick, boardImgEl };
+    }
+
+    function submitHumanCheckBoardAnswer(hc, boardEl, packet, targetX, targetY) {
+        const liveInfo = extractLiveHumanCheckFromDom(hc, boardEl) || {};
+        const liveId = (liveInfo.fiberId != null)
+            ? liveInfo.fiberId
+            : (packet && !packet.isDomFallback && packet.id != null ? packet.id : null);
+        const bw = (liveInfo.fiberCheck && liveInfo.fiberCheck.width) || (packet && packet.width) || 480;
+        const bh = (liveInfo.fiberCheck && liveInfo.fiberCheck.height) || (packet && packet.height) || 330;
+
+        let sentCount = 0;
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
+        let origSend = null;
+        if (room && typeof room.send === 'function') {
+            origSend = room.send;
+            room.send = function(type) {
+                if (type === 'human_check_answer') sentCount++;
+                return origSend.apply(this, arguments);
+            };
+        }
+
+        let reactClicked = false;
+        try {
+            if (typeof liveInfo.reactOnClick === 'function') {
+                liveInfo.reactOnClick({
+                    currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: bw, height: bh }) },
+                    target: liveInfo.boardImgEl || boardEl,
+                    clientX: targetX,
+                    clientY: targetY,
+                    preventDefault() {},
+                    stopPropagation() {},
+                    nativeEvent: {}
+                });
+                reactClicked = true;
+            }
+        } catch (_) {}
+
+        if (room && origSend) room.send = origSend;
+
+        if (sentCount === 0 && room && typeof room.send === 'function' && liveId != null && !String(liveId).startsWith('dom-')) {
+            try {
+                room.send('human_check_answer', { id: liveId, x: targetX, y: targetY });
+                sentCount++;
+            } catch (_) {}
+        }
+
+        try {
+            const actualBoardEl = boardEl || (typeof hc?.querySelector === 'function' ? hc.querySelector('.human-check-board') : null);
+            if (actualBoardEl && !reactClicked) {
+                const targetEl = (typeof actualBoardEl.querySelector === 'function' ? actualBoardEl.querySelector('img') : null) || actualBoardEl;
+                const rect = (typeof targetEl.getBoundingClientRect === 'function')
+                    ? targetEl.getBoundingClientRect()
+                    : (typeof actualBoardEl.getBoundingClientRect === 'function' ? actualBoardEl.getBoundingClientRect() : { left: 0, top: 0, width: bw, height: bh });
+                const clientX = rect.left + (targetX / bw) * (rect.width || bw);
+                const clientY = rect.top + (targetY / bh) * (rect.height || bh);
+                const opts = { bubbles: sentCount === 0, cancelable: true, view: window, clientX, clientY };
+                if (typeof PointerEvent !== 'undefined') targetEl.dispatchEvent(new PointerEvent('pointerdown', opts));
+                if (typeof MouseEvent !== 'undefined') {
+                    targetEl.dispatchEvent(new MouseEvent('mousedown', opts));
+                    targetEl.dispatchEvent(new MouseEvent('mouseup', opts));
+                    targetEl.dispatchEvent(new MouseEvent('click', opts));
+                } else if (typeof targetEl.click === 'function') {
+                    targetEl.click();
+                }
+            }
+        } catch (_) {}
+
+        return sentCount > 0 || reactClicked;
+    }
+    window.submitHumanCheckBoardAnswer = submitHumanCheckBoardAnswer;
+
     function embeddedHumanCheckSnapshot() {
         const hc = (typeof document?.querySelector === 'function') ? document.querySelector('.human-check') : null;
         if (!hc) return null;
@@ -1721,37 +1867,35 @@
         const isRealBoardEl = rawBoard && (rawBoard.classList?.contains?.('human-check-board') || rawBoard.className?.includes?.('human-check-board') || rawBoard.tagName === 'DIV' || typeof rawBoard.querySelector === 'function');
 
         let packet = window.__latestHumanCheck;
-        if (!packet && isRealBoardEl && domPrompt) {
-            const boardImgEl = (typeof rawBoard.querySelector === 'function') ? rawBoard.querySelector('img') : null;
+        if (isRealBoardEl && domPrompt) {
+            const liveInfo = extractLiveHumanCheckFromDom(hc, rawBoard);
+            const boardImgEl = liveInfo?.boardImgEl || ((typeof rawBoard.querySelector === 'function') ? rawBoard.querySelector('img') : null);
             const domSrc = (boardImgEl && typeof boardImgEl.getAttribute === 'function' ? boardImgEl.getAttribute('src') : (boardImgEl?.src || '')) || '';
-            if (domSrc) {
-                let fiberId = null;
-                try {
-                    const fk = Object.keys(hc).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
-                    let cur = fk ? hc[fk] : null;
-                    for (let d = 0; d < 12 && cur && fiberId == null; d++) {
-                        const mp = cur.memoizedProps;
-                        if (mp && mp.check && mp.check.id != null) fiberId = mp.check.id;
-                        else if (mp && mp.humanCheck && mp.humanCheck.id != null) fiberId = mp.humanCheck.id;
-                        let st = cur.memoizedState;
-                        while (st && fiberId == null) {
-                            const ms = st.memoizedState;
-                            if (ms && typeof ms === 'object' && ms.id != null && (ms.prompt || ms.image)) fiberId = ms.id;
-                            st = st.next;
-                        }
-                        cur = cur.return;
-                    }
-                } catch (_) {}
-                const sig = `${domSrc.length}:${domSrc.slice(Math.max(0, Math.floor(domSrc.length / 2) - 24), Math.floor(domSrc.length / 2) + 24)}`;
+            const fiberId = liveInfo?.fiberId ?? null;
+            const fc = liveInfo?.fiberCheck || null;
+            const packetStaleByAge = Boolean(packet && (Date.now() - (packet.timestamp || 0) > 120000));
+            const packetStaleById = Boolean(packet && fiberId != null && String(packet.id) !== String(fiberId));
+
+            if ((!packet || packetStaleByAge || packetStaleById) && (domSrc || fc)) {
+                const sig = domSrc
+                    ? `${domSrc.length}:${domSrc.slice(Math.max(0, Math.floor(domSrc.length / 2) - 24), Math.floor(domSrc.length / 2) + 24)}`
+                    : String(Date.now());
                 packet = window.__latestHumanCheck = {
                     id: fiberId != null ? fiberId : ('dom-' + sig),
-                    prompt: domPrompt,
-                    image: domSrc,
-                    width: 480,
-                    height: 330,
+                    prompt: domPrompt || (fc && fc.prompt) || '',
+                    image: domSrc || (fc && fc.image) || '',
+                    width: (fc && fc.width) || 480,
+                    height: (fc && fc.height) || 330,
+                    triesLeft: (fc && Number.isInteger(fc.triesLeft)) ? fc.triesLeft : undefined,
                     isDomFallback: fiberId == null,
                     timestamp: Date.now()
                 };
+            } else if (packet && fiberId != null && packet.isDomFallback) {
+                packet.id = fiberId;
+                packet.isDomFallback = false;
+            }
+            if (packet && fiberId != null && String(packet.id) === String(fiberId) && domPrompt && packet.prompt !== domPrompt) {
+                packet.prompt = domPrompt;
             }
         }
         if (!packet || packet.id == null || typeof packet.prompt !== 'string') return null;
@@ -1901,40 +2045,7 @@
                         }
                     } catch (_) {}
 
-                    let roomSent = false;
-
-                    // 1. Direct Colyseus room send
-                    try {
-                        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
-                        if (room && typeof room.send === 'function' && !current.packet.isDomFallback && current.packet.id != null) {
-                            room.send('human_check_answer', { id: current.packet.id, x: targetX, y: targetY });
-                            roomSent = true;
-                        }
-                    } catch (_) {}
-
-                    // 2. Synthetic DOM click on board element / img (non-bubbling if roomSent is true so React root doesn't double-send)
-                    try {
-                        const boardEl = current.boardEl || (typeof current.hc.querySelector === 'function' ? current.hc.querySelector('.human-check-board') : null);
-                        if (boardEl) {
-                            const targetEl = (typeof boardEl.querySelector === 'function' ? boardEl.querySelector('img') : null) || boardEl;
-                            const rect = (typeof targetEl.getBoundingClientRect === 'function')
-                                ? targetEl.getBoundingClientRect()
-                                : (typeof boardEl.getBoundingClientRect === 'function' ? boardEl.getBoundingClientRect() : { left: 0, top: 0, width: current.packet.width || 480, height: current.packet.height || 330 });
-                            const bw = current.packet.width || 480;
-                            const bh = current.packet.height || 330;
-                            const clientX = rect.left + (targetX / bw) * (rect.width || bw);
-                            const clientY = rect.top + (targetY / bh) * (rect.height || bh);
-                            const opts = { bubbles: !roomSent, cancelable: true, view: window, clientX, clientY };
-                            if (typeof PointerEvent !== 'undefined') targetEl.dispatchEvent(new PointerEvent('pointerdown', opts));
-                            if (typeof MouseEvent !== 'undefined') {
-                                targetEl.dispatchEvent(new MouseEvent('mousedown', opts));
-                                targetEl.dispatchEvent(new MouseEvent('mouseup', opts));
-                                targetEl.dispatchEvent(new MouseEvent('click', opts));
-                            } else if (typeof targetEl.click === 'function') {
-                                targetEl.click();
-                            }
-                        }
-                    } catch (_) {}
+                    submitHumanCheckBoardAnswer(current.hc, current.boardEl, current.packet, targetX, targetY);
 
                     const timestamp = Date.now();
                     const pickedIndex = (Number.isInteger(solution.slot) && solution.slot >= 1 && solution.slot <= 4) ? (solution.slot - 1) : -1;
@@ -2013,7 +2124,37 @@
 
     // END EMBEDDED HUMAN CHECK HOTFIX
 
+    window.playInGameHumanCheckBeep = function(urgent = false) {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            if (!window.__pmAlertAudioCtx || window.__pmAlertAudioCtx.state === 'closed') {
+                window.__pmAlertAudioCtx = new AudioCtx();
+            }
+            const ctx = window.__pmAlertAudioCtx;
+            if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+                ctx.resume().catch(() => {});
+            }
+            const notes = urgent ? [987.77, 1318.51, 987.77, 1318.51] : [880, 1174.66];
+            notes.forEach((freq, idx) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = urgent ? 'sawtooth' : 'triangle';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.16);
+                gain.gain.setValueAtTime(urgent ? 0.32 : 0.22, ctx.currentTime + idx * 0.16);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.16 + 0.14);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(ctx.currentTime + idx * 0.16);
+                osc.stop(ctx.currentTime + idx * 0.16 + 0.15);
+            });
+        } catch (_) {}
+    };
+
     let hasNotifiedHumanCheck = false;
+    let humanCheckOpenedAt = 0;
+    let lastInGameAlarmAt = 0;
+    let unconfirmedRetryCount = 0;
     function checkHumanCheckStatus() {
         const hc = document.querySelector('.human-check');
         const lastSolved = window.__lastHumanCheckSolved;
@@ -2031,21 +2172,21 @@
                 const triesDropped = (triesLeftAfter != null && triesBefore != null && triesLeftAfter < triesBefore);
 
                 // If triesLeft has NOT decreased yet (still "ตอบผิดได้อีก 1 ครั้ง"), the game/server is lagging!
-                // Wait up to 5.8s and re-send the answer packet once at ~2.2s in case lag dropped the first click.
-                if (!triesDropped && elapsed < 5800) {
-                    if (!lastSolved.retriedLagSend && elapsed >= 2200) {
+                // Re-send at ~1.8s via both React onClick and room.send; if still open at 4.2s, reset attempt so solver retries!
+                if (!triesDropped && elapsed < 4200) {
+                    if (!lastSolved.retriedLagSend && elapsed >= 1800) {
                         lastSolved.retriedLagSend = true;
                         try {
-                            const pkt = window.__latestHumanCheck;
-                            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
-                            if (room && typeof room.send === 'function' && pkt && pkt.id != null && typeof lastSolved.x === 'number' && typeof lastSolved.y === 'number') {
-                                room.send('human_check_answer', { id: pkt.id, x: lastSolved.x, y: lastSolved.y });
+                            if (typeof lastSolved.x === 'number' && typeof lastSolved.y === 'number') {
+                                submitHumanCheckBoardAnswer(hc, hc.querySelector('.human-check-board'), window.__latestHumanCheck, lastSolved.x, lastSolved.y);
                             }
                         } catch (_) {}
                     }
-                } else if (triesDropped || (triesLeftAfter == null && elapsed >= 5800)) {
+                } else if (triesDropped || (triesLeftAfter == null && elapsed >= 4200)) {
                     lastSolved.verified = 'wrong';
                     lastSolved.isCorrect = false;
+                    embeddedHumanCheckAttempt = '';
+                    try { localStorage.removeItem(humanCheckAttemptKey); } catch (_) {}
                     try {
                         let imageDataUrl = lastSolved.rawSrc || null;
                         const boardImg = hc.querySelector('.human-check-board img');
@@ -2103,29 +2244,58 @@
                         }
                     } catch (_) {}
                 } else {
-                    // triesLeft is still >= triesBefore after 5.8s -> click never registered, don't report as wrong answer
+                    // triesLeft is still >= triesBefore after 4.2s -> click did not register yet!
+                    // Reset attempt state so tickEmbeddedHumanCheck() immediately retries instead of giving up!
                     lastSolved.verified = 'unconfirmed';
+                    if (unconfirmedRetryCount < 8) {
+                        unconfirmedRetryCount++;
+                        embeddedHumanCheckAttempt = '';
+                        try { localStorage.removeItem(humanCheckAttemptKey); } catch (_) {}
+                        if (window.__lastHumanCheckSolved === lastSolved) {
+                            window.__lastHumanCheckSolved = null;
+                        }
+                        if (lastSolved.slot && triedSlotsByImage.size > 0) {
+                            for (const set of triedSlotsByImage.values()) set.delete(lastSolved.slot);
+                        }
+                    }
                 }
             }
         }
         tickEmbeddedHumanCheck();
         if (!hc) {
+            if (hasNotifiedHumanCheck || (window.__latestHumanCheck && Date.now() - (window.__latestHumanCheck.timestamp || 0) > 3000)) {
+                window.__latestHumanCheck = null;
+                embeddedHumanCheckAttempt = '';
+                embeddedHumanCheckPending = null;
+                try { localStorage.removeItem(humanCheckAttemptKey); } catch (_) {}
+            }
             hasNotifiedHumanCheck = false;
+            humanCheckOpenedAt = 0;
+            unconfirmedRetryCount = 0;
             return;
         }
+        const now = Date.now();
         if (!hasNotifiedHumanCheck) {
             hasNotifiedHumanCheck = true;
+            humanCheckOpenedAt = now;
+            lastInGameAlarmAt = now;
+            unconfirmedRetryCount = 0;
             const promptEl = hc.querySelector('.human-check-prompt');
             const prompt = (promptEl ? promptEl.innerText : '').trim();
             console.log('[PmheeAether Anti-Bot] 🚨 ตรวจพบเช็คผู้เล่น (Human Check):', prompt);
+            window.playInGameHumanCheckBeep(false);
             if (window.showHudToast) {
                 window.showHudToast('🚨 ตรวจพบเช็คผู้เล่น! กำลังตรวจคำตอบจากฐานข้อมูลในบอท...', 'warning', 6000);
             }
+        } else if (humanCheckOpenedAt > 0 && now - humanCheckOpenedAt >= 4000 && now - lastInGameAlarmAt >= 4000) {
+            lastInGameAlarmAt = now;
+            window.playInGameHumanCheckBeep(true);
         }
     }
+    window.triggerHumanCheckTickNow = checkHumanCheckStatus;
 
     // Attach periodic watcher for human check detection
-    setInterval(checkHumanCheckStatus, 1000);
+    setInterval(checkHumanCheckStatus, 650);
 
     // ==========================================
     // AUTO JOB CHANGE ENGINE (Valkyrie n5 @ Solhaven)
@@ -11252,17 +11422,18 @@
         let found = null;
         const visited = new Set();
         function search(obj, depth = 0) {
-            if (!obj || depth > 25 || visited.has(obj) || found) return;
+            if (!obj || depth > 35 || visited.has(obj) || found) return;
             visited.add(obj);
-            if (obj.roomId && obj.sessionId && typeof obj.send === 'function') {
+            if (obj.roomId && obj.sessionId && typeof obj.send === 'function' && (!obj.connection || obj.connection.isOpen !== false)) {
                 found = obj;
                 return;
             }
             if (obj.memoizedState) {
                 let s = obj.memoizedState;
                 while (s) {
-                    if (s.memoizedState?.current?.roomId && typeof s.memoizedState.current.send === 'function') {
-                        found = s.memoizedState.current;
+                    const cur = s.memoizedState?.current;
+                    if (cur && cur.roomId && typeof cur.send === 'function' && (!cur.connection || cur.connection.isOpen !== false)) {
+                        found = cur;
                         return;
                     }
                     search(s.memoizedState, depth + 1);
@@ -11273,7 +11444,7 @@
             if (obj.sibling) search(obj.sibling, depth + 1);
             if (obj.return) search(obj.return, depth + 1);
         }
-        const all = document.querySelectorAll('.ui-root, .hud-status, .minimap, .chat, .hotbars, .market-window');
+        const all = document.querySelectorAll('.ui-root, .hud-status, .minimap, .chat, .hotbars, .market-window, .human-check');
         for (const el of all) {
             const k = Object.keys(el).find(k => k.startsWith('__reactFiber'));
             if (k) {
