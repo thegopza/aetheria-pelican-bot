@@ -145,6 +145,57 @@ test('READ_JS: plan gate needs every trigger passed (levels, zeny) and nothing p
   pg = fakePage({ win: { __planScriptEnabled: false, __currentScriptPlan: PLAN } });
   r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
   assert.strictEqual(r.plan, null);
+
+  // Set Gear (gearPlan.steps) must also be completed before plan gate opens
+  const planWithGearSteps = {
+    id: 'plan_gear', name: 'Bard 1-90 Cheap', class1Target: 'archer', class2Target: 'bard',
+    gearPlan: {
+      startClass: 'bard',
+      steps: [
+        { id: 'g1', kind: 'equip', slot: 'main-hand', itemName: 'Midnight Nocturne', zeny: 5000000, minLevel: 60 },
+        { id: 'g2', kind: 'equip', slot: 'accessory-left', itemName: 'Glove', options: 'DAMAGE_REDUCTION>=4', zeny: 1000000, minLevel: 90 }
+      ]
+    },
+    triggers: []
+  };
+  // Still Archer → blocked waiting for Bard class
+  pg = fakePage({
+    level: 50, job: 40, cls: 'archer',
+    win: {
+      __planScriptEnabled: true,
+      __currentScriptPlan: planWithGearSteps,
+      getGearPlanStatus: () => ({ index: 0, step: planWithGearSteps.gearPlan.steps[0], total: 2, steps: planWithGearSteps.gearPlan.steps })
+    }
+  });
+  r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
+  assert.strictEqual(r.plan.gearBlocked, true);
+  assert.deepStrictEqual(r.plan.blocked, ['เซ็ตอุปกรณ์ (รออาชีพ bard)']);
+
+  // Now Bard Lv.99, but step 2/2 (Glove) is not worn yet → blocked
+  pg = fakePage({
+    level: 99, job: 50, cls: 'bard',
+    win: {
+      __planScriptEnabled: true,
+      __currentScriptPlan: planWithGearSteps,
+      getGearPlanStatus: () => ({ index: 1, step: planWithGearSteps.gearPlan.steps[1], total: 2, steps: planWithGearSteps.gearPlan.steps })
+    }
+  });
+  r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
+  assert.strictEqual(r.plan.gearBlocked, true);
+  assert.deepStrictEqual(r.plan.blocked, ['เซ็ตอุปกรณ์ (2/2): สวม Glove [DAMAGE_REDUCTION>=4]']);
+
+  // All gear steps worn → unblocked
+  pg = fakePage({
+    level: 99, job: 50, cls: 'bard',
+    win: {
+      __planScriptEnabled: true,
+      __currentScriptPlan: planWithGearSteps,
+      getGearPlanStatus: () => ({ index: -1, step: null, total: 2, steps: planWithGearSteps.gearPlan.steps })
+    }
+  });
+  r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
+  assert.strictEqual(r.plan.gearBlocked, false);
+  assert.deepStrictEqual(r.plan.blocked, []);
 });
 
 test('ACTIONS.buy re-checks the wallet and never buys past the target', async () => {
@@ -169,14 +220,14 @@ test('ACTIONS.activate buys the plan only with enough Token', async () => {
 });
 
 // ---------------------------------------------------------------- service with a simulated client
-test('service: gate latch, buy then activate, busy skip', async () => {
+test('service: gate latch, buy then activate, busy skip, and gearBlocked un-latch', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-'));
-  const world = { tokens: 0, until: null, zeny: 30000000, blocked: ['Base 60'], busy: [] };
+  const world = { tokens: 0, until: null, zeny: 30000000, blocked: ['Base 60'], gearBlocked: false, busy: [] };
   const calls = [];
   let t = NOW;
   const evalProfilePort = async (port, code) => {
     if (code === READ_JS) {
-      return { success: true, result: snap({ zeny: world.zeny, busy: world.busy, plan: { id: 'plan1', name: 'P', blocked: world.blocked },
+      return { success: true, result: snap({ zeny: world.zeny, busy: world.busy, plan: { id: 'plan1', name: 'P', blocked: world.blocked, gearBlocked: world.gearBlocked },
         exchange: { tokens: world.tokens, premiumUntil: world.until, plans: PLANS, bestAsk: 21800, asks: ASKS } }) };
     }
     if (code.includes("type: 'now'")) {
@@ -220,4 +271,14 @@ test('service: gate latch, buy then activate, busy skip', async () => {
   assert.strictEqual(saved.clients.p1.enabled, true);
   assert.strictEqual(saved.clients.p1.gatePlan, 'plan1');
   assert.ok(saved.clients.p1.history.length >= 3);
+
+  // If Set Gear (gearPlan) is not complete (e.g. stale gatePlan or new gear steps added), gate un-latches and blocks buying
+  world.gearBlocked = true;
+  world.blocked = ['เซ็ตอุปกรณ์ (32/34): สวม Glove [DAMAGE_REDUCTION>=4]'];
+  t += 1 * DAY;
+  await svc.tick();
+  assert.strictEqual(svc.view().clients[0].status, 'plan');
+  assert.match(svc.view().clients[0].statusText, /เซ็ตอุปกรณ์ \(32\/34\)/);
+  const savedAfterBlock = JSON.parse(fs.readFileSync(path.join(dir, 'premium.json'), 'utf8'));
+  assert.strictEqual(savedAfterBlock.clients.p1.gatePlan, null);
 });
