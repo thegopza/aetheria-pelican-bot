@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.39.1
+// @version      4.39.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.39.1';
+    const PELICAN_BOT_VERSION = '4.39.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -854,11 +854,15 @@
         // The game joins a new room on every map change; the old room object keeps its .state, so a cached
         // room is only valid while its connection is still open (sending on a left room does nothing)
         const cached = window.__colyseusRoom;
-        if (cached && cached.state && cached.connection && cached.connection.isOpen) return cached;
+        if (cached && cached.state && cached.connection && cached.connection.isOpen) {
+            attachHumanCheckRoomListener(cached);
+            return cached;
+        }
         window.__colyseusRoom = null;
         const live = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
         if (live && live.state && live.connection && live.connection.isOpen) {
             window.__colyseusRoom = live;
+            attachHumanCheckRoomListener(live);
             return live;
         }
         const root = document.querySelector('#root');
@@ -1709,16 +1713,52 @@
 
     function embeddedHumanCheckSnapshot() {
         const hc = (typeof document?.querySelector === 'function') ? document.querySelector('.human-check') : null;
-        const packet = window.__latestHumanCheck;
-        if (!hc || !packet || packet.id == null || typeof packet.prompt !== 'string') return null;
-
+        if (!hc) return null;
         const promptEl = (typeof hc.querySelector === 'function') ? hc.querySelector('.human-check-prompt') : null;
-        const prompt = (promptEl && typeof promptEl.innerText === 'string') ? promptEl.innerText.trim() : (packet.prompt || '').trim();
+        const domPrompt = (promptEl && typeof promptEl.innerText === 'string') ? promptEl.innerText.trim() : '';
+        const rawBoard = (typeof hc.querySelector === 'function') ? hc.querySelector('.human-check-board') : null;
+        const isRealBoardEl = rawBoard && (rawBoard.classList?.contains?.('human-check-board') || rawBoard.className?.includes?.('human-check-board') || rawBoard.tagName === 'DIV' || typeof rawBoard.querySelector === 'function');
+
+        let packet = window.__latestHumanCheck;
+        if (!packet && isRealBoardEl && domPrompt) {
+            const boardImgEl = (typeof rawBoard.querySelector === 'function') ? rawBoard.querySelector('img') : null;
+            const domSrc = (boardImgEl && typeof boardImgEl.getAttribute === 'function' ? boardImgEl.getAttribute('src') : (boardImgEl?.src || '')) || '';
+            if (domSrc) {
+                let fiberId = null;
+                try {
+                    const fk = Object.keys(hc).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+                    let cur = fk ? hc[fk] : null;
+                    for (let d = 0; d < 12 && cur && fiberId == null; d++) {
+                        const mp = cur.memoizedProps;
+                        if (mp && mp.check && mp.check.id != null) fiberId = mp.check.id;
+                        else if (mp && mp.humanCheck && mp.humanCheck.id != null) fiberId = mp.humanCheck.id;
+                        let st = cur.memoizedState;
+                        while (st && fiberId == null) {
+                            const ms = st.memoizedState;
+                            if (ms && typeof ms === 'object' && ms.id != null && (ms.prompt || ms.image)) fiberId = ms.id;
+                            st = st.next;
+                        }
+                        cur = cur.return;
+                    }
+                } catch (_) {}
+                const sig = `${domSrc.length}:${domSrc.slice(Math.max(0, Math.floor(domSrc.length / 2) - 24), Math.floor(domSrc.length / 2) + 24)}`;
+                packet = window.__latestHumanCheck = {
+                    id: fiberId != null ? fiberId : ('dom-' + sig),
+                    prompt: domPrompt,
+                    image: domSrc,
+                    width: 480,
+                    height: 330,
+                    isDomFallback: fiberId == null,
+                    timestamp: Date.now()
+                };
+            }
+        }
+        if (!packet || packet.id == null || typeof packet.prompt !== 'string') return null;
+
+        const prompt = domPrompt || (packet.prompt || '').trim();
         if (prompt !== packet.prompt.trim()) return null;
 
         // Image Board Mode
-        const rawBoard = (typeof hc.querySelector === 'function') ? hc.querySelector('.human-check-board') : null;
-        const isRealBoardEl = rawBoard && (rawBoard.classList?.contains?.('human-check-board') || rawBoard.className?.includes?.('human-check-board') || rawBoard.tagName === 'DIV' || typeof rawBoard.querySelector === 'function');
         const isBoardMode = Boolean(packet.image || isRealBoardEl);
 
         if (isBoardMode) {
@@ -1815,12 +1855,57 @@
 
                     const targetX = solution.x;
                     const targetY = solution.y;
+                    let annotatedImageDataUrl = null;
+                    try {
+                        const boardEl = current.boardEl || (typeof current.hc.querySelector === 'function' ? current.hc.querySelector('.human-check-board') : null);
+                        const boardImg = (boardEl && typeof boardEl.querySelector === 'function') ? boardEl.querySelector('img') : null;
+                        if (boardImg && boardImg.complete && boardImg.naturalWidth > 0 && typeof document?.createElement === 'function') {
+                            const bw = 480, bh = 330, stripH = 38;
+                            const bCanvas = document.createElement('canvas');
+                            bCanvas.width = bw;
+                            bCanvas.height = bh + stripH;
+                            const bCtx = bCanvas.getContext && bCanvas.getContext('2d');
+                            if (bCtx && typeof bCanvas.toDataURL === 'function') {
+                                bCtx.fillStyle = '#0f172a';
+                                bCtx.fillRect(0, 0, bw, bh + stripH);
+                                bCtx.drawImage(boardImg, 0, 0, bw, bh);
+                                if (typeof targetX === 'number' && typeof targetY === 'number') {
+                                    bCtx.save();
+                                    bCtx.strokeStyle = '#10b981';
+                                    bCtx.lineWidth = 3;
+                                    bCtx.beginPath();
+                                    if (typeof bCtx.arc === 'function') bCtx.arc(targetX, targetY, 26, 0, Math.PI * 2);
+                                    bCtx.stroke();
+                                    bCtx.restore();
+                                }
+                                const colCenters = [68, 181, 300, 416];
+                                for (let i = 0; i < 4; i++) {
+                                    const cx = colCenters[i];
+                                    const bx = cx - 44, by = bh + 5;
+                                    const isPicked = (solution.slot === i + 1);
+                                    bCtx.fillStyle = isPicked ? '#065f46' : '#1e293b';
+                                    bCtx.strokeStyle = isPicked ? '#10b981' : '#38bdf8';
+                                    bCtx.lineWidth = isPicked ? 2 : 1.5;
+                                    bCtx.beginPath();
+                                    if (bCtx.roundRect) bCtx.roundRect(bx, by, 88, 28, 6); else if (bCtx.rect) bCtx.rect(bx, by, 88, 28);
+                                    bCtx.fill();
+                                    bCtx.stroke();
+                                    bCtx.fillStyle = '#f8fafc';
+                                    bCtx.font = 'bold 13px "Segoe UI", Tahoma, sans-serif';
+                                    bCtx.textAlign = 'center';
+                                    bCtx.fillText((isPicked ? '✓ ตัวเลือก ' : 'ตัวเลือก ') + (i + 1), cx, by + 19);
+                                }
+                                annotatedImageDataUrl = bCanvas.toDataURL('image/png');
+                            }
+                        }
+                    } catch (_) {}
+
                     let roomSent = false;
 
                     // 1. Direct Colyseus room send
                     try {
                         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
-                        if (room && typeof room.send === 'function') {
+                        if (room && typeof room.send === 'function' && !current.packet.isDomFallback && current.packet.id != null) {
                             room.send('human_check_answer', { id: current.packet.id, x: targetX, y: targetY });
                             roomSent = true;
                         }
@@ -1865,6 +1950,7 @@
                         prompt: current.prompt,
                         triesLeftBefore: current.triesLeft,
                         rawSrc: current.rawSrc || null,
+                        annotatedImageDataUrl: annotatedImageDataUrl || null,
                         verified: null,
                         source: 'embedded-local-catalog'
                     };

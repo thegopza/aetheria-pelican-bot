@@ -257,4 +257,62 @@ test('manual answerCheckInGame sets manual attribution and suppresses duplicate 
   assert.equal(sent.length, 0);
 });
 
+test('red fallback alert explicitly shows which option and coordinates the bot picked when human-check stays open', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-fallback-picked-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dataDir, 'discord_settings.json'), JSON.stringify({ enabled: true, botToken: 'test-token', channelId: 'main-channel', autoAnswer: true }));
+  const sent = [];
+  const fakeHttp = {
+    request(url, options, receive) {
+      const req = new EventEmitter(); let payload = '';
+      req.write = bytes => { payload += bytes.toString('utf8'); };
+      req.end = () => {
+        sent.push(JSON.parse(payload));
+        queueMicrotask(() => { const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {}; receive(res); res.emit('data', '{"id":"msg-fallback"}'); res.emit('end'); });
+      };
+      req.destroy = () => {};
+      return req;
+    }
+  };
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'setTimeout', 'WebSocket', fs.readFileSync(path.join(__dirname, '../discord_bot.js'), 'utf8'))(name => {
+    if (name === 'http' || name === 'https') return fakeHttp;
+    if (name.startsWith('.')) return require(path.join(__dirname, '..', name));
+    return require(name);
+  }, module, module.exports, cb => { queueMicrotask(cb); return 0; }, undefined);
+
+  const profile = { id: 'p-tiz', name: 'Client 26', debugPort: 19996, liveState: { charName: 'Reanly16' } };
+  const service = module.exports.createDiscordBotService({
+    dataDir,
+    loadProfiles: () => [profile],
+    evalProfilePort: async () => ({
+      result: {
+        stillOpen: true,
+        metaText: 'เหลือเวลา 4:58 · ตอบผิดได้อีก 3 ครั้ง',
+        solved: {
+          pickIndex: 3,
+          slot: 4,
+          x: 412,
+          y: 238,
+          matchedName: 'Bandana (ตัวเลือกที่ 4 · ความแม่นยำ 88%)',
+          triesLeftBefore: 3,
+          manual: false,
+          timestamp: Date.now() - 500
+        }
+      }
+    })
+  });
+  await service.notifyHumanCheck({
+    profile,
+    check: { id: 'tiz-check-1', prompt: 'เลือก Bandana', isBoard: true, embeddedSolver: true }
+  });
+  assert.equal(sent.length, 1);
+  const text = JSON.stringify(sent[0]);
+  assert.match(text, /เลือกตัวเลือกที่ 4/);
+  assert.match(text, /412, 238/);
+  assert.match(text, /ระบบเลือกข้อนี้ไปแล้ว/);
+  assert.match(text, /ตัวเลือกที่ 4 \(บอทเลือกข้อนี้\)/);
+});
+
+
 
