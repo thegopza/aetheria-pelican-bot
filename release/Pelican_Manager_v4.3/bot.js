@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.40.2
+// @version      4.40.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.40.2';
+    const PELICAN_BOT_VERSION = '4.40.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -2345,6 +2345,9 @@
         }
         let map = null;
         try { map = localStorage.getItem('pelican_job_return_map'); localStorage.removeItem('pelican_job_return_map'); } catch (e) {}
+        if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') {
+            map = window.planMapForNow() || map;
+        }
         if (!map || !/เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) return;
         console.log(`%c[PmheeAether Plan] 🗺️ คืนแมพฟาร์มเดิม "${map}" หลังเปลี่ยนอาชีพ`, 'color: #38bdf8;');
         window.__targetFarmMap = map;
@@ -13257,11 +13260,23 @@
 
             // 6. Target Map & Auto Loop
             if (data.targetMap) {
-                window.__targetFarmMap = data.targetMap;
-                localStorage.setItem('pelican_target_map', data.targetMap);
-                localStorage.setItem('pelican_farm_map', data.targetMap);
-                const sel = document.getElementById('p-target-map-select');
-                if (sel) sel.value = data.targetMap;
+                try {
+                    localStorage.removeItem('pelican_plan_manual_map');
+                } catch (_) {}
+                let nextMap = data.targetMap;
+                if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') {
+                    nextMap = window.planMapForNow() || nextMap;
+                }
+                const inTownTrip = Boolean(window.__jobChangeActive || window.__gearPlanBusy || window.__isShopping || window.__consolidateActive || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(window.__targetFarmMap || ''));
+                if (!inTownTrip && typeof window.setTargetFarmMap === 'function') {
+                    window.setTargetFarmMap(nextMap, Boolean(window.__isBotRunning));
+                } else {
+                    window.__targetFarmMap = nextMap;
+                    localStorage.setItem('pelican_target_map', nextMap);
+                    localStorage.setItem('pelican_farm_map', nextMap);
+                    const sel = document.getElementById('p-target-map-select');
+                    if (sel) sel.value = nextMap;
+                }
             }
             if (typeof data.autoLoop === 'boolean') {
                 window.__autoLoopEnabled = data.autoLoop;
@@ -15901,12 +15916,15 @@
     let planTriggersRunning = false;
 
     function readPlanLevels() {
-        const text = (document.querySelector('.hud-levels') || {}).innerText || '';
+        const el = document.querySelector('.hud-levels');
+        const text = (el && (el.innerText || el.textContent)) || '';
         const b = text.match(/Base\s*(?:Lv\.?|Level)?\s*(\d+)/i);
         const j = text.match(/Job\s*(?:Lv\.?|Level)?\s*(\d+)/i);
-        if (!b || !j) return null;   // HUD not ready: never guess a level
         const ch = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : null;
-        return { base: parseInt(b[1], 10), job: parseInt(j[1], 10), cls: String((ch && ch.classId) || '').toLowerCase() };
+        const base = b ? parseInt(b[1], 10) : (Number(ch && (ch.baseLevel || ch.level)) || 0);
+        const job = j ? parseInt(j[1], 10) : (Number(ch && ch.jobLevel) || 0);
+        if (!base || !job) return null;   // HUD not ready: never guess a level
+        return { base, job, cls: String((ch && ch.classId) || '').toLowerCase() };
     }
 
     // Arrow action: the chosen arrow must actually be on the character — equip it from the bag, or have
@@ -16852,14 +16870,58 @@
         }
     };
 
-    // The farm map the plan says to be on now: the change_map of the highest Base trigger at or below the
-    // current Base Lv. (and Job triggers of the current class at or below the current Job Lv.)
+    function inferJobTriggerClassId(t, plan) {
+        if (!t) return '';
+        if (t.classId) return String(t.classId).trim().toLowerCase();
+        const cc = (t.actions || []).find(a => a && a.type === 'change_class' && a.targetClass);
+        if (cc) {
+            const entry = PLAN_CLASS_TREE[String(cc.targetClass).trim().toLowerCase()];
+            if (entry && entry[1]) return entry[1];
+        }
+        const lvl = parseInt(t.targetLevel, 10) || 0;
+        const mapAct = (t.actions || []).filter(a => a && a.type === 'change_map' && a.targetMap).pop();
+        if (lvl <= 10 && mapAct && /ถนนต้นหลิว|ทุ่งหญ้าตะวันออก|ทุ่งโคลเวอร์|ไร่ซันเกรน|สวนนักผจญภัยมือใหม่/.test(mapAct.targetMap)) {
+            return 'novice';
+        }
+        if (plan && plan.class1Target && lvl > 10) {
+            return String(plan.class1Target).trim().toLowerCase();
+        }
+        return '';
+    }
+
+    const PLAN_MAP_MIN_LEVEL = {
+        'ทุ่งโคลเวอร์': 1,
+        'ทุ่งหญ้าตะวันออก': 1,
+        'ไร่ซันเกรน': 1,
+        'สวนนักผจญภัยมือใหม่': 2,
+        'ถนนต้นหลิว': 8,
+        'ทะเลสาบอาซูร์': 14,
+        'ป่ามูนลีฟ': 15,
+        'เส้นทางก็อบลิน': 16,
+        'เหมืองคริสตัลเก่า': 20,
+        'ค่ายออร์ค': 26,
+        'ถ้ำเอมเบอร์': 27,
+        'ที่ราบสูงเกล': 28,
+        'แอ่งเวอร์แดนท์': 33,
+        'ช่องเขาฟรอสต์พีค': 38,
+        'ชายฝั่งปะการัง': 43,
+        'ซากโบราณสถาน': 48,
+        'สุสานเงา': 52,
+        'หนองพิษ': 62,
+        'โบสถ์อเวจี': 82,
+        'บึงรากเน่า': 92,
+        'เนินทรายแผดเผา': 102,
+        'บัลลังก์ราชาลิช': 105,
+        'พีระมิดจมทราย': 117,
+        'สุสานฟาโรห์': 135,
+        'แกนลาวา': 137
+    };
+
     const planLastMapKey = () => {
         const plan = window.__currentScriptPlan || {};
         const name = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
         return `pelican_plan_lastmap_${name}_${plan.id || plan.name || 'plan'}`;
     };
-    // The player picked a farm map by hand while the plan runs: it stays until the plan's next map change
     window.setPlanManualMap = function (map) {
         if (!map || !window.__currentScriptPlan || /เมืองหลวง|โซลเฮเวน/.test(map)) return;
         try { localStorage.setItem(planLastMapKey(), map); localStorage.setItem(planLastMapKey() + '_manual', map); } catch (e) {}
@@ -16868,37 +16930,80 @@
         const plan = window.__currentScriptPlan;
         const lv = readPlanLevels();
         if (!plan || !Array.isArray(plan.triggers) || !lv) return null;
-        // The map the plan last moved this character to (still part of the plan) wins: it follows what really
-        // happened, e.g. a Novice Job 10 move stays valid after the class change
-        let last = null;
-        try { last = localStorage.getItem(planLastMapKey()); } catch (e) {}
-        let manual = null;
-        try { manual = localStorage.getItem(planLastMapKey() + '_manual'); } catch (e) {}
-        if (last && (plan.triggers.some(t => (t.actions || []).some(a => a.type === 'change_map' && a.targetMap === last))
-            || (plan.gearPlan && plan.gearPlan.onCompleteMap === last) || manual === last)) return last;
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        const stKey = `pelican_plan_state_${charName}_${plan.id || plan.name || 'plan'}`;
+        let st = null;
+        try { st = JSON.parse(localStorage.getItem(stKey) || 'null'); } catch (e) {}
+        const done = (st && st.done) || {};
+        const pending = (st && st.pending) || {};
+        const lineage = planClassLineage(lv.cls);
+
         let best = null;
-        plan.triggers.forEach(t => {
-            const map = ((t.actions || []).filter(a => a.type === 'change_map' && a.targetMap).pop() || {}).targetMap;
-            if (!map) return;
-            const lvl = parseInt(t.targetLevel, 10) || 0;
-            let ok = false, rank = 0;
-            if (t.type === 'job_level') {
-                ok = (!t.classId || String(t.classId).toLowerCase() === lv.cls) && lvl <= lv.job;
-                rank = 1000 + lvl;   // within the current class, later than base levels already reached
-            } else if (t.type !== 'zeny') {
-                ok = lvl <= lv.base;
-                rank = lvl;
+        plan.triggers.forEach((t, idx) => {
+            const acts = t.actions || [];
+            let mapIdx = -1;
+            for (let i = acts.length - 1; i >= 0; i--) {
+                if (acts[i] && acts[i].type === 'change_map' && acts[i].targetMap) { mapIdx = i; break; }
             }
-            if (ok && (!best || rank >= best.rank)) best = { rank, map };
+            if (mapIdx < 0) return;
+            const map = String(acts[mapIdx].targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim();
+            if (!map) return;
+            const id = planTriggerId(t, idx);
+            // A change_map still held back behind an unfinished action in this trigger isn't reached yet
+            if (pending[id] && Array.isArray(pending[id].actions) && pending[id].actions.includes(mapIdx)) return;
+
+            const lvl = parseInt(t.targetLevel, 10) || 0;
+            const trigCls = t.type === 'job_level' ? inferJobTriggerClassId(t, plan) : String(t.classId || '').trim().toLowerCase();
+            let ok = false, tierRank = 0;
+            if (t.type === 'job_level') {
+                if (done[id]) ok = true;
+                else if (!trigCls || trigCls === lv.cls) ok = lvl <= lv.job;
+                else if (lineage.includes(trigCls)) ok = true;
+                tierRank = (planClassTier(trigCls || lv.cls) * 200) + lvl;
+            } else if (t.type === 'zeny') {
+                ok = Boolean(done[id]);
+                tierRank = 500;
+            } else {
+                ok = Boolean(done[id]) || lvl <= lv.base;
+                tierRank = lvl * 5;
+            }
+            if (!ok) return;
+            const mapLv = PLAN_MAP_MIN_LEVEL[map] || 0;
+            const rank = mapLv * 10000 + tierRank * 10 + (idx % 10);
+            if (!best || rank >= best.rank) best = { rank, map, mapLv };
         });
+
+        const gp = plan.gearPlan;
+        const gpMap = gp && String(gp.onCompleteMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+        if (gpMap && Array.isArray(gp.steps) && gp.steps.length > 0 && lineage.includes(String(gp.startClass || 'novice').toLowerCase())) {
+            let gpDone = false;
+            try { gpDone = Boolean(localStorage.getItem(gearKey('complete_map_' + gpMap))); } catch (e) {}
+            if (!gpDone && typeof window.getGearPlanStatus === 'function') {
+                const gs = window.getGearPlanStatus();
+                const sk = gearSkipped();
+                const waiting = (gs.steps || []).some(x => x && sk[x.id] && sk[x.id].until && sk[x.id].until > Date.now());
+                if (gs && !gs.step && (gs.steps || []).length > 0 && !waiting) gpDone = true;
+            }
+            if (gpDone) {
+                const mapLv = PLAN_MAP_MIN_LEVEL[gpMap] || 0;
+                const rank = mapLv * 10000 + 9999;
+                if (!best || rank >= best.rank) best = { rank, map: gpMap, mapLv };
+            }
+        }
         return best ? best.map : null;
     };
 
     async function runPlanAction(act) {
         if (act.type === 'change_map' && act.targetMap) {
-            try { localStorage.setItem(planLastMapKey(), act.targetMap); localStorage.removeItem(planLastMapKey() + '_manual'); } catch (e) {}
-            console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${act.targetMap}"`, 'color: #38bdf8; font-weight: bold;');
-            window.setTargetFarmMap(act.targetMap, true);
+            let targetMap = String(act.targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim();
+            const planMap = typeof window.planMapForNow === 'function' ? window.planMapForNow() : null;
+            if (planMap && (PLAN_MAP_MIN_LEVEL[planMap] || 0) > (PLAN_MAP_MIN_LEVEL[targetMap] || 0)) {
+                console.log(`%c[PmheeAether Plan] 🗺️ ข้ามการย้อนแมพ "${targetMap}" (แมพเป้าหมายตามเงื่อนไขปัจจุบันคือ "${planMap}")`, 'color: #38bdf8; font-weight: bold;');
+                targetMap = planMap;
+            }
+            try { localStorage.setItem(planLastMapKey(), targetMap); localStorage.removeItem(planLastMapKey() + '_manual'); localStorage.removeItem('pelican_plan_manual_map'); } catch (e) {}
+            console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
+            window.setTargetFarmMap(targetMap, true);
             return 'done';
         }
         if (act.type === 'equip_item' && act.itemName) {
@@ -16962,7 +17067,8 @@
             const lvl = parseInt(t.targetLevel, 10);
             if (!lvl || st.done[id] || st.pending[id]) return;
             const isJob = t.type === 'job_level';
-            if (isJob && t.classId && lv.cls && String(t.classId).toLowerCase() !== lv.cls) return;
+            const trigCls = isJob ? inferJobTriggerClassId(t, plan) : '';
+            if (isJob && trigCls && lv.cls && trigCls !== lv.cls) return;
             const cur = isJob ? lv.job : lv.base;
             // A trigger the player just added: its level counts if the character is on it right now
             const isNew = !firstSeen && !st.known[id];
@@ -17517,7 +17623,7 @@
         "finger-offensive","six-saint","investigate","asura-strike","hammer-fall","adrenaline-rush",
         "over-thrust","weapon-perfection","acid-terror","demonstration","potion-pitcher",
         "chemical-protection","sonic-blow","grimtooth","enchant-poison","venom-dust","back-stab",
-        "raid","strip-armor","snatcher","dragon-breath"
+        "raid","strip-armor","snatcher","dragon-breath","hagglers-wit","crusader-heal","humming","priest-safety-wall"
     ]);
 
     window.__autoConfigCharEnabled = true;
@@ -17894,7 +18000,16 @@
         planLoopRunning = true;
         try {
             if (typeof window.applyPelicanSettings === 'function') window.applyPelicanSettings();
-            if (!window.__isBotRunning) return;
+            if (!window.__isBotRunning) {
+                if (typeof window.planMapForNow === 'function' && typeof window.setTargetFarmMap === 'function') {
+                    const desiredMap = window.planMapForNow();
+                    const curTarget = window.__targetFarmMap || '';
+                    if (desiredMap && desiredMap !== curTarget && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curTarget)) {
+                        window.setTargetFarmMap(desiredMap, false);
+                    }
+                }
+                return;
+            }
             if (window.__consolidationPending) return;   // money consolidation is about to start: nothing new
             if (typeof window.autoConfigureCombat === 'function') await window.autoConfigureCombat();
             // Spend skill points of the current class before changing job
@@ -17906,6 +18021,14 @@
             if (planBusyReason() === null && await window.runWeightTopUpStep()) return;
             if (planBusyReason() === null && await window.runGearPlanStep()) return;
             await window.checkAndExecutePlanTriggers();
+            if (planBusyReason() === null && typeof window.planMapForNow === 'function' && typeof window.setTargetFarmMap === 'function') {
+                const desiredMap = window.planMapForNow();
+                const curTarget = window.__targetFarmMap || '';
+                if (desiredMap && desiredMap !== curTarget && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curTarget)) {
+                    console.log(`%c[PmheeAether Plan] 🗺️ คืนแมพเป้าหมายตามแผนสคริปต์: "${curTarget || '-'}" → "${desiredMap}"`, 'color: #38bdf8; font-weight: bold;');
+                    window.setTargetFarmMap(desiredMap, true);
+                }
+            }
         } catch (e) {
             console.warn('[PmheeAether Plan] loop error:', e);
         } finally {
