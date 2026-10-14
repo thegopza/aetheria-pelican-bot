@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.39.5
+// @version      4.40.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.39.5';
+    const PELICAN_BOT_VERSION = '4.40.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -18105,6 +18105,9 @@
         const faceUrl = `https://www.aetheria-online.in.th/art/classes/${cId}-face.webp`;
         const fullArtUrl = `https://www.aetheria-online.in.th/art/classes/${cId}.webp`;
 
+        const premUntil = Number(liveChar.premiumUntil) || Number(window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.premiumUntil) || 0;
+        const hasPremium = premUntil > Date.now() || Boolean(document.querySelector('.hud-buff-icon[title*="Premium" i], .hud-buff-icon[title*="พรีเมียม" i], .buff-icon[title*="Premium" i], [data-buff*="premium" i]'));
+
         return {
             charName: nameEl?.innerText?.trim() || window.__charName || null,
             charClass: classEl?.innerText?.trim() || liveChar.className || 'Hunter',
@@ -18145,6 +18148,8 @@
             isBotRunning: !!window.__isBotRunning,
             hasSocket: !!window.__gameSocket,
             hasInventory: !!window.__latestInventory,
+            premiumUntil: premUntil,
+            hasPremium: hasPremium,
             isOnline: true
         };
     };
