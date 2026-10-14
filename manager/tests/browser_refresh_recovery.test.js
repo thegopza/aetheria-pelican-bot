@@ -126,9 +126,25 @@ function fixture(options = {}) {
             case 'Target.activateTarget':
               result = { success: true };
               break;
+            case 'Page.reload':
+            case 'Page.navigate': {
+              const target = sessions.get(command.sessionId);
+              if (target) {
+                target.crashed = false;
+                const next = makeDoc(target.targetId, target.profileId, false, 'complete');
+                for (const [id, t] of sessions) if (t?.targetId === target.targetId) sessions.set(id, next);
+                process.nextTick(() => {
+                  this.onmessage?.({ data: JSON.stringify({ method: 'Page.frameNavigated', params: { frame: { id: 'main' }, type: 'Reload' }, sessionId: command.sessionId }) });
+                  this.onmessage?.({ data: JSON.stringify({ method: 'Page.loadEventFired', params: {}, sessionId: command.sessionId }) });
+                });
+              }
+              result = {};
+              break;
+            }
             case 'Runtime.evaluate': {
               const target = sessions.get(command.sessionId);
               if (!target || !targets.has(target.targetId)) throw Error('Session with given id not found');
+              if (target.crashed) throw Error('Inspected target navigated or closed');
               const expression = command.params.expression;
               if (expression.includes('(0,eval)(')) {
                 fullEvaluations++;
@@ -370,4 +386,34 @@ test('offlineCoordinator.profileScriptSource delivers signed cached payload dire
   await f.advance(3000);
   assert.equal(f.fullEvaluations, 1);
 });
+
+test('Aw, Snap! renderer crash (Inspector.targetCrashed / Target.targetCrashed / unresponsive target) auto-reloads tab and recovers bot', async () => {
+  const f = fixture({ existing: true });
+  f.client.start();
+  await f.advance(3000);
+  assert.equal(f.client.isOpen('p1'), true);
+  assert.equal(f.client.status().p1.state, 'ready');
+
+  // 1) Simulate renderer crash via Inspector.targetCrashed event
+  f.targets.get('target').crashed = true;
+  f.event('Inspector.targetCrashed', { status: 'oom', errorCode: -536870904 });
+  await f.settle();
+
+  assert.equal(f.calls.some(c => c.method === 'Page.reload'), true);
+  assert.equal(f.fullEvaluations, 1);
+  assert.equal(f.client.status().p1.state, 'ready');
+
+  // 2) Simulate silent renderer crash where only Runtime.evaluate fails and user clicks "เปิดจอเกม" (launch)
+  f.targets.get('target').crashed = true;
+  const reloadCallsBefore = f.calls.filter(c => c.method === 'Page.reload').length;
+  const res = await f.client.launch({ id: 'p1', debugPort: 49999 });
+  await f.settle();
+
+  assert.equal(res.success, true);
+  assert.equal(res.alreadyOpen, true);
+  assert.equal(res.recovered, true);
+  assert.ok(f.calls.filter(c => c.method === 'Page.reload').length > reloadCallsBefore);
+  assert.equal(f.client.status().p1.state, 'ready');
+});
+
 
