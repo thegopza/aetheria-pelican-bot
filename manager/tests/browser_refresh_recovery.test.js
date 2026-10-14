@@ -416,4 +416,25 @@ test('Aw, Snap! renderer crash (Inspector.targetCrashed / Target.targetCrashed /
   assert.equal(f.client.status().p1.state, 'ready');
 });
 
+test('refreshed tab after crash with missing __pmProfileId and missing knownTargets recovers via lastCharName and injects payload', async () => {
+  const f = fixture({
+    existing: false,
+    profiles: [{ id: 'p1', debugPort: 49999, lastCharName: 'Elnoka38' }]
+  });
+  // Simulate tab refreshed after crash before Manager attached: __pmProfileId is undefined, character select shows Elnoka38
+  delete f.initial.context.window.__pmProfileId;
+  f.initial.context.document.body = { innerText: 'เลือกตัวละคร\nElnoka38\nBard · Lv.99 / Job 50\nเข้าเกมด้วย Elnoka38' };
+
+  f.client.start();
+  await f.advance(3000);
+  await f.settle();
+
+  assert.equal(f.client.isOpen('p1'), true);
+  assert.equal(f.fullEvaluations, 1);
+  assert.equal(f.initial.context.window.__pmProfileId, 'p1');
+  assert.equal(f.initial.context.window.__pelicanBotVersion, '4.38.1');
+  assert.equal(f.client.status().p1.state, 'ready');
+});
+
+
 
