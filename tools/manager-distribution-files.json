@@ -40,6 +40,8 @@
   "manager/public/index.html",
   "manager/public/inventory_market.css",
   "manager/public/inventory_market.js",
+  "manager/public/jail_manager.css",
+  "manager/public/jail_manager.js",
   "manager/public/party_manager.css",
   "manager/public/party_manager.js",
   "manager/public/patcher_module.js",
