@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.8
+// @version      4.39.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.8';
+    const PELICAN_BOT_VERSION = '4.39.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -79,128 +79,646 @@
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
 
-    // ---------- Low-power drawing ----------
-    // AUTO battle runs on the server (auto_set); the client only draws it. The game (Phaser) draws through
-    // requestAnimationFrame, so pacing rAF cuts CPU/GPU without touching the bot (its timers are setInterval).
-    //  - window hidden / minimized: ~2 fps and the game canvas is hidden (nothing to composite)
-    //  - visible: optional cap from the HUD (pelican_fps_cap: 0 = off, 30, 20, 10)
+    // ---------- Crash-Proof WebGL & Ultra-Low Spec Graphics Engine ----------
+    // IMPORTANT: Never override requestAnimationFrame and never call WEBGL_lose_context.loseContext().
+    // Throttling rAF or dropping WebGL context triggers the game's "webglcontextlost" / "game-fatal" crash screen
+    // ("การแสดงผลของเกมหยุดทำงาน — การ์ดจอหรือเบราว์เซอร์หยุดวาดภาพเกม") and stalls Phaser's POST_RENDER map load.
+    // Instead, we keep WebGL alive at all times and strip heavy Phaser scene assets/effects/monsters/map backgrounds.
     (function setupLowPower() {
         if (window.__pmLowPowerReady) return;
         window.__pmLowPowerReady = true;
-        const nativeRaf = window.requestAnimationFrame.bind(window);
-        const nativeCaf = window.cancelAnimationFrame.bind(window);
-        const HIDDEN_FPS = 2;
-        let seq = 1e9, last = 0;
-        const pending = new Map();   // our handle -> { t: timeout id } | { r: rAF id }
-        const visibleCap = () => { try { return Number(localStorage.getItem('pelican_fps_cap')) || 0; } catch (e) { return 0; } };
-        const hidden = () => document.visibilityState === 'hidden' || window.__pmForceLowPower === true;
-        const interval = () => {
-            if (hidden()) return 1000 / HIDDEN_FPS;
-            const cap = visibleCap();
-            return cap > 0 && cap < 60 ? 1000 / cap : 0;
-        };
-        window.requestAnimationFrame = function (cb) {
-            const iv = interval();
-            if (!iv) return nativeRaf(cb);
-            const h = ++seq;
-            const wait = Math.max(0, last + iv - performance.now());
-            const fire = () => {
-                const r = nativeRaf(ts => { pending.delete(h); last = performance.now(); cb(ts); });
-                pending.set(h, { r });
-            };
-            if (wait <= 0) fire();
-            else pending.set(h, { t: setTimeout(fire, wait) });
-            return h;
-        };
-        window.cancelAnimationFrame = function (h) {
-            const p = pending.get(h);
-            if (!p) return nativeCaf(h);
-            if (p.t) clearTimeout(p.t);
-            if (p.r) nativeCaf(p.r);
-            pending.delete(h);
-        };
-        // Hidden: don't composite the game canvas at all
-        const applyCanvas = () => {
-            const off = hidden();
-            document.querySelectorAll('canvas').forEach(c => {
-                if (c.closest('#pelican-hud')) return;
-                if (off) { if (c.style.visibility !== 'hidden') { c.dataset.pmVis = c.style.visibility || ''; c.style.visibility = 'hidden'; } }
-                else if (c.dataset.pmVis !== undefined) { c.style.visibility = c.dataset.pmVis; delete c.dataset.pmVis; }
-            });
-        };
-        // Hidden for a while: release the game's WebGL context -> its GPU memory (2-3 GB per window) is freed.
-        // Phaser restores its textures on webglcontextrestored, done as soon as the window is shown again.
-        let loseExt = null, loseTimer = null;
-        const gameGl = () => {
-            const c = Array.from(document.querySelectorAll('canvas')).find(x => !x.closest('#pelican-hud') && x.width > 200);
-            if (!c) return null;
-            try { return c.getContext('webgl2') || c.getContext('webgl'); } catch (e) { return null; }
-        };
-        const releaseGpu = () => {
-            loseTimer = null;
-            if (!hidden() || loseExt || window.__pmKeepGpu === true) return;
-            const gl = gameGl();
-            const ext = gl && !gl.isContextLost() ? gl.getExtension('WEBGL_lose_context') : null;
-            if (!ext) return;
-            loseExt = ext;
-            ext.loseContext();
-            console.log('%c[PmheeAether Power] 🧊 คืนหน่วยความจำการ์ดจอของภาพเกม (จะโหลดภาพกลับเมื่อแสดงจอ)', 'color: #94a3b8;');
-        };
-        const restoreGpu = () => {
-            if (loseTimer) { clearTimeout(loseTimer); loseTimer = null; }
-            if (!loseExt) return;
-            const ext = loseExt;
-            loseExt = null;
-            try { ext.restoreContext(); } catch (e) {}
-        };
 
-        const onChange = () => {
-            applyCanvas();
-            if (hidden()) { if (!loseTimer && !loseExt) loseTimer = setTimeout(releaseGpu, 5000); }
-            else restoreGpu();
-            console.log(`%c[PmheeAether Power] ${hidden() ? '🌙 จอถูกซ่อน -> โหมดประหยัด (วาด ~' + HIDDEN_FPS + ' fps, ซ่อนภาพเกม)' : '☀️ แสดงจอ -> วาดปกติ' + (visibleCap() ? ' (จำกัด ' + visibleCap() + ' fps)' : '')}`, 'color: #94a3b8;');
+        // Intercept any OS/browser webglcontextlost in capture phase before the game's canvas listener sees it,
+        // and call preventDefault() so the browser automatically restores the WebGL context.
+        const onWebglContextLost = function (ev) {
+            try {
+                if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+                if (ev && typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+            } catch (e) {}
+            console.warn('[PmheeAether Power] 🛡️ ดักจับและกู้คืน WebGL context อัตโนมัติ (ป้องกันหน้าต่างเกมหยุดทำงาน)');
         };
-        document.addEventListener('visibilitychange', onChange);
-        window.setLowPowerMode = on => { window.__pmForceLowPower = !!on; onChange(); };
-        if (hidden()) setTimeout(onChange, 3000);
+        window.addEventListener('webglcontextlost', onWebglContextLost, true);
+        document.addEventListener('webglcontextlost', onWebglContextLost, true);
 
-        // The game (build of 2026-10-09 on) raises "game-fatal" ('webgl') 4 s after ANY WebGL context loss and
-        // shows "การแสดงผลของเกมหยุดทำงาน ... กดโหลดใหม่" for good. Our hidden-window mode releases the context on
-        // purpose, and browsers drop it for covered / hidden windows and give it back later — so keep that
-        // notice away. The game listens on window before the bot loads (listeners there run in order), so the
-        // event is stopped where the game raises it: window.dispatchEvent.
         const nativeDispatch = window.dispatchEvent;
         window.dispatchEvent = function (ev) {
             if (ev && ev.type === 'game-fatal' && ev.detail === 'webgl') {
-                console.log('%c[PmheeAether Power] 🛡️ กันข้อความ "การแสดงผลของเกมหยุดทำงาน" (ภาพเกมถูกปล่อยชั่วคราว เดี๋ยวโหลดกลับเอง)', 'color: #94a3b8;');
+                console.log('%c[PmheeAether Power] 🛡️ กันข้อความ "การแสดงผลของเกมหยุดทำงาน" (ป้องกันเกมตัดการเชื่อมต่อ)', 'color: #94a3b8;');
                 return true;
             }
             return nativeDispatch.call(this, ev);
         };
-        // Shown but the picture really doesn't come back (or the notice got through anyway): reload the page
-        // when nothing important is going on — at most once per 10 minutes, the bot resumes after the reload.
-        const busyNow = () => window.__isWalkingToMap || window.__isShopping || window.__isRecovering || window.__isConsolidating
-            || window.__consolidationReceiverMode || window.__senderTradeBusy || window.__isChangingJob || window.__isManualSelling || window.__isAutoSellingNow || window.__isGearRefining || window.__planMarketBuyInFlight || window.__isStoring || !!document.querySelector('.human-check');
-        let brokenSince = 0;
-        setInterval(() => {
-            if (hidden()) { brokenSince = 0; return; }
-            const gl = gameGl();
-            const lost = gl && gl.isContextLost();
-            const notice = Array.from(document.querySelectorAll('.crash-box')).some(b => /การแสดงผลของเกมหยุดทำงาน|stopped drawing/.test(b.innerText || ''));
-            if (!lost && !notice) { brokenSince = 0; return; }
-            if (lost && loseExt) restoreGpu();
-            if (!brokenSince) { brokenSince = Date.now(); return; }
-            if (Date.now() - brokenSince < 20000 || busyNow()) return;
-            let lastReload = 0;
-            try { lastReload = Number(localStorage.getItem('pelican_webgl_reload_at')) || 0; } catch (e) {}
-            if (Date.now() - lastReload < 10 * 60 * 1000) return;
+
+        // Keep compatibility API for Manager / Electron loader without losing WebGL or throttling rAF
+        window.setLowPowerMode = function (on) {
+            window.__pmForceLowPower = !!on;
+            if (typeof window.applyUltraLowSpecNow === 'function' && window.__ultraLowSpecEnabled !== false) {
+                try { window.applyUltraLowSpecNow(); } catch (e) {}
+            }
+        };
+    })();
+
+    (function setupUltraLowSpecGraphics() {
+        if (window.__pmUltraLowSpecReady) return;
+        window.__pmUltraLowSpecReady = true;
+
+        window.__ultraLowSpecEnabled = true;
+        try {
+            const saved = localStorage.getItem('pelican_ultra_low_spec');
+            if (saved !== null) window.__ultraLowSpecEnabled = (saved !== 'false');
+            if (window.__ultraLowSpecEnabled) localStorage.removeItem('fx-used');
+        } catch (e) {}
+
+        function shouldSkipTextureLoad(key, url) {
+            if (!window.__ultraLowSpecEnabled) return false;
+            const k = String(key || '');
+            const u = String(url || '');
+            if (
+                k.startsWith('ground:') ||
+                k.startsWith('town:') ||
+                k.startsWith('mip:') ||
+                k.startsWith('monster:') ||
+                k.startsWith('mon:') ||
+                k.startsWith('mstrip:') ||
+                k.startsWith('fx:') ||
+                k.startsWith('hat:') ||
+                k.startsWith('hgear:') ||
+                k.startsWith('cape:') ||
+                k.startsWith('npc:') ||
+                k.startsWith('npcbody:') ||
+                k.startsWith('npcpet:') ||
+                k.startsWith('pet-') ||
+                k.startsWith('gemb:') ||
+                k.startsWith('title:') ||
+                k.startsWith('skill:') ||
+                k.startsWith('weapon:') ||
+                k === 'warp-ring' ||
+                k === 'warp-pillar' ||
+                k === 'stone-totem'
+            ) {
+                return true;
+            }
+            if (
+                u.includes('/art/town/') ||
+                u.includes('/art/monsters/') ||
+                u.includes('/sprites/monsters/') ||
+                u.includes('/art/fx/') ||
+                u.includes('/sprites/headgear/') ||
+                u.includes('/sprites/capes/') ||
+                u.includes('/sprites/weapons/') ||
+                u.includes('/art/npcs/') ||
+                u.includes('/art/title/') ||
+                u.includes('/guild-emblem/')
+            ) {
+                return true;
+            }
+            return false;
+        }
+
+        function wrapSceneLoader(scene) {
+            if (!scene || !scene.load || scene.load.__pmUltraLowSpecWrapped) return;
+            scene.load.__pmUltraLowSpecWrapped = true;
+            const origImage = scene.load.image;
+            const origSpritesheet = scene.load.spritesheet;
+            if (typeof origImage === 'function') {
+                scene.load.image = function (key, url) {
+                    if (shouldSkipTextureLoad(key, url)) return this;
+                    return origImage.apply(this, arguments);
+                };
+            }
+            if (typeof origSpritesheet === 'function') {
+                scene.load.spritesheet = function (key, url) {
+                    if (shouldSkipTextureLoad(key, url)) return this;
+                    return origSpritesheet.apply(this, arguments);
+                };
+            }
+        }
+
+        function findPhaserGame() {
+            if (window.__pmPhaserGame && window.__pmPhaserGame.scene && Array.isArray(window.__pmPhaserGame.scene.scenes)) {
+                return window.__pmPhaserGame;
+            }
+            const gameEl = document.querySelector('.game');
+            if (!gameEl) return null;
+            const fiberKey = Object.keys(gameEl).find(k => k.startsWith('__reactFiber$'));
+            if (!fiberKey) return null;
+            let cur = gameEl[fiberKey];
+            for (let i = 0; i < 15 && cur; i++) {
+                let st = cur.memoizedState;
+                while (st) {
+                    const ref = st.memoizedState;
+                    if (ref && typeof ref === 'object' && ref.current && ref.current.scene && Array.isArray(ref.current.scene.scenes) && ref.current.textures) {
+                        window.__pmPhaserGame = ref.current;
+                        return ref.current;
+                    }
+                    st = st.next;
+                }
+                cur = cur.return;
+            }
+            return null;
+        }
+
+        function stripActiveScene(scene, game) {
+            if (!scene || !window.__ultraLowSpecEnabled) return;
+            try { localStorage.removeItem('fx-used'); } catch (e) {}
+            wrapSceneLoader(scene);
+
+            // 1. Unsubscribe Phaser scene's visual FX / floating-text / hit / cast listeners from game store Y
+            if (Array.isArray(scene.unsubscribe)) {
+                for (const unsub of scene.unsubscribe) {
+                    if (typeof unsub === 'function' && /Listeners\.delete/.test(unsub.toString())) {
+                        try { unsub(); } catch (e) {}
+                    }
+                }
+            }
+
+            // 2. Dark minimal background & remove night shader overlay
             try {
-                localStorage.setItem('pelican_webgl_reload_at', String(Date.now()));
-                localStorage.setItem('pelican_bot_running', window.__isBotRunning ? 'true' : 'false');
+                if (scene.cameras && scene.cameras.main) {
+                    scene.cameras.main.setBackgroundColor('#0b1220');
+                }
             } catch (e) {}
-            console.warn('[PmheeAether Power] ♻️ ภาพเกมไม่กลับมา -> โหลดหน้าเกมใหม่ (บอทจะทำงานต่อเอง)');
-            location.reload();
-        }, 5000);
+            if (scene.night) {
+                scene.night = null;
+            }
+
+            // 3. Strip players' shadows, pets, falcons, cosmetics, and cull non-local players
+            if (scene.players && typeof scene.players.forEach === 'function') {
+                const selfSession = scene.room && scene.room.sessionId;
+                const selfPlayer = selfSession ? scene.players.get(selfSession) : null;
+                scene.players.forEach((p, id) => {
+                    if (!p) return;
+                    if (p.shadow) {
+                        try { p.shadow.setVisible(false); p.shadow.setActive(false); } catch (e) {}
+                    }
+                    p.featherAt = Infinity;
+                    p.snowAt = Infinity;
+                    p.petId = '';
+                    p.falconWant = void 0;
+                    p.auraTier = 0;
+                    for (const k of ['hat', 'hatGlow', 'maskImg', 'capeBack', 'capeFront', 'capeBackGlow', 'capeFrontGlow', 'weaponLayer', 'falcon', 'spirit', 'emblemImg', 'titleTag', 'glow', 'lookBody']) {
+                        if (p[k]) {
+                            try { p[k].destroy(); } catch (e) {}
+                            p[k] = void 0;
+                        }
+                    }
+                    if (p.aura && p.aura.sprite) { try { p.aura.sprite.destroy(); } catch (e) {} p.aura = void 0; }
+                    if (p.lv99Aura) {
+                        try { p.lv99Aura.back && p.lv99Aura.back.destroy(); p.lv99Aura.front && p.lv99Aura.front.destroy(); } catch (e) {}
+                        p.lv99Aura = void 0;
+                    }
+                    if (p.pet) {
+                        try { p.pet.sprite && p.pet.sprite.destroy(); p.pet.shadow && p.pet.shadow.destroy(); } catch (e) {}
+                        p.pet = void 0;
+                    }
+                    if (Array.isArray(p.clones) && p.clones.length) {
+                        p.clones.forEach(c => { try { c && c.sprite && c.sprite.destroy(); } catch (e) {} });
+                        p.clones = [];
+                    }
+                    if (selfPlayer && p !== selfPlayer && scene.culled && !scene.culled.has(p) && typeof scene.hidePlayerView === 'function') {
+                        try { scene.hidePlayerView(p); } catch (e) {}
+                    }
+                });
+                scene.cullAt = 0;
+            }
+
+            // 4. Convert existing monsters to lightweight circles, hide shadows/badges, and cull them
+            if (scene.monsters && typeof scene.monsters.forEach === 'function') {
+                scene.monsters.forEach((m, id) => {
+                    if (!m) return;
+                    if (m.shadow) { try { m.shadow.setVisible(false); m.shadow.setActive(false); } catch (e) {} }
+                    if (m.badge) { try { m.badge.setVisible(false); } catch (e) {} }
+                    if (m.badgeLevel) { try { m.badgeLevel.setVisible(false); } catch (e) {} }
+                    if (m.statusIcons) { try { m.statusIcons.setVisible(false); } catch (e) {} }
+                    if (m.anim && m.anim.sprite) { try { m.anim.sprite.destroy(); } catch (e) {} m.anim = void 0; }
+                    if (m.strip) { try { m.strip.destroy(); } catch (e) {} m.strip = void 0; }
+                    if (m.body && m.body.texture) {
+                        try {
+                            const cir = scene.add.circle(m.x, m.y - 12, 12, 0xe05252).setStrokeStyle(2, 0x1b1b1b).setDepth(m.y);
+                            if (typeof scene.wireMonsterBody === 'function') scene.wireMonsterBody(cir, id);
+                            m.body.destroy();
+                            m.body = cir;
+                        } catch (e) {}
+                    }
+                    if (typeof scene.cullMonster === 'function') {
+                        try {
+                            if (scene.culledMonsters) scene.culledMonsters.delete(m);
+                            scene.cullMonster(m);
+                        } catch (e) {}
+                    }
+                });
+            }
+
+            // 5. Strip NPC shadows & animated bodies
+            if (scene.npcs && typeof scene.npcs.forEach === 'function') {
+                scene.npcs.forEach(npc => {
+                    if (!npc) return;
+                    if (npc.shadow) { try { npc.shadow.setVisible(false); npc.shadow.setActive(false); } catch (e) {} }
+                });
+            }
+
+            // 6. Strip drop shadows & glow beams/particles
+            if (scene.drops && typeof scene.drops.forEach === 'function') {
+                scene.drops.forEach(d => {
+                    if (!d) return;
+                    if (d.shadow) { try { d.shadow.setVisible(false); d.shadow.setActive(false); } catch (e) {} }
+                    if (Array.isArray(d.glow) && d.glow.length) {
+                        d.glow.forEach(g => { try { g && g.destroy(); } catch (e) {} });
+                        d.glow = [];
+                    }
+                });
+            }
+
+            // 7. Hide & detach map background (ground:*), placed town props (town:*), warp rings, and transient FX
+            if (scene.children && Array.isArray(scene.children.list)) {
+                for (const c of [...scene.children.list]) {
+                    if (!c) continue;
+                    const tk = (c.texture && c.texture.key) || '';
+                    if (tk.startsWith('ground:') || tk.startsWith('town:') || tk === 'warp-ring' || tk === 'warp-pillar') {
+                        try { c.setTexture('__WHITE'); } catch (e) {}
+                        try {
+                            c.setVisible(false);
+                            c.setActive(false);
+                            c.setVisible = function () { return this; };
+                        } catch (e) {}
+                    } else if (c.depth === -8 || c.depth >= 100002 || tk.startsWith('fx:')) {
+                        try { c.destroy(); } catch (e) {}
+                    }
+                }
+            }
+
+            // 8. Stop looping visual particle timers (warp orbit dots, dropGlow particles, npc sparkles)
+            if (scene.time && Array.isArray(scene.time._active)) {
+                for (const tm of [...scene.time._active]) {
+                    if (tm && tm.loop && tm.delay <= 2000) {
+                        try { tm.remove(false); } catch (e) {}
+                    }
+                }
+            }
+
+            // 9. Unload unused heavy textures from GPU VRAM
+            const texMgr = (game && game.textures) || scene.textures;
+            if (texMgr && texMgr.list && scene.children && Array.isArray(scene.children.list)) {
+                const inUse = new Set(['__DEFAULT', '__MISSING', '__WHITE', '__NORMAL', 'map-tiles']);
+                for (const c of scene.children.list) {
+                    if (c && c.texture && c.texture.key) inUse.add(c.texture.key);
+                }
+                for (const k of Object.keys(texMgr.list)) {
+                    if (inUse.has(k)) continue;
+                    if (shouldSkipTextureLoad(k, '')) {
+                        try { texMgr.remove(k); } catch (e) {}
+                    }
+                }
+            }
+        }
+
+        function patchScenePrototype(scene) {
+            if (!scene) return;
+            const proto = Object.getPrototypeOf(scene);
+            if (!proto || proto.__pmUltraLowSpecPatched) return;
+            proto.__pmUltraLowSpecPatched = true;
+
+            const origPreload = proto.preload;
+            if (typeof origPreload === 'function') {
+                proto.preload = function () {
+                    if (window.__ultraLowSpecEnabled) {
+                        try { localStorage.removeItem('fx-used'); } catch (e) {}
+                        wrapSceneLoader(this);
+                    }
+                    return origPreload.apply(this, arguments);
+                };
+            }
+
+            const origCreate = proto.create;
+            if (typeof origCreate === 'function') {
+                proto.create = function () {
+                    if (window.__ultraLowSpecEnabled) wrapSceneLoader(this);
+                    const res = origCreate.apply(this, arguments);
+                    if (window.__ultraLowSpecEnabled) {
+                        try { stripActiveScene(this, this.game); } catch (e) {}
+                    }
+                    return res;
+                };
+            }
+
+            const origDrawMap = proto.drawMap;
+            if (typeof origDrawMap === 'function') {
+                proto.drawMap = function (mapId) {
+                    if (!window.__ultraLowSpecEnabled) return origDrawMap.apply(this, arguments);
+                    if (!this.cache || !this.cache.tilemap || !this.cache.tilemap.exists('map:' + mapId)) {
+                        return origDrawMap.apply(this, arguments);
+                    }
+                    this.readBlocked(mapId);
+                    this.exits = [];
+                    const raw = this.cache.tilemap.get('map:' + mapId);
+                    const layers = (raw && raw.data && Array.isArray(raw.data.layers)) ? raw.data.layers : [];
+                    for (const layer of layers) {
+                        if (layer.type !== 'objectgroup' || !Array.isArray(layer.objects)) continue;
+                        for (const obj of layer.objects) {
+                            if (obj.type !== 'portal') continue;
+                            const cx = (obj.x || 0) + (obj.width || 0) / 2;
+                            const cy = (obj.y || 0) + (obj.height || 0) / 2;
+                            const toProp = Array.isArray(obj.properties) ? obj.properties.find(p => p.name === 'toMap') : null;
+                            this.exits.push({
+                                x: obj.x || 0,
+                                y: obj.y || 0,
+                                w: obj.width || 32,
+                                h: obj.height || 32,
+                                toMap: String((toProp && toProp.value) ?? '')
+                            });
+                            try {
+                                if (typeof this.atGround === 'function') {
+                                    const ring = this.add.circle(cx, 0, 14, 0x38bdf8, 0.22).setStrokeStyle(1.5, 0x7dd3fc, 0.6);
+                                    this.atGround(ring, cy, 0, cy);
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    return true;
+                };
+            }
+
+            const origManifestsInRoom = proto.manifestsInRoom;
+            if (typeof origManifestsInRoom === 'function') {
+                proto.manifestsInRoom = function () {
+                    if (window.__ultraLowSpecEnabled && typeof this.manifestsForPreload === 'function') {
+                        return this.manifestsForPreload();
+                    }
+                    return origManifestsInRoom.apply(this, arguments);
+                };
+            }
+
+            const origEnsureSprites = proto.ensureSprites;
+            if (typeof origEnsureSprites === 'function') {
+                proto.ensureSprites = function (manifest) {
+                    if (window.__ultraLowSpecEnabled && manifest && typeof this.manifestsForPreload === 'function') {
+                        const allowed = this.manifestsForPreload();
+                        if (Array.isArray(allowed) && !allowed.some(m => m && m.id === manifest.id)) {
+                            return;
+                        }
+                    }
+                    return origEnsureSprites.apply(this, arguments);
+                };
+            }
+
+            const origMakeMonsterView = proto.makeMonsterView;
+            if (typeof origMakeMonsterView === 'function') {
+                proto.makeMonsterView = function () {
+                    if (!window.__ultraLowSpecEnabled) return origMakeMonsterView.apply(this, arguments);
+                    const tex = this.textures;
+                    const origExists = tex && tex.exists;
+                    if (tex && typeof origExists === 'function') {
+                        tex.exists = function (k) {
+                            if (typeof k === 'string' && (k.startsWith('monster:') || k.startsWith('mon:'))) return false;
+                            return origExists.apply(this, arguments);
+                        };
+                    }
+                    let res;
+                    try {
+                        res = origMakeMonsterView.apply(this, arguments);
+                    } finally {
+                        if (tex && origExists) tex.exists = origExists;
+                    }
+                    if (res) {
+                        if (res.shadow) { try { res.shadow.setVisible(false); res.shadow.setActive(false); } catch (e) {} }
+                        if (res.badge) { try { res.badge.setVisible(false); } catch (e) {} }
+                        if (res.badgeLevel) { try { res.badgeLevel.setVisible(false); } catch (e) {} }
+                        if (res.statusIcons) { try { res.statusIcons.setVisible(false); } catch (e) {} }
+                        res.killDelay = 0;
+                    }
+                    return res;
+                };
+            }
+
+            const origMonsterOffScreen = proto.monsterOffScreen;
+            if (typeof origMonsterOffScreen === 'function') {
+                proto.monsterOffScreen = function () {
+                    if (window.__ultraLowSpecEnabled) return true;
+                    return origMonsterOffScreen.apply(this, arguments);
+                };
+            }
+
+            const instantDestroyMonster = function (m) {
+                if (!m) return;
+                m.dying = true;
+                try { this.destroyOverhead(m); } catch (e) {}
+                try { m.shadow && m.shadow.destroy(); } catch (e) {}
+                try { m.body && m.body.destroy(); } catch (e) {}
+                try { m.anim && m.anim.sprite && m.anim.sprite.destroy(); } catch (e) {}
+                try { m.strip && m.strip.destroy(); } catch (e) {}
+            };
+
+            const origFadeOutMonster = proto.fadeOutMonster;
+            if (typeof origFadeOutMonster === 'function') {
+                proto.fadeOutMonster = function (m) {
+                    if (!window.__ultraLowSpecEnabled) return origFadeOutMonster.apply(this, arguments);
+                    return instantDestroyMonster.call(this, m);
+                };
+            }
+
+            const origPlayMonsterDeath = proto.playMonsterDeath;
+            if (typeof origPlayMonsterDeath === 'function') {
+                proto.playMonsterDeath = function (m) {
+                    if (!window.__ultraLowSpecEnabled) return origPlayMonsterDeath.apply(this, arguments);
+                    return instantDestroyMonster.call(this, m);
+                };
+            }
+
+            const origMakeNpcView = proto.makeNpcView;
+            if (typeof origMakeNpcView === 'function') {
+                proto.makeNpcView = function (id, x, y, name) {
+                    if (!window.__ultraLowSpecEnabled) return origMakeNpcView.apply(this, arguments);
+                    const res = origMakeNpcView.call(this, id, x, y, name, '', '', '');
+                    if (res && res.shadow) {
+                        try { res.shadow.setVisible(false); res.shadow.setActive(false); } catch (e) {}
+                    }
+                    return res;
+                };
+            }
+
+            const origMakePlayerView = proto.makePlayerView;
+            if (typeof origMakePlayerView === 'function') {
+                proto.makePlayerView = function () {
+                    const res = origMakePlayerView.apply(this, arguments);
+                    if (window.__ultraLowSpecEnabled && res) {
+                        if (res.shadow) {
+                            try { res.shadow.setVisible(false); res.shadow.setActive(false); } catch (e) {}
+                        }
+                        res.featherAt = Infinity;
+                        res.snowAt = Infinity;
+                    }
+                    return res;
+                };
+            }
+
+            const origUpdateCull = proto.updateCull;
+            if (typeof origUpdateCull === 'function') {
+                proto.updateCull = function (selfPlayer, now) {
+                    if (!window.__ultraLowSpecEnabled) return origUpdateCull.apply(this, arguments);
+                    this.cullAt = (now || 0) + 500;
+                    if (!selfPlayer || !this.players || !this.culled) return;
+                    this.players.forEach(p => {
+                        if (p !== selfPlayer && !this.culled.has(p)) {
+                            try { this.hidePlayerView(p); } catch (e) {}
+                        }
+                    });
+                };
+            }
+
+            const origMakeDropView = proto.makeDropView;
+            if (typeof origMakeDropView === 'function') {
+                proto.makeDropView = function () {
+                    const res = origMakeDropView.apply(this, arguments);
+                    if (window.__ultraLowSpecEnabled && res && res.shadow) {
+                        try { res.shadow.setVisible(false); res.shadow.setActive(false); } catch (e) {}
+                    }
+                    return res;
+                };
+            }
+
+            const origDropGlow = proto.dropGlow;
+            if (typeof origDropGlow === 'function') {
+                proto.dropGlow = function () {
+                    if (window.__ultraLowSpecEnabled) return [];
+                    return origDropGlow.apply(this, arguments);
+                };
+            }
+
+            const origMakeTrap = proto.makeTrap;
+            if (typeof origMakeTrap === 'function') {
+                proto.makeTrap = function (vfx, x, y) {
+                    if (window.__ultraLowSpecEnabled) {
+                        return this.atGround(this.add.circle(x, 0, 2, 0, 0).setVisible(false), y, 0, y - 3);
+                    }
+                    return origMakeTrap.apply(this, arguments);
+                };
+            }
+
+            const origMonsterSet = proto.monsterSet;
+            if (typeof origMonsterSet === 'function') {
+                proto.monsterSet = function () {
+                    if (window.__ultraLowSpecEnabled) return null;
+                    return origMonsterSet.apply(this, arguments);
+                };
+            }
+
+            const origMonsterAnims = proto.monsterAnims;
+            if (typeof origMonsterAnims === 'function') {
+                proto.monsterAnims = function () {
+                    if (window.__ultraLowSpecEnabled) return void 0;
+                    return origMonsterAnims.apply(this, arguments);
+                };
+            }
+
+            const origFxFor = proto.fxFor;
+            if (typeof origFxFor === 'function') {
+                proto.fxFor = function () {
+                    if (window.__ultraLowSpecEnabled) return false;
+                    return origFxFor.apply(this, arguments);
+                };
+            }
+
+            const origPaceOwnSwing = proto.paceOwnSwing;
+            if (typeof origPaceOwnSwing === 'function') {
+                proto.paceOwnSwing = function (hit) {
+                    if (window.__ultraLowSpecEnabled) {
+                        if (hit && !hit.onPlayer && hit.targetId && this.monsters) {
+                            const m = this.monsters.get(hit.targetId);
+                            if (m) m.killDelay = 0;
+                        }
+                        return;
+                    }
+                    return origPaceOwnSwing.apply(this, arguments);
+                };
+            }
+
+            for (const hitFnName of ['landSkillHit', 'landBreathHit']) {
+                const origHitFn = proto[hitFnName];
+                if (typeof origHitFn === 'function') {
+                    proto[hitFnName] = function (hit) {
+                        if (window.__ultraLowSpecEnabled) {
+                            if (hit && hit.targetId && this.monsters) {
+                                const m = this.monsters.get(hit.targetId);
+                                if (m) m.killDelay = 0;
+                            }
+                            return;
+                        }
+                        return origHitFn.apply(this, arguments);
+                    };
+                }
+            }
+
+            const NOOP_METHODS = [
+                'loadMonsterArtLater', 'loadMonsterStrips', 'giveMonsterArt', 'placeMonsterStrip',
+                'applyMonsterAnim', 'updateElementBadge', 'setStatusIcons', 'addMonsterLight',
+                'placeHat', 'placeMask', 'placeClones', 'placeCape', 'placeWeapon', 'makeFalcon',
+                'placeFalcon', 'placeAura', 'placeEmissive', 'placeLv99Aura', 'placePet',
+                'placeBerserk', 'placeLook', 'setGuildEmblem', 'setTitleTag', 'ensureCape',
+                'wingShards', 'hatFire', 'hatSparkle', 'landShadowHit', 'playSwordsmanFx',
+                'playAttack', 'playMonsterAttack', 'playMagicShot', 'playSkillPose',
+                'startCastPose', 'releaseCastPose', 'endCastPose', 'holdCastPose', 'chargeArch',
+                'playBuffStart', 'playBerserkStart', 'soundRings', 'shadowBolt',
+                'floatText', 'elementTag', 'expText', 'levelUpText', 'levelUpTextAt',
+                'showSkillShout', 'showBubble', 'bossShout', 'seasonNight', 'updateNight',
+                'eggHallBackdrop', 'drawWarp', 'clickMarker', 'updatePointerFx', 'drawTileCursor'
+            ];
+            for (const name of NOOP_METHODS) {
+                const origFn = proto[name];
+                if (typeof origFn === 'function') {
+                    proto[name] = function () {
+                        if (window.__ultraLowSpecEnabled) return;
+                        return origFn.apply(this, arguments);
+                    };
+                }
+            }
+        }
+
+        function applyUltraLowSpecNow() {
+            const game = findPhaserGame();
+            if (!game || !game.scene || !Array.isArray(game.scene.scenes)) return false;
+            const scene = game.scene.scenes[0];
+            if (!scene) return false;
+            patchScenePrototype(scene);
+            if (window.__ultraLowSpecEnabled) {
+                stripActiveScene(scene, game);
+            } else {
+                try {
+                    if (scene.monsters && typeof scene.uncullMonster === 'function') {
+                        scene.monsters.forEach(m => { try { scene.uncullMonster(m); } catch (e) {} });
+                    }
+                    scene.cullAt = 0;
+                } catch (e) {}
+            }
+            return true;
+        }
+        window.applyUltraLowSpecNow = applyUltraLowSpecNow;
+
+        window.setUltraLowSpecMode = function (enabled) {
+            window.__ultraLowSpecEnabled = !!enabled;
+            try { localStorage.setItem('pelican_ultra_low_spec', window.__ultraLowSpecEnabled ? 'true' : 'false'); } catch (e) {}
+            applyUltraLowSpecNow();
+            console.log(`%c[PmheeAether Power] ⚡ โหมดตัดกราฟิกขั้นสุด (Ultra-Low Spec): ${window.__ultraLowSpecEnabled ? 'เปิดใช้งาน (ตัดพื้นหลัง/มอนสเตอร์/เอฟเฟกต์/เงา)' : 'ปิดใช้งาน (จะแสดงผลปกติเมื่อย้ายแมพหรือโหลดใหม่)'}`, 'color: #38bdf8; font-weight: bold;');
+        };
+
+        window.setLowPowerMode = function (on) {
+            window.__pmForceLowPower = !!on;
+            if (window.__ultraLowSpecEnabled !== false) {
+                try { applyUltraLowSpecNow(); } catch (e) {}
+            }
+        };
+
+        // Poll lightly to attach to Phaser scene as soon as it initializes or recreates
+        let lastSceneRef = null;
+        setInterval(() => {
+            const game = findPhaserGame();
+            const scene = game && game.scene && Array.isArray(game.scene.scenes) ? game.scene.scenes[0] : null;
+            if (!scene) return;
+            patchScenePrototype(scene);
+            if (window.__ultraLowSpecEnabled && scene !== lastSceneRef && scene.players && scene.monsters) {
+                lastSceneRef = scene;
+                stripActiveScene(scene, game);
+            }
+        }, 1500);
     })();
 
     window.__gameSocket = null;
@@ -13430,18 +13948,13 @@
                     </div>
 
                     
-                    <div class="p-card" style="border-color: rgba(148, 163, 184, 0.35);">
-                        <span style="font-size: 10.5px; font-weight: bold; color: #e2e8f0;">🌙 ประหยัดทรัพยากรเครื่อง</span>
-                        <div class="p-row" style="margin-top: 4px;">
-                            <span style="font-size: 10px; color: #cbd5e1;">จำกัด FPS ตอนแสดงจอ:</span>
-                            <select id="p-fps-cap" class="p-select" style="width: 120px;">
-                                <option value="0">ไม่จำกัด (60)</option>
-                                <option value="30">30 fps</option>
-                                <option value="20">20 fps</option>
-                                <option value="10">10 fps (เบาสุด)</option>
-                            </select>
-                        </div>
-                        <div class="p-hint" style="font-size: 9px; color: #94a3b8;">ตอนซ่อนจอ/ย่อจอ บอทหยุดวาดภาพเกมและคืนหน่วยความจำการ์ดจอให้อัตโนมัติ (บอทยังฟาร์มปกติ) — FPS นี้ใช้ตอนที่จอแสดงอยู่ เช่น เปิดหลายจอพร้อมกัน</div>
+                    <div class="p-card" style="border-color: rgba(56, 189, 248, 0.45); background: rgba(15, 23, 42, 0.55);">
+                        <span style="font-size: 10.5px; font-weight: bold; color: #38bdf8;">⚡ ประหยัดทรัพยากรขั้นสุด (Ultra-Low Spec)</span>
+                        <label class="p-check-box" style="margin-top: 4px; color: #4ade80;">
+                            <input type="checkbox" id="p-ultra-low-spec" ${window.__ultraLowSpecEnabled !== false ? 'checked' : ''}>
+                            <b>ตัดกราฟิกหนักทั้งหมด (พื้นหลังแมพ/มอนสเตอร์/เอฟเฟกต์/เงา)</b>
+                        </label>
+                        <div class="p-hint" style="font-size: 9px; color: #94a3b8; margin-top: 2px;">ลดภาระ GPU/VRAM/CPU สูงสุดโดยไม่ล็อค rAF และไม่ตัด WebGL ตอนพับจอ/ซ่อนจอ (ป้องกัน Error การ์ดจอหยุดทำงานแล้วหยุดฟาร์ม)</div>
                     </div>
 
                     <div class="p-card" style="border-color: rgba(56, 189, 248, 0.35); background: rgba(56, 189, 248, 0.05);">
@@ -13665,12 +14178,13 @@
             };
         }
 
-        const fpsCapEl = document.getElementById('p-fps-cap');
-        if (fpsCapEl) {
-            try { fpsCapEl.value = String(Number(localStorage.getItem('pelican_fps_cap')) || 0); } catch (e) {}
-            fpsCapEl.onchange = (e) => {
-                try { localStorage.setItem('pelican_fps_cap', String(Number(e.target.value) || 0)); } catch (err) {}
-                console.log(`%c[PmheeAether Power] 🎞️ จำกัด FPS ตอนแสดงจอ: ${Number(e.target.value) || 'ไม่จำกัด'}`, 'color: #94a3b8;');
+        const ultraLowSpecEl = document.getElementById('p-ultra-low-spec');
+        if (ultraLowSpecEl) {
+            ultraLowSpecEl.checked = window.__ultraLowSpecEnabled !== false;
+            ultraLowSpecEl.onchange = (e) => {
+                if (typeof window.setUltraLowSpecMode === 'function') {
+                    window.setUltraLowSpecMode(e.target.checked);
+                }
             };
         }
 
@@ -16589,16 +17103,19 @@
     function writeOptimalGameSettingsToStorage() {
         let updated = false;
         try {
+            localStorage.removeItem('fx-used');
             const rawCam = localStorage.getItem('webgame.camera');
             const cam = rawCam ? JSON.parse(rawCam) : {};
             const desiredCam = {
                 render: 1,              // ความคมชัด: ลื่นสุด
-                maxPlayers: 10,         // ผู้เล่นอื่นที่แสดงบนจอ: 10 คน
+                maxPlayers: 1,          // ผู้เล่นอื่นที่แสดงบนจอ: น้อยสุด
                 effects: 'off',         // เอฟเฟกต์สกิลและการโจมตี: ปิด
-                fpsLimit: 30,           // เฟรมเรต: 30 FPS
+                fpsLimit: 30,           // เฟรมเรต: 30 FPS (ของตัวเกมเอง ไม่ใช่การดัก rAF)
                 ground: 'painted',      // พื้นแผนที่: ภาพวาด
                 hatBob: false,          // หมวกขยับตามจังหวะเดิน: ปิด
                 hatSparkle: false,      // ประกายวิบที่หมวก: ปิด
+                footAura: false,        // ออร่าใต้เท้า: ปิด
+                shake: false,           // สั่นจอ: ปิด
                 banners: false,         // แสดงประกาศบนจอ: ปิด
                 damageNumbers: 'off',   // ตัวเลขดาเมจ: ปิด
                 monsterHp: 'hit',       // แสดงหลอด HP มอนสเตอร์ทุกตัว: ปิด
