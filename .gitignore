@@ -49,3 +49,5 @@ manager/data/parties.json
 manager/data/parties.json.tmp
 manager/data/premium.json
 manager/data/premium.json.tmp
+manager/data/bandwidth_stats.json
+manager/data/bandwidth_stats.json.tmp
