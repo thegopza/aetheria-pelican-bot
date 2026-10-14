@@ -143,6 +143,13 @@ function makeWorld(chars) {
       return { success: true, result: { success: ok, channel: c.channel, error: ok ? null : 'CH full' } };
     }
     if (code.includes('findLeastPopulatedChannel()')) return { success: true, result: { success: true, channel: world.least } };
+    const fm = code.match(/handlers\.emit\('party_follow',\s*(\{.*?\})\)/);
+    if (fm && !code.includes(".follow-chip button")) {
+      const payload = JSON.parse(fm[1]);
+      c.follow = payload.name || null;
+      world.followed = (world.followed || []).concat([[c.name, c.follow]]);
+      return { success: true, result: { success: true } };
+    }
     if (code.includes(".follow-chip button")) {
       if (!c.follow) return { success: true, result: { success: false, error: 'no-follow' } };
       world.unfollowed = (world.unfollowed || []).concat(c.name); c.follow = null;
@@ -310,5 +317,56 @@ test('tick: dynamically drops long-offline member, kicks in-game ghost, and auto
   assert.ok(!world.parties['LeaderFixed'].members.includes('DropOffline'), 'offline ghost must be kicked from in-game party');
   assert.ok(world.parties['LeaderFixed'].members.includes('NewSubstitute'), 'substitute client must join in-game party');
 });
+
+test('manual add-member and per-member followModes (none, leader, member:<id>)', async () => {
+  const chars = {
+    L: { name: 'black21k', level: 99, channel: 13, mapId: 'lava', port: 7000 },
+    M1: { name: 'ยักใหญ่', level: 99, channel: 13, mapId: 'lava', port: 7001 },
+    M2: { name: 'kirako', level: 99, channel: 13, mapId: 'lava', port: 7002 },
+    M3: { name: 'Queen22k', level: 99, channel: 13, mapId: 'lava', port: 7003 }
+  };
+  const { svc, world } = service(chars, { unfollowCooldownMs: 0, followCooldownMs: 0, dropOfflineAfterMs: 10 });
+  await post(svc, '/api/parties', { leaderId: 'L', memberIds: ['M1'], autoFill: false });
+  await new Promise(r => setTimeout(r, 50));
+  await svc.tick();
+  const pid = svc._parties()[0].id;
+  assert.deepStrictEqual(svc._parties()[0].memberIds, ['M1']);
+
+  // Manually add M2 and M3
+  const add1 = await post(svc, '/api/parties/' + pid + '/add-member', { profileId: 'M2' });
+  assert.strictEqual(add1.added, 1);
+  const add2 = await post(svc, '/api/parties/' + pid + '/add-member', { profileId: 'M3', followMode: 'leader' });
+  assert.strictEqual(add2.added, 1);
+  await new Promise(r => setTimeout(r, 80));
+  await svc.tick();
+  await svc.tick();
+  assert.deepStrictEqual(svc._parties()[0].memberIds, ['M1', 'M2', 'M3']);
+  assert.ok(world.parties['black21k'].members.includes('kirako'));
+  assert.ok(world.parties['black21k'].members.includes('Queen22k'));
+  assert.strictEqual(chars.M3.follow, 'black21k', 'M3 should follow leader black21k');
+
+  // Set M2 to follow M1 (ยักใหญ่)
+  await post(svc, '/api/parties/' + pid + '/settings', { memberFollow: { profileId: 'M2', mode: 'member:M1' } });
+  assert.strictEqual(chars.M2.follow, 'ยักใหญ่', 'M2 should immediately follow M1 (ยักใหญ่)');
+
+  // Next tick keeps M2 following ยักใหญ่ and M3 following black21k, while M1 (mode none) stays unfollowed
+  chars.M1.follow = 'black21k'; // e.g. from summon
+  await svc.tick();
+  assert.strictEqual(chars.M1.follow, null, 'M1 with mode=none has follow cancelled');
+  assert.strictEqual(chars.M2.follow, 'ยักใหญ่', 'M2 keeps following ยักใหญ่');
+  assert.strictEqual(chars.M3.follow, 'black21k', 'M3 keeps following leader');
+
+  // Switch M3 back to independent farming ('none')
+  await post(svc, '/api/parties/' + pid + '/settings', { memberFollow: { profileId: 'M3', mode: 'none' } });
+  assert.strictEqual(chars.M3.follow, null, 'M3 stops following immediately when switched to none');
+
+  // When autoFill is false, an offline member is NOT dropped from memberIds
+  delete chars.M3;
+  await svc.tick();
+  await new Promise(r => setTimeout(r, 25));
+  await svc.tick();
+  assert.ok(svc._parties()[0].memberIds.includes('M3'), 'manual member M3 is kept even when offline if autoFill is false');
+});
+
 
 
