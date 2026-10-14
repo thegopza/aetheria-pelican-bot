@@ -518,10 +518,69 @@ const LIVE_STATE_EVAL = `(() => {
       };
     } else {
       s.humanCheck = null;
+      if (window.__lastHumanCheckSolved && Date.now() - (window.__lastHumanCheckSolved.timestamp || 0) < 30000) {
+        window.__lastHumanCheckSolved.verified = 'correct';
+        window.__lastHumanCheckSolved.isCorrect = true;
+      }
     }
-    s.humanCheckWrongAttempts = (Array.isArray(window.__pmWrongHumanCheckQueue) && window.__pmWrongHumanCheckQueue.length)
-      ? window.__pmWrongHumanCheckQueue.splice(0, 10)
-      : null;
+    if (hc && window.__lastHumanCheckSolved) {
+      const sLast = window.__lastHumanCheckSolved;
+      const elapsedS = Date.now() - (sLast.timestamp || 0);
+      const curMetaS = (hc.querySelector('.human-check-meta')?.innerText || '').trim();
+      const curTriesMatchS = curMetaS.match(/ตอบผิดได้อีก\s*(\d+)/);
+      const curTriesS = curTriesMatchS ? Number(curTriesMatchS[1]) : null;
+      const triesBeforeS = sLast.triesLeftBefore ?? 1;
+      if (curTriesS != null && curTriesS >= triesBeforeS && elapsedS < 5800) {
+        if (sLast.verified === 'wrong') {
+          sLast.verified = null;
+          delete sLast.isCorrect;
+        }
+        if (!sLast.retriedLagSend && elapsedS >= 2200) {
+          sLast.retriedLagSend = true;
+          try {
+            const pkt = window.__latestHumanCheck;
+            const room = (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null)
+              || (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null)
+              || window.__colyseusRoom || window.__gameRoom || null;
+            if (room && typeof room.send === 'function' && pkt && pkt.id != null && typeof sLast.x === 'number' && typeof sLast.y === 'number') {
+              room.send('human_check_answer', { id: pkt.id, x: sLast.x, y: sLast.y });
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    if (Array.isArray(window.__pmWrongHumanCheckQueue) && window.__pmWrongHumanCheckQueue.length) {
+      const confirmedWrong = [];
+      const stillPending = [];
+      const curMeta = hc ? ((hc.querySelector('.human-check-meta')?.innerText || '').trim()) : '';
+      const curTriesMatch = curMeta.match(/ตอบผิดได้อีก\s*(\d+)/);
+      const curTriesLeft = curTriesMatch ? Number(curTriesMatch[1]) : null;
+      for (const att of window.__pmWrongHumanCheckQueue) {
+        if (!att) continue;
+        if (!hc) {
+          if (window.__lastHumanCheckSolved && window.__lastHumanCheckSolved.timestamp === att.timestamp) {
+            window.__lastHumanCheckSolved.verified = 'correct';
+            window.__lastHumanCheckSolved.isCorrect = true;
+          }
+          continue;
+        }
+        const elapsed = Date.now() - (att.timestamp || 0);
+        const triesBefore = att.triesLeftBefore ?? 1;
+        const triesNow = curTriesLeft ?? att.triesLeftAfter ?? null;
+        const triesDropped = (triesNow != null && triesBefore != null && triesNow < triesBefore);
+        if (triesDropped && elapsed >= 1200) {
+          att.triesLeftAfter = triesNow;
+          if (curMeta) att.metaText = curMeta;
+          confirmedWrong.push(att);
+        } else if (elapsed < 5800) {
+          stillPending.push(att);
+        }
+      }
+      window.__pmWrongHumanCheckQueue = stillPending;
+      s.humanCheckWrongAttempts = confirmedWrong.length ? confirmedWrong : null;
+    } else {
+      s.humanCheckWrongAttempts = null;
+    }
   } catch (e) {}
   try {
     if (window.__unexpectedTownWaiting) {

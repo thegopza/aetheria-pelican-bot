@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.39.0
+// @version      4.39.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.39.0';
+    const PELICAN_BOT_VERSION = '4.39.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1935,68 +1935,90 @@
                 lastSolved.verified = 'correct';
                 lastSolved.isCorrect = true;
             } else {
-                lastSolved.verified = 'wrong';
-                lastSolved.isCorrect = false;
-                try {
-                    const metaEl = hc.querySelector('.human-check-meta');
-                    const metaText = (metaEl && typeof metaEl.innerText === 'string') ? metaEl.innerText.trim() : '';
-                    const triesMatch = metaText.match(/ตอบผิดได้อีก\s*(\d+)/);
-                    const triesLeftAfter = triesMatch ? Number(triesMatch[1]) : null;
-                    let imageDataUrl = lastSolved.rawSrc || null;
-                    const boardImg = hc.querySelector('.human-check-board img');
-                    if (boardImg && boardImg.complete && boardImg.naturalWidth > 0 && typeof document?.createElement === 'function') {
+                const elapsed = Date.now() - (lastSolved.timestamp || 0);
+                const metaEl = hc.querySelector('.human-check-meta');
+                const metaText = (metaEl && typeof metaEl.innerText === 'string') ? metaEl.innerText.trim() : '';
+                const triesMatch = metaText.match(/ตอบผิดได้อีก\s*(\d+)/);
+                const triesLeftAfter = triesMatch ? Number(triesMatch[1]) : null;
+                const triesBefore = lastSolved.triesLeftBefore ?? 1;
+                const triesDropped = (triesLeftAfter != null && triesBefore != null && triesLeftAfter < triesBefore);
+
+                // If triesLeft has NOT decreased yet (still "ตอบผิดได้อีก 1 ครั้ง"), the game/server is lagging!
+                // Wait up to 5.8s and re-send the answer packet once at ~2.2s in case lag dropped the first click.
+                if (!triesDropped && elapsed < 5800) {
+                    if (!lastSolved.retriedLagSend && elapsed >= 2200) {
+                        lastSolved.retriedLagSend = true;
                         try {
-                            const bw = 480, bh = 330, stripH = 38;
-                            const bCanvas = document.createElement('canvas');
-                            bCanvas.width = bw;
-                            bCanvas.height = bh + stripH;
-                            const bCtx = bCanvas.getContext('2d');
-                            if (bCtx) {
-                                bCtx.fillStyle = '#0f172a';
-                                bCtx.fillRect(0, 0, bw, bh + stripH);
-                                bCtx.drawImage(boardImg, 0, 0, bw, bh);
-                                const colCenters = [68, 181, 300, 416];
-                                for (let i = 0; i < 4; i++) {
-                                    const cx = colCenters[i];
-                                    const bx = cx - 44, by = bh + 5;
-                                    bCtx.fillStyle = (lastSolved.slot === i + 1) ? '#991b1b' : '#1e293b';
-                                    bCtx.strokeStyle = (lastSolved.slot === i + 1) ? '#ef4444' : '#38bdf8';
-                                    bCtx.lineWidth = 1.5;
-                                    bCtx.beginPath();
-                                    if (bCtx.roundRect) bCtx.roundRect(bx, by, 88, 28, 6); else bCtx.rect(bx, by, 88, 28);
-                                    bCtx.fill();
-                                    bCtx.stroke();
-                                    bCtx.fillStyle = '#f8fafc';
-                                    bCtx.font = 'bold 13px "Segoe UI", Tahoma, sans-serif';
-                                    bCtx.textAlign = 'center';
-                                    bCtx.fillText('ตัวเลือก ' + (i + 1), cx, by + 19);
-                                }
-                                imageDataUrl = bCanvas.toDataURL('image/png');
+                            const pkt = window.__latestHumanCheck;
+                            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
+                            if (room && typeof room.send === 'function' && pkt && pkt.id != null && typeof lastSolved.x === 'number' && typeof lastSolved.y === 'number') {
+                                room.send('human_check_answer', { id: pkt.id, x: lastSolved.x, y: lastSolved.y });
                             }
                         } catch (_) {}
                     }
-                    if (!Array.isArray(window.__pmWrongHumanCheckQueue)) window.__pmWrongHumanCheckQueue = [];
-                    if (window.__pmWrongHumanCheckQueue.length < 20) {
-                        window.__pmWrongHumanCheckQueue.push({
-                            timestamp: lastSolved.timestamp,
-                            checkId: lastSolved.checkId || null,
-                            prompt: lastSolved.prompt || '',
-                            pickIndex: lastSolved.pickIndex,
-                            slot: lastSolved.slot || (Number.isInteger(lastSolved.pickIndex) && lastSolved.pickIndex >= 0 ? lastSolved.pickIndex + 1 : null),
-                            x: lastSolved.x ?? null,
-                            y: lastSolved.y ?? null,
-                            confidence: lastSolved.confidence ?? null,
-                            matchedName: lastSolved.matchedName || '',
-                            source: lastSolved.source || 'embedded-local-catalog',
-                            manual: Boolean(lastSolved.manual),
-                            answeredBy: lastSolved.answeredBy || null,
-                            triesLeftBefore: lastSolved.triesLeftBefore ?? null,
-                            triesLeftAfter,
-                            metaText,
-                            imageDataUrl
-                        });
-                    }
-                } catch (_) {}
+                } else if (triesDropped || (triesLeftAfter == null && elapsed >= 5800)) {
+                    lastSolved.verified = 'wrong';
+                    lastSolved.isCorrect = false;
+                    try {
+                        let imageDataUrl = lastSolved.rawSrc || null;
+                        const boardImg = hc.querySelector('.human-check-board img');
+                        if (boardImg && boardImg.complete && boardImg.naturalWidth > 0 && typeof document?.createElement === 'function') {
+                            try {
+                                const bw = 480, bh = 330, stripH = 38;
+                                const bCanvas = document.createElement('canvas');
+                                bCanvas.width = bw;
+                                bCanvas.height = bh + stripH;
+                                const bCtx = bCanvas.getContext('2d');
+                                if (bCtx) {
+                                    bCtx.fillStyle = '#0f172a';
+                                    bCtx.fillRect(0, 0, bw, bh + stripH);
+                                    bCtx.drawImage(boardImg, 0, 0, bw, bh);
+                                    const colCenters = [68, 181, 300, 416];
+                                    for (let i = 0; i < 4; i++) {
+                                        const cx = colCenters[i];
+                                        const bx = cx - 44, by = bh + 5;
+                                        bCtx.fillStyle = (lastSolved.slot === i + 1) ? '#991b1b' : '#1e293b';
+                                        bCtx.strokeStyle = (lastSolved.slot === i + 1) ? '#ef4444' : '#38bdf8';
+                                        bCtx.lineWidth = 1.5;
+                                        bCtx.beginPath();
+                                        if (bCtx.roundRect) bCtx.roundRect(bx, by, 88, 28, 6); else bCtx.rect(bx, by, 88, 28);
+                                        bCtx.fill();
+                                        bCtx.stroke();
+                                        bCtx.fillStyle = '#f8fafc';
+                                        bCtx.font = 'bold 13px "Segoe UI", Tahoma, sans-serif';
+                                        bCtx.textAlign = 'center';
+                                        bCtx.fillText('ตัวเลือก ' + (i + 1), cx, by + 19);
+                                    }
+                                    imageDataUrl = bCanvas.toDataURL('image/png');
+                                }
+                            } catch (_) {}
+                        }
+                        if (!Array.isArray(window.__pmWrongHumanCheckQueue)) window.__pmWrongHumanCheckQueue = [];
+                        if (window.__pmWrongHumanCheckQueue.length < 20) {
+                            window.__pmWrongHumanCheckQueue.push({
+                                timestamp: lastSolved.timestamp,
+                                checkId: lastSolved.checkId || null,
+                                prompt: lastSolved.prompt || '',
+                                pickIndex: lastSolved.pickIndex,
+                                slot: lastSolved.slot || (Number.isInteger(lastSolved.pickIndex) && lastSolved.pickIndex >= 0 ? lastSolved.pickIndex + 1 : null),
+                                x: lastSolved.x ?? null,
+                                y: lastSolved.y ?? null,
+                                confidence: lastSolved.confidence ?? null,
+                                matchedName: lastSolved.matchedName || '',
+                                source: lastSolved.source || 'embedded-local-catalog',
+                                manual: Boolean(lastSolved.manual),
+                                answeredBy: lastSolved.answeredBy || null,
+                                triesLeftBefore,
+                                triesLeftAfter,
+                                metaText,
+                                imageDataUrl
+                            });
+                        }
+                    } catch (_) {}
+                } else {
+                    // triesLeft is still >= triesBefore after 5.8s -> click never registered, don't report as wrong answer
+                    lastSolved.verified = 'unconfirmed';
+                }
             }
         }
         tickEmbeddedHumanCheck();
@@ -17103,12 +17125,12 @@
     function writeOptimalGameSettingsToStorage() {
         let updated = false;
         try {
-            localStorage.removeItem('fx-used');
+            if (typeof localStorage.removeItem === 'function') localStorage.removeItem('fx-used');
             const rawCam = localStorage.getItem('webgame.camera');
             const cam = rawCam ? JSON.parse(rawCam) : {};
             const desiredCam = {
                 render: 1,              // ความคมชัด: ลื่นสุด
-                maxPlayers: 1,          // ผู้เล่นอื่นที่แสดงบนจอ: น้อยสุด
+                maxPlayers: 10,         // ผู้เล่นอื่นที่แสดงบนจอ: 10 คน (น้อยสุดของเมนูตั้งค่า)
                 effects: 'off',         // เอฟเฟกต์สกิลและการโจมตี: ปิด
                 fpsLimit: 30,           // เฟรมเรต: 30 FPS (ของตัวเกมเอง ไม่ใช่การดัก rAF)
                 ground: 'painted',      // พื้นแผนที่: ภาพวาด
