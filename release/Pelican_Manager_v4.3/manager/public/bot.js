@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.7
+// @version      4.38.8
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.7';
+    const PELICAN_BOT_VERSION = '4.38.8';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -15976,6 +15976,41 @@
         });
         save();
 
+        // Sweep pending triggers: give up on equip_item after 30 minutes or when superseded by an active Gear Set / later completed trigger
+        const gp = plan.gearPlan;
+        const gpSteps = (gp && Array.isArray(gp.steps)) ? gp.steps : [];
+        const gpActive = gpSteps.length > 0 && planClassLineage(lv.cls).includes(String(gp.startClass || 'novice').toLowerCase());
+        const curEq = ((typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {}).equipment || {};
+        const gpWornAny = gpActive && gpSteps.some(gs => gs && gs.kind === 'equip' && gearWorn(gs, curEq, gpSteps));
+        let swept = false;
+        for (const [pid, pe] of Object.entries(st.pending)) {
+            const pTrig = plan.triggers.find((t, i) => planTriggerId(t, i) === pid);
+            if (!pTrig || !pe || !Array.isArray(pe.actions)) continue;
+            const timedOut30m = pe.firstAt && (Date.now() - pe.firstAt > 30 * 60 * 1000);
+            const laterBaseDone = pTrig.type === 'base_level' && plan.triggers.some((t2, j) => t2 && t2.type === 'base_level' && (Number(t2.targetLevel) || 0) > (Number(pTrig.targetLevel) || 0) && st.done[planTriggerId(t2, j)]);
+            const filtered = pe.actions.filter(ai => {
+                const a = (pTrig.actions || [])[ai];
+                if (!a) return false;
+                if (a.type === 'equip_item') {
+                    if (timedOut30m || gpWornAny || (laterBaseDone && lv.base >= (Number(pTrig.targetLevel) || 0) + 15)) {
+                        console.log(`%c[PmheeAether Plan] ⏭️ ข้ามการใส่ "${a.itemName}" ของเงื่อนไข Lv.${pe.level} (ใส่เซ็ตอุปกรณ์/ผ่านระดับนี้ไปแล้ว หรือเกิน 30 นาที)`, 'color: #94a3b8;');
+                        return false;
+                    }
+                }
+                return true;
+            });
+            if (filtered.length !== pe.actions.length) {
+                swept = true;
+                if (!filtered.length) {
+                    delete st.pending[pid];
+                    st.done[pid] = Date.now();
+                } else {
+                    pe.actions = filtered;
+                }
+            }
+        }
+        if (swept) save();
+
         // 2. Run pending actions (one trigger per cycle), unless the bot is busy with something that must not be interrupted
         const busy = planBusyReason();
         if (busy) return;
@@ -15990,9 +16025,6 @@
             const p = st.pending[nextId];
             // Run in the order the player placed them (e.g. change class first, then equip the bow):
             // the first action that isn't finished yet holds back the ones after it
-            // A class change that isn't done yet holds back the actions after it (e.g. equip the new class's
-            // bow). Anything else that has to wait (an item to buy when there is money) waits on its own
-            // and is retried until it works — it is never dropped.
             const remaining = [];
             let blocker = null;
             let quickRetry = false;

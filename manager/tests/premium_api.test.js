@@ -125,6 +125,23 @@ test('READ_JS: plan gate needs every trigger passed (levels, zeny) and nothing p
   r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
   assert.deepStrictEqual(r.plan.blocked, ['Base 40 (ยังทำไม่เสร็จ)']);
 
+  // Stale equip_item pending on Base 40 when character is Lv.99 or gearPlan is active → auto-completed and not blocked
+  const planWithEquip = {
+    id: 'plan_bard', name: 'แผน Bard 1-99', class1Target: 'archer', class2Target: 'bard',
+    gearPlan: { enabled: true, slots: { 'main-hand': [{ itemName: 'Guitar', minLevel: 27 }, { itemName: 'Midnight Nocturne', minLevel: 70 }] } },
+    triggers: [
+      { id: 't40', type: 'base_level', targetLevel: 40, actions: [{ type: 'change_map' }, { type: 'equip_item', itemName: 'Guitar' }] },
+      { id: 't60', type: 'base_level', targetLevel: 60, actions: [{ type: 'change_map' }] }
+    ]
+  };
+  pg = fakePage({
+    level: 99, job: 50, cls: 'bard',
+    storage: { pelican_plan_state_A_plan_bard: JSON.stringify({ done: { t60: { at: 1000, level: 60 } }, pending: { t40: { firstAt: 1000, level: 40, actions: [1] } } }) },
+    win: { __planScriptEnabled: true, __currentScriptPlan: planWithEquip }
+  });
+  r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
+  assert.deepStrictEqual(r.plan.blocked, []);
+
   pg = fakePage({ win: { __planScriptEnabled: false, __currentScriptPlan: PLAN } });
   r = JSON.parse(JSON.stringify(await pg.run(READ_JS)));
   assert.strictEqual(r.plan, null);

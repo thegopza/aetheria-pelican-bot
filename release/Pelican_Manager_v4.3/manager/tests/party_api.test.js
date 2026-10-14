@@ -280,3 +280,35 @@ test('tick: kicks offline unassigned members from 6/6 in-game party so new membe
   assert.ok(world.parties['G4YSuuuuu'].members.includes('SuuuG4y'), 'should invite and accept SuuuG4y after freeing slots');
 });
 
+test('tick: dynamically drops long-offline member, kicks in-game ghost, and auto-fills with available online client while keeping leader fixed', async () => {
+  const chars = {
+    L: { name: 'LeaderFixed', level: 85, channel: 1, mapId: 'm1', port: 6000 },
+    M1: { name: 'Stay1', level: 84, channel: 1, mapId: 'm1', port: 6001 },
+    M2: { name: 'Stay2', level: 84, channel: 1, mapId: 'm1', port: 6002 },
+    M3: { name: 'Stay3', level: 84, channel: 1, mapId: 'm1', port: 6003 },
+    M4: { name: 'Stay4', level: 84, channel: 1, mapId: 'm1', port: 6004 },
+    M5: { name: 'DropOffline', level: 84, channel: 1, mapId: 'm1', port: 6005 },
+    FREE: { name: 'NewSubstitute', level: 83, channel: 1, mapId: 'm1', port: 6006 }
+  };
+  const { svc, world } = service(chars, { dropOfflineAfterMs: 10 });
+  await post(svc, '/api/parties', { leaderId: 'L', memberIds: ['M1', 'M2', 'M3', 'M4', 'M5'], autoFill: true });
+  await new Promise(r => setTimeout(r, 50));
+  await svc.tick();
+  assert.strictEqual(world.parties['LeaderFixed'].members.length, 6);
+  assert.ok(world.parties['LeaderFixed'].members.includes('DropOffline'));
+
+  // Simulate M5 disconnecting/going offline
+  delete chars.M5;
+  await svc.tick(); // marks offlineAt
+  await new Promise(r => setTimeout(r, 25));
+  await svc.tick(); // drops M5, kicks DropOffline ghost, auto-fills FREE, invites + accepts NewSubstitute
+
+  const p = svc._parties()[0];
+  assert.strictEqual(p.leaderId, 'L', 'leader must remain fixed');
+  assert.ok(!p.memberIds.includes('M5'), 'offline member M5 must be dropped from memberIds');
+  assert.ok(p.memberIds.includes('FREE'), 'available online client FREE must be auto-filled');
+  assert.ok(!world.parties['LeaderFixed'].members.includes('DropOffline'), 'offline ghost must be kicked from in-game party');
+  assert.ok(world.parties['LeaderFixed'].members.includes('NewSubstitute'), 'substitute client must join in-game party');
+});
+
+
