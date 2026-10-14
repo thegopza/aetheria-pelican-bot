@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.39.3
+// @version      4.39.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.39.3';
+    const PELICAN_BOT_VERSION = '4.39.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -868,8 +868,9 @@
         const root = document.querySelector('#root');
         let fiber = root ? root[Object.keys(root).find(k => k.startsWith('__reactContainer'))] : null;
         let room = null;
+        let visited = 0;
         function walk(n, depth = 0) {
-            if (!n || depth > 50 || room) return;
+            if (!n || depth > 50 || room || ++visited > 400) return;
             if (n.memoizedProps?.room) room = n.memoizedProps.room;
             if (n.child) walk(n.child, depth + 1);
             if (n.sibling) walk(n.sibling, depth + 1);
@@ -926,34 +927,6 @@
                         } catch (_) {}
                     }
                 });
-                room.onMessage('character', (charDec) => {
-                    if (typeof window.applyLiveCharacterPacket === 'function') {
-                        window.applyLiveCharacterPacket(charDec, true);
-                    }
-                });
-                room.onMessage('inventory', (invDec) => {
-                    if (typeof window.applyLiveInventoryPacket === 'function') {
-                        window.applyLiveInventoryPacket(invDec, false);
-                    }
-                });
-                room.onMessage('skill_catalog', (catDec) => {
-                    if (catDec && typeof catDec === 'object') {
-                        window.__skillCatalog = catDec;
-                        if (window.__planScriptEnabled && window.__currentScriptPlan) {
-                            setTimeout(() => {
-                                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat();
-                            }, 300);
-                        }
-                    }
-                });
-                room.onMessage('market_results', (marketDec) => {
-                    if (marketDec && Array.isArray(marketDec.listings) && typeof window.handleIncomingMarketResults === 'function') {
-                        window.handleIncomingMarketResults(marketDec);
-                    }
-                });
-            }
-            if (typeof window.syncLiveCharacterAndInventory === 'function') {
-                window.syncLiveCharacterAndInventory();
             }
         } catch (e) {}
     }
@@ -3040,6 +3013,20 @@
                 }
                 scanInv(window.__latestInventory);
 
+                try {
+                    const ch = window.__latestCharacterData;
+                    if (ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
+                        const eqQty = Number(ch.ammo.qty) || 0;
+                        if (isTargetArrow(ch.ammo, targetArrowId)) {
+                            foundAny = true;
+                            totalAmmo += eqQty;
+                        } else if (!foundAny) {
+                            foundAny = true;
+                            totalAmmo = eqQty;
+                        }
+                    }
+                } catch (e) {}
+
                 if (foundAny) {
                     if (window.__currentAmmo !== totalAmmo) {
                         window.__currentAmmo = totalAmmo;
@@ -3048,7 +3035,7 @@
                     }
                     return totalAmmo;
                 } else if (window.__latestInventory.items && Array.isArray(window.__latestInventory.items)) {
-                    // ถ้ามี payload กระเป๋าจริงสมบูรณ์แล้วแต่ไม่มีลูกธนูชนิดที่เลือกเลย -> 0 ดอก
+                    // ถ้ามี payload กระเป๋าจริงสมบูรณ์แล้วและในช่องสวมใส่ก็ไม่มีลูกธนู -> 0 ดอก
                     if (window.__currentAmmo !== 0) {
                         window.__currentAmmo = 0;
                         localStorage.setItem('pelican_current_ammo', 0);
@@ -6192,12 +6179,18 @@
 
         inspectObject(dec);
 
-        // Also check equipped ammo on character if bag count is 0
+        // Also include equipped ammo on character (sum if matching targetArrowId, or use equipped qty if bag count is 0)
         try {
             const ch = window.__latestCharacterData;
-            if (!foundAny && ch && ch.ammo && Number(ch.ammo.itemId) === targetArrowId && (Number(ch.ammo.qty) || 0) > 0) {
-                foundAny = true;
-                totalAmmo = Number(ch.ammo.qty) || 0;
+            if (ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
+                const eqQty = Number(ch.ammo.qty) || 0;
+                if (typeof isTargetArrow === 'function' && isTargetArrow(ch.ammo, targetArrowId)) {
+                    foundAny = true;
+                    totalAmmo += eqQty;
+                } else if (!foundAny) {
+                    foundAny = true;
+                    totalAmmo = eqQty;
+                }
             }
         } catch(e) {}
 
@@ -6823,6 +6816,7 @@
 
         // 4. รีเซ็ตสถานะการทำงาน
         window.__isNavigating = false;
+        window.__navWalkOnly = false;
         window.__isShopping = false;
         window.__isRecovering = false;
         window.__isWalkingToMap = false;
@@ -7502,20 +7496,33 @@
 
     // Nothing in the ammo slot but arrows in the bag (e.g. 996 Fire Arrows while the config says normal Arrow,
     // or a job change took them off): put them on instead of going to town to buy. The configured type first,
-    // else the biggest stack. Returns true while it handled it (sent / waiting for the game).
+    // else the biggest stack. Returns true only on the tick it actually sends the equip packet.
     let lastAnyArrowEquipAt = 0;
+    const anyArrowSlotFails = {};
     window.equipAnyArrowFromBag = function () {
-        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
-        if (ch.ammo && (ch.ammo.qty || 0) > 0) return false;
-        const items = ((window.__latestInventory && window.__latestInventory.items) || []).filter(it => it && (it.equipType === 'Ammo' || it.ammoType) && typeof it.slot === 'number');
+        if (Date.now() - lastAnyArrowEquipAt < 10000) return false;
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData;
+        if (!ch || (!ch.classId && !ch.name && !ch.equipment)) return false;
+        if (ch.ammo && (Number(ch.ammo.qty) || 0) > 0) return false;
+        if (typeof window.getLiveInventoryData === 'function') {
+            try { window.getLiveInventoryData(); } catch (e) {}
+        }
+        const items = ((window.__latestInventory && window.__latestInventory.items) || []).filter(it => {
+            if (!it || typeof it.slot !== 'number' || (Number(it.qty) || 0) <= 0) return false;
+            const isArrowItem = it.equipType === 'Ammo' || it.ammoType || (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[Number(it.itemId)]) || /arrow|ลูกธนู/i.test(String(it.name || ''));
+            if (!isArrowItem) return false;
+            const key = `${it.slot}:${it.itemId}:${it.qty}`;
+            return (anyArrowSlotFails[key] || 0) < 2;
+        });
         if (!items.length) return false;
-        if (Date.now() - lastAnyArrowEquipAt < 10000) return true;
         const want = Number(window.__archerConfig && window.__archerConfig.arrowType) || 90030;
         const pick = items.find(it => Number(it.itemId) === want) || items.slice().sort((a, b) => (b.qty || 0) - (a.qty || 0))[0];
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (!room) return false;
+        const slotKey = `${pick.slot}:${pick.itemId}:${pick.qty}`;
+        anyArrowSlotFails[slotKey] = (anyArrowSlotFails[slotKey] || 0) + 1;
         lastAnyArrowEquipAt = Date.now();
-        console.log(`%c[PmheeAether Ammo] 🏹 ยังไม่ได้ใส่ลูกธนู แต่มี "${pick.name}" x${pick.qty} ในกระเป๋า -> สวมใส่เลย (ไม่ต้องกลับไปซื้อ)`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Ammo] 🏹 ยังไม่ได้ใส่ลูกธนู แต่มี "${pick.name}" x${pick.qty} ในกระเป๋า (slot ${pick.slot}) -> สวมใส่เลย (ไม่ต้องกลับไปซื้อ)`, 'color: #22c55e; font-weight: bold;');
         room.send('equip', { slot: pick.slot });
         return true;
     };
@@ -9858,6 +9865,7 @@
             console.log(`[PmheeAether] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
             window.startBot();
             window.__isNavigating = false;
+            window.__navWalkOnly = false;
             window.__isRecovering = false;
             return;
         }
@@ -9939,6 +9947,7 @@
                     // Give up this attempt but free the travel state, so the watchdog starts a fresh one
                     console.warn(`[PmheeAether] ⚠️ เปิดแผนที่ไม่สำเร็จ — ยกเลิกรอบนี้ ระบบจะลองเดินทางใหม่`);
                     window.__isNavigating = false;
+                    window.__navWalkOnly = false;
                     window.__isRecovering = false;
                 }
                 return;
@@ -9981,6 +9990,7 @@
                         if (!navClicked && saveWarp && navLive()) {
                             console.warn('[PmheeAether] ⚠️ ไม่พบปุ่ม "เดินไปที่นี่" ในแผนที่ — ยกเลิกรอบนี้ ระบบจะลองเดินทางใหม่');
                             window.__isNavigating = false;
+                            window.__navWalkOnly = false;
                             if (isWorldMapOpen()) dispatchKeyAll('m', 'KeyM', 77);
                         }
                     }
@@ -10007,6 +10017,7 @@
                 }
                 if (!clickWalkButton()) {
                     window.__isNavigating = false;
+                    window.__navWalkOnly = false;
                     window.__isRecovering = false;
                 }
             }
@@ -10035,12 +10046,14 @@
             if (!window.__isBotRunning && !window.__isNavigating) {
                 stopArrivalWatcher();
                 window.__isNavigating = false;
+                window.__navWalkOnly = false;
                 return;
             }
 
             if (typeof isCharacterDead === 'function' && isCharacterDead()) {
                 stopArrivalWatcher();
                 window.__isNavigating = false;
+                window.__navWalkOnly = false;
                 return;
             }
 
@@ -10061,6 +10074,7 @@
                         }
                     }
                     window.__isNavigating = false;
+                    window.__navWalkOnly = false;
                     window.__isRecovering = false;
                 }, 1500);
             }
@@ -10072,6 +10086,7 @@
                 stopArrivalWatcher();
                 console.warn(`[PmheeAether] ⚠️ หมดเวลาเฝ้าดูการเดินทางไปยัง "${targetMap}" (Timeout)`);
                 window.__isNavigating = false;
+                window.__navWalkOnly = false;
                 window.__isRecovering = false;
             }
         }, longWalk ? 480000 : 120000);
@@ -10121,6 +10136,7 @@
             console.warn('[PmheeAether] ⚠️ ตัวละครตายระหว่างซื้อขาย/เดินทาง -> ยกเลิกแล้วฟื้นที่จุดเกิด');
             window.__isShopping = false;
             window.__isNavigating = false;
+            window.__navWalkOnly = false;
         }
 
         const isDead = deadNow;
@@ -10185,6 +10201,7 @@
             if (Date.now() - navStaleSince < 4 * 60 * 1000) return;
             console.warn('[PmheeAether Watchdog] ⚠️ สถานะ "กำลังเดินทาง" ค้างอยู่ในเมืองหลวงเกิน 4 นาที -> รีเซ็ตแล้วส่งกลับแมพฟาร์ม');
             window.__isNavigating = false;
+            window.__navWalkOnly = false;
             navStaleSince = 0;
         } else navStaleSince = 0;
 
@@ -10249,7 +10266,7 @@
         // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
         const isBusyTravelingOrRoutine = window.__isNavigating || window.__isWalkingToMap || window.__isShopping || 
             window.__isStoring || window.__isRecovering || window.__isConsolidating || window.__isGearRefining || 
-            window.__navWalkOnly || window.__isChangingJob || window.__isManualWarping;
+            window.__isChangingJob || window.__isManualWarping;
 
         if (isBusyTravelingOrRoutine) {
             // ขณะเดินทางระหว่างแมพ หรือกำลังทำ Routine ห้ามเปิด AUTO เด็ดขาด และถ้าเปิดอยู่ให้ปิด
@@ -16827,20 +16844,31 @@
     // -------------------------------------------------------------
     // LIVE CHARACTER DATA & PLAN AUTOMATION ENGINE
     // -------------------------------------------------------------
+    let lastCharFiberScanAt = 0;
+    let lastInvFiberScanAt = 0;
+    let lastAppliedInvSig = '';
+
     window.getLiveCharacterData = function() {
+        const now = Date.now();
+        if (window.__latestCharacterData && (now - lastCharFiberScanAt < 800)) {
+            return window.__latestCharacterData;
+        }
+        lastCharFiberScanAt = now;
         const root = document.querySelector('#root');
         const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
         let fiber = (root && key) ? root[key] : null;
         let charData = null;
+        let visited = 0;
         function walk(n, depth = 0) {
-            if (!n || depth > 45 || charData) return;
+            if (!n || depth > 40 || charData || ++visited > 350) return;
             if (n.memoizedProps) {
                 if (n.memoizedProps.character && n.memoizedProps.character.stats) charData = n.memoizedProps.character;
                 else if (n.memoizedProps.stats && n.memoizedProps.skills) charData = n.memoizedProps;
             }
             if (!charData && n.memoizedState) {
                 let s = n.memoizedState;
-                while (s) {
+                let steps = 0;
+                while (s && ++steps < 25) {
                     const ms = s.memoizedState;
                     if (ms && typeof ms === 'object') {
                         if (ms.character && ms.character.stats) { charData = ms.character; break; }
@@ -16860,22 +16888,29 @@
     };
 
     window.getLiveInventoryData = function() {
+        const now = Date.now();
+        if (window.__latestInventory && (now - lastInvFiberScanAt < 800)) {
+            return window.__latestInventory;
+        }
+        lastInvFiberScanAt = now;
         const root = document.querySelector('#root');
         const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
         let fiber = (root && key) ? root[key] : null;
         let invData = null;
+        let visited = 0;
         function isInvObj(o) {
             return o && typeof o === 'object' && Array.isArray(o.items) && (typeof o.weight === 'number' || typeof o.weightLimit === 'number' || typeof o.slots === 'number');
         }
         function walk(n, depth = 0) {
-            if (!n || depth > 45 || invData) return;
+            if (!n || depth > 40 || invData || ++visited > 350) return;
             if (n.memoizedProps) {
                 if (isInvObj(n.memoizedProps.inventory)) invData = n.memoizedProps.inventory;
                 else if (isInvObj(n.memoizedProps)) invData = n.memoizedProps;
             }
             if (!invData && n.memoizedState) {
                 let s = n.memoizedState;
-                while (s) {
+                let steps = 0;
+                while (s && ++steps < 25) {
                     const ms = s.memoizedState;
                     if (ms && typeof ms === 'object') {
                         if (isInvObj(ms.inventory)) { invData = ms.inventory; break; }
@@ -16889,14 +16924,19 @@
         }
         if (fiber) walk(fiber);
         if (invData && typeof window.applyLiveInventoryPacket === 'function') {
-            window.applyLiveInventoryPacket(invData, true);
+            const sig = `${invData.items ? invData.items.length : 0}:${invData.weight ?? ''}:${invData.weightLimit ?? ''}:${invData.items && invData.items[0] ? `${invData.items[0].slot}:${invData.items[0].itemId}:${invData.items[0].qty}` : ''}`;
+            if (sig !== lastAppliedInvSig || !window.__latestInventory) {
+                lastAppliedInvSig = sig;
+                window.applyLiveInventoryPacket(invData, true);
+            } else {
+                window.__latestInventory = invData;
+            }
         }
         return invData || window.__latestInventory || null;
     };
 
     window.syncLiveCharacterAndInventory = function() {
         try {
-            if (typeof window.getColyseusRoom === 'function') window.getColyseusRoom();
             window.getLiveCharacterData();
             window.getLiveInventoryData();
             if (typeof window.__currentZeny === 'number') {
@@ -16908,8 +16948,8 @@
             }
         } catch (e) {}
     };
-    setInterval(window.syncLiveCharacterAndInventory, 1500);
-    setTimeout(window.syncLiveCharacterAndInventory, 500);
+    setInterval(window.syncLiveCharacterAndInventory, 2000);
+    setTimeout(window.syncLiveCharacterAndInventory, 1000);
 
     // 1. Automated Skill Allocation (follows the plan's point queue)
     // A queued skill is skipped (not blocking the rest) while it can't be learned yet: wrong class
