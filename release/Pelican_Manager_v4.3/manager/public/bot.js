@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.38.6
+// @version      4.38.7
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.38.6';
+    const PELICAN_BOT_VERSION = '4.38.7';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -816,6 +816,35 @@
         }
         if (validPts.length < 10) return null;
 
+        // Morphological core mask to prune thin random background scribble tentacles attached to objects
+        const coreMask = new Uint8Array(w * h);
+        const corePts = [];
+        for (let ly = 2; ly < h - 2; ly++) {
+            for (let lx = 2; lx < w - 2; lx++) {
+                const p = ly * w + lx;
+                if (!finalMask[p]) continue;
+                let n5 = 0;
+                for (let dy = -2; dy <= 2; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        if (finalMask[(ly + dy) * w + (lx + dx)]) n5++;
+                    }
+                }
+                if (n5 >= 11) {
+                    for (let dy = -2; dy <= 2; dy++) {
+                        for (let dx = -2; dx <= 2; dx++) {
+                            const np = (ly + dy) * w + (lx + dx);
+                            if (finalMask[np] && !coreMask[np]) {
+                                coreMask[np] = 1;
+                                corePts.push([lx + dx, ly + dy]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        const shapeMask = corePts.length >= 25 ? coreMask : finalMask;
+        const shapePts = corePts.length >= 25 ? corePts : validPts;
+
         const grad = new Float32Array(w * h);
         for (let ly = 1; ly < h - 1; ly++) {
             for (let lx = 1; lx < w - 1; lx++) {
@@ -827,7 +856,7 @@
 
         let cx = 0, cy = 0, lumSum = 0, lumSqSum = 0, satSum = 0;
         let sumR = 0, sumG = 0, sumB = 0;
-        for (const [px, py] of validPts) {
+        for (const [px, py] of shapePts) {
             cx += px;
             cy += py;
             const p = py * w + px;
@@ -838,33 +867,33 @@
             lumSqSum += l * l;
             satSum += Math.max(r, g, b) - Math.min(r, g, b);
         }
-        cx /= validPts.length;
-        cy /= validPts.length;
-        const meanLum = lumSum / validPts.length;
-        const stdLum = Math.max(10, Math.sqrt(Math.max(0, lumSqSum / validPts.length - meanLum * meanLum)));
-        const meanSat = satSum / validPts.length;
-        const meanR = sumR / validPts.length;
-        const meanG = sumG / validPts.length;
-        const meanB = sumB / validPts.length;
+        cx /= shapePts.length;
+        cy /= shapePts.length;
+        const meanLum = lumSum / shapePts.length;
+        const stdLum = Math.max(10, Math.sqrt(Math.max(0, lumSqSum / shapePts.length - meanLum * meanLum)));
+        const meanSat = satSum / shapePts.length;
+        const meanR = sumR / shapePts.length;
+        const meanG = sumG / shapePts.length;
+        const meanB = sumB / shapePts.length;
 
         let m20 = 0, m02 = 0, m11 = 0, r2Sum = 0;
-        for (const [px, py] of validPts) {
+        for (const [px, py] of shapePts) {
             const dx = px - cx, dy = py - cy;
             m20 += dx * dx;
             m02 += dy * dy;
             m11 += dx * dy;
             r2Sum += dx * dx + dy * dy;
         }
-        m20 /= validPts.length;
-        m02 /= validPts.length;
-        m11 /= validPts.length;
-        const rmsRadius = Math.max(2, Math.sqrt(r2Sum / validPts.length));
+        m20 /= shapePts.length;
+        m02 /= shapePts.length;
+        m11 /= shapePts.length;
+        const rmsRadius = Math.max(2, Math.sqrt(r2Sum / shapePts.length));
         const trace = m20 + m02;
         const det = Math.sqrt((m20 - m02) * (m20 - m02) + 4 * m11 * m11);
         const l1 = Math.max(1, (trace + det) * 0.5);
         const l2 = Math.max(1, (trace - det) * 0.5);
         const elongation = Math.sqrt(l1 / l2);
-        const fillRatio = validPts.length / (rmsRadius * rmsRadius);
+        const fillRatio = shapePts.length / (rmsRadius * rmsRadius);
 
         const NR = 12, NA = 36;
         const polarMask = new Float32Array(NR * NA);
@@ -884,7 +913,7 @@
                         const sx = px + dx, sy = py + dy;
                         if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
                             const p = sy * w + sx;
-                            const m = finalMask[p];
+                            const m = shapeMask[p];
                             mVal += m;
                             if (m) {
                                 const l = 0.299 * R[p] + 0.587 * G[p] + 0.114 * B[p];
@@ -908,7 +937,7 @@
             cy: cy + y1,
             x: Math.round(cx + x1),
             y: Math.round(cy + y1),
-            area: validPts.length,
+            area: shapePts.length,
             rmsRadius,
             elongation,
             fillRatio,
@@ -971,7 +1000,10 @@
         const areaPenalty = Math.abs(Math.log(Math.max(0.25, Math.min(4.0, areaRatio)))) * 0.16;
         const lumStatPenalty = (Math.abs(top.meanLum - slot.meanLum) / 130 + Math.abs(top.stdLum - slot.stdLum) / 85 + Math.abs(top.meanSat - slot.meanSat) / 55) * 0.45;
         const rgbDiff = (Math.abs(top.meanR - slot.meanR) + Math.abs(top.meanG - slot.meanG) + Math.abs(top.meanB - slot.meanB));
-        const rgbPenalty = rgbDiff > 180 ? ((rgbDiff - 180) / 300) * 0.35 : 0;
+        const topRG = top.meanR - top.meanG, slotRG = slot.meanR - slot.meanG;
+        const topYB = 0.5 * (top.meanR + top.meanG) - top.meanB, slotYB = 0.5 * (slot.meanR + slot.meanG) - slot.meanB;
+        const chromaDiff = Math.hypot(topRG - slotRG, topYB - slotYB);
+        const rgbPenalty = (rgbDiff / 360) * 0.25 + (chromaDiff / 95) * 0.38;
 
         const totalScore = bestPolarDist + elongDiff + fillDiff + scalePenalty + areaPenalty + lumStatPenalty + rgbPenalty;
         return { totalScore, bestPolarDist, elongDiff, fillDiff, scalePenalty, areaPenalty, lumStatPenalty, rgbPenalty };
@@ -1265,16 +1297,18 @@
 
                     const targetX = solution.x;
                     const targetY = solution.y;
+                    let roomSent = false;
 
                     // 1. Direct Colyseus room send
                     try {
                         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : (window.__colyseusRoom || null);
                         if (room && typeof room.send === 'function') {
                             room.send('human_check_answer', { id: current.packet.id, x: targetX, y: targetY });
+                            roomSent = true;
                         }
                     } catch (_) {}
 
-                    // 2. Synthetic DOM click on board element / img
+                    // 2. Synthetic DOM click on board element / img (non-bubbling if roomSent is true so React root doesn't double-send)
                     try {
                         const boardEl = current.boardEl || (typeof current.hc.querySelector === 'function' ? current.hc.querySelector('.human-check-board') : null);
                         if (boardEl) {
@@ -1284,9 +1318,9 @@
                                 : (typeof boardEl.getBoundingClientRect === 'function' ? boardEl.getBoundingClientRect() : { left: 0, top: 0, width: current.packet.width || 480, height: current.packet.height || 330 });
                             const bw = current.packet.width || 480;
                             const bh = current.packet.height || 330;
-                            const clientX = rect.left + (targetX / bw) * rect.width;
-                            const clientY = rect.top + (targetY / bh) * rect.height;
-                            const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
+                            const clientX = rect.left + (targetX / bw) * (rect.width || bw);
+                            const clientY = rect.top + (targetY / bh) * (rect.height || bh);
+                            const opts = { bubbles: !roomSent, cancelable: true, view: window, clientX, clientY };
                             if (typeof PointerEvent !== 'undefined') targetEl.dispatchEvent(new PointerEvent('pointerdown', opts));
                             if (typeof MouseEvent !== 'undefined') {
                                 targetEl.dispatchEvent(new MouseEvent('mousedown', opts));
@@ -1300,7 +1334,22 @@
 
                     const timestamp = Date.now();
                     const pickedIndex = (Number.isInteger(solution.slot) && solution.slot >= 1 && solution.slot <= 4) ? (solution.slot - 1) : -1;
-                    window.__lastHumanCheckSolved = { pickIndex: pickedIndex, slot: solution.slot || null, x: targetX, y: targetY, confidence: solution.confidence, matchedName: solution.matchedName, timestamp, key: current.key, source: 'embedded-local-catalog' };
+                    window.__lastHumanCheckSolved = {
+                        pickIndex: pickedIndex,
+                        slot: solution.slot || null,
+                        x: targetX,
+                        y: targetY,
+                        confidence: solution.confidence,
+                        matchedName: solution.matchedName,
+                        timestamp,
+                        key: current.key,
+                        checkId: String(current.packet.id),
+                        prompt: current.prompt,
+                        triesLeftBefore: current.triesLeft,
+                        rawSrc: current.rawSrc || null,
+                        verified: null,
+                        source: 'embedded-local-catalog'
+                    };
                     let character = '';
                     try { const c = typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null; character = String(c?.name || c?.characterName || ''); } catch (_) {}
                     const event = {
@@ -1347,7 +1396,7 @@
             try { localStorage.setItem(humanCheckAttemptKey, current.key); } catch (_) {}
             try { target.click(); } catch (_) { return; }
             const timestamp = Date.now();
-            window.__lastHumanCheckSolved = { pickIndex: solution.pickIndex, matchedName: solution.matchedName, timestamp, source: 'embedded-local-catalog' };
+            window.__lastHumanCheckSolved = { pickIndex: solution.pickIndex, matchedName: solution.matchedName, timestamp, verified: null, source: 'embedded-local-catalog' };
             let character = '';
             try { const c = typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null; character = String(c?.name || c?.characterName || ''); } catch (_) {}
             const event = { eventId: (window.crypto?.randomUUID?.() || 'hc-' + timestamp + '-' + Math.random().toString(36).slice(2)), checkId: String(current.packet.id), profileId: String(window.__pmProfileId || ''), character, timestamp, pickIndex: solution.pickIndex, matchedName: solution.matchedName, source: 'embedded-local-catalog', charged: 0 };
@@ -1361,8 +1410,78 @@
 
     let hasNotifiedHumanCheck = false;
     function checkHumanCheckStatus() {
-        tickEmbeddedHumanCheck();
         const hc = document.querySelector('.human-check');
+        const lastSolved = window.__lastHumanCheckSolved;
+        if (lastSolved && lastSolved.verified == null && Date.now() - (lastSolved.timestamp || 0) >= 850) {
+            if (!hc) {
+                lastSolved.verified = 'correct';
+                lastSolved.isCorrect = true;
+            } else {
+                lastSolved.verified = 'wrong';
+                lastSolved.isCorrect = false;
+                try {
+                    const metaEl = hc.querySelector('.human-check-meta');
+                    const metaText = (metaEl && typeof metaEl.innerText === 'string') ? metaEl.innerText.trim() : '';
+                    const triesMatch = metaText.match(/ตอบผิดได้อีก\s*(\d+)/);
+                    const triesLeftAfter = triesMatch ? Number(triesMatch[1]) : null;
+                    let imageDataUrl = lastSolved.rawSrc || null;
+                    const boardImg = hc.querySelector('.human-check-board img');
+                    if (boardImg && boardImg.complete && boardImg.naturalWidth > 0 && typeof document?.createElement === 'function') {
+                        try {
+                            const bw = 480, bh = 330, stripH = 38;
+                            const bCanvas = document.createElement('canvas');
+                            bCanvas.width = bw;
+                            bCanvas.height = bh + stripH;
+                            const bCtx = bCanvas.getContext('2d');
+                            if (bCtx) {
+                                bCtx.fillStyle = '#0f172a';
+                                bCtx.fillRect(0, 0, bw, bh + stripH);
+                                bCtx.drawImage(boardImg, 0, 0, bw, bh);
+                                const colCenters = [68, 181, 300, 416];
+                                for (let i = 0; i < 4; i++) {
+                                    const cx = colCenters[i];
+                                    const bx = cx - 44, by = bh + 5;
+                                    bCtx.fillStyle = (lastSolved.slot === i + 1) ? '#991b1b' : '#1e293b';
+                                    bCtx.strokeStyle = (lastSolved.slot === i + 1) ? '#ef4444' : '#38bdf8';
+                                    bCtx.lineWidth = 1.5;
+                                    bCtx.beginPath();
+                                    if (bCtx.roundRect) bCtx.roundRect(bx, by, 88, 28, 6); else bCtx.rect(bx, by, 88, 28);
+                                    bCtx.fill();
+                                    bCtx.stroke();
+                                    bCtx.fillStyle = '#f8fafc';
+                                    bCtx.font = 'bold 13px "Segoe UI", Tahoma, sans-serif';
+                                    bCtx.textAlign = 'center';
+                                    bCtx.fillText('ตัวเลือก ' + (i + 1), cx, by + 19);
+                                }
+                                imageDataUrl = bCanvas.toDataURL('image/png');
+                            }
+                        } catch (_) {}
+                    }
+                    if (!Array.isArray(window.__pmWrongHumanCheckQueue)) window.__pmWrongHumanCheckQueue = [];
+                    if (window.__pmWrongHumanCheckQueue.length < 20) {
+                        window.__pmWrongHumanCheckQueue.push({
+                            timestamp: lastSolved.timestamp,
+                            checkId: lastSolved.checkId || null,
+                            prompt: lastSolved.prompt || '',
+                            pickIndex: lastSolved.pickIndex,
+                            slot: lastSolved.slot || (Number.isInteger(lastSolved.pickIndex) && lastSolved.pickIndex >= 0 ? lastSolved.pickIndex + 1 : null),
+                            x: lastSolved.x ?? null,
+                            y: lastSolved.y ?? null,
+                            confidence: lastSolved.confidence ?? null,
+                            matchedName: lastSolved.matchedName || '',
+                            source: lastSolved.source || 'embedded-local-catalog',
+                            manual: Boolean(lastSolved.manual),
+                            answeredBy: lastSolved.answeredBy || null,
+                            triesLeftBefore: lastSolved.triesLeftBefore ?? null,
+                            triesLeftAfter,
+                            metaText,
+                            imageDataUrl
+                        });
+                    }
+                } catch (_) {}
+            }
+        }
+        tickEmbeddedHumanCheck();
         if (!hc) {
             hasNotifiedHumanCheck = false;
             return;

@@ -160,7 +160,101 @@ test('embeddedSolver waits for in-game solver and sends green Auto Human Check n
   const text = JSON.stringify(sent[0]);
   assert.match(text, /Auto Human Check/);
   assert.match(text, /รูปในกรอบ \(ช่องที่ 3\)/);
+  assert.match(text, /ยืนยันผล: ตอบถูก/);
   assert.doesNotMatch(text, /🚨 ตรวจพบเช็คผู้เล่น/);
+});
+
+test('notifyHumanCheckWrongAttempt routes wrong answer to channel 1559706567560007730 with buttons', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-wrong-alert-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dataDir, 'discord_settings.json'), JSON.stringify({ enabled: true, botToken: 'test-token', channelId: 'main-channel', autoAnswer: true }));
+  const requests = [];
+  const fakeHttp = {
+    request(url, options, receive) {
+      const req = new EventEmitter(); let payload = '';
+      req.write = bytes => { payload += bytes.toString('utf8'); };
+      req.end = () => {
+        requests.push({ url, payload: JSON.parse(payload) });
+        queueMicrotask(() => { const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {}; receive(res); res.emit('data', '{"id":"msg-wrong"}'); res.emit('end'); });
+      };
+      req.destroy = () => {};
+      return req;
+    }
+  };
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'setTimeout', 'WebSocket', fs.readFileSync(path.join(__dirname, '../discord_bot.js'), 'utf8'))(name => {
+    if (name === 'http' || name === 'https') return fakeHttp;
+    if (name.startsWith('.')) return require(path.join(__dirname, '..', name));
+    return require(name);
+  }, module, module.exports, cb => { queueMicrotask(cb); return 0; }, undefined);
+
+  const profile = { id: 'p-wrong', name: 'Client 15', liveState: { charName: 'Yaloan37' } };
+  const service = module.exports.createDiscordBotService({
+    dataDir,
+    loadProfiles: () => [profile],
+    evalProfilePort: async () => ({ result: { success: true } })
+  });
+  await service.notifyHumanCheckWrongAttempt({
+    profile,
+    attempt: {
+      id: 'wrong-1',
+      prompt: 'กดรูปด้านล่างที่เหมือนกับรูปในกรอบ',
+      pickedSlot: 3,
+      matchedName: 'รูปในกรอบ (ช่องที่ 3)',
+      answeredBy: 'ระบบตอบอัตโนมัติ (Auto-Solver)',
+      manual: false,
+      triesLeft: 2,
+      stillOpen: true
+    }
+  });
+  assert.equal(requests.length, 1);
+  assert.match(String(requests[0].url), /1559706567560007730/);
+  const text = JSON.stringify(requests[0].payload);
+  assert.match(text, /ยืนยันผล: ตอบผิด/);
+  assert.match(text, /ตัวเลือกที่ 3/);
+  assert.equal(Array.isArray(requests[0].payload.components), true);
+});
+
+test('manual answerCheckInGame sets manual attribution and suppresses duplicate Auto-Solver notification', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmhee-manual-attr-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dataDir, 'discord_settings.json'), JSON.stringify({ enabled: true, botToken: 'test-token', channelId: 'main-channel', autoAnswer: true }));
+  const sent = [];
+  const fakeHttp = {
+    request(url, options, receive) {
+      const req = new EventEmitter(); let payload = '';
+      req.write = bytes => { payload += bytes.toString('utf8'); };
+      req.end = () => {
+        sent.push(JSON.parse(payload));
+        queueMicrotask(() => { const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {}; receive(res); res.emit('data', '{"id":"msg-manual"}'); res.emit('end'); });
+      };
+      req.destroy = () => {};
+      return req;
+    }
+  };
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'setTimeout', 'WebSocket', fs.readFileSync(path.join(__dirname, '../discord_bot.js'), 'utf8'))(name => {
+    if (name === 'http' || name === 'https') return fakeHttp;
+    if (name.startsWith('.')) return require(path.join(__dirname, '..', name));
+    return require(name);
+  }, module, module.exports, cb => { queueMicrotask(cb); return 0; }, undefined);
+
+  const profile = { id: 'p-man', name: 'Client 15', debugPort: 19995, liveState: { charName: 'Yaloan37' } };
+  const service = module.exports.createDiscordBotService({
+    dataDir,
+    loadProfiles: () => [profile],
+    evalProfilePort: async () => ({
+      result: {
+        stillOpen: false,
+        solved: { pickIndex: 2, slot: 3, matchedName: 'ตัวเลือกที่ 3', manual: true, answeredBy: 'กางอาณาเขต', timestamp: Date.now() }
+      }
+    })
+  });
+  await service.notifyHumanCheck({
+    profile,
+    check: { id: 'man-check-1', prompt: 'กดรูปด้านล่างที่เหมือนกับรูปในกรอบ', embeddedSolver: true }
+  });
+  assert.equal(sent.length, 0);
 });
 
 
