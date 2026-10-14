@@ -51,3 +51,5 @@ manager/data/premium.json
 manager/data/premium.json.tmp
 manager/data/bandwidth_stats.json
 manager/data/bandwidth_stats.json.tmp
+manager/data/zeny_rate_state.json
+manager/data/zeny_rate_state.json.tmp

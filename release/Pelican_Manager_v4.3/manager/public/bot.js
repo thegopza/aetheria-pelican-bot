@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.40.1
+// @version      4.40.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.40.1';
+    const PELICAN_BOT_VERSION = '4.40.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -919,7 +919,25 @@
     window.__latestHumanCheck = null;
 
     function attachHumanCheckRoomListener(room) {
-        if (!room || room.__humanCheckAttached) return;
+        if (!room) return;
+        try {
+            if (typeof room.send === 'function' && !room.__pmGrossSendHooked) {
+                room.__pmGrossSendHooked = true;
+                const origRoomSend = room.send;
+                room.send = function(type) {
+                    try {
+                        const cmd = String(type || '');
+                        if (/shop_buy|shop_sell|market_buy|market_claim|market_collect|exchange|refine|warp|npc_option|trade/i.test(cmd)) {
+                            if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true);
+                            setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 250);
+                            setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 600);
+                        }
+                    } catch (_) {}
+                    return origRoomSend.apply(this, arguments);
+                };
+            }
+        } catch (e) {}
+        if (room.__humanCheckAttached) return;
         room.__humanCheckAttached = true;
         try {
             if (typeof room.onMessage === 'function') {
@@ -6297,11 +6315,41 @@
     // ==========================================
     // 2. UNIVERSAL WEBSOCKET HOOKING (All-Vector Sniffer)
     // ==========================================
+    window.__grossZenyNative = true;
+    window.recordGrossZeny = function(newZeny) {
+        if (typeof newZeny !== 'number' || !Number.isFinite(newZeny) || newZeny < 0) return;
+        const charKey = String((window.__latestCharacterData && window.__latestCharacterData.name) || window.__charName || '').trim();
+        if (charKey && window.__grossZenyCharName && window.__grossZenyCharName !== charKey) {
+            window.__lastGrossBaseZeny = newZeny;
+            window.__grossZenyGained = 0;
+            window.__grossZenyInitAt = Date.now();
+        }
+        if (charKey) window.__grossZenyCharName = charKey;
+        if (typeof window.__grossZenyGained !== 'number' || !Number.isFinite(window.__grossZenyGained)) {
+            window.__grossZenyGained = 0;
+        }
+        if (typeof window.__lastGrossBaseZeny !== 'number' || !Number.isFinite(window.__lastGrossBaseZeny)) {
+            window.__lastGrossBaseZeny = newZeny;
+            window.__grossZenyInitAt = Date.now();
+            return;
+        }
+        if (window.__lastGrossBaseZeny === 0 && newZeny > 0 && (Date.now() - (window.__grossZenyInitAt || 0) < 8000)) {
+            window.__lastGrossBaseZeny = newZeny;
+            return;
+        }
+        const delta = newZeny - window.__lastGrossBaseZeny;
+        if (delta > 0 && !window.__consolidationReceiverMode && !window.__isConsolidating) {
+            window.__grossZenyGained += delta;
+        }
+        window.__lastGrossBaseZeny = newZeny;
+    };
+
     window.applyLiveCharacterPacket = function(charDec, triggerAutoConfig = false) {
         if (!charDec || typeof charDec !== 'object') return;
         window.__latestCharacterData = charDec;
         if (typeof charDec.zeny === 'number') {
             window.__currentZeny = charDec.zeny;
+            if (typeof window.recordGrossZeny === 'function') window.recordGrossZeny(charDec.zeny);
             try { localStorage.setItem('pelican_current_zeny', String(charDec.zeny)); } catch(e) {}
             const quickZeny = document.getElementById('p-quick-zeny');
             if (quickZeny) {
@@ -7546,9 +7594,11 @@
     // SHOP BUY PACKET BUILDER (shop_buy_many)
     // ==========================================
     window.sendShopBuy = function(itemId = (window.__shopConfig ? window.__shopConfig.buyItemId : 0x00015fae), qty = (window.__shopConfig ? window.__shopConfig.buyItemQty : 10)) {
+        try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {}
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
         if (room && typeof room.send === 'function') {
             room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: Number(qty) }] });
+            setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 300);
             console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${Number(itemId).toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
             return;
         }
@@ -7584,6 +7634,7 @@
         buf.set(qtyBytes, offset);
 
         window.__gameSocket.send(buf.buffer);
+        setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 300);
         console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${itemId.toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
     };
 
@@ -8774,14 +8825,18 @@
                                 if (finalBtn) {
                                     clearInterval(window.__shopConfirmInterval);
                                     window.__shopConfirmInterval = null;
+                                    try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {}
                                     console.log('%c[PmheeAether Shop] 💰 พบปุ่ม "ยืนยันขาย" สีทองตัวจริง กำลังกดยืนยัน...', 'color: #22c55e; font-weight: bold;', finalBtn);
                                     triggerClick(finalBtn);
                                     if (typeof finalBtn.click === 'function') finalBtn.click();
                                     const inner = finalBtn.querySelector('button, span, div') || finalBtn;
                                     if (typeof inner.click === 'function') inner.click();
+                                    setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 250);
+                                    setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 500);
 
                                     // รอให้ Modal ปิดลงและระบบบันทึกเงิน Zeny จากนั้นสลับกลับไปแท็บ "ซื้อ"
                                     setTimeout(() => {
+                                        try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {}
                                         if (!window.__isBotRunning && !window.__isManualSelling) return;
                                         const buyTabs = Array.from(document.querySelectorAll('button, div')).filter(el => {
                                             if (el.closest('#pelican-hud')) return false;
@@ -17019,9 +17074,9 @@
     let lastInvFiberScanAt = 0;
     let lastAppliedInvSig = '';
 
-    window.getLiveCharacterData = function() {
+    window.getLiveCharacterData = function(forceScan = false) {
         const now = Date.now();
-        if (window.__latestCharacterData && (now - lastCharFiberScanAt < 800)) {
+        if (!forceScan && window.__latestCharacterData && (now - lastCharFiberScanAt < 800)) {
             return window.__latestCharacterData;
         }
         lastCharFiberScanAt = now;
@@ -18302,6 +18357,8 @@
             weight: weightText,
             zeny: (typeof currentZeny === 'number') ? currentZeny : null,
             zenyText: (typeof currentZeny === 'number') ? (currentZeny.toLocaleString() + ' z') : '--',
+            grossZenyGained: (typeof window.__grossZenyGained === 'number' && Number.isFinite(window.__grossZenyGained)) ? window.__grossZenyGained : null,
+            consolidationReceiverMode: Boolean(window.__consolidationReceiverMode || window.__isConsolidating),
             channel: (typeof window.getCurrentChannel === 'function') ? window.getCurrentChannel() : 1,
             channelText: 'CH ' + ((typeof window.getCurrentChannel === 'function') ? window.getCurrentChannel() : 1),
             botStatus: activity,
