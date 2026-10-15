@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.40.3
+// @version      4.40.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.40.3';
+    const PELICAN_BOT_VERSION = '4.40.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1380,35 +1380,6 @@
         }
         if (validPts.length < 10) return null;
 
-        // Morphological core mask to prune thin random background scribble tentacles attached to objects
-        const coreMask = new Uint8Array(w * h);
-        const corePts = [];
-        for (let ly = 2; ly < h - 2; ly++) {
-            for (let lx = 2; lx < w - 2; lx++) {
-                const p = ly * w + lx;
-                if (!finalMask[p]) continue;
-                let n5 = 0;
-                for (let dy = -2; dy <= 2; dy++) {
-                    for (let dx = -2; dx <= 2; dx++) {
-                        if (finalMask[(ly + dy) * w + (lx + dx)]) n5++;
-                    }
-                }
-                if (n5 >= 11) {
-                    for (let dy = -2; dy <= 2; dy++) {
-                        for (let dx = -2; dx <= 2; dx++) {
-                            const np = (ly + dy) * w + (lx + dx);
-                            if (finalMask[np] && !coreMask[np]) {
-                                coreMask[np] = 1;
-                                corePts.push([lx + dx, ly + dy]);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        const shapeMask = corePts.length >= 25 ? coreMask : finalMask;
-        const shapePts = corePts.length >= 25 ? corePts : validPts;
-
         const grad = new Float32Array(w * h);
         for (let ly = 1; ly < h - 1; ly++) {
             for (let lx = 1; lx < w - 1; lx++) {
@@ -1418,46 +1389,109 @@
             }
         }
 
+        // Prune scribble lines by computing core mask (pixels with >=6 neighbors in 3x3 or >=14 in 5x5)
+        const coreMask = new Uint8Array(w * h);
+        for (let ly = 2; ly < h - 2; ly++) {
+            for (let lx = 2; lx < w - 2; lx++) {
+                const p = ly * w + lx;
+                if (!finalMask[p]) continue;
+                let nb3 = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (finalMask[(ly + dy) * w + (lx + dx)]) nb3++;
+                    }
+                }
+                let nb5 = 0;
+                for (let dy = -2; dy <= 2; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        if (finalMask[(ly + dy) * w + (lx + dx)]) nb5++;
+                    }
+                }
+                if (nb3 >= 6 || nb5 >= 14) coreMask[p] = 1;
+            }
+        }
+        const corePts = [];
+        for (let ly = 2; ly < h - 2; ly++) {
+            for (let lx = 2; lx < w - 2; lx++) {
+                const p = ly * w + lx;
+                if (!finalMask[p]) continue;
+                let nearCore = false;
+                for (let dy = -2; dy <= 2 && !nearCore; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        if (coreMask[(ly + dy) * w + (lx + dx)]) { nearCore = true; break; }
+                    }
+                }
+                if (nearCore) corePts.push([lx, ly]);
+            }
+        }
+        if (corePts.length >= 80) {
+            finalMask.fill(0);
+            validPts.length = 0;
+            for (const pt of corePts) {
+                finalMask[pt[1] * w + pt[0]] = 1;
+                validPts.push(pt);
+            }
+        }
+
         let cx = 0, cy = 0, lumSum = 0, lumSqSum = 0, satSum = 0;
         let sumR = 0, sumG = 0, sumB = 0;
-        for (const [px, py] of shapePts) {
+        const colorHist = new Float32Array(8);
+        for (const [px, py] of validPts) {
             cx += px;
             cy += py;
             const p = py * w + px;
             const r = R[p], g = G[p], b = B[p];
             sumR += r; sumG += g; sumB += b;
             const l = 0.299 * r + 0.587 * g + 0.114 * b;
+            const sat = Math.max(r, g, b) - Math.min(r, g, b);
             lumSum += l;
             lumSqSum += l * l;
-            satSum += Math.max(r, g, b) - Math.min(r, g, b);
+            satSum += sat;
+            if (sat < 22) {
+                if (l > 95) colorHist[0]++;
+                else colorHist[1]++;
+            } else if (b > r + 15 && b >= g) {
+                colorHist[2]++;
+            } else if (b > g + 4 && r > g + 2) {
+                colorHist[3]++;
+            } else if (r - g > 42 && r > b + 35) {
+                colorHist[4]++;
+            } else if (r > b + 38 && g > b + 20) {
+                colorHist[5]++;
+            } else if (r >= g && g >= b) {
+                colorHist[6]++;
+            } else {
+                colorHist[7]++;
+            }
         }
-        cx /= shapePts.length;
-        cy /= shapePts.length;
-        const meanLum = lumSum / shapePts.length;
-        const stdLum = Math.max(10, Math.sqrt(Math.max(0, lumSqSum / shapePts.length - meanLum * meanLum)));
-        const meanSat = satSum / shapePts.length;
-        const meanR = sumR / shapePts.length;
-        const meanG = sumG / shapePts.length;
-        const meanB = sumB / shapePts.length;
+        for (let i = 0; i < 8; i++) colorHist[i] /= validPts.length;
+        cx /= validPts.length;
+        cy /= validPts.length;
+        const meanLum = lumSum / validPts.length;
+        const stdLum = Math.max(10, Math.sqrt(Math.max(0, lumSqSum / validPts.length - meanLum * meanLum)));
+        const meanSat = satSum / validPts.length;
+        const meanR = sumR / validPts.length;
+        const meanG = sumG / validPts.length;
+        const meanB = sumB / validPts.length;
 
         let m20 = 0, m02 = 0, m11 = 0, r2Sum = 0;
-        for (const [px, py] of shapePts) {
+        for (const [px, py] of validPts) {
             const dx = px - cx, dy = py - cy;
             m20 += dx * dx;
             m02 += dy * dy;
             m11 += dx * dy;
             r2Sum += dx * dx + dy * dy;
         }
-        m20 /= shapePts.length;
-        m02 /= shapePts.length;
-        m11 /= shapePts.length;
-        const rmsRadius = Math.max(2, Math.sqrt(r2Sum / shapePts.length));
+        m20 /= validPts.length;
+        m02 /= validPts.length;
+        m11 /= validPts.length;
+        const rmsRadius = Math.max(2, Math.sqrt(r2Sum / validPts.length));
         const trace = m20 + m02;
         const det = Math.sqrt((m20 - m02) * (m20 - m02) + 4 * m11 * m11);
         const l1 = Math.max(1, (trace + det) * 0.5);
         const l2 = Math.max(1, (trace - det) * 0.5);
         const elongation = Math.sqrt(l1 / l2);
-        const fillRatio = shapePts.length / (rmsRadius * rmsRadius);
+        const fillRatio = validPts.length / (rmsRadius * rmsRadius);
 
         const NR = 12, NA = 36;
         const polarMask = new Float32Array(NR * NA);
@@ -1477,7 +1511,7 @@
                         const sx = px + dx, sy = py + dy;
                         if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
                             const p = sy * w + sx;
-                            const m = shapeMask[p];
+                            const m = finalMask[p];
                             mVal += m;
                             if (m) {
                                 const l = 0.299 * R[p] + 0.587 * G[p] + 0.114 * B[p];
@@ -1501,7 +1535,7 @@
             cy: cy + y1,
             x: Math.round(cx + x1),
             y: Math.round(cy + y1),
-            area: shapePts.length,
+            area: validPts.length,
             rmsRadius,
             elongation,
             fillRatio,
@@ -1511,6 +1545,7 @@
             meanR,
             meanG,
             meanB,
+            colorHist,
             polarMask,
             polarLum,
             polarGrad
@@ -1554,23 +1589,30 @@
             }
         }
 
-        const elongDiff = Math.abs(Math.log(top.elongation / slot.elongation)) * 0.95;
-        const fillDiff = Math.abs(Math.log(top.fillRatio / slot.fillRatio)) * 0.95;
+        const rawElongDiff = Math.abs(Math.log(top.elongation / slot.elongation));
+        const rawFillDiff = Math.abs(Math.log(top.fillRatio / slot.fillRatio));
+        const ultraElongatedPair = Math.max(top.elongation, slot.elongation) >= 6.0 && Math.min(top.elongation, slot.elongation) >= 2.15;
+        const elongDiff = (ultraElongatedPair ? Math.min(0.28, rawElongDiff * 0.45) : rawElongDiff) * 0.95;
+        const fillDiff = (ultraElongatedPair ? Math.min(0.25, rawFillDiff * 0.55) : rawFillDiff) * 0.95;
         const scaleRatio = slot.rmsRadius / top.rmsRadius;
-        const scalePenalty = (scaleRatio < 0.75 || scaleRatio > 1.15)
-            ? Math.abs(Math.log(scaleRatio)) * 1.2
-            : Math.abs(Math.log(scaleRatio / 0.94)) * 0.35;
+        const scalePenalty = (scaleRatio < 0.48 || scaleRatio > 1.20)
+            ? Math.abs(Math.log(scaleRatio)) * 0.85
+            : Math.abs(Math.log(scaleRatio / 0.88)) * 0.12;
         const areaRatio = slot.area / (top.area * 0.85);
-        const areaPenalty = Math.abs(Math.log(Math.max(0.25, Math.min(4.0, areaRatio)))) * 0.16;
-        const lumStatPenalty = (Math.abs(top.meanLum - slot.meanLum) / 130 + Math.abs(top.stdLum - slot.stdLum) / 85 + Math.abs(top.meanSat - slot.meanSat) / 55) * 0.45;
+        const areaPenalty = Math.abs(Math.log(Math.max(0.35, Math.min(3.5, areaRatio)))) * 0.06;
+        const lumStatPenalty = (Math.abs(top.meanLum - slot.meanLum) / 110 + Math.abs(top.stdLum - slot.stdLum) / 85 + Math.abs(top.meanSat - slot.meanSat) / 48) * 0.50;
         const rgbDiff = (Math.abs(top.meanR - slot.meanR) + Math.abs(top.meanG - slot.meanG) + Math.abs(top.meanB - slot.meanB));
         const topRG = top.meanR - top.meanG, slotRG = slot.meanR - slot.meanG;
-        const topYB = 0.5 * (top.meanR + top.meanG) - top.meanB, slotYB = 0.5 * (slot.meanR + slot.meanG) - slot.meanB;
-        const chromaDiff = Math.hypot(topRG - slotRG, topYB - slotYB);
-        const rgbPenalty = (rgbDiff / 360) * 0.25 + (chromaDiff / 95) * 0.38;
+        const topGB = top.meanG - top.meanB, slotGB = slot.meanG - slot.meanB;
+        const chromaDiff = Math.abs(topRG - slotRG) + Math.abs(topGB - slotGB);
+        let histDiff = 0;
+        if (top.colorHist && slot.colorHist) {
+            for (let i = 0; i < 8; i++) histDiff += Math.abs(top.colorHist[i] - slot.colorHist[i]);
+        }
+        const rgbPenalty = (rgbDiff / 220) * 0.35 + (chromaDiff / 90) * 0.40 + histDiff * 0.62;
 
         const totalScore = bestPolarDist + elongDiff + fillDiff + scalePenalty + areaPenalty + lumStatPenalty + rgbPenalty;
-        return { totalScore, bestPolarDist, elongDiff, fillDiff, scalePenalty, areaPenalty, lumStatPenalty, rgbPenalty };
+        return { totalScore, bestPolarDist, elongDiff, fillDiff, scalePenalty, areaPenalty, lumStatPenalty, rgbPenalty, histDiff };
     }
 
     function findBottomCandidates(boardData) {
