@@ -67,9 +67,35 @@ test('decide: waits for plan gate, reserve, sellers and minimum batch', () => {
   assert.strictEqual(decide({ ok: false }, DEFAULTS, true, NOW).action, 'offline');
 });
 
-test('sanitizeSettings clamps bad input', () => {
+test('sanitizeSettings clamps bad input and preserves toggle flags', () => {
   assert.deepStrictEqual(sanitizeSettings({ reserveZeny: -5, planId: 'x y', leadDays: 99 }), DEFAULTS);
-  assert.deepStrictEqual(sanitizeSettings({ reserveZeny: 5e6, planId: '30d', leadDays: 2 }), { reserveZeny: 5e6, planId: '30d', leadDays: 2 });
+  assert.deepStrictEqual(sanitizeSettings({ reserveZeny: 5e6, planId: '30d', leadDays: 2 }), {
+    reserveZeny: 5e6,
+    planId: '30d',
+    leadDays: 2,
+    prebuyNextRound: true,
+    requireGearComplete: true
+  });
+  assert.deepStrictEqual(
+    sanitizeSettings({ reserveZeny: 5e6, planId: '7d', leadDays: 1, prebuyNextRound: false, requireGearComplete: false }),
+    { reserveZeny: 5e6, planId: '7d', leadDays: 1, prebuyNextRound: false, requireGearComplete: false }
+  );
+});
+
+test('decide & tokenTarget: prebuyNextRound=false skips saving Token while Premium is active', () => {
+  assert.strictEqual(tokenTarget(1000, 7, 1, NOW + 4 * DAY, NOW, false), 0);
+  assert.strictEqual(tokenTarget(1000, 7, 1, NOW - 1, NOW, false), 1000);
+  const cfgNoPrebuy = Object.assign({}, DEFAULTS, { prebuyNextRound: false });
+  const activeSnap = snap({ exchange: Object.assign({}, snap().exchange, { tokens: 100, premiumUntil: NOW + 4 * DAY }) });
+  const dActive = decide(activeSnap, cfgNoPrebuy, true, NOW);
+  assert.strictEqual(dActive.action, 'idle');
+  assert.strictEqual(dActive.target, 0);
+  assert.match(dActive.text, /ปิดซื้อเผื่อรอบถัดไป/);
+
+  const expiredSnap = snap({ exchange: Object.assign({}, snap().exchange, { tokens: 100, premiumUntil: NOW - 1000 }) });
+  const dExpired = decide(expiredSnap, cfgNoPrebuy, true, NOW);
+  assert.strictEqual(dExpired.action, 'buy');
+  assert.strictEqual(dExpired.target, 1000);
 });
 
 // ---------------------------------------------------------------- in-page snippets in a fake game page
@@ -281,4 +307,23 @@ test('service: gate latch, buy then activate, busy skip, and gearBlocked un-latc
   assert.match(svc.view().clients[0].statusText, /เซ็ตอุปกรณ์ \(32\/34\)/);
   const savedAfterBlock = JSON.parse(fs.readFileSync(path.join(dir, 'premium.json'), 'utf8'));
   assert.strictEqual(savedAfterBlock.clients.p1.gatePlan, null);
+
+  // Turning off requireGearComplete immediately unblocks Set Gear in view() and allows buying on tick()
+  await new Promise(resolve => svc.handleRoute({
+    method: 'POST', url: '', setEncoding() {},
+    on(ev, cb) { if (ev === 'data') cb(JSON.stringify({ requireGearComplete: false })); if (ev === 'end') cb(); }
+  }, null, '/api/premium/settings', () => resolve()));
+  assert.strictEqual(svc.view().settings.requireGearComplete, false);
+  assert.strictEqual(svc.view().clients[0].status, 'buy');
+  assert.deepStrictEqual(svc.view().clients[0].planBlocked, []);
+
+  // Turning off prebuyNextRound while Premium is active immediately switches decision to idle with target=0
+  await new Promise(resolve => svc.handleRoute({
+    method: 'POST', url: '', setEncoding() {},
+    on(ev, cb) { if (ev === 'data') cb(JSON.stringify({ prebuyNextRound: false })); if (ev === 'end') cb(); }
+  }, null, '/api/premium/settings', () => resolve()));
+  assert.strictEqual(svc.view().settings.prebuyNextRound, false);
+  assert.strictEqual(svc.view().clients[0].status, 'idle');
+  assert.strictEqual(svc.view().clients[0].target, 0);
+  assert.match(svc.view().clients[0].statusText, /ปิดซื้อเผื่อรอบถัดไป/);
 });
