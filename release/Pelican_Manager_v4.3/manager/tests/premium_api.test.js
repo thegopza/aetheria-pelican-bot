@@ -326,4 +326,15 @@ test('service: gate latch, buy then activate, busy skip, and gearBlocked un-latc
   assert.strictEqual(svc.view().clients[0].status, 'idle');
   assert.strictEqual(svc.view().clients[0].target, 0);
   assert.match(svc.view().clients[0].statusText, /ปิดซื้อเผื่อรอบถัดไป/);
+
+  // Force Buy (/api/premium/force-buy): buys as many Tokens as zeny can afford even when < wantQty or < minBatch
+  world.zeny = 2000000 + 21800 * 3 + 500; // reserve 2M + enough for 3 Tokens at 21,800 z
+  let fbResp = null;
+  await new Promise(resolve => svc.handleRoute({
+    method: 'POST', url: '', setEncoding() {},
+    on(ev, cb) { if (ev === 'data') cb(JSON.stringify({ profileId: 'p1', qty: 200, ignoreReserve: false, autoActivate: false })); if (ev === 'end') cb(); }
+  }, null, '/api/premium/force-buy', j => { fbResp = j; resolve(); }));
+  assert.strictEqual(fbResp.forceResult.ok, true);
+  assert.strictEqual(fbResp.forceResult.bought, 3);
+  assert.match(fbResp.forceResult.message, /ซื้อเท่าที่เงินพอ/);
 });
