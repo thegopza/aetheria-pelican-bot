@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.40.4
+// @version      4.41.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.40.4';
+    const PELICAN_BOT_VERSION = '4.41.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8073,6 +8073,7 @@
         }
     };
 
+    window.triggerAutoSellTrash = triggerAutoSellTrash;
     function triggerAutoSellTrash(callback) {
         const sellCfg = window.__sellConfig || {};
         const canSellAny = sellCfg.sellMaterials || sellCfg.sellRefineOres || 
@@ -8570,6 +8571,10 @@
                             console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ใส่ตามแผน: "${itemName}"`);
                             return;
                         }
+                        if (typeof window.isStashOnlyItem === 'function' && (window.isStashOnlyItem(rowItem ? (rowItem.raw || rowItem) : null) || window.isStashOnlyItem(itemName))) {
+                            console.log(`%c[PmheeAether Shop] 🔒 [เก็บเข้าคลังอย่างเดียว] ห้ามขายเด็ดขาด: "${itemName}"`, 'color: #38bdf8; font-weight: bold;');
+                            return;
+                        }
 
                         // กฎความปลอดภัย 0 (กฎเหล็กสูงสุด): ห้ามขาย "การ์ด (Card)" หรือ "แร่/ตีบวก (Ores/Refine)" เด็ดขาด 100%!
                         const lower = itemName.toLowerCase();
@@ -8580,7 +8585,7 @@
                         );
 
                         // แร่ตีบวก: เช็คเฉพาะถ้าไม่ใช่หมวดอาวุธ/ชุดเกราะ และต้องเป็นชื่อแร่จริง (ไม่ใช่ชื่ออุปกรณ์เช่น Iron Cain, Steel Shield, Oridecon Dagger)
-                        const oreExactList = ['iron', 'iron ore', 'steel', 'phracon', 'emveretarcon', 'oridecon', 'rough oridecon', 'elunium', 'rough elunium', 'gold'];
+                        const oreExactList = ['iron', 'iron ore', 'steel', 'phracon', 'emveretarcon', 'oridecon', 'rough oridecon', 'elunium', 'rough elunium', 'enriched elunium', 'refine shard', 'blacksmith blessing', 'enchant rune', 'accessory enchant rune', 'gold'];
                         const isOre = (catName !== 'อาวุธ' && catName !== 'ชุดเกราะ') && (
                             oreExactList.includes(lower) || lower === 'แร่เหล็ก' || lower === 'เหล็ก' || lower === 'โอริเดคอน' || lower === 'อีลูเนียม' || 
                             rowText.includes('แร่/ตีบวก')
@@ -8757,6 +8762,10 @@
                         console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}"`);
                         return;
                     }
+                    if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(raw)) {
+                        console.log(`%c[PmheeAether Shop] 🔒 [เก็บเข้าคลังอย่างเดียว] ห้ามขายเด็ดขาด: "${raw.name}"`, 'color: #38bdf8; font-weight: bold;');
+                        return;
+                    }
                     if ((raw.refine || 0) > 0 || (Array.isArray(raw.affixes) && raw.affixes.length) || (raw.cards && raw.cards.some(Boolean))) return;
                     if (isWhitelisted(raw.name)) {
                         console.log(`[PmheeAether Shop] 🔒 [Whitelist] เก็บ: "${raw.name}"`);
@@ -8817,6 +8826,21 @@
             function runSteps(idx) {
                 if (idx >= steps.length) {
                     setTimeout(() => {
+                        if (typeof window.isStashOnlyItem === 'function') {
+                            document.querySelectorAll('.cart-line').forEach(line => {
+                                const nameEl = line.querySelector('.cart-name');
+                                const rawTxt = nameEl ? (nameEl.innerText || nameEl.textContent || '') : '';
+                                const cleanTxt = rawTxt.replace(/\s*x\d+\s*$/i, '').trim();
+                                if (cleanTxt && window.isStashOnlyItem(cleanTxt)) {
+                                    const rmBtn = line.querySelector('button.cart-rm');
+                                    if (rmBtn) {
+                                        console.log(`%c[PmheeAether Shop] 🔒 นำ "${cleanTxt}" ออกจากตะกร้าขาย (โหมดเก็บเข้าคลังอย่างเดียว)`, 'color: #38bdf8; font-weight: bold;');
+                                        clickOnce(rmBtn);
+                                    }
+                                }
+                            });
+                        }
+
                         const confirmBtn = document.querySelector('button.cart-go') ||
                             Array.from(document.querySelectorAll('button')).find(el => {
                                 if (el.closest('#pelican-hud')) return false;
@@ -9161,6 +9185,84 @@
             return (t.includes('angrelic') || t.includes('angelic')) && (base.includes('angelic') || base.includes('angrelic'));
         });
     };
+    // ---------- 🔒 Stash-Only & Consolidation Trade Items (e.g. Enchant Rune) ----------
+    const STASH_TRADE_CFG_KEY = 'pelican_stash_trade_cfg';
+    (function initStashTradeCfg() {
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(STASH_TRADE_CFG_KEY) || 'null'); } catch (e) {}
+        window.__stashTradeConfig = {
+            storeOnlyEnabled: !!(saved && saved.storeOnlyEnabled),
+            tradeOnConsolidate: !!(saved && saved.tradeOnConsolidate),
+            items: (saved && Array.isArray(saved.items))
+                ? saved.items.map(s => String(s || '').trim()).filter(Boolean)
+                : ['Enchant Rune']
+        };
+    })();
+    window.setStashTradeConfig = function (cfg = {}) {
+        const cur = window.__stashTradeConfig || { storeOnlyEnabled: false, tradeOnConsolidate: false, items: ['Enchant Rune'] };
+        const next = {
+            storeOnlyEnabled: cfg.storeOnlyEnabled !== undefined ? !!cfg.storeOnlyEnabled : !!cur.storeOnlyEnabled,
+            tradeOnConsolidate: cfg.tradeOnConsolidate !== undefined ? !!cfg.tradeOnConsolidate : !!cur.tradeOnConsolidate,
+            items: Array.isArray(cfg.items)
+                ? cfg.items.map(s => String(s || '').trim()).filter(Boolean)
+                : (Array.isArray(cur.items) ? cur.items : ['Enchant Rune'])
+        };
+        window.__stashTradeConfig = next;
+        try { localStorage.setItem(STASH_TRADE_CFG_KEY, JSON.stringify(next)); } catch (e) {}
+        return next;
+    };
+    const STASH_PRESET_ID_TO_NAME = {
+        90340: 'enchant rune',
+        90341: 'accessory enchant rune',
+        90204: 'rough elunium',
+        90205: 'elunium',
+        90203: 'oridecon',
+        90201: 'phracon',
+        90202: 'emveretarcon'
+    };
+    window.matchesStashItemList = function (itemOrName, customList) {
+        const list = Array.isArray(customList)
+            ? customList
+            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : []);
+        if (!list.length) return false;
+        const itemId = (itemOrName && typeof itemOrName === 'object')
+            ? Number(itemOrName.itemId || itemOrName.id || (itemOrName.raw && (itemOrName.raw.itemId || itemOrName.raw.id)))
+            : NaN;
+        const mappedById = (!isNaN(itemId) && STASH_PRESET_ID_TO_NAME[itemId]) ? STASH_PRESET_ID_TO_NAME[itemId] : '';
+        const rawName = (typeof itemOrName === 'string')
+            ? itemOrName
+            : ((itemOrName && (itemOrName.name || itemOrName.itemName || (itemOrName.raw && itemOrName.raw.name))) || mappedById || '');
+        if (!rawName && isNaN(itemId)) return false;
+        const clean = String(rawName)
+            .replace(/^\+\s*\d+\s*/, '')
+            .replace(/\s*\[\s*\d+\s*\]\s*$/, '')
+            .replace(/\s*\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '')
+            .replace(/\bx\s*\d+\b.*$/i, '')
+            .trim()
+            .toLowerCase();
+        const full = String(rawName).trim().toLowerCase();
+        return list.some(target => {
+            const t = String(target || '').trim().toLowerCase();
+            if (!t) return false;
+            if (!isNaN(itemId) && String(itemId) === t) return true;
+            if (mappedById && mappedById === t) return true;
+            return clean === t || full === t;
+        });
+    };
+    window.isStashOnlyItem = function (itemOrName) {
+        const cfg = window.__stashTradeConfig;
+        if (!cfg || !cfg.storeOnlyEnabled) return false;
+        return window.matchesStashItemList(itemOrName, cfg.items);
+    };
+    window.hasStashOnlyItemsInBag = function () {
+        const cfg = window.__stashTradeConfig;
+        if (!cfg || !cfg.storeOnlyEnabled || !Array.isArray(cfg.items) || !cfg.items.length) return false;
+        const rawBag = (window.__latestInventory && Array.isArray(window.__latestInventory.items))
+            ? window.__latestInventory.items.filter(Boolean)
+            : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+        return rawBag.some(it => window.isStashOnlyItem(it));
+    };
+
     // Items the plan is waiting to wear: an "สวมใส่" action's item not worn yet (bought, level too low), or a gem
     // that is a better % of a worn gem (the gem auto-upgrade waits for its level) — depositing them made the plan
     // buy them again
@@ -9180,6 +9282,7 @@
     const saveStoreState = st => { try { localStorage.setItem(STORE_STATE_KEY, JSON.stringify(st)); } catch (e) {} };
     function isItemOnMarketSellList(it) {
         if (!it) return false;
+        if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) return false;
         const rules = (window.__autoMarketSellConfig && Array.isArray(window.__autoMarketSellConfig.rules)) ? window.__autoMarketSellConfig.rules : [];
         const name = String(it.name || '').trim().toLowerCase();
         const id = Number(it.itemId || it.id);
@@ -9192,6 +9295,11 @@
     }
 
     function storeEligible(it, cfg, refused, opts = {}) {
+        if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) {
+            if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;
+            return true;
+        }
+        if (!cfg.storeEnabled && !opts.manual && !opts.humanize) return false;
         if (isItemOnMarketSellList(it)) return false;
         if (it.locked && cfg.storeSkipLocked !== false) return false;
         if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
@@ -9249,6 +9357,7 @@
         }
         return null;
     }
+    window.openStorageWindow = openStorageWindow;
     window.refreshStoreHud = function () {
         const c = window.__sellConfig || {};
         const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.checked = v; };
@@ -9261,7 +9370,8 @@
     };
     window.runAutoStorageDeposit = async function (opts = {}) {
         const cfg = window.__sellConfig || {};
-        if (!cfg.storeEnabled && !opts.manual && !opts.humanize) return { skipped: 'off' };
+        const hasStashOnly = typeof window.hasStashOnlyItemsInBag === 'function' && window.hasStashOnlyItemsInBag();
+        if (!cfg.storeEnabled && !hasStashOnly && !opts.manual && !opts.humanize) return { skipped: 'off' };
         if (window.__consolidationPending && !opts.manual) return { skipped: 'consolidation' };
         if (window.__isStoring) return { skipped: 'busy' };
         if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
@@ -9321,7 +9431,7 @@
                     continue;
                 }
                 put++; free--;
-                const cat = STORE_CAT_TH[storeCategoryOf(it)] || '';
+                const cat = STORE_CAT_TH[storeCategoryOf(it)] || (window.isStashOnlyItem && window.isStashOnlyItem(it) ? 'ของเก็บคลัง' : 'อื่นๆ');
                 done[cat] = (done[cat] || 0) + 1;
                 await sleep(250);
             }
@@ -9341,7 +9451,8 @@
     // The sell trip: sell + buy, then the storage deposit, then the trip goes on (back to the farm)
     function sellThenStore(onComplete) {
         executeSellAndBuyActions(() => {
-            if (!window.__isBotRunning || !(window.__sellConfig || {}).storeEnabled) return onComplete();
+            const hasStashOnly = typeof window.hasStashOnlyItemsInBag === 'function' && window.hasStashOnlyItemsInBag();
+            if (!window.__isBotRunning || (!(window.__sellConfig || {}).storeEnabled && !hasStashOnly)) return onComplete();
             try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
             setTimeout(() => { window.runAutoStorageDeposit().catch(() => {}).finally(onComplete); }, 800);
         });
@@ -12836,10 +12947,15 @@
             console.warn('[PmheeAether AutoSell] ⚠️ กรุณาระบุชื่อไอเทมก่อนลงขาย');
             return;
         }
+        if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(rule.itemName)) {
+            console.log(`%c[PmheeAether AutoSell] 🔒 ข้าม "${rule.itemName}" — อยู่ในโหมดเก็บเข้าคลังอย่างเดียว (ห้ามขายตลาดกลาง)`, 'color: #38bdf8; font-weight: bold;');
+            return;
+        }
 
         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         const norm = rule.itemName.trim().toLowerCase();
-        const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm);
+        const stashOnly = it => typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it.raw || it);
+        const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !stashOnly(it));
 
         if (matchingItems.length === 0) {
             console.warn(`[PmheeAether AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ในกระเป๋าตัวละคร`);
@@ -12914,10 +13030,12 @@
             for (const rule of (cfg.rules || [])) {
                 if (!rule || !rule.itemName || rule.enabled === false) continue;
                 if (remainingSlots <= 0) break;
+                if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(rule.itemName)) continue;
 
                 const norm = rule.itemName.trim().toLowerCase();
                 const gearKept = it => typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it.raw || it);
-                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKept(it));
+                const stashOnly = it => typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it.raw || it);
+                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKept(it) && !stashOnly(it));
                 if (matchingItems.length === 0) continue;
 
                 let totalQty = 0;
@@ -18275,6 +18393,308 @@
     const tradeZeny = () => Number(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).zeny);
     const sameName = (x, y) => String(x || '').trim().toLowerCase() === String(y || '').trim().toLowerCase();
 
+    window.getConsolidationMatchingBagItems = function (itemNames) {
+        const list = Array.isArray(itemNames) && itemNames.length
+            ? itemNames
+            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
+        const inv = window.__latestInventory || {};
+        const liveCh = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+        const bag = Array.isArray(inv.items)
+            ? inv.items.filter(Boolean)
+            : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+        const matched = [];
+        let totalQty = 0;
+        let totalWeight = 0;
+        for (const it of bag) {
+            if (!it) continue;
+            const raw = it.raw || it;
+            if (it.locked || raw.locked) continue;
+            if (typeof window.matchesStashItemList === 'function' && window.matchesStashItemList(raw, list)) {
+                const qty = Math.max(1, Number(it.qty ?? raw.qty) || 1);
+                const unitW = Math.max(0, Number(it.weight ?? raw.weight) || 1);
+                totalQty += qty;
+                totalWeight += qty * unitW;
+                matched.push({
+                    slot: Number(it.slot ?? raw.slot),
+                    itemId: Number(it.itemId || it.id || raw.itemId || raw.id),
+                    name: it.name || raw.name || '',
+                    qty,
+                    weight: unitW
+                });
+            }
+        }
+        return {
+            items: matched,
+            totalQty,
+            totalWeight,
+            curWeight: Number(inv.weight ?? liveCh.weight) || 0,
+            weightLimit: Number(inv.weightLimit ?? liveCh.weightLimit) || 2000
+        };
+    };
+
+    window.runConsolidationQuickSellTrash = async function (timeoutMs = 35000) {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
+            return { success: false, error: 'not-in-capital' };
+        }
+        const room = tradeRoom();
+        if (!room) return { success: false, error: 'no-room' };
+        const targetNpc = (window.__shopConfig && window.__shopConfig.npcKey) ? window.__shopConfig.npcKey : 'n2';
+        const start = Date.now();
+        try {
+            try { if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
+            await sleep(250);
+
+            let shopOpen = typeof document !== 'undefined' && !!document.querySelector('.shop-window');
+            if (!shopOpen && typeof document !== 'undefined') {
+                if (typeof window.sendRemoteNpcTalk === 'function') window.sendRemoteNpcTalk(targetNpc);
+                else room.send('npc_talk', { npcKey: targetNpc });
+                let lastTalkAt = Date.now();
+                let lastPos = { x: (window.__currentPos && window.__currentPos.x) || 0, y: (window.__currentPos && window.__currentPos.y) || 0 };
+                let stationaryTicks = 0;
+                while (Date.now() - start < Math.min(16000, timeoutMs)) {
+                    await sleep(350);
+                    if (document.querySelector('.shop-window')) { shopOpen = true; break; }
+                    const dlg = document.querySelector('.npc-dialog');
+                    if (dlg && dlg.querySelector('.npc-options button')) {
+                        if (typeof window.sendRemoteNpcOption === 'function') window.sendRemoteNpcOption(0);
+                        else room.send('npc_option', { index: 0 });
+                        for (let w = 0; w < 12; w++) {
+                            await sleep(250);
+                            if (document.querySelector('.shop-window')) { shopOpen = true; break; }
+                        }
+                        if (shopOpen) break;
+                    }
+                    const curPos = window.__currentPos || { x: 0, y: 0 };
+                    if (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0) {
+                        stationaryTicks++;
+                    } else {
+                        stationaryTicks = 0;
+                        lastPos = { x: curPos.x, y: curPos.y };
+                    }
+                    if (stationaryTicks >= 2 && Date.now() - lastTalkAt >= 1200) {
+                        if (typeof window.sendRemoteNpcTalk === 'function') window.sendRemoteNpcTalk(targetNpc);
+                        else room.send('npc_talk', { npcKey: targetNpc });
+                        lastTalkAt = Date.now();
+                        await sleep(450);
+                        if (typeof window.sendRemoteNpcOption === 'function') window.sendRemoteNpcOption(0);
+                        else room.send('npc_option', { index: 0 });
+                    }
+                }
+            }
+            if (!shopOpen && (typeof document === 'undefined' || !document.querySelector('.shop-window'))) {
+                return { success: false, error: 'เปิดร้านค้าไม่สำเร็จ' };
+            }
+            const prevManual = window.__isManualSelling;
+            const prevSellCfg = window.__sellConfig ? Object.assign({}, window.__sellConfig) : null;
+            window.__isManualSelling = true;
+            if (!window.__sellConfig || !window.__sellConfig.enabled) {
+                window.__sellConfig = Object.assign({}, window.__sellConfig || {}, { enabled: true, sellMaterials: true });
+            }
+            await new Promise(resolve => {
+                let done = false;
+                const t = setTimeout(() => { if (!done) { done = true; resolve(); } }, 20000);
+                try {
+                    if (typeof window.triggerAutoSellTrash === 'function') {
+                        window.triggerAutoSellTrash(() => {
+                            if (!done) { done = true; clearTimeout(t); resolve(); }
+                        });
+                    } else {
+                        done = true; clearTimeout(t); resolve();
+                    }
+                } catch (e) {
+                    if (!done) { done = true; clearTimeout(t); resolve(); }
+                }
+            });
+            window.__isManualSelling = prevManual;
+            if (prevSellCfg) window.__sellConfig = prevSellCfg;
+            try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
+            await sleep(400);
+            if (typeof window.refreshInventoryAndWeight === 'function') {
+                await new Promise(r => {
+                    const t = setTimeout(r, 2000);
+                    window.refreshInventoryAndWeight(() => { clearTimeout(t); r(); });
+                });
+            }
+            const inv = window.__latestInventory || {};
+            const liveCh = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+            return {
+                success: true,
+                weight: Number(inv.weight ?? liveCh.weight) || 0,
+                weightLimit: Number(inv.weightLimit ?? liveCh.weightLimit) || 2000
+            };
+        } catch (e) {
+            try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (_) {}
+            return { success: false, error: e.message || String(e) };
+        }
+    };
+
+    window.withdrawConsolidationItemsFromStorage = async function (itemNames, maxExtraWeight = null) {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const list = Array.isArray(itemNames) && itemNames.length
+            ? itemNames
+            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
+        if (!list.length) return { success: true, withdrawnQty: 0, bagMatchingQty: 0, bagMatchingWeight: 0, items: [] };
+        if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
+            return { success: false, error: 'not-in-capital' };
+        }
+        const room = tradeRoom();
+        if (!room) return { success: false, error: 'no-room' };
+        if (typeof window.openStorageWindow !== 'function') {
+            return { success: false, error: 'no-openStorageWindow' };
+        }
+        let withdrawnQty = 0;
+        let cappedByWeight = false;
+        window.__isStoring = true;
+        try {
+            try { if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
+            await sleep(250);
+            const st = await window.openStorageWindow(room, () => false);
+            if (!st || !Array.isArray(st.items)) {
+                const curBag = window.getConsolidationMatchingBagItems(list);
+                return {
+                    success: false,
+                    error: 'เปิดคลังไม่สำเร็จ',
+                    withdrawnQty: 0,
+                    bagMatchingQty: curBag.totalQty,
+                    bagMatchingWeight: curBag.totalWeight,
+                    items: curBag.items
+                };
+            }
+            const matchingInStorage = st.items.filter(it => it && typeof window.matchesStashItemList === 'function' && window.matchesStashItemList(it, list));
+            if (matchingInStorage.length > 0) {
+                const bagState0 = window.getConsolidationMatchingBagItems(list);
+                const inv0 = window.__latestInventory || {};
+                const weightLimit = bagState0.weightLimit || 2000;
+                const safeMaxWeight = Math.max(0, weightLimit - 20);
+                let availWeight = Math.max(0, safeMaxWeight - bagState0.curWeight);
+                if (maxExtraWeight !== null && isFinite(maxExtraWeight)) {
+                    availWeight = Math.min(availWeight, Math.max(0, Number(maxExtraWeight)));
+                }
+                const maxSlots = Number(inv0.slots) || 100;
+
+                for (const stItem of matchingInStorage) {
+                    const stQty = Math.max(1, Number(stItem.qty) || 1);
+                    const unitW = Math.max(0, Number(stItem.weight) || 1);
+                    const curInv = window.__latestInventory || {};
+                    const curBagItems = Array.isArray(curInv.items)
+                        ? curInv.items.filter(Boolean)
+                        : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+                    const stItemId = Number(stItem.itemId || stItem.id);
+                    const hasStackInBag = curBagItems.some(b => Number(b.itemId || b.id) === stItemId && (b.qty || 1) > 1);
+                    const freeSlots = maxSlots - curBagItems.length;
+                    if (!hasStackInBag && freeSlots <= 2) {
+                        console.warn('[PmheeAether Storage] ⚠️ ช่องกระเป๋าใกล้เต็ม หยุดเบิกของเพิ่ม');
+                        break;
+                    }
+                    const maxByWeight = unitW > 0 ? Math.floor(availWeight / unitW) : stQty;
+                    if (maxByWeight < stQty) cappedByWeight = true;
+                    const qtyToTake = Math.min(stQty, maxByWeight);
+                    if (qtyToTake <= 0) {
+                        cappedByWeight = true;
+                        console.warn(`[PmheeAether Storage] ⚠️ น้ำหนักกระเป๋าไม่พอเบิก "${stItem.name}" เพิ่ม (เหลือรับได้ ${availWeight} หน่วย)`);
+                        continue;
+                    }
+                    const beforeMatch = window.getConsolidationMatchingBagItems(list).totalQty;
+                    console.log(`%c[PmheeAether Storage] 📤 เบิก "${stItem.name}" x${qtyToTake} จากคลัง (Slot ${stItem.slot})...`, 'color: #38bdf8; font-weight: bold;');
+                    room.send('storage_take', { slot: Number(stItem.slot), qty: Number(qtyToTake) });
+                    let confirmed = false;
+                    for (let i = 0; i < 12; i++) {
+                        await sleep(180);
+                        const nowMatch = window.getConsolidationMatchingBagItems(list).totalQty;
+                        if (nowMatch > beforeMatch) {
+                            withdrawnQty += (nowMatch - beforeMatch);
+                            confirmed = true;
+                            break;
+                        }
+                    }
+                    if (!confirmed) {
+                        console.warn(`[PmheeAether Storage] ⚠️ เบิก "${stItem.name}" ไม่สำเร็จหรือเซิร์ฟเวอร์ไม่ตอบรับ`);
+                    }
+                    const updatedBag = window.getConsolidationMatchingBagItems(list);
+                    availWeight = Math.max(0, safeMaxWeight - updatedBag.curWeight);
+                    if (maxExtraWeight !== null && isFinite(maxExtraWeight)) {
+                        availWeight = Math.min(availWeight, Math.max(0, Number(maxExtraWeight) - withdrawnQty * unitW));
+                    }
+                    await sleep(220);
+                }
+            }
+            const x = typeof document !== 'undefined' ? document.querySelector('.storage-window .win-close') : null;
+            if (x) x.click(); else if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            await sleep(300);
+        } catch (e) {
+            console.warn('[PmheeAether Storage] withdraw error:', e);
+        } finally {
+            window.__isStoring = false;
+        }
+        const finalBag = window.getConsolidationMatchingBagItems(list);
+        return {
+            success: true,
+            withdrawnQty,
+            cappedByWeight,
+            bagMatchingQty: finalBag.totalQty,
+            bagMatchingWeight: finalBag.totalWeight,
+            curWeight: finalBag.curWeight,
+            weightLimit: finalBag.weightLimit,
+            items: finalBag.items
+        };
+    };
+
+    window.depositConsolidationItemsToStorage = async function (itemNames, returnToPos = null) {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const list = Array.isArray(itemNames) && itemNames.length
+            ? itemNames
+            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
+        const check0 = window.getConsolidationMatchingBagItems(list);
+        if (!check0.items.length) {
+            return { success: true, depositedQty: 0, curWeight: check0.curWeight, weightLimit: check0.weightLimit };
+        }
+        const room = tradeRoom();
+        if (!room || typeof window.openStorageWindow !== 'function') {
+            return { success: false, error: 'no-room-or-storage' };
+        }
+        let depositedQty = 0;
+        window.__isStoring = true;
+        try {
+            const st = await window.openStorageWindow(room, () => false);
+            if (!st) {
+                return { success: false, error: 'เปิดคลังไม่สำเร็จ' };
+            }
+            const bagNow = window.getConsolidationMatchingBagItems(list).items;
+            for (const it of bagNow) {
+                const qty = Math.max(1, Number(it.qty) || 1);
+                room.send('storage_put', { slot: Number(it.slot), qty });
+                for (let i = 0; i < 10; i++) {
+                    await sleep(180);
+                    const nowScan = window.getConsolidationMatchingBagItems(list).items;
+                    const stillThere = nowScan.find(x => x && Number(x.slot) === Number(it.slot) && Number(x.itemId) === Number(it.itemId));
+                    if (!stillThere) {
+                        depositedQty += qty;
+                        break;
+                    }
+                }
+                await sleep(220);
+            }
+            const x = typeof document !== 'undefined' ? document.querySelector('.storage-window .win-close') : null;
+            if (x) x.click(); else if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            await sleep(300);
+            if (returnToPos && typeof returnToPos.x === 'number' && typeof returnToPos.y === 'number' && typeof window.moveCharacterToTile === 'function') {
+                await window.moveCharacterToTile(returnToPos.x, returnToPos.y, 2);
+            }
+        } catch (e) {
+            console.warn('[PmheeAether Storage] depositConsolidationItemsToStorage error:', e);
+        } finally {
+            window.__isStoring = false;
+        }
+        const after = window.getConsolidationMatchingBagItems(list);
+        return {
+            success: true,
+            depositedQty,
+            curWeight: after.curWeight,
+            weightLimit: after.weightLimit
+        };
+    };
+
     window.stopReceiverTradeWatcher = function () {
         if (typeof window.__receiverWatcherStop === 'function') window.__receiverWatcherStop('stopped');
         return true;
@@ -18294,7 +18714,7 @@
             console.log(`%c[PmheeAether Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${expected}'...`, 'color: #a855f7; font-weight: bold;');
 
             const zenyBefore = tradeZeny();
-            let accepted = false, lockSent = false, confirmSent = false, finished = false, receivedOffer = 0;
+            let accepted = false, lockSent = false, confirmSent = false, finished = false, receivedOffer = 0, receivedItemsOffer = 0;
             let unsubInvite = null, unsubTrade = null;
 
             const finish = (result) => {
@@ -18328,20 +18748,25 @@
             unsubTrade = room.onMessage('trade', (tr) => {
                 if (finished) return;
                 if (!tr) {
-                    // window closed: done if we confirmed and the zeny arrived, else the sender cancelled
+                    // window closed: done if we confirmed and the zeny or items arrived, else the sender cancelled
                     if (!confirmSent) { accepted = false; lockSent = false; return; }
                     setTimeout(() => {
                         const now = tradeZeny();
-                        const got = (isFinite(now) && isFinite(zenyBefore)) ? now - zenyBefore : receivedOffer;
-                        finish(got > 0 ? { success: true, receivedZeny: got } : { success: false, error: 'หน้าต่างเทรดปิดแต่เงินไม่เข้า' });
+                        const got = (isFinite(now) && isFinite(zenyBefore)) ? Math.max(0, now - zenyBefore) : receivedOffer;
+                        finish((got > 0 || receivedItemsOffer > 0)
+                            ? { success: true, receivedZeny: got, receivedItemsQty: receivedItemsOffer }
+                            : { success: false, error: 'หน้าต่างเทรดปิดแต่เงินหรือไอเทมไม่เข้า' });
                     }, 1200);
                     return;
                 }
                 if (!sameName(tr.partner, expected)) return;
                 if (tr.theirs && typeof tr.theirs.zeny === 'number') receivedOffer = tr.theirs.zeny;
+                if (tr.theirs && Array.isArray(tr.theirs.items)) {
+                    receivedItemsOffer = tr.theirs.items.reduce((sum, it) => sum + (Number(it && it.qty) || 1), 0);
+                }
                 if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked && !lockSent) {
                     lockSent = true;
-                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${Number(tr.theirs.zeny || 0).toLocaleString()} z) -> ล็อค`, 'color: #38bdf8;');
+                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${Number(tr.theirs.zeny || 0).toLocaleString()} z${receivedItemsOffer > 0 ? ` + ไอเทม ${receivedItemsOffer} ชิ้น` : ''}) -> ล็อค`, 'color: #38bdf8;');
                     setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 300);
                 }
                 if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed && !confirmSent) {
@@ -18353,7 +18778,7 @@
         });
     };
 
-    window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000) {
+    window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000, tradeItemNames = [], maxReceiverExtraWeight = null) {
         // one trade at a time per client: a second call while one runs must not send another request
         if (window.__senderTradeBusy) return Promise.resolve({ success: false, error: 'กำลังเทรดอยู่แล้ว (ไม่ส่งซ้ำ)' });
         return new Promise((resolve) => {
@@ -18363,8 +18788,29 @@
             const amount = Math.max(0, parseInt(zenyAmount) || 0);
             const zenyBefore = tradeZeny();
             if (isFinite(zenyBefore) && amount > zenyBefore) return resolve({ success: false, error: `เงินไม่พอ (มี ${zenyBefore.toLocaleString()} z)` });
+
+            const itemList = Array.isArray(tradeItemNames) ? tradeItemNames.filter(Boolean) : [];
+            const bagScan = itemList.length > 0 ? window.getConsolidationMatchingBagItems(itemList) : { items: [], totalQty: 0 };
+            const itemsBeforeQty = bagScan.totalQty;
+            const offerItems = [];
+            let remWeight = (maxReceiverExtraWeight !== null && isFinite(maxReceiverExtraWeight)) ? Math.max(0, Number(maxReceiverExtraWeight)) : Infinity;
+            for (const it of bagScan.items) {
+                if (offerItems.length >= 10) break;
+                const unitW = Math.max(0, Number(it.weight) || 0);
+                const maxByW = (unitW > 0 && isFinite(remWeight)) ? Math.floor(remWeight / unitW) : it.qty;
+                const q = Math.min(it.qty, maxByW);
+                if (q <= 0) continue;
+                offerItems.push({ slot: Number(it.slot), qty: Number(q), name: it.name, itemId: it.itemId });
+                if (unitW > 0 && isFinite(remWeight)) remWeight -= q * unitW;
+            }
+            const offeredItemsTotalQty = offerItems.reduce((s, x) => s + x.qty, 0);
+
+            if (amount <= 0 && offerItems.length === 0) {
+                return resolve({ success: true, transferredZeny: 0, transferredItemsQty: 0, transferredItems: [] });
+            }
+
             window.__senderTradeBusy = true;
-            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มเทรดเงิน ${amount.toLocaleString()} z ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มเทรดเงิน ${amount.toLocaleString()} z${offeredItemsTotalQty > 0 ? ` + ไอเทม ${offeredItemsTotalQty} ชิ้น` : ''} ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
 
             let opened = false, offerSent = false, lockSent = false, confirmSent = false, finished = false;
             let unsubTrade = null;
@@ -18393,10 +18839,21 @@
                     if (!confirmSent) return finish({ success: false, error: 'อีกฝ่ายยกเลิก/ปิดหน้าต่างเทรด' });
                     setTimeout(() => {
                         const now = tradeZeny();
-                        const sent = (isFinite(now) && isFinite(zenyBefore)) ? zenyBefore - now : null;
-                        if (sent === null) finish({ success: true, transferredZeny: amount, unverified: true });
-                        else if (sent > 0) finish({ success: true, transferredZeny: sent });
-                        else finish({ success: false, error: 'หน้าต่างเทรดปิดแต่เงินไม่ลด (เทรดไม่สำเร็จ)' });
+                        const sent = (isFinite(now) && isFinite(zenyBefore)) ? Math.max(0, zenyBefore - now) : null;
+                        const nowItemsQty = itemList.length > 0 ? window.getConsolidationMatchingBagItems(itemList).totalQty : 0;
+                        const sentItemsQty = itemList.length > 0 ? Math.max(0, itemsBeforeQty - nowItemsQty) : 0;
+                        if (sent === null && offeredItemsTotalQty === 0) {
+                            finish({ success: true, transferredZeny: amount, transferredItemsQty: 0, transferredItems: [], unverified: true });
+                        } else if ((sent !== null && sent > 0) || sentItemsQty > 0) {
+                            finish({
+                                success: true,
+                                transferredZeny: sent !== null ? sent : amount,
+                                transferredItemsQty: sentItemsQty || offeredItemsTotalQty,
+                                transferredItems: offerItems
+                            });
+                        } else {
+                            finish({ success: false, error: 'หน้าต่างเทรดปิดแต่เงินและไอเทมไม่ลด (เทรดไม่สำเร็จ)' });
+                        }
                     }, 1200);
                     return;
                 }
@@ -18404,11 +18861,14 @@
                 opened = true;
                 if (!offerSent) {
                     offerSent = true;
-                    console.log(`%c[PmheeAether Trade] 📤 Sender: ใส่เงิน ${amount.toLocaleString()} z`, 'color: #38bdf8;');
-                    setTimeout(() => { if (!finished) room.send('trade', { action: 'offer', items: [], zeny: amount }); }, 350);
+                    const payloadItems = offerItems.map(x => ({ slot: x.slot, qty: x.qty }));
+                    console.log(`%c[PmheeAether Trade] 📤 Sender: ใส่ข้อเสนอ ${amount.toLocaleString()} z${offeredItemsTotalQty > 0 ? ` + ไอเทม ${offeredItemsTotalQty} ชิ้น` : ''}`, 'color: #38bdf8;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'offer', items: payloadItems, zeny: amount }); }, 350);
                     return;
                 }
-                if (!lockSent && tr.mine && tr.mine.zeny === amount && !tr.mine.locked) {
+                const zenyReady = tr.mine && Number(tr.mine.zeny || 0) === amount;
+                const itemsReady = offerItems.length === 0 || (tr.mine && Array.isArray(tr.mine.items) && tr.mine.items.length === offerItems.length);
+                if (!lockSent && zenyReady && itemsReady && !tr.mine.locked) {
                     lockSent = true;
                     console.log('%c[PmheeAether Trade] 📤 Sender: ล็อคข้อเสนอ (lock)', 'color: #38bdf8;');
                     setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 400);
