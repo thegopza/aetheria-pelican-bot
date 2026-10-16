@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.42.1
+// @version      4.42.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.42.1';
+    const PELICAN_BOT_VERSION = '4.42.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -20259,14 +20259,34 @@
         }
     };
 
+    function clearPartyPriestFollow(room, sync, forceEmit = false) {
+        const fm = sync && sync.followMode ? String(sync.followMode) : 'none';
+        if (fm !== 'none' && fm !== 'priest') return;
+        const chipBtn = typeof document.querySelector === 'function' ? document.querySelector('.follow-chip button') : null;
+        if (chipBtn && typeof chipBtn.click === 'function') {
+            chipBtn.click();
+        }
+        if (forceEmit || chipBtn) {
+            try {
+                const r = room || ((typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom);
+                const handlers = r && r.onMessageHandlers;
+                if (handlers && typeof handlers.emit === 'function') {
+                    handlers.emit('party_follow', { name: null });
+                }
+            } catch (e) {}
+        }
+    }
+
     window.updatePartySyncState = function(sync) {
         if (!sync) {
+            const prevSync = window.__pmPartySync;
             window.__pmPartySync = null;
             window.__partyForcedMap = null;
             if (window.__partyOverrideRadius || window.__returningToPriest) {
                 window.__returningToPriest = false;
                 if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
             }
+            clearPartyPriestFollow(null, prevSync, true);
             return { success: true, cleared: true };
         }
         window.__pmPartySync = Object.assign({}, sync, { updatedAt: Date.now() });
@@ -20286,16 +20306,17 @@
             const curMap = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
             if (!curMap || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMap)) return;
 
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
             const sync = window.__pmPartySync;
             if (!sync || (Date.now() - (sync.updatedAt || 0) > 45000)) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
                     window.__returningToPriest = false;
+                    clearPartyPriestFollow(room, sync, true);
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
 
-            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
             const players = room && room.state && room.state.players;
             const me = players && players.get ? players.get(room.sessionId) : null;
             if (!room || !players || !me) return;
@@ -20333,6 +20354,7 @@
             if (!priestName) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
                     window.__returningToPriest = false;
+                    clearPartyPriestFollow(room, sync, true);
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
@@ -20348,6 +20370,7 @@
             if (!priestPlayer || (typeof priestPlayer.hp === 'number' && priestPlayer.hp <= 0)) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
                     window.__returningToPriest = false;
+                    clearPartyPriestFollow(room, sync, true);
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
@@ -20368,42 +20391,37 @@
                     // ยืนข้างพระครบ 18 วิแล้วยังไม่ได้บัฟ (เช่น พระ SP หมดชั่วคราว) -> ปล่อยไปฟาร์มต่อชั่วคราว 25 วิ
                     window.__priestBuffCooldownUntil = now + 25000;
                     window.__returningToPriest = false;
+                    clearPartyPriestFollow(room, sync, true);
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                     return;
                 }
                 if (window.__partyOverrideRadius !== 3) {
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(3);
                 }
-                try {
-                    const handlers = room.onMessageHandlers;
-                    if (handlers && typeof handlers.emit === 'function') {
-                        handlers.emit('party_follow', { name: priestName });
-                    }
-                } catch (e) {}
                 if (distToPriest > 110) {
+                    try {
+                        const handlers = room.onMessageHandlers;
+                        if (handlers && typeof handlers.emit === 'function') {
+                            handlers.emit('party_follow', { name: priestName });
+                        }
+                    } catch (e) {}
                     room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y });
+                } else {
+                    clearPartyPriestFollow(room, sync, false);
                 }
                 return;
             }
 
-            // เมื่อได้รับบัฟครบและเลือดปกติแล้ว
+            // เมื่อได้รับบัฟครบและเลือดปกติแล้ว: ยกเลิกติดตามพระทันทีและปล่อยออกไปล่ามอนสเตอร์อิสระ!
             if (window.__returningToPriest) {
                 window.__returningToPriest = false;
                 console.log(`%c[PmheeAether Party] ✨ รับบัฟ/ฮีลจาก Priest "${priestName}" ครบแล้ว -> ลุยฟาร์มต่อ!`, 'color: #22c55e; font-weight: bold;');
-                if (sync.followMode === 'none') {
-                    const chipBtn = document.querySelector('.follow-chip button');
-                    if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
-                    else if (room.onMessageHandlers && typeof room.onMessageHandlers.emit === 'function') {
-                        room.onMessageHandlers.emit('party_follow', { name: null });
-                    }
-                }
+                clearPartyPriestFollow(room, sync, true);
                 if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
-            }
-
-            // ถ้าไม่ได้ตั้งแยกตีอิสระ (หรือเป็นหัวตี้ที่มีพระในตี้): เกาะกลุ่มอยู่ใกล้ Priest เสมอ (ไม่วิ่งหนีพระไปตายคนเดียว)
-            if (sync.followMode !== 'none') {
-                if (distToPriest > 240) {
-                    room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y });
+            } else {
+                clearPartyPriestFollow(room, sync, false);
+                if (window.__partyOverrideRadius !== null) {
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
             }
         } catch (e) {}
