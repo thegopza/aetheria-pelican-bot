@@ -108,7 +108,14 @@ function makeWorld(chars) {
     const c = chars[id];
     if (!c) return { success: false, error: 'ECONNREFUSED' };
     if (code === READ_JS) {
-      return { success: true, result: snap(c.name, c.level, { channel: c.channel, mapId: c.mapId, mapName: c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null, follow: c.follow || null }) };
+      return { success: true, result: snap(c.name, c.level, { classId: c.classId || null, channel: c.channel, mapId: c.mapId, mapName: c.mapName || c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null, follow: c.follow || null, helpers: Object.assign({ moveToChannel: true, findLeast: true, setTargetFarmMap: true }, c.helpers || {}) }) };
+    }
+    if (code.includes('evaluatePartyChannelSwitch(')) {
+      world.evalAnchorCalls = (world.evalAnchorCalls || []).concat(c.name);
+      if (typeof world.proactiveLeast === 'number' && world.proactiveLeast !== c.channel) {
+        return { success: true, result: { success: true, currentCh: c.channel, channel: world.proactiveLeast, shouldSwitch: true } };
+      }
+      return { success: true, result: { success: true, currentCh: c.channel, channel: c.channel, shouldSwitch: false } };
     }
     const m = code.match(/room\.send\('party', (\{.*?\})\);/s);
     if (m) {
@@ -133,6 +140,7 @@ function makeWorld(chars) {
     }
     if (code.includes('window.__targetFarmMap = map')) {
       c.targetMap = JSON.parse(code.match(/const map = (".*?");/)[1]);
+      c.setMapCalls = (c.setMapCalls || 0) + 1;
       return { success: true, result: { success: true } };
     }
     if (code.includes('window.moveToChannel(')) {
@@ -366,6 +374,48 @@ test('manual add-member and per-member followModes (none, leader, member:<id>)',
   await new Promise(r => setTimeout(r, 25));
   await svc.tick();
   assert.ok(svc._parties()[0].memberIds.includes('M3'), 'manual member M3 is kept even when offline if autoFill is false');
+});
+
+test('Priest-centric anchor: Priest picks least-crowded channel ONCE (never loops), Leader + followers + independent members join Priest CH, and followMode=leader follows Priest', async () => {
+  const chars = {
+    L: { name: 'G4YSuuuuu', classId: 'hunter', level: 99, channel: 2, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 8000, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    P: { name: 'Mix_999', classId: 'priest', level: 99, channel: 4, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 8001, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    B: { name: 'SuuuG4y', classId: 'bard', level: 99, channel: 1, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 8002, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    I: { name: 'SoloMage', classId: 'wizard', level: 99, channel: 6, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 8003, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } }
+  };
+  const { svc, world } = service(chars, { unfollowCooldownMs: 0, followCooldownMs: 0 });
+  world.proactiveLeast = 11; // least-populated channel
+  await post(svc, '/api/parties', {
+    leaderId: 'L',
+    memberIds: ['P', 'B', 'I'],
+    autoFill: false,
+    followModes: { P: 'leader', B: 'leader', I: 'none' }
+  });
+  await new Promise(r => setTimeout(r, 60));
+  for (let i = 0; i < 6; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 20));
+  }
+
+  // 1. Priest (Mix_999) was the Channel Anchor who evaluated and switched to CH 11 ONCE
+  assert.deepStrictEqual(world.evalAnchorCalls, ['Mix_999'], 'Priest must evaluate least-crowded channel exactly once');
+  assert.strictEqual(chars.P.channel, 11, 'Priest moved to CH 11');
+  // 2. Leader, follower B, AND independent member I ('none') all moved to CH 11
+  assert.strictEqual(chars.L.channel, 11, 'Leader moved to Priest CH 11');
+  assert.strictEqual(chars.B.channel, 11, 'Follower B moved to Priest CH 11');
+  assert.strictEqual(chars.I.channel, 11, 'Independent member I moved to Priest CH 11');
+  // 3. Even if world.proactiveLeast changes later on the same map, it NEVER loops switching channels again
+  world.proactiveLeast = 14;
+  for (let i = 0; i < 4; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 20));
+  }
+  assert.deepStrictEqual(world.evalAnchorCalls, ['Mix_999'], 'Must not re-evaluate or loop channel switching on the same map');
+  assert.strictEqual(chars.P.channel, 11);
+  // 4. Follower B (followMode='leader') follows Priest Mix_999 instead of Leader, while Priest and Independent I do not follow anyone
+  assert.strictEqual(chars.B.follow, 'Mix_999', 'Member with followMode=leader follows Priest when Priest is in party');
+  assert.ok(!chars.P.follow, 'Priest anchor does not party_follow anyone');
+  assert.ok(!chars.I.follow, 'Independent member farms freely on the same map & CH');
 });
 
 

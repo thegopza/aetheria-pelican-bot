@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.41.4
+// @version      4.42.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.41.4';
+    const PELICAN_BOT_VERSION = '4.42.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -10918,7 +10918,12 @@
             return;
         }
         if (!mapName) mapName = window.__targetFarmMap;
-        if (window.__planScriptEnabled && window.__currentScriptPlan && mapName === window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(mapName || '') && typeof window.planMapForNow === 'function') {
+        const skipPlanOverride = Boolean(
+            (opts && opts.fromParty) ||
+            (window.__partyForcedMap && mapName === window.__partyForcedMap) ||
+            (typeof window.isPlanLevelMapProgressionDone === 'function' && window.isPlanLevelMapProgressionDone())
+        );
+        if (!skipPlanOverride && window.__planScriptEnabled && window.__currentScriptPlan && mapName === window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(mapName || '') && typeof window.planMapForNow === 'function') {
             const planMap = window.planMapForNow();
             if (planMap && planMap !== mapName) {
                 console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${mapName}")`, 'color: #38bdf8; font-weight: bold;');
@@ -10971,6 +10976,11 @@
             window.__navWalkOnly = false;
             window.__isRecovering = false;
             return;
+        }
+
+        // ปิด AUTO ในเกมชั่วคราวก่อนเดินข้ามแมพ เพื่อไม่ให้เซิร์ฟเวอร์ดึงตัวละครกลับจุดเปิด AUTO เดิมระหว่างวิ่งไปวาร์ป
+        if (!inCity && typeof window.deactivateInGameAuto === 'function') {
+            try { window.deactivateInGameAuto(); } catch (e) {}
         }
 
         const saveWarp = window.isWarpTooExpensive() || !!(opts && opts.walkOnly);
@@ -16783,15 +16793,20 @@
     }
 
     // Plan action "change_map": remember the new farm map (same key the bot loads) and walk there now
-    window.setTargetFarmMap = function(mapName, walkNow = false) {
+    window.setTargetFarmMap = function(mapName, walkNow = false, opts = {}) {
         if (!mapName) return;
         window.__targetFarmMap = mapName;
         try { localStorage.setItem('pelican_farm_map', mapName); } catch (e) {}
+        if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(mapName);
+        if (opts && opts.fromParty) {
+            window.__partyForcedMap = mapName;
+            if (typeof window.setPlanManualMap === 'function') window.setPlanManualMap(mapName);
+        }
         const sel = document.getElementById('p-target-map-select');
         if (sel) sel.value = mapName;
         if (walkNow && window.__isBotRunning && !planBusyReason() && typeof window.walkToTargetMap === 'function') {
             const cur = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
-            if (!cur.includes(mapName)) window.walkToTargetMap(mapName, true);
+            if (!cur.includes(mapName)) window.walkToTargetMap(mapName, true, opts);
         }
     };
 
@@ -18007,6 +18022,50 @@
             }
         } catch (e) {}
     };
+    window.isPlanLevelMapProgressionDone = function() {
+        const plan = window.__currentScriptPlan;
+        const lv = readPlanLevels();
+        if (!plan || !Array.isArray(plan.triggers) || !lv) return true;
+        const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        const stKey = `pelican_plan_state_${charName}_${plan.id || plan.name || 'plan'}`;
+        let st = null;
+        try { st = JSON.parse(localStorage.getItem(stKey) || 'null'); } catch (e) {}
+        const done = (st && st.done) || {};
+        const pending = (st && st.pending) || {};
+        const order = ['novice', plan.class1Target, plan.class2Target].filter(Boolean).map(x => String(x).toLowerCase());
+        const ci = order.indexOf(lv.cls);
+
+        for (let idx = 0; idx < plan.triggers.length; idx++) {
+            const t = plan.triggers[idx];
+            if (!t || (t.type !== 'base_level' && t.type !== 'job_level')) continue;
+            const acts = Array.isArray(t.actions) ? t.actions : [];
+            const hasMapOrClass = acts.some(a => a && (a.type === 'change_map' || a.type === 'change_class'));
+            if (!hasMapOrClass) continue;
+            const id = planTriggerId(t, idx);
+            if (done[id]) continue;
+            if (pending[id]) {
+                const left = Array.isArray(pending[id].actions) ? pending[id].actions.map(i => acts[i]).filter(Boolean) : acts;
+                if (left.some(a => a && (a.type === 'change_map' || a.type === 'change_class'))) return false;
+                continue;
+            }
+            const targetLv = parseInt(t.targetLevel, 10) || 0;
+            if (t.type === 'base_level') {
+                if (lv.base < targetLv) return false;
+            } else if (t.type === 'job_level') {
+                const trigCls = inferJobTriggerClassId(t, plan) || String(t.classId || '').trim().toLowerCase();
+                if (trigCls) {
+                    const ti = order.indexOf(trigCls);
+                    if (ti >= 0 && ci >= 0) {
+                        if (ci < ti) return false;
+                        if (ci > ti) continue;
+                    }
+                }
+                if (lv.job < targetLv) return false;
+            }
+        }
+        return true;
+    };
+
     window.planMapForNow = function() {
         const plan = window.__currentScriptPlan;
         const lv = readPlanLevels();
@@ -18051,7 +18110,7 @@
             if (!ok) return;
             const mapLv = PLAN_MAP_MIN_LEVEL[map] || 0;
             const rank = mapLv * 10000 + tierRank * 10 + (idx % 10);
-            if (!best || rank >= best.rank) best = { rank, map, mapLv };
+            if (!best || rank >= best.rank) best = { rank, map, mapLv, trigBaseLv: t.type === 'base_level' ? lvl : 0 };
         });
 
         const gp = plan.gearPlan;
@@ -18068,7 +18127,37 @@
             if (gpDone) {
                 const mapLv = PLAN_MAP_MIN_LEVEL[gpMap] || 0;
                 const rank = mapLv * 10000 + 9999;
-                if (!best || rank >= best.rank) best = { rank, map: gpMap, mapLv };
+                if (!best || rank >= best.rank) best = { rank, map: gpMap, mapLv, trigBaseLv: 0 };
+            }
+        }
+
+        // เมื่อผ่านเงื่อนไข Base Level / Job Level ของแผนครบหมดแล้ว (เหลือเฉพาะเซ็ตอุปกรณ์ / เงิน Zeny):
+        // ปลดล็อคแมพฟาร์ม! ให้ตามปาร์ตี้หรือแมพที่เลือกไว้ได้โดยไม่ถูกแผนดึงกลับแมพสุดท้ายซ้ำ
+        if (typeof window.isPlanLevelMapProgressionDone === 'function' && window.isPlanLevelMapProgressionDone()) {
+            const forcedPartyMap = String(window.__partyForcedMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+            if (forcedPartyMap && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(forcedPartyMap)) {
+                return forcedPartyMap;
+            }
+            const finalSyncKey = planLastMapKey() + '_final_synced';
+            let syncedMap = '', manualMap = '';
+            try {
+                syncedMap = localStorage.getItem(finalSyncKey) || '';
+                manualMap = localStorage.getItem(planLastMapKey() + '_manual') || '';
+            } catch (e) {}
+            const curTarget = String(window.__targetFarmMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+            const hasValidCurTarget = Boolean(curTarget && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curTarget));
+            if (best && best.map) {
+                if ((best.trigBaseLv > 0 && lv.base > best.trigBaseLv) || syncedMap === best.map || manualMap) {
+                    if (syncedMap !== best.map) {
+                        try { localStorage.setItem(finalSyncKey, best.map); } catch (e) {}
+                    }
+                    if (hasValidCurTarget) return curTarget;
+                    if (manualMap && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(manualMap)) return manualMap;
+                } else {
+                    try { localStorage.setItem(finalSyncKey, best.map); } catch (e) {}
+                }
+            } else if (hasValidCurTarget) {
+                return curTarget;
             }
         }
         return best ? best.map : null;
@@ -18844,9 +18933,10 @@
         }
 
         // ตรวจสอบว่าต้องอัปเดตหรือไม่
-        // 1. ระยะล่าไม่เป็น 'all' (เช่น ค่าเริ่มต้น 12 ช่อง หรือตัวเลขอื่นๆ)
+        // 1. ระยะล่าไม่ตรงกับที่ต้องการ (ปกติ 'all' หรือตามระยะปาร์ตี้ window.__partyOverrideRadius)
         // 2. มีสกิล Auto ที่ยังไม่ได้ถูกติ๊กใน config
-        const needsRadiusUpdate = curRadius !== 'all';
+        const desiredRadius = window.__partyOverrideRadius || 'all';
+        const needsRadiusUpdate = curRadius !== desiredRadius;
         const needsSkillsUpdate = targetSkills.length !== currentSkills.length || targetSkills.some((id, i) => id !== currentSkills[i]);
 
         if (!needsRadiusUpdate && !needsSkillsUpdate && !force) {
@@ -18862,21 +18952,23 @@
         window.__lastAutoSetTime[charName] = now;
         window.__autoSkillSent[rejKey] = { skills: targetSkills.slice(), at: now };
 
-        console.log(`%c[PmheeAether Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ทั้งแมพ ("all") | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
+        console.log(`%c[PmheeAether Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ${desiredRadius === 'all' ? 'ทั้งแมพ ("all")' : desiredRadius + ' ช่อง'} | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
 
         const enabledBuffPotionIds = (window.__buffPotionConfig)
             ? Object.keys(window.__buffPotionConfig).filter(id => window.__buffPotionConfig[id]?.enabled).map(Number)
             : (Array.isArray(currentConfig.buffItems) ? currentConfig.buffItems : []);
 
+        const isPriestCls = /^(priest|acolyte)$/i.test(String(charData.classId || ''));
         const newConfig = {
             skills: targetSkills,
             monsters: currentConfig.monsters || [],
             hpPercent: typeof currentConfig.hpPercent === 'number' ? currentConfig.hpPercent : 40,
             spPercent: typeof currentConfig.spPercent === 'number' ? currentConfig.spPercent : 20,
             pickupLoot: currentConfig.pickupLoot !== false,
-            huntRadiusTiles: 'all',
+            huntRadiusTiles: desiredRadius,
             basicAttack: currentConfig.basicAttack !== false,
             buffParty: currentConfig.buffParty !== false,
+            healPartyPercent: isPriestCls ? Math.max(Number(currentConfig.healPartyPercent) || 80, 80) : (typeof currentConfig.healPartyPercent === 'number' ? currentConfig.healPartyPercent : 60),
             flyWing: currentConfig.flyWing === true,
             buffItems: enabledBuffPotionIds
         };
@@ -19218,6 +19310,64 @@
         available.sort((a, b) => a.players - b.players);
         console.log(`%c[PmheeAether Channel] 📊 สแกน Channel: พบ CH ${available[0].channel} คนน้อยสุด (${available[0].players} คน)`, 'color: #22c55e; font-weight: bold;');
         return available[0].channel;
+    };
+
+    // ตรวจสอบ Channel ที่คนน้อยที่สุดสำหรับปาร์ตี้ 1 ครั้งเมื่อลงแมพฟาร์ม (ตัดสมาชิกปาร์ตี้ตัวเองออกจากการนับคนอื่นใน CH ปัจจุบัน)
+    window.evaluatePartyChannelSwitch = async function(partySize = 1, partyNames = []) {
+        const res = await window.getChannelsList(3500);
+        if (!res || !res.success || !res.data || !Array.isArray(res.data.channels)) {
+            return { success: false, error: 'no-channels' };
+        }
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const currentCh = (room && room.state && typeof room.state.channel === 'number') ? room.state.channel : (res.currentCh || res.data.current || 1);
+        const hardCap = res.data.hardCap || 40;
+        const size = Math.max(1, Number(partySize) || 1);
+        const partySet = new Set((Array.isArray(partyNames) ? partyNames : []).map(n => String(n || '').trim().toLowerCase()).filter(Boolean));
+        try {
+            const me = room && room.state && room.state.players && room.state.players.get ? room.state.players.get(room.sessionId) : null;
+            if (me && me.name) partySet.add(String(me.name).trim().toLowerCase());
+        } catch (e) {}
+
+        let strangersInRoom = 0;
+        let partyInRoom = 0;
+        try {
+            const players = room && room.state && room.state.players;
+            if (players && typeof players.forEach === 'function') {
+                players.forEach(p => {
+                    if (!p || !p.name) return;
+                    const nm = String(p.name).trim().toLowerCase();
+                    if (partySet.has(nm)) partyInRoom++;
+                    else strangersInRoom++;
+                });
+            }
+        } catch (e) {}
+
+        const list = res.data.channels;
+        const curRow = list.find(c => c.channel === currentCh);
+        const curTotal = curRow && typeof curRow.players === 'number' ? curRow.players : (strangersInRoom + Math.max(1, partyInRoom));
+        const strangersOnCurrentCh = Math.max(strangersInRoom, Math.max(0, curTotal - Math.max(1, partyInRoom)));
+
+        const available = list.filter(c => (c.players + size) <= hardCap || c.players < hardCap);
+        if (!available.length) {
+            return { success: true, currentCh, channel: currentCh, strangersOnCurrentCh, bestPlayers: curTotal, shouldSwitch: false };
+        }
+        available.sort((a, b) => a.players - b.players || a.channel - b.channel);
+        const best = available[0];
+        const shouldSwitch = Boolean(best && best.channel !== currentCh && strangersOnCurrentCh > 0 && best.players < strangersOnCurrentCh);
+        if (shouldSwitch) {
+            console.log(`%c[PmheeAether Party CH] 📊 CH ${currentCh} มีคนอื่น ${strangersOnCurrentCh} คน -> ย้ายไป CH ${best.channel} ที่คนน้อยสุด (${best.players} คน)`, 'color: #22c55e; font-weight: bold;');
+        } else {
+            console.log(`%c[PmheeAether Party CH] ✅ ปักหลักที่ CH ${currentCh} (คนอื่น ${strangersOnCurrentCh} คน, CH ที่น้อยสุดคือ CH ${best ? best.channel : currentCh}: ${best ? best.players : 0} คน)`, 'color: #38bdf8; font-weight: bold;');
+        }
+        return {
+            success: true,
+            currentCh,
+            channel: shouldSwitch ? best.channel : currentCh,
+            bestChannel: best ? best.channel : currentCh,
+            strangersOnCurrentCh,
+            bestPlayers: best ? best.players : 0,
+            shouldSwitch
+        };
     };
 
     window.switchChannel = async function(targetCh, timeoutMs = 8000) {
@@ -20025,4 +20175,194 @@
         room.send('stat_up', { stat: String(statKey).toUpperCase(), n: Number(count) || 1 });   // the game uses STR/AGI/... (lower case was ignored)
         return { success: true };
     };
+
+    // ==========================================
+    // PRIEST-CENTRIC PARTY COORDINATOR (v4.42.0)
+    // ==========================================
+    window.getPartyPriestBuffStatus = function(minRemainMs = 20000) {
+        const live = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const me = room && room.state && room.state.players && room.state.players.get ? room.state.players.get(room.sessionId) : null;
+        const buffs = (live && Array.isArray(live.buffs)) ? live.buffs : [];
+        const now = Date.now();
+        let blessingMs = 0;
+        let agiMs = 0;
+        for (const b of buffs) {
+            if (!b || !b.skillId) continue;
+            const rem = typeof b.remainingMs === 'number' ? b.remainingMs : (b.endsAt ? Math.max(0, b.endsAt - now) : 0);
+            if (b.skillId === 'blessing') blessingMs = Math.max(blessingMs, rem);
+            else if (b.skillId === 'increase-agi') agiMs = Math.max(agiMs, rem);
+        }
+        const hp = (me && typeof me.hp === 'number') ? me.hp : (live && typeof live.hp === 'number' ? live.hp : 100);
+        const maxHp = (me && typeof me.maxHp === 'number' && me.maxHp > 0) ? me.maxHp : (live && live.derived && live.derived.maxHp ? live.derived.maxHp : 100);
+        const hpPct = maxHp > 0 ? (hp / maxHp) : 1;
+        const needsBuff = (blessingMs < minRemainMs) || (agiMs < minRemainMs);
+        const needsHeal = hpPct > 0 && hpPct < 0.65;
+        return {
+            blessingMs,
+            agiMs,
+            hpPct,
+            needsBuff,
+            needsHeal,
+            needsPriest: needsBuff || needsHeal
+        };
+    };
+
+    window.updatePartySyncState = function(sync) {
+        if (!sync) {
+            window.__pmPartySync = null;
+            window.__partyForcedMap = null;
+            if (window.__partyOverrideRadius || window.__returningToPriest) {
+                window.__partyOverrideRadius = null;
+                window.__returningToPriest = false;
+                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+            }
+            return { success: true, cleared: true };
+        }
+        window.__pmPartySync = Object.assign({}, sync, { updatedAt: Date.now() });
+        if (sync.forcedMap && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(sync.forcedMap)) {
+            window.__partyForcedMap = String(sync.forcedMap).replace(/\s*\(Lv\..*?\)/i, '').trim();
+        } else if (sync.clearForcedMap) {
+            window.__partyForcedMap = null;
+        }
+        return { success: true };
+    };
+
+    if (window.__pmPartyCoordInterval) clearInterval(window.__pmPartyCoordInterval);
+    window.__pmPartyCoordInterval = setInterval(() => {
+        try {
+            if (!window.__isBotRunning || planBusyReason() !== null) return;
+            if (typeof isCharacterDead === 'function' && isCharacterDead()) return;
+            const curMap = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
+            if (!curMap || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMap)) return;
+
+            const sync = window.__pmPartySync;
+            if (!sync || (Date.now() - (sync.updatedAt || 0) > 45000)) {
+                if (window.__partyOverrideRadius || window.__returningToPriest) {
+                    window.__partyOverrideRadius = null;
+                    window.__returningToPriest = false;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                }
+                return;
+            }
+
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+            const players = room && room.state && room.state.players;
+            const me = players && players.get ? players.get(room.sessionId) : null;
+            if (!room || !players || !me) return;
+
+            const live = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+            const myClass = String((me && me.classId) || (live && live.classId) || '').toLowerCase();
+            const isMePriest = /^(priest|acolyte)$/.test(myClass);
+
+            // กรณีตัวเองเป็น Priest: เป็นจุดศูนย์กลางของปาร์ตี้ คอยบัฟและฮีลเพื่อนในแมพ
+            if (isMePriest) {
+                if (sync.isAnchorPriest) {
+                    const chipBtn = document.querySelector('.follow-chip button');
+                    if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
+                }
+                let someoneNeedsSupport = Boolean(sync.membersNeedingBuff > 0);
+                if (!someoneNeedsSupport && typeof players.forEach === 'function') {
+                    const partySet = new Set((Array.isArray(sync.partyNames) ? sync.partyNames : []).map(n => String(n || '').trim().toLowerCase()));
+                    players.forEach(p => {
+                        if (!p || !p.name || p === me) return;
+                        if (!partySet.has(String(p.name).trim().toLowerCase())) return;
+                        const dist = Math.hypot((me.x || 0) - (p.x || 0), (me.y || 0) - (p.y || 0));
+                        const hpPct = (p.maxHp > 0 && typeof p.hp === 'number') ? (p.hp / p.maxHp) : 1;
+                        if (dist <= 750 && hpPct > 0 && hpPct < 0.72) someoneNeedsSupport = true;
+                    });
+                }
+                const targetRadius = someoneNeedsSupport ? 3 : null;
+                if (window.__partyOverrideRadius !== targetRadius) {
+                    window.__partyOverrideRadius = targetRadius;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                }
+                return;
+            }
+
+            // กรณีมี Priest อยู่ในปาร์ตี้: เช็กว่า Priest อยู่แมพ+CH เดียวกันหรือไม่
+            const priestName = sync.priestName ? String(sync.priestName).trim() : '';
+            if (!priestName) {
+                if (window.__partyOverrideRadius || window.__returningToPriest) {
+                    window.__partyOverrideRadius = null;
+                    window.__returningToPriest = false;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                }
+                return;
+            }
+
+            let priestPlayer = null;
+            const wantPriest = priestName.toLowerCase();
+            if (typeof players.forEach === 'function') {
+                players.forEach(p => {
+                    if (!priestPlayer && p && String(p.name || '').trim().toLowerCase() === wantPriest) priestPlayer = p;
+                });
+            }
+            if (!priestPlayer || (typeof priestPlayer.hp === 'number' && priestPlayer.hp <= 0)) {
+                if (window.__partyOverrideRadius || window.__returningToPriest) {
+                    window.__partyOverrideRadius = null;
+                    window.__returningToPriest = false;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                }
+                return;
+            }
+
+            const distToPriest = Math.hypot((me.x || 0) - (priestPlayer.x || 0), (me.y || 0) - (priestPlayer.y || 0));
+            const buffSt = window.getPartyPriestBuffStatus(window.__returningToPriest ? 30000 : 20000);
+            const now = Date.now();
+
+            // หากบัฟ Blessing / Increase AGI ใกล้หมด (< 20 วิ) หรือไม่มีบัฟ หรือเลือดต่ำ (< 65%) -> เดินกลับไปหา Priest ทันที (แม้ตั้งแยกตีอิสระ!)
+            if (buffSt.needsPriest && now >= (window.__priestBuffCooldownUntil || 0)) {
+                if (!window.__returningToPriest) {
+                    window.__returningToPriest = true;
+                    window.__returnToPriestStartedAt = now;
+                    console.log(`%c[PmheeAether Party] 🙏 บัฟพระใกล้หมดหรือเลือดต่ำ (Bless:${Math.round(buffSt.blessingMs / 1000)}s, AGI:${Math.round(buffSt.agiMs / 1000)}s, HP:${Math.round(buffSt.hpPct * 100)}%) -> เดินไปรับบัฟจาก Priest "${priestName}"`, 'color: #38bdf8; font-weight: bold;');
+                }
+                if (distToPriest <= 150 && (now - (window.__returnToPriestStartedAt || now) > 18000)) {
+                    // ยืนข้างพระครบ 18 วิแล้วยังไม่ได้บัฟ (เช่น พระ SP หมดชั่วคราว) -> ปล่อยไปฟาร์มต่อชั่วคราว 25 วิ
+                    window.__priestBuffCooldownUntil = now + 25000;
+                    window.__returningToPriest = false;
+                    window.__partyOverrideRadius = null;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    return;
+                }
+                if (window.__partyOverrideRadius !== 3) {
+                    window.__partyOverrideRadius = 3;
+                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                }
+                try {
+                    const handlers = room.onMessageHandlers;
+                    if (handlers && typeof handlers.emit === 'function') {
+                        handlers.emit('party_follow', { name: priestName });
+                    }
+                } catch (e) {}
+                if (distToPriest > 110) {
+                    room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y });
+                }
+                return;
+            }
+
+            // เมื่อได้รับบัฟครบและเลือดปกติแล้ว
+            if (window.__returningToPriest) {
+                window.__returningToPriest = false;
+                window.__partyOverrideRadius = null;
+                console.log(`%c[PmheeAether Party] ✨ รับบัฟ/ฮีลจาก Priest "${priestName}" ครบแล้ว -> ลุยฟาร์มต่อ!`, 'color: #22c55e; font-weight: bold;');
+                if (sync.followMode === 'none') {
+                    const chipBtn = document.querySelector('.follow-chip button');
+                    if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
+                    else if (room.onMessageHandlers && typeof room.onMessageHandlers.emit === 'function') {
+                        room.onMessageHandlers.emit('party_follow', { name: null });
+                    }
+                }
+                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+            }
+
+            // ถ้าไม่ได้ตั้งแยกตีอิสระ (หรือเป็นหัวตี้ที่มีพระในตี้): เกาะกลุ่มอยู่ใกล้ Priest เสมอ (ไม่วิ่งหนีพระไปตายคนเดียว)
+            if (sync.followMode !== 'none') {
+                if (distToPriest > 240) {
+                    room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y });
+                }
+            }
+        } catch (e) {}
+    }, 1500);
 
