@@ -16791,6 +16791,7 @@
         if (window.__isManualSelling || window.__isAutoSellingNow) return 'กำลังขายของ';
         return null;
     }
+    window.planBusyReason = planBusyReason;
 
     // Plan action "change_map": remember the new farm map (same key the bot loads) and walk there now
     window.setTargetFarmMap = function(mapName, walkNow = false, opts = {}) {
@@ -20441,8 +20442,9 @@
     if (window.__pmPartyCoordInterval) clearInterval(window.__pmPartyCoordInterval);
     window.__pmPartyCoordInterval = setInterval(() => {
         try {
-            if (!window.__isBotRunning || planBusyReason() !== null) return;
-            if (typeof isCharacterDead === 'function' && isCharacterDead()) return;
+            const busyNow = (typeof window.planBusyReason === 'function' ? window.planBusyReason() : (typeof planBusyReason === 'function' ? planBusyReason() : null)) !== null;
+            if (!window.__isBotRunning || busyNow) return;
+            if ((typeof window.isCharacterDeadNow === 'function' && window.isCharacterDeadNow()) || (typeof isCharacterDead === 'function' && isCharacterDead())) return;
             const curMap = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
             if (!curMap || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMap)) return;
 
@@ -20536,10 +20538,16 @@
                     });
                 }
 
-                // เช็กเลือดสดในห้อง (เผื่อเพื่อนเลือดลดกะทันหันก่อนรอบซิงค์ของ Manager)
+                // เช็กเลือดสด + สมาชิกที่เดินเข้ามาใกล้พระ (<= 240px) หรือครบกำหนดรีบัฟรอบใหม่ (เผื่อก่อนรอบซิงค์ของ Manager)
                 for (const [nl, rp] of roomPartyMap.entries()) {
                     if (seenNames.has(nl)) continue;
-                    if (rp.hpPct > 0 && rp.hpPct < 0.68) {
+                    const recentAt = window.__priestRecentlyBuffed[nl] || 0;
+                    const sinceLastBuff = now - recentAt;
+                    const liveNeedsHeal = rp.hpPct > 0 && rp.hpPct < 0.68;
+                    const cameNearForBuff = rp.dist <= 240 && sinceLastBuff > 40000;
+                    const dueForPeriodicFullBuff = sinceLastBuff > 185000;
+                    if (liveNeedsHeal || cameNearForBuff || dueForPeriodicFullBuff) {
+                        seenNames.add(nl);
                         candidates.push({
                             name: rp.name,
                             nameLower: nl,
@@ -20547,8 +20555,8 @@
                             player: rp.player,
                             dist: rp.dist,
                             hpPct: rp.hpPct,
-                            needsHeal: true,
-                            minCoreBuffMs: 0
+                            needsHeal: liveNeedsHeal,
+                            minCoreBuffMs: liveNeedsHeal ? 0 : (cameNearForBuff ? 5000 : Math.max(0, 215000 - sinceLastBuff))
                         });
                     }
                 }
