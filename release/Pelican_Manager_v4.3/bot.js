@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.41.0
+// @version      4.41.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,68 +13,88 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.41.0';
+    const PELICAN_BOT_VERSION = '4.41.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
     // gives each window its profile id before the page runs; keep every pelican_* key of this window separate.
     (function namespaceBotStorage() {
-        const pid = window.__pmProfileId;
-        if (!pid || window.__pmStorageNamespaced) return;
+        if (window.__pmStorageNamespaced) return;
         window.__pmStorageNamespaced = true;
-        const P = 'pelican_', NS = 'pelican_' + String(pid) + '__';
+        const pid = window.__pmProfileId;
+        const P = 'pelican_', NS = pid ? ('pelican_' + String(pid) + '__') : P;
         const proto = Storage.prototype;
         const get = proto.getItem, set = proto.setItem, del = proto.removeItem;
-        // Same for every window -> one shared copy (it was stored once per window: 16 x 128 KB; the 1.3 MB item
-        // catalog x 6 windows filled the browser's 10 MB and config saves failed with "exceeded the quota")
         const SHARED = new Set(['pelican_icon_manifest', 'pelican_item_catalog']);
-        const map = (st, k) => (st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) ? NS + k.slice(P.length) : k;
-        // One site = one storage quota (~5-10 MB) for ALL windows. The game keeps 100 chat lines per channel per
-        // character (webgame.chat.<name>, ~270 KB each): 16 characters filled it and saving a bot config failed
-        // ("exceeded the quota"). Keep 20 per channel (only the history shown after a reload), and when a save
-        // still doesn't fit, trim / drop those and the per-window icon copies, then save again.
+        const SKIP_PERSIST = new Set(['pelican_item_catalog', 'pelican_latest_inventory', 'pelican_packet_logs']);
+        const map = (st, k) => (pid && st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) ? NS + k.slice(P.length) : k;
         const CHAT = 'webgame.chat.';
-        const trimChat = v => {
+        const trimChat = (v, maxPerCh = 3, maxTotal = 10) => {
             try {
                 const a = JSON.parse(v);
                 if (!Array.isArray(a)) return v;
                 const per = {}, keep = [];
-                for (let i = a.length - 1; i >= 0; i--) {
+                for (let i = a.length - 1; i >= 0 && keep.length < maxTotal; i--) {
                     const c = (a[i] && a[i].channel) || '';
                     per[c] = (per[c] || 0) + 1;
-                    if (per[c] <= 20) keep.push(a[i]);
+                    if (per[c] <= maxPerCh) keep.push(a[i]);
                 }
                 return keep.length === a.length ? v : JSON.stringify(keep.reverse());
-            } catch (e) { return v; }
+            } catch (e) { return '[]'; }
         };
-        const freeSpace = () => {
-            const ls = window.localStorage;
-            const keys = [];
-            for (let i = 0; i < ls.length; i++) keys.push(ls.key(i));
-            keys.forEach(k => {
-                if (/^pelican_profile_[A-Za-z0-9]+__(icon_manifest|item_catalog)$/.test(k)) { del.call(ls, k); return; }
-                if (k.startsWith(CHAT)) {
-                    const v = get.call(ls, k);
-                    const t = v ? trimChat(v) : v;
-                    if (t !== v) { try { set.call(ls, k, t); } catch (e) { del.call(ls, k); } }
-                }
-            });
+        const freeSpace = (aggressive = false) => {
+            try {
+                const ls = window.localStorage;
+                const keys = [];
+                for (let i = 0; i < ls.length; i++) keys.push(ls.key(i));
+                keys.forEach(k => {
+                    if (!k) return;
+                    if (k === 'pelican_item_catalog' || k === 'pelican_latest_inventory' || k === 'pelican_packet_logs' || /__(icon_manifest|item_catalog|latest_inventory|packet_logs|last_weight)$/.test(k)) {
+                        try { del.call(ls, k); } catch (_) {}
+                        return;
+                    }
+                    if (aggressive && k === 'pelican_icon_manifest') {
+                        try { del.call(ls, k); } catch (_) {}
+                        return;
+                    }
+                    if (k.startsWith(CHAT)) {
+                        if (aggressive) {
+                            try { del.call(ls, k); } catch (_) {}
+                            return;
+                        }
+                        const v = get.call(ls, k);
+                        const t = v ? trimChat(v, 2, 6) : v;
+                        if (!t || t.length > 1800) {
+                            try { del.call(ls, k); } catch (_) {}
+                        } else if (t !== v) {
+                            try { set.call(ls, k, t); } catch (_) { try { del.call(ls, k); } catch (__) {} }
+                        }
+                    }
+                });
+            } catch (e) {}
         };
+        window.freeBotLocalStorageSpace = freeSpace;
         proto.getItem = function (k) { return get.call(this, map(this, k)); };
         proto.setItem = function (k, v) {
-            if (this === window.localStorage && typeof k === 'string' && k.startsWith(CHAT)) v = trimChat(String(v));
+            if (this === window.localStorage && typeof k === 'string') {
+                if (SKIP_PERSIST.has(k) || /__(item_catalog|latest_inventory|packet_logs)$/.test(k)) return;
+                if (k.startsWith(CHAT)) v = trimChat(String(v), 3, 10);
+            }
             const key = map(this, k);
             try { return set.call(this, key, v); }
             catch (e) {
                 if (this !== window.localStorage) throw e;
-                console.warn('[PmheeAether] 💾 พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็ม -> ล้างประวัติแชทเก่า/ไฟล์ซ้ำแล้วบันทึกใหม่');
-                freeSpace();
+                console.warn('[PmheeAether] 💾 พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็ม -> ล้างประวัติแชทเก่า/ไฟล์แคชซ้ำแล้วบันทึกใหม่');
+                freeSpace(true);
                 return set.call(this, key, v);
             }
         };
         proto.removeItem = function (k) { return del.call(this, map(this, k)); };
-        setTimeout(() => { try { freeSpace(); } catch (e) {} }, 4000);
-        console.log(`%c[PmheeAether] 🌐 โหมดเบราว์เซอร์: แยกการตั้งค่าบอทของหน้าต่างนี้ (โปรไฟล์ ${pid})`, 'color: #38bdf8;');
+        try { freeSpace(false); } catch (e) {}
+        setTimeout(() => { try { freeSpace(false); } catch (e) {} }, 4000);
+        if (pid) {
+            console.log(`%c[PmheeAether] 🌐 โหมดเบราว์เซอร์: แยกการตั้งค่าบอทของหน้าต่างนี้ (โปรไฟล์ ${pid})`, 'color: #38bdf8;');
+        }
     })();
 
     console.log(`%c[PmheeAether] Control Hub v${PELICAN_BOT_VERSION} Ready`, 'color: #00ffcc; font-weight: bold; font-size: 14px;');
@@ -1361,7 +1381,10 @@
         const main = comps[0];
         const validPts = [];
         for (const c of comps) {
-            if (c === main || (c.count >= 25 && Math.hypot(c.cx - main.cx, c.cy - main.cy) <= 32)) {
+            const distMain = Math.hypot(c.cx - main.cx, c.cy - main.cy);
+            const inInterior = c.cx >= 24 && c.cx <= w - 24 && c.cy >= 22 && c.cy <= h - 22;
+            const isBowPart = inInterior && ((main.count <= 900 && c.count >= 160 && distMain <= 42.6) || (main.count < 120 && c.count >= 65 && distMain <= 36));
+            if (c === main || (c.count >= 25 && distMain <= 32) || isBowPart) {
                 for (const [px, py] of c.pts) {
                     for (let dy = -1; dy <= 1; dy++) {
                         for (let dx = -1; dx <= 1; dx++) {
@@ -1424,7 +1447,7 @@
                 if (nearCore) corePts.push([lx, ly]);
             }
         }
-        if (corePts.length >= 80) {
+        if (corePts.length >= 80 && corePts.length >= validPts.length * 0.50) {
             finalMask.fill(0);
             validPts.length = 0;
             for (const pt of corePts) {
@@ -1591,7 +1614,12 @@
 
         const rawElongDiff = Math.abs(Math.log(top.elongation / slot.elongation));
         const rawFillDiff = Math.abs(Math.log(top.fillRatio / slot.fillRatio));
-        const ultraElongatedPair = Math.max(top.elongation, slot.elongation) >= 6.0 && Math.min(top.elongation, slot.elongation) >= 2.15;
+        const maxEl = Math.max(top.elongation, slot.elongation), minEl = Math.min(top.elongation, slot.elongation);
+        const maxFl = Math.max(top.fillRatio, slot.fillRatio), minFl = Math.min(top.fillRatio, slot.fillRatio);
+        const ultraElongatedPair = maxEl >= 6.0 && (
+            (minEl >= 2.15 && maxFl <= 2.35 && !(minFl <= 0.95 && maxFl >= 1.80)) ||
+            (minEl >= 1.85 && maxFl <= 1.45)
+        );
         const elongDiff = (ultraElongatedPair ? Math.min(0.28, rawElongDiff * 0.45) : rawElongDiff) * 0.95;
         const fillDiff = (ultraElongatedPair ? Math.min(0.25, rawFillDiff * 0.55) : rawFillDiff) * 0.95;
         const scaleRatio = slot.rmsRadius / top.rmsRadius;
@@ -1606,10 +1634,35 @@
         const topGB = top.meanG - top.meanB, slotGB = slot.meanG - slot.meanB;
         const chromaDiff = Math.abs(topRG - slotRG) + Math.abs(topGB - slotGB);
         let histDiff = 0;
+        let structColorPenalty = 0;
         if (top.colorHist && slot.colorHist) {
             for (let i = 0; i < 8; i++) histDiff += Math.abs(top.colorHist[i] - slot.colorHist[i]);
+            histDiff = histDiff - Math.abs(top.colorHist[4] - slot.colorHist[4]) - Math.abs(top.colorHist[5] - slot.colorHist[5])
+                + Math.abs((top.colorHist[4] + top.colorHist[5]) - (slot.colorHist[4] + slot.colorHist[5])) * 0.85
+                + (Math.abs(top.colorHist[4] - slot.colorHist[4]) + Math.abs(top.colorHist[5] - slot.colorHist[5])) * 0.35;
+
+            if (top.colorHist[2] >= 0.45 && slot.colorHist[2] >= 0.45) {
+                const topWarm = top.colorHist[4] + top.colorHist[5] + top.colorHist[6];
+                const slotWarm = slot.colorHist[4] + slot.colorHist[5] + slot.colorHist[6];
+                if ((topWarm >= 0.06 && slotWarm <= 0.015) || (slotWarm >= 0.06 && topWarm <= 0.015)) {
+                    structColorPenalty += 1.45;
+                }
+            }
+            const topGray = top.colorHist[0] + top.colorHist[1], slotGray = slot.colorHist[0] + slot.colorHist[1];
+            const topWarmAll = top.colorHist[4] + top.colorHist[5] + top.colorHist[6], slotWarmAll = slot.colorHist[4] + slot.colorHist[5] + slot.colorHist[6];
+            const isDaggerLike = (o, oGray, oWarm) => o.meanSat <= 20 && oGray >= 0.60 && o.colorHist[0] >= 0.38 && oWarm <= 0.30;
+            const isWoodLike = (o, oGray, oWarm) => o.meanSat >= 30 && oGray <= 0.35 && (oWarm >= 0.42 || o.colorHist[2] >= 0.06);
+            if ((isDaggerLike(slot, slotGray, slotWarmAll) && (isWoodLike(top, topGray, topWarmAll) || (top.elongation <= 1.65 && slot.elongation >= 3.2))) ||
+                (isDaggerLike(top, topGray, topWarmAll) && (isWoodLike(slot, slotGray, slotWarmAll) || (slot.elongation <= 1.65 && top.elongation >= 3.2)))) {
+                structColorPenalty += 0.75;
+            }
+            const isLargeRingLike = o => o.area >= 2400 && o.elongation <= 1.24 && o.colorHist[0] <= 0.06;
+            const isSmallBottleLike = (o, ref) => o.area < ref.area * 0.55 && o.rmsRadius < ref.rmsRadius * 0.72 && o.colorHist[0] >= 0.10 && o.elongation >= 1.30;
+            if ((isLargeRingLike(top) && isSmallBottleLike(slot, top)) || (isLargeRingLike(slot) && isSmallBottleLike(top, slot))) {
+                structColorPenalty += 0.75;
+            }
         }
-        const rgbPenalty = (rgbDiff / 220) * 0.35 + (chromaDiff / 90) * 0.40 + histDiff * 0.62;
+        const rgbPenalty = (rgbDiff / 220) * 0.35 + (chromaDiff / 90) * 0.40 + histDiff * 0.62 + structColorPenalty;
 
         const totalScore = bestPolarDist + elongDiff + fillDiff + scalePenalty + areaPenalty + lumStatPenalty + rgbPenalty;
         return { totalScore, bestPolarDist, elongDiff, fillDiff, scalePenalty, areaPenalty, lumStatPenalty, rgbPenalty, histDiff };
@@ -5751,8 +5804,37 @@
         return null;
     }
 
+    window.isPremiumCharacter = function() {
+        try {
+            const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+            if (Array.isArray(ch.buffs) && ch.buffs.some(b => b && (b.skillId === 'ui:token' || /premium/i.test(b.name || '') || (Array.isArray(b.lines) && b.lines.some(l => /น้ำหนัก\s*\+\s*10,?000|กระเป๋า\s*200\s*ช่อง/.test(l)))))) {
+                return true;
+            }
+            const inv = window.__latestInventory;
+            if (inv && Number(inv.slots ?? inv.maxSlots) >= 200) return true;
+            if (inv && Number(inv.weightLimit ?? inv.maxWeight) >= 12000) return true;
+        } catch (e) {}
+        return false;
+    };
+
     function getBagSlots() {
         try {
+            // Method 0 (PRIMARY & REALTIME): ข้อมูลช่องกระเป๋าตรงจาก Server Inventory Packet แบบเรียลไทม์ (รองรับทั้งตัวปกติ 100 ช่อง และ Premium 200+ ช่อง โดยไม่ต้องเปิดกระเป๋า!)
+            const inv = window.__latestInventory;
+            if (inv && Array.isArray(inv.items)) {
+                const cur = inv.items.filter(Boolean).length;
+                const max = Number(inv.slots ?? inv.maxSlots) || (window.__lastKnownSlots && window.__lastKnownSlots.max) || (window.isPremiumCharacter() ? 200 : 100);
+                if (max > 0 && max <= 1000) {
+                    const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
+                    window.__lastKnownSlots = res;
+                    if (cur < max - 2 && res.percent < 98) {
+                        window.__unfreeableBagSlotsCount = 0;
+                        window.__unfreeableBagSlotsUntil = 0;
+                    }
+                    return res;
+                }
+            }
+
             const bagInfo = getOpenBagInfo();
             if (bagInfo && bagInfo.windowEl) {
                 const bagHeaders = Array.from(bagInfo.windowEl.querySelectorAll('*')).filter(el => {
@@ -5766,9 +5848,13 @@
                     if (m) {
                         const cur = parseInt(m[1]);
                         const max = parseInt(m[2]);
-                        if (max > 0 && max <= 300) {
-                            const res = { current: cur, max, percent: Math.round((cur / max) * 100) };
+                        if (max > 0 && max <= 1000) {
+                            const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             window.__lastKnownSlots = res;
+                            if (cur < max - 2 && res.percent < 98) {
+                                window.__unfreeableBagSlotsCount = 0;
+                                window.__unfreeableBagSlotsUntil = 0;
+                            }
                             return res;
                         }
                     }
@@ -5778,6 +5864,20 @@
         } catch(e) {}
         return null;
     }
+    window.getBagSlots = getBagSlots;
+
+    function isBagSlotsFull(slots = getBagSlots()) {
+        if (!slots || !(slots.max > 0)) return false;
+        const isFull = (slots.percent >= 98 || slots.current >= slots.max - 2);
+        if (!isFull) return false;
+        if (window.__unfreeableBagSlotsUntil && Date.now() < window.__unfreeableBagSlotsUntil) {
+            if (slots.current <= (window.__unfreeableBagSlotsCount || 0)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    window.isBagSlotsFull = isBagSlotsFull;
 
     function getCharacterWeight() {
         try {
@@ -5827,9 +5927,9 @@
                         for (const m of matches) {
                             const cur = parseFloat(m[1].replace(/,/g, ''));
                             const max = parseFloat(m[2].replace(/,/g, ''));
-                            // กรองค่า: ต้องไม่ใช่ Max HP (เช่น 1,755) และต้องเป็นสเกลน้ำหนักกระเป๋าจริง (เช่น 500 - 50,000)
+                            // กรองค่า: ต้องไม่ใช่ Max HP (เช่น 1,755) และต้องเป็นสเกลน้ำหนักกระเป๋าจริง (เช่น 500 - 200,000 รองรับ Premium +10,000)
                             if (invalidMax && max === invalidMax) continue;
-                            if (max >= 500 && max <= 50000) {
+                            if (max >= 500 && max <= 200000) {
                                 const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                                 window.__lastKnownWeight = res;
                                 if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
@@ -5859,7 +5959,7 @@
                         const cur = parseFloat(m[1].replace(/,/g, ''));
                         const max = parseFloat(m[2].replace(/,/g, ''));
                         if (invalidMax && max === invalidMax) continue;
-                        if (max >= 500 && max <= 50000) {
+                        if (max >= 500 && max <= 200000) {
                             const res = { current: cur, max, percent: Math.round((cur / max) * 1000) / 10 };
                             window.__lastKnownWeight = res;
                             if (res.percent < (window.__sellConfig?.weightThreshold || 80)) {
@@ -5940,14 +6040,17 @@
         const quickWeightEl = document.getElementById('p-quick-weight');
         const bannerEl = document.getElementById('p-weight-alert-banner');
         const slots = getBagSlots();
-        const slotStr = slots ? ` | ช่อง: ${slots.current}/${slots.max}` : '';
+        const slotsFull = isBagSlotsFull(slots);
+        const slotColor = slotsFull ? '#ef4444' : (slots && slots.percent >= 90 ? '#f59e0b' : 'inherit');
+        const slotStr = slots ? ` <span style="color: ${slotColor};">| ช่อง: ${slots.current}/${slots.max}</span>` : '';
 
         const thresh = window.__sellConfig?.weightThreshold || 80;
-        const isOver = (w && typeof w.percent === 'number' && w.percent >= thresh) || window.__isKnownOverweight;
+        const isWeightOver = (w && typeof w.percent === 'number' && w.percent >= thresh) || window.__isKnownOverweight;
+        const isOver = isWeightOver || slotsFull;
 
         if (el) {
             if (w) {
-                const color = isOver ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
+                const color = isWeightOver ? '#ef4444' : (w.percent >= 70 ? '#f59e0b' : '#00ffcc');
                 el.innerHTML = `<span style="color: ${color}; font-weight: bold;">${w.current.toLocaleString()} / ${w.max.toLocaleString()} (${w.percent}%)${slotStr}</span>`;
             } else if (slots) {
                 const color = slots.percent >= 90 ? '#ef4444' : '#00ffcc';
@@ -5958,7 +6061,12 @@
         }
 
         if (quickWeightEl) {
-            if (w && typeof w.percent === 'number') {
+            if (slotsFull && (!isWeightOver || !w)) {
+                quickWeightEl.innerText = `🎒 ${slots.current}/${slots.max}`;
+                quickWeightEl.style.background = 'rgba(239, 68, 68, 0.3)';
+                quickWeightEl.style.borderColor = '#ef4444';
+                quickWeightEl.style.color = '#ef4444';
+            } else if (w && typeof w.percent === 'number') {
                 quickWeightEl.innerText = `⚖️ ${w.percent}%`;
                 if (isOver) {
                     quickWeightEl.style.background = 'rgba(239, 68, 68, 0.3)';
@@ -5977,7 +6085,10 @@
         }
 
         if (bannerEl) {
-            if (isOver && w) {
+            if (slotsFull && slots) {
+                bannerEl.style.display = 'block';
+                bannerEl.innerHTML = `⚠️ <b>ช่องกระเป๋าเต็ม!</b> (${slots.current}/${slots.max} ช่อง) บอทจะนำทางไปขายของ`;
+            } else if (isWeightOver && w) {
                 bannerEl.style.display = 'block';
                 bannerEl.innerHTML = `⚠️ <b>น้ำหนักเกินเกณฑ์!</b> (${w.percent}% >= ${thresh}%) บอทจะนำทางไปขายของ`;
             } else {
@@ -5991,6 +6102,16 @@
     function isCharacterOverweight() {
         const cfg = window.__sellConfig || {};
 
+        // 0. ตรวจสอบจำนวนช่องกระเป๋า (Slots) ก่อนเป็นอันดับแรก เช่น 98/100 หรือ 196/200 (สำคัญมากสำหรับตัวละครที่มีสถานะ Premium น้ำหนัก +10,000 ซึ่งช่องกระเป๋าจะเต็มก่อนน้ำหนักเสมอ!)
+        const slots = getBagSlots();
+        if ((cfg.weightCheckEnabled || cfg.enabled !== false) && isBagSlotsFull(slots)) {
+            if (!window.__lastSlotFullWarnAt || Date.now() - window.__lastSlotFullWarnAt > 5000) {
+                window.__lastSlotFullWarnAt = Date.now();
+                console.warn(`%c[PmheeAether Overload] 🎒 ช่องกระเป๋าเต็ม (${slots.current}/${slots.max} ช่อง, ${slots.percent}%) แม้น้ำหนักยังไม่เต็ม! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
+            }
+            return true;
+        }
+
         // ถ้าผู้เล่นปิดระบบตรวจน้ำหนัก ไม่ต้องส่งวาร์ปกลับ
         if (!cfg.weightCheckEnabled && !window.__isKnownOverweight) {
             return false;
@@ -5998,11 +6119,11 @@
 
         const threshold = typeof cfg.weightThreshold === 'number' ? cfg.weightThreshold : 80;
 
-        // กรณีฉุกเฉิน: บอทพยายามเปิด AUTO 3 ครั้งแล้วเกมไม่ยอมเปิด แสดงว่าตัวเกมล็อคเพราะน้ำหนักเกิน 90%
-        // — unless the real weight is known and below the limit (then AUTO failed for another reason, e.g. death)
+        // กรณีฉุกเฉิน: บอทพยายามเปิด AUTO 3 ครั้งแล้วเกมไม่ยอมเปิด แสดงว่าตัวเกมล็อคเพราะน้ำหนักเกิน 90% หรือช่องกระเป๋าเต็ม
+        // — unless both the real weight AND bag slots are known to be below the limit (then AUTO failed for another reason, e.g. death)
         if (window.__isKnownOverweight) {
             const wk = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
-            if (wk && typeof wk.percent === 'number' && wk.percent > 0 && wk.percent < threshold) {
+            if (wk && typeof wk.percent === 'number' && wk.percent > 0 && wk.percent < threshold && !isBagSlotsFull(slots)) {
                 window.__isKnownOverweight = false;
                 return false;
             }
@@ -6013,7 +6134,7 @@
         const w = getCharacterWeight() || window.__lastKnownWeight || window.__serverWeight;
         if (w && typeof w.percent === 'number' && w.percent > 0) {
             if (w.percent >= threshold) return true;
-            // ถ้าน้ำหนักจริงอ่านได้แล้วและยังไม่ถึงเกณฑ์ที่ตั้งไว้ (เช่น 35% < 70%) ถือว่าปลอดภัย 100% ห้ามสั่งวาร์ปกลับเด็ดขาด!
+            // ถ้าน้ำหนักจริงอ่านได้แล้วและยังไม่ถึงเกณฑ์ที่ตั้งไว้ และช่องกระเป๋ายังไม่เต็ม ถือว่าปลอดภัย 100%
             return false;
         }
 
@@ -6028,13 +6149,6 @@
             if (statusText.includes('น้ำหนักเกิน 70%') && threshold <= 70) {
                 return true;
             }
-        }
-
-        // 2. ตรวจสอบจำนวนช่องกระเป๋า (Slots) เช่น กระเป๋า 99/100 (ถ้า 98 ช่องขึ้นไปถือว่ากระเป๋าเต็ม)
-        const slots = getBagSlots();
-        if (slots && (slots.percent >= 98 || slots.current >= slots.max - 1)) {
-            console.warn(`%c[PmheeAether Overload] 🎒 ช่องกระเป๋าเต็ม (${slots.current}/${slots.max} ช่อง)! สั่งวาร์ปกลับไปขายของ`, 'color: #ef4444; font-weight: bold;');
-            return true;
         }
 
         return false;
@@ -6391,6 +6505,14 @@
 
     window.applyLiveCharacterPacket = function(charDec, triggerAutoConfig = false) {
         if (!charDec || typeof charDec !== 'object') return;
+        const prev = window.__latestCharacterData || {};
+        const resolvedName = charDec.name || charDec.charName || document.querySelector('.hud-name')?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || prev.name || prev.charName || window.__charName || '';
+        if (resolvedName) {
+            window.__charName = resolvedName;
+            if (!charDec.name) charDec.name = resolvedName;
+            if (!charDec.charName) charDec.charName = resolvedName;
+        }
+        if (!charDec.id && prev.id) charDec.id = prev.id;
         window.__latestCharacterData = charDec;
         if (typeof charDec.zeny === 'number') {
             window.__currentZeny = charDec.zeny;
@@ -7000,12 +7122,15 @@
                 return;
             }
 
-            // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check)
+            // 2.1 ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์หรือช่องกระเป๋าเต็ม (Weight & Bag Slots Overload Check)
             if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
                 const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
-                const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
-                const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
-                console.warn(`%c[PmheeAether Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${pctStr} >= ${limitStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+                const slots = typeof getBagSlots === 'function' ? getBagSlots() : null;
+                const slotsFull = typeof isBagSlotsFull === 'function' && isBagSlotsFull(slots);
+                const reasonStr = slotsFull && slots
+                    ? `ช่องกระเป๋าเต็ม ${slots.current}/${slots.max} ช่อง (${slots.percent}%)`
+                    : `${w ? w.percent + '%' : '>= เกณฑ์'} >= ${window.__sellConfig?.weightThreshold || 80}%`;
+                console.warn(`%c[PmheeAether Master] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${reasonStr})! เริ่มต้นกระบวนการขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
                 if (typeof playWarningChime === 'function') playWarningChime();
                 window.executeAutoShopRoutine();
                 return;
@@ -9407,7 +9532,8 @@
             state.noStorageUntil = 0;
             const fee = zeny0 - (Number(((window.getLiveCharacterData && window.getLiveCharacterData()) || {}).zeny) || 0);
             if (fee > 0) state.lastFee = fee;
-            let free = (Number(st.slots) || 300) - (Array.isArray(st.items) ? st.items.length : 0);
+            const maxStorageSlots = Number(st.slots ?? st.maxSlots) || ((typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter()) ? 500 : 300);
+            let free = maxStorageSlots - (Array.isArray(st.items) ? st.items.length : 0);
             state.refused = state.refused || {};
             const done = {};
             let put = 0;
@@ -9691,14 +9817,28 @@
 
                                 // ซิงก์น้ำหนักและกดจัดเรียงกระเป๋าทันทีที่หน้า NPC ร้านค้า (~300ms)
                                 // เพื่อให้เกมคำนวณน้ำหนักจริงใหม่ ลบ Debuff 70% บนจอ และอัปเดตแคชตัวเลขจริงก่อนเริ่มเดินทางกลับ
+                                const markPostShopSlots = () => {
+                                    const postSlots = typeof getBagSlots === 'function' ? getBagSlots() : null;
+                                    if (postSlots && (postSlots.percent >= 98 || postSlots.current >= postSlots.max - 2)) {
+                                        window.__unfreeableBagSlotsCount = postSlots.current;
+                                        window.__unfreeableBagSlotsUntil = Date.now() + 10 * 60 * 1000;
+                                        console.warn(`%c[PmheeAether Shop] ⚠️ หลังขายและฝากคลังแล้ว ช่องกระเป๋ายังคงเต็ม (${postSlots.current}/${postSlots.max} ช่อง — ไอเทมในตัวอาจถูกล็อคหรือติด Whitelist ทั้งหมด) -> พักการตรวจช่องกระเป๋าเต็มชั่วคราว 10 นาที เพื่อไม่ให้วนกลับเมืองซ้ำ`, 'color: #f59e0b; font-weight: bold;');
+                                    } else {
+                                        window.__unfreeableBagSlotsCount = 0;
+                                        window.__unfreeableBagSlotsUntil = 0;
+                                    }
+                                };
                                 if (typeof window.refreshInventoryAndWeight === 'function') {
                                     window.refreshInventoryAndWeight((newWeight) => {
                                         lastAutoShopCompletionTime = Date.now();
                                         window.__isKnownOverweight = false;
+                                        markPostShopSlots();
                                         if (newWeight) {
                                             window.__lastKnownWeight = newWeight;
                                         }
-                                        console.log(`%c[PmheeAether Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
+                                        const postSlots = typeof getBagSlots === 'function' ? getBagSlots() : null;
+                                        const slotInfo = postSlots ? ` | ช่องกระเป๋า: ${postSlots.current}/${postSlots.max}` : '';
+                                        console.log(`%c[PmheeAether Shop] 🚀 ภารกิจซื้อขายเสร็จสิ้น! น้ำหนักคงเหลือ: ${newWeight ? newWeight.percent + '%' : 'ปลอดภัย'}${slotInfo} | สั่งเดินกลับไปฟาร์ม: ${currentFarmMap}`, 'color: #a855f7; font-weight: bold;');
                                         setTimeout(() => {
                                             if (!window.__isBotRunning) return;
                                             if (typeof window.closeShopUI === 'function') window.closeShopUI();
@@ -9716,6 +9856,7 @@
                                 } else {
                                     lastAutoShopCompletionTime = Date.now();
                                     window.__isKnownOverweight = false;
+                                    markPostShopSlots();
                                     setTimeout(() => {
                                         if (!window.__isBotRunning) return;
                                         if (typeof window.closeShopUI === 'function') window.closeShopUI();
@@ -10586,15 +10727,18 @@
             navStaleSince = 0;
         } else navStaleSince = 0;
 
-        // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์ (Weight Overload Check) - เช็คทั้งในเมืองและนอกเมือง!
+        // 3. ตรวจสอบน้ำหนักสัมภาระเกินเกณฑ์หรือช่องกระเป๋าเต็ม (Weight & Bag Slots Overload Check) - เช็คทั้งในเมืองและนอกเมือง!
         if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
             const w = (typeof getCharacterWeight === 'function' ? getCharacterWeight() : null) || window.__lastKnownWeight || window.__serverWeight;
-            const pctStr = w ? `${w.percent}%` : '>= เกณฑ์';
-            const limitStr = `${window.__sellConfig?.weightThreshold || 80}%`;
+            const slots = typeof getBagSlots === 'function' ? getBagSlots() : null;
+            const slotsFull = typeof isBagSlotsFull === 'function' && isBagSlotsFull(slots);
+            const reasonStr = slotsFull && slots
+                ? `ช่องกระเป๋าเต็ม ${slots.current}/${slots.max} ช่อง (${slots.percent}%)`
+                : `${w ? w.percent + '%' : '>= เกณฑ์'} >= ${window.__sellConfig?.weightThreshold || 80}%`;
             if (inCity) {
-                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบตัวละครอยู่ในเมืองหลวง แต่น้ำหนักสัมภาระเกินเกณฑ์ (${pctStr} >= ${limitStr})! เดินไปร้านค้า (NPC n2) เพื่อขายของทันที...`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบตัวละครอยู่ในเมืองหลวง แต่กระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ (${reasonStr})! เดินไปร้านค้า (NPC n2) เพื่อขายของทันที...`, 'color: #ef4444; font-weight: bold;');
             } else {
-                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ในสนามฟาร์ม (${pctStr} >= ${limitStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
+                console.warn(`%c[PmheeAether Watchdog] ⚖️ ตรวจพบกระเป๋าเต็มหรือน้ำหนักเกินเกณฑ์ในสนามฟาร์ม (${reasonStr})! สั่งวาร์ปกลับไปขายของและเคลียร์กระเป๋าทันที...`, 'color: #ef4444; font-weight: bold;');
             }
             if (typeof playWarningChime === 'function') playWarningChime();
             autoActivateFailCount = 0;
@@ -12410,6 +12554,11 @@
         return items;
     };
 
+    window.getEffectiveMarketMaxListings = function() {
+        if (typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter()) return 20;
+        return Number(window.__autoMarketSellConfig?.maxActiveListings) || 10;
+    };
+
     window.fetchMyMarketActiveCount = async function() {
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (!room || !room.connection?.isOpen) return window.__myMarketActiveCount || 0;
@@ -12431,10 +12580,11 @@
                     if (typeof unsub === 'function') unsub();
                     const active = msg?.active || [];
                     window.__myMarketActiveCount = active.length;
+                    const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : 10;
                     const badge = document.getElementById('p-autosell-quota-badge');
-                    if (badge) badge.innerText = `โควตา: ${active.length}/10 รายการ`;
+                    if (badge) badge.innerText = `โควตา: ${active.length}/${maxQuota} รายการ`;
                     const badgeHud = document.getElementById('p-autosell-quota-badge-hud');
-                    if (badgeHud) badgeHud.innerText = `โควตา: ${active.length}/10`;
+                    if (badgeHud) badgeHud.innerText = `โควตา: ${active.length}/${maxQuota}`;
                     resolve(active.length);
                 }
             });
@@ -13019,7 +13169,7 @@
             if (!bagItems || bagItems.length === 0) return;
 
             const activeCount = await window.fetchMyMarketActiveCount();
-            const maxQuota = cfg.maxActiveListings || 10;
+            const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : (cfg.maxActiveListings || 10);
             if (activeCount >= maxQuota) {
                 console.log(`%c[PmheeAether AutoSell] ⏸️ โควตาลงขายเต็มแล้ว (${activeCount}/${maxQuota} รายการ) รอขายออกก่อน`, 'color: #f59e0b;');
                 return;
@@ -13388,34 +13538,60 @@
             }
             if (!data || typeof data !== 'object') throw new Error('ข้อมูลไม่ใช่ JSON Object ที่ถูกต้อง');
 
+            if (typeof window.freeBotLocalStorageSpace === 'function') {
+                try { window.freeBotLocalStorageSpace(false); } catch (_) {}
+            }
+            const safeSetConfigItem = (k, v) => {
+                try {
+                    localStorage.setItem(k, v);
+                } catch (_) {
+                    if (typeof window.freeBotLocalStorageSpace === 'function') {
+                        try { window.freeBotLocalStorageSpace(true); } catch (__) {}
+                    }
+                    try {
+                        const del = Storage.prototype.removeItem;
+                        const ls = window.localStorage;
+                        const keys = [];
+                        for (let i = 0; i < ls.length; i++) keys.push(ls.key(i));
+                        for (const rk of keys) {
+                            if (!rk) continue;
+                            if (rk === 'pelican_item_catalog' || rk === 'pelican_icon_manifest' || rk === 'pelican_latest_inventory' || rk.startsWith('webgame.chat.') || /__(icon_manifest|item_catalog|latest_inventory|packet_logs|last_weight)$/.test(rk)) {
+                                try { del.call(ls, rk); } catch (__) {}
+                            }
+                        }
+                    } catch (__) {}
+                    localStorage.setItem(k, v);
+                }
+            };
+
             // 1. Sell Config
             if (data.sellConfig && typeof data.sellConfig === 'object') {
                 window.__sellConfig = Object.assign({}, window.__sellConfig || {}, data.sellConfig);
-                localStorage.setItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig));
+                safeSetConfigItem('pelican_sell_cfg', JSON.stringify(window.__sellConfig));
             }
 
             // 2. Archer Config
             if (data.archerConfig && typeof data.archerConfig === 'object') {
                 window.__archerConfig = Object.assign({}, window.__archerConfig || {}, data.archerConfig);
-                localStorage.setItem('pelican_archer_cfg', JSON.stringify(window.__archerConfig));
+                safeSetConfigItem('pelican_archer_cfg', JSON.stringify(window.__archerConfig));
             }
 
             // 3. Shop Config
             if (data.shopConfig && typeof data.shopConfig === 'object') {
                 window.__shopConfig = Object.assign({}, window.__shopConfig || {}, data.shopConfig);
-                localStorage.setItem('pelican_shop_cfg', JSON.stringify(window.__shopConfig));
+                safeSetConfigItem('pelican_shop_cfg', JSON.stringify(window.__shopConfig));
             }
 
             // 4. Auto Market Sell Config
             if (data.autoMarketSellConfig && typeof data.autoMarketSellConfig === 'object') {
                 window.__autoMarketSellConfig = Object.assign({}, window.__autoMarketSellConfig || {}, data.autoMarketSellConfig);
-                localStorage.setItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig));
+                safeSetConfigItem('pelican_auto_market_sell_cfg', JSON.stringify(window.__autoMarketSellConfig));
             }
 
             // 5. Market Filter Config
             if (data.marketFilterConfig && typeof data.marketFilterConfig === 'object') {
                 window.__marketFilterConfig = Object.assign({}, window.__marketFilterConfig || {}, data.marketFilterConfig);
-                localStorage.setItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig));
+                safeSetConfigItem('pelican_market_filter_cfg', JSON.stringify(window.__marketFilterConfig));
             }
 
             // 6. Target Map & Auto Loop
@@ -13432,15 +13608,15 @@
                     window.setTargetFarmMap(nextMap, Boolean(window.__isBotRunning));
                 } else {
                     window.__targetFarmMap = nextMap;
-                    localStorage.setItem('pelican_target_map', nextMap);
-                    localStorage.setItem('pelican_farm_map', nextMap);
+                    safeSetConfigItem('pelican_target_map', nextMap);
+                    safeSetConfigItem('pelican_farm_map', nextMap);
                     const sel = document.getElementById('p-target-map-select');
                     if (sel) sel.value = nextMap;
                 }
             }
             if (typeof data.autoLoop === 'boolean') {
                 window.__autoLoopEnabled = data.autoLoop;
-                localStorage.setItem('pelican_auto_loop', data.autoLoop ? 'true' : 'false');
+                safeSetConfigItem('pelican_auto_loop', data.autoLoop ? 'true' : 'false');
                 const cb = document.getElementById('p-auto-loop');
                 if (cb) cb.checked = data.autoLoop;
             }
@@ -13451,7 +13627,7 @@
                 if (typeof data.authConfig.enabled === 'boolean') window.__authConfig.enabled = data.authConfig.enabled;
                 if (typeof data.authConfig.autoResumeBot === 'boolean') window.__authConfig.autoResumeBot = data.authConfig.autoResumeBot;
                 // username, password และชื่อตัวละคร ยังคงเป็นค่าเดิมของบัญชีนี้เสมอ
-                localStorage.setItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
+                safeSetConfigItem('pelican_auth_cfg', JSON.stringify(window.__authConfig));
             }
 
             // 7.4 Travel (warp saver)
@@ -13463,17 +13639,17 @@
             // 7.5 Buff Potion Config
             if (data.buffPotionConfig && typeof data.buffPotionConfig === 'object') {
                 window.__buffPotionConfig = Object.assign({}, window.__buffPotionConfig || {}, data.buffPotionConfig);
-                localStorage.setItem('pelican_buff_potion_config', JSON.stringify(window.__buffPotionConfig));
+                safeSetConfigItem('pelican_buff_potion_config', JSON.stringify(window.__buffPotionConfig));
             }
 
             // 7.6 Unexpected Town Guard & Humanize Config
             if (typeof data.unexpectedTownGuard === 'boolean') {
                 window.__unexpectedTownGuardEnabled = data.unexpectedTownGuard;
-                localStorage.setItem('pelican_unexpected_town_guard', String(data.unexpectedTownGuard));
+                safeSetConfigItem('pelican_unexpected_town_guard', String(data.unexpectedTownGuard));
             }
             if (data.humanizeConfig && typeof data.humanizeConfig === 'object') {
                 window.__humanizeConfig = Object.assign({}, window.__humanizeConfig || {}, data.humanizeConfig);
-                localStorage.setItem('pelican_humanize_config', JSON.stringify(window.__humanizeConfig));
+                safeSetConfigItem('pelican_humanize_config', JSON.stringify(window.__humanizeConfig));
             }
 
             // 8. Refresh HUD inputs to reflect imported values
@@ -16149,7 +16325,9 @@
         if (!limit || !ch.stats || typeof ch.stats.STR !== 'number') return null;
         if (Number((ch.skills || {})['enlarge-weight']) > 0) return null;   // Pack Mule adds weight too: unknown
         const str = (Number(ch.stats.STR) || 0) + (Number(ch.bonusStats && ch.bonusStats.STR) || 0);
-        const x = (limit - 2000 - 30 * str) / 500;
+        const isPrem = (typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter()) || (limit - 2000 - 30 * str >= 9500);
+        const effectiveLimit = isPrem ? (limit - 10000) : limit;
+        const x = (effectiveLimit - 2000 - 30 * str) / 500;
         const n = Math.round(x);
         return (Math.abs(x - n) < 0.01 && n >= 0 && n <= 10) ? n : null;
     };
@@ -16327,7 +16505,13 @@
     window.runWeightTopUpStep = async function () {
         const req = window.getWeightTopUpState();
         if (!req || !req.target) return false;
-        const limit = planWeightLimit();
+        const effectivePlanWeightLimit = () => {
+            const lim = planWeightLimit();
+            if (!lim) return 0;
+            const isPrem = (typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter()) || lim >= 12000;
+            return (isPrem && req.target <= 10000) ? Math.max(0, lim - 10000) : lim;
+        };
+        const limit = effectivePlanWeightLimit();
         if (!limit) return false;
         const charName = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
         const usedKey = charName && charName !== 'default_char' ? 'pelican_weight_scroll_v2_' + charName : '';
@@ -16338,11 +16522,11 @@
             if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('topup');
             return false;
         };
-        if (limit >= req.target) return done(`น้ำหนักสูงสุด ${limit.toLocaleString()} ถึงเป้า ${req.target.toLocaleString()} แล้ว`);
+        if (limit >= req.target) return done(`น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} ถึงเป้า ${req.target.toLocaleString()} แล้ว`);
         const realUsed = window.getWeightScrollsUsed();
         if (realUsed !== null && realUsed >= 10) {
             if (usedKey) { try { localStorage.setItem(usedKey, '10'); } catch (e) {} }
-            return done(`ตัวละครนี้ใช้ Weight Limit Scroll ครบ 10 ครั้งแล้ว (น้ำหนักสูงสุด ${limit.toLocaleString()}) — เพิ่มอีกไม่ได้ ไม่ซื้อ`);
+            return done(`ตัวละครนี้ใช้ Weight Limit Scroll ครบ 10 ครั้งแล้ว (น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()}) — เพิ่มอีกไม่ได้ ไม่ซื้อ`);
         }
         if (weightScrollBusy) return true;
         weightScrollBusy = true; window.__isWeightScrollBusy = true;
@@ -16353,7 +16537,7 @@
             const scrollQty = () => planBag().filter(it => Number(it.itemId) === WEIGHT_SCROLL_ID).reduce((a, it) => a + (it.qty || 1), 0);
             let scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
             let refusals = 0;
-            while (scroll && planWeightLimit() < req.target) {
+            while (scroll && effectivePlanWeightLimit() < req.target) {
                 const qtyBefore = scrollQty();
                 const limitBefore = planWeightLimit();
                 room.send('inv_use', { slot: scroll.slot });
@@ -16377,11 +16561,11 @@
                 await planSleep(3500);
                 scroll = planBag().find(it => Number(it.itemId) === WEIGHT_SCROLL_ID);
             }
-            if (planWeightLimit() >= req.target) return done(`น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} ถึงเป้าแล้ว`);
+            if (effectivePlanWeightLimit() >= req.target) return done(`น้ำหนักสูงสุด ${planWeightLimit().toLocaleString()} ถึงเป้าแล้ว`);
 
             // 2. Buy the missing amount in the capital (not more than the zeny allows — waits for zeny otherwise)
             const usedNow = window.getWeightScrollsUsed();
-            let need = Math.min(10 - (usedNow || 0), Math.ceil((req.target - planWeightLimit()) / WEIGHT_PER_SCROLL));
+            let need = Math.min(10 - (usedNow || 0), Math.ceil((req.target - effectivePlanWeightLimit()) / WEIGHT_PER_SCROLL));
             let counterKnown = false;
             try { counterKnown = !!usedKey && localStorage.getItem(usedKey) !== null; } catch (e) {}
             if (usedNow === null && !counterKnown) need = Math.min(need, 1);   // unknown quota: 1 scroll as a probe
@@ -17343,6 +17527,14 @@
     window.getLiveCharacterData = function(forceScan = false) {
         const now = Date.now();
         if (!forceScan && window.__latestCharacterData && (now - lastCharFiberScanAt < 800)) {
+            if (!window.__latestCharacterData.name) {
+                const liveName = document.querySelector('.hud-name')?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || window.__charName || '';
+                if (liveName) {
+                    window.__charName = liveName;
+                    window.__latestCharacterData.name = liveName;
+                    window.__latestCharacterData.charName = liveName;
+                }
+            }
             return window.__latestCharacterData;
         }
         lastCharFiberScanAt = now;
@@ -17373,10 +17565,19 @@
             if (n.sibling) walk(n.sibling, depth + 1);
         }
         if (fiber) walk(fiber);
+        const targetChar = charData || window.__latestCharacterData || null;
+        if (targetChar) {
+            const liveName = document.querySelector('.hud-name')?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || targetChar.name || targetChar.charName || window.__charName || '';
+            if (liveName) {
+                window.__charName = liveName;
+                if (!targetChar.name) targetChar.name = liveName;
+                if (!targetChar.charName) targetChar.charName = liveName;
+            }
+        }
         if (charData && typeof window.applyLiveCharacterPacket === 'function') {
             window.applyLiveCharacterPacket(charData, false);
         }
-        return charData || window.__latestCharacterData || null;
+        return targetChar;
     };
 
     window.getLiveInventoryData = function() {
@@ -18959,8 +19160,11 @@
         const premUntil = Number(liveChar.premiumUntil) || Number(window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.premiumUntil) || 0;
         const hasPremium = premUntil > Date.now() || Boolean(document.querySelector('.hud-buff-icon[title*="Premium" i], .hud-buff-icon[title*="พรีเมียม" i], .buff-icon[title*="Premium" i], [data-buff*="premium" i]'));
 
+        const resolvedCharName = nameEl?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || liveChar.name || liveChar.charName || window.__charName || null;
+        if (resolvedCharName) window.__charName = resolvedCharName;
+
         return {
-            charName: nameEl?.innerText?.trim() || window.__charName || null,
+            charName: resolvedCharName,
             charClass: classEl?.innerText?.trim() || liveChar.className || 'Hunter',
             classId: cId,
             portrait: faceUrl,
