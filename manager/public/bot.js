@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.42.0
+// @version      4.42.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.42.0';
+    const PELICAN_BOT_VERSION = '4.42.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -19981,9 +19981,10 @@
         else if (hudState) activity = hudState;
 
         const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
-        const cId = liveChar.classId || (classEl?.innerText?.trim()?.toLowerCase()) || 'hunter';
-        const faceUrl = `https://www.aetheria-online.in.th/art/classes/${cId}-face.webp`;
-        const fullArtUrl = `https://www.aetheria-online.in.th/art/classes/${cId}.webp`;
+        const rawClassText = classEl?.innerText?.trim() || null;
+        const cId = liveChar.classId || (rawClassText ? rawClassText.toLowerCase() : null);
+        const faceUrl = cId ? `https://www.aetheria-online.in.th/art/classes/${cId}-face.webp` : null;
+        const fullArtUrl = cId ? `https://www.aetheria-online.in.th/art/classes/${cId}.webp` : null;
 
         const premUntil = (typeof window.getCharacterPremiumUntil === 'function')
             ? window.getCharacterPremiumUntil()
@@ -19997,7 +19998,7 @@
 
         return {
             charName: resolvedCharName,
-            charClass: classEl?.innerText?.trim() || liveChar.className || 'Hunter',
+            charClass: rawClassText || liveChar.className || (cId ? (cId.charAt(0).toUpperCase() + cId.slice(1)) : null),
             classId: cId,
             portrait: faceUrl,
             fullPortrait: fullArtUrl,
@@ -20208,14 +20209,63 @@
         };
     };
 
+    // ปรับเฉพาะระยะล่า (huntRadiusTiles) ของปาร์ตี้ โดยไม่ไปแตะหรือติ๊กสกิล Auto ที่ผู้ใช้ตั้งไว้เอง!
+    window.applyPartyRadiusOverride = function(targetRadius) {
+        const prevOverride = window.__partyOverrideRadius || null;
+        window.__partyOverrideRadius = targetRadius || null;
+        if (prevOverride === window.__partyOverrideRadius) return false;
+
+        // ถ้าเปิด Plan Script อยู่ ให้ใช้ autoConfigureCombat แบบไม่ force (เคารพเงื่อนไขแผนและ skillBuild.autoOff)
+        if (window.__planScriptEnabled && window.__currentScriptPlan && window.__autoConfigCharEnabled) {
+            if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(false);
+            return true;
+        }
+
+        // ถ้าไม่ได้เปิด Plan Script: แก้เฉพาะ huntRadiusTiles และคง currentConfig.skills เดิมไว้ 100%
+        const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : window.__gameRoom;
+        if (!charData || !room || typeof room.send !== 'function') return false;
+
+        const currentAuto = charData.auto || {};
+        const currentConfig = currentAuto.config || {};
+        const curRadius = currentConfig.huntRadiusTiles || 'all';
+
+        if (targetRadius) {
+            if (!window.__prePartyHuntRadius && curRadius !== targetRadius) {
+                window.__prePartyHuntRadius = curRadius;
+            }
+        }
+        const desiredRadius = targetRadius || window.__prePartyHuntRadius || 'all';
+        if (!targetRadius) window.__prePartyHuntRadius = null;
+
+        if (curRadius === desiredRadius) return false;
+
+        const isPriestCls = /^(priest|acolyte)$/i.test(String(charData.classId || ''));
+        const newConfig = Object.assign({}, currentConfig, {
+            skills: Array.isArray(currentConfig.skills) ? [...currentConfig.skills] : [],
+            huntRadiusTiles: desiredRadius,
+            buffParty: currentConfig.buffParty !== false,
+            healPartyPercent: isPriestCls ? Math.max(Number(currentConfig.healPartyPercent) || 80, 80) : (typeof currentConfig.healPartyPercent === 'number' ? currentConfig.healPartyPercent : 60)
+        });
+
+        try {
+            room.send('auto_set', { config: newConfig });
+            if (charData.auto) {
+                charData.auto.config = Object.assign({}, charData.auto.config, newConfig);
+            }
+            return true;
+        } catch (e) {
+            return false;
+        }
+    };
+
     window.updatePartySyncState = function(sync) {
         if (!sync) {
             window.__pmPartySync = null;
             window.__partyForcedMap = null;
             if (window.__partyOverrideRadius || window.__returningToPriest) {
-                window.__partyOverrideRadius = null;
                 window.__returningToPriest = false;
-                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
             }
             return { success: true, cleared: true };
         }
@@ -20239,9 +20289,8 @@
             const sync = window.__pmPartySync;
             if (!sync || (Date.now() - (sync.updatedAt || 0) > 45000)) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
-                    window.__partyOverrideRadius = null;
                     window.__returningToPriest = false;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
@@ -20274,8 +20323,7 @@
                 }
                 const targetRadius = someoneNeedsSupport ? 3 : null;
                 if (window.__partyOverrideRadius !== targetRadius) {
-                    window.__partyOverrideRadius = targetRadius;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(targetRadius);
                 }
                 return;
             }
@@ -20284,9 +20332,8 @@
             const priestName = sync.priestName ? String(sync.priestName).trim() : '';
             if (!priestName) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
-                    window.__partyOverrideRadius = null;
                     window.__returningToPriest = false;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
@@ -20300,9 +20347,8 @@
             }
             if (!priestPlayer || (typeof priestPlayer.hp === 'number' && priestPlayer.hp <= 0)) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
-                    window.__partyOverrideRadius = null;
                     window.__returningToPriest = false;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
@@ -20322,13 +20368,11 @@
                     // ยืนข้างพระครบ 18 วิแล้วยังไม่ได้บัฟ (เช่น พระ SP หมดชั่วคราว) -> ปล่อยไปฟาร์มต่อชั่วคราว 25 วิ
                     window.__priestBuffCooldownUntil = now + 25000;
                     window.__returningToPriest = false;
-                    window.__partyOverrideRadius = null;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                     return;
                 }
                 if (window.__partyOverrideRadius !== 3) {
-                    window.__partyOverrideRadius = 3;
-                    if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(3);
                 }
                 try {
                     const handlers = room.onMessageHandlers;
@@ -20345,7 +20389,6 @@
             // เมื่อได้รับบัฟครบและเลือดปกติแล้ว
             if (window.__returningToPriest) {
                 window.__returningToPriest = false;
-                window.__partyOverrideRadius = null;
                 console.log(`%c[PmheeAether Party] ✨ รับบัฟ/ฮีลจาก Priest "${priestName}" ครบแล้ว -> ลุยฟาร์มต่อ!`, 'color: #22c55e; font-weight: bold;');
                 if (sync.followMode === 'none') {
                     const chipBtn = document.querySelector('.follow-chip button');
@@ -20354,7 +20397,7 @@
                         room.onMessageHandlers.emit('party_follow', { name: null });
                     }
                 }
-                if (typeof window.autoConfigureCombat === 'function') window.autoConfigureCombat(true);
+                if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
             }
 
             // ถ้าไม่ได้ตั้งแยกตีอิสระ (หรือเป็นหัวตี้ที่มีพระในตี้): เกาะกลุ่มอยู่ใกล้ Priest เสมอ (ไม่วิ่งหนีพระไปตายคนเดียว)
