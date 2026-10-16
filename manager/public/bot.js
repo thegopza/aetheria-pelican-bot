@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.41.3
+// @version      4.41.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.41.3';
+    const PELICAN_BOT_VERSION = '4.41.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7982,10 +7982,26 @@
     window.sendShopBuy = function(itemId = (window.__shopConfig ? window.__shopConfig.buyItemId : 0x00015fae), qty = (window.__shopConfig ? window.__shopConfig.buyItemQty : 10)) {
         try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {}
         const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        const totalQty = Math.max(1, Math.floor(Number(qty) || 0));
+        const MAX_SHOP_LINE_QTY = 9999; // Game server max per shop_buy_many line (WR = 9999)
         if (room && typeof room.send === 'function') {
-            room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: Number(qty) }] });
-            setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 300);
-            console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${Number(itemId).toString(16)}], Qty: ${qty}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
+            let rem = totalQty;
+            let chunkIdx = 0;
+            while (rem > 0) {
+                const chunkQty = Math.min(MAX_SHOP_LINE_QTY, rem);
+                rem -= chunkQty;
+                const delay = chunkIdx * 240;
+                chunkIdx++;
+                if (delay === 0) {
+                    room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: chunkQty }] });
+                } else {
+                    setTimeout(() => {
+                        try { room.send('shop_buy_many', { lines: [{ itemId: Number(itemId), qty: chunkQty }] }); } catch (_) {}
+                    }, delay);
+                }
+            }
+            setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, chunkIdx * 240 + 250);
+            console.log(`%c[PmheeAether Shop] 🏹 ยิง Packet 'shop_buy_many' (ItemID: ${itemId} [0x${Number(itemId).toString(16)}], Qty: ${totalQty}${chunkIdx > 1 ? ` แบ่ง ${chunkIdx} รอบๆ ละ <=9999` : ''}) สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
             return;
         }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
@@ -9887,8 +9903,8 @@
     }
 
     function storeEligible(it, cfg, refused, opts = {}, bagList = null) {
+        if (!it || it.bound) return false;
         if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) {
-            if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;
             return true;
         }
         if (!cfg.storeEnabled && !opts.manual && !opts.humanize) return false;
@@ -9896,7 +9912,8 @@
         if (it.locked && cfg.storeSkipLocked !== false) return false;
         if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
         if (planStillNeeds(it)) return false;
-        if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
+        const cat = storeCategoryOf(it);
+        if (cat !== 'refine' && refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
         if (typeof window.getGuildDonationSlotSellableQty === 'function') {
             const gdInfo = window.getGuildDonationSlotSellableQty(it.slot, bagList, it);
             if (gdInfo.reserveQty > 0 && gdInfo.sellableQty <= 0) return false;
@@ -9904,7 +9921,6 @@
 
         // Only weapons / armor / accessories+gems / refine ores, Whitelist or not: arrows, usables (potions,
         // Butterfly Wing, scrolls), cards and materials are never deposited — even when they are in the Whitelist
-        const cat = storeCategoryOf(it);
         if (!cat || cfg[STORE_CAT_KEY[cat]] === false) return false;
         // Whitelist items: deposited too (unless listed for the market, checked above)
         if (window.isSellWhitelisted(it.name)) return (cfg.storeWhitelist !== false || !!(opts && opts.storeWhitelist));
@@ -9917,18 +9933,46 @@
     };
     // Open the storage: the NPC that worked last time first, then Alice Service / anything storage-like, then the
     // other town NPCs; the dialog option with "คลัง" (never a guild storage) — remembered for next time
-    async function openStorageWindow(room, stopped = () => false) {
+    async function openStorageWindow(roomOrTimeout, stopped = () => false) {
+        const room = (roomOrTimeout && typeof roomOrTimeout === 'object' && typeof roomOrTimeout.send === 'function')
+            ? roomOrTimeout
+            : ((typeof window.getGameRoom === 'function' ? window.getGameRoom() : null) || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+        if (!room) return null;
+        const stopFn = typeof stopped === 'function' ? stopped : () => false;
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const all = [];
-        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') room.state.npcs.forEach((n, k) => all.push({ key: k, name: (n && n.name) || '' }));
+        if (room && room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((n, k) => all.push({ key: k, name: (n && n.name) || '', x: Number(n && n.x), y: Number(n && n.y) }));
+        }
         let saved = null;
         try { saved = localStorage.getItem(STORAGE_NPC_KEY); } catch (e) {}
-        const likely = /Alice|Kafra|Storage|Banker|คลัง/i, never = /Valkyrie|Event|Arena|Guild|Training|Auction|Blacksmith|Shopkeeper|Bag Merchant|Card|Auger/i;
+        const likely = /Alice|อลิซ|Kafra|Storage|Banker|คลัง/i, never = /Valkyrie|Event|Arena|Guild|Training|Auction|Blacksmith|Shopkeeper|Bag Merchant|Card|Auger/i;
         const order = [...all.filter(n => n.name === saved), ...all.filter(n => n.name !== saved && likely.test(n.name)),
             ...all.filter(n => n.name !== saved && !likely.test(n.name) && !never.test(n.name))].slice(0, 6);
         const closeDlg = () => { const x = document.querySelector('.npc-dialog .win-close'); if (x) x.click(); };
+        if (typeof window.closeShopUI === 'function') { try { window.closeShopUI(); } catch (_) {} }
+        closeDlg();
         for (const npc of order) {
-            if (stopped()) return null;
+            if (stopFn()) return null;
+            // Walk close to the storage NPC first if standing far away (e.g. at Shopkeeper Bor)
+            if (Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
+                const getMe = () => (room.state && room.state.players && typeof room.state.players.get === 'function') ? room.state.players.get(room.sessionId) : null;
+                let me = getMe();
+                if (me && Number.isFinite(me.x) && Math.hypot(me.x - npc.x, me.y - npc.y) > 120) {
+                    const walkStart = Date.now();
+                    let lastMove = 0;
+                    while (Date.now() - walkStart < 12000 && !stopFn()) {
+                        me = getMe();
+                        if (me && Math.hypot(me.x - npc.x, me.y - npc.y) <= 120) break;
+                        if (Date.now() - lastMove > 2200) {
+                            lastMove = Date.now();
+                            room.send('move_to', { x: npc.x, y: npc.y });
+                        }
+                        await sleep(250);
+                    }
+                    await sleep(200);
+                }
+            }
             let got = null, unsub;
             const wait = new Promise(resolve => {
                 const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 9000);
@@ -9939,7 +9983,7 @@
             for (let i = 0; i < 40 && !dlg && !got; i++) { await sleep(200); dlg = document.querySelector('.npc-dialog'); if (dlg && !dlg.querySelector('.npc-options button')) dlg = null; }
             if (!got && dlg) {
                 const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
-                const idx = opts.findIndex(o => /คลัง|storage/i.test(o) && !/กิลด์|guild/i.test(o));
+                const idx = opts.findIndex(o => /คลัง|ฝากของ|storage/i.test(o) && !/กิลด์|guild/i.test(o));
                 if (idx < 0) { closeDlg(); await sleep(400); if (typeof unsub === 'function') unsub(); continue; }
                 room.send('npc_option', { index: idx });
             }
@@ -10008,6 +10052,7 @@
             state.refused = state.refused || {};
             const done = {};
             let put = 0;
+            let consecutiveFail = 0;
             for (const it of list) {
                 if (stopped()) break;
                 if (free <= 0) {
@@ -10038,10 +10083,18 @@
                     moved = !now || Number(now.itemId) !== Number(it.itemId) || (Number(now.qty) || 0) <= beforeQty - qtyToDeposit;
                 }
                 if (!moved) {
-                    state.refused[it.itemId] = Date.now();   // left out for a day (the game won't take it)
-                    console.warn(`[PmheeAether Storage] ⚠️ ฝาก "${it.name}" ไม่สำเร็จ — ข้าม (ไม่ลองฝากชิ้นนี้อีก 1 วัน)`);
+                    consecutiveFail++;
+                    if (!document.querySelector('.storage-window') || consecutiveFail >= 2) {
+                        console.warn(`[PmheeAether Storage] ⚠️ หน้าต่างคลังถูกปิดหรือฝากต่อเนื่องไม่สำเร็จ (${consecutiveFail} ชิ้น) -> หยุดการฝากรอบนี้เพื่อไม่ให้บล็อกไอเทมผิดพลาด`);
+                        break;
+                    }
+                    if (!isStashOnlyCur && storeCategoryOf(it) !== 'refine') {
+                        state.refused[it.itemId] = Date.now();
+                    }
+                    console.warn(`[PmheeAether Storage] ⚠️ ฝาก "${it.name}" ไม่สำเร็จ — ข้าม`);
                     continue;
                 }
+                consecutiveFail = 0;
                 put++; free--;
                 const cat = STORE_CAT_TH[storeCategoryOf(it)] || (isStashOnlyCur ? 'ของเก็บคลัง' : 'อื่นๆ');
                 done[cat] = (done[cat] || 0) + 1;
@@ -10136,12 +10189,13 @@
             }, 250);
 
             // 3.5 ซื้อเติมยาบัพ (Smart Restock สำหรับ Concentration, Awakening, Berserk Potion)
-            let potionDelay = 550;
+            const arrowChunkDelay = needArrows ? Math.max(0, Math.ceil(targetQty / 9999) - 1) * 260 : 0;
+            let potionDelay = 550 + arrowChunkDelay;
             if (typeof window.executeBuffPotionRestock === 'function') {
-                potionDelay = Math.max(550, window.executeBuffPotionRestock() + 250);
+                potionDelay = Math.max(potionDelay, window.executeBuffPotionRestock() + 250 + arrowChunkDelay);
             }
 
-            // 3.8 ตรวจสอบซ้ำว่า Butterfly Wing เข้ากระเป๋าครบตามจำนวนที่ตั้งค่าจริงหรือไม่ (ถ้ายังไม่ครบให้ยิงซื้อซ้ำ)
+            // 3.8 ตรวจสอบซ้ำว่า Butterfly Wing และลูกธนูเข้ากระเป๋าครบตามจำนวนที่ตั้งค่าจริงหรือไม่ (ถ้ายังไม่ครบให้ยิงซื้อซ้ำ)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
                 if (useBwing) {
@@ -10164,7 +10218,10 @@
                     if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
                     }
-                    if (!window.__currentAmmo || window.__currentAmmo < targetQty) {
+                    const actualAmmo = typeof window.getCurrentArrowCount === 'function' ? window.getCurrentArrowCount() : -1;
+                    if (actualAmmo >= 0 && window.__latestInventory && Array.isArray(window.__latestInventory.items)) {
+                        window.__currentAmmo = actualAmmo;
+                    } else if (!window.__currentAmmo || window.__currentAmmo < targetQty) {
                         window.__currentAmmo = targetQty;
                     }
                     localStorage.setItem('pelican_current_ammo', window.__currentAmmo);
@@ -19295,6 +19352,23 @@
         return true;
     };
 
+    function getPlayerPixelPos(room) {
+        const r = room || tradeRoom();
+        const me = r && r.state && r.state.players && r.state.players.get(r.sessionId);
+        if (me && Number.isFinite(me.x) && Number.isFinite(me.y)) {
+            return { x: Number(me.x), y: Number(me.y) };
+        }
+        return null;
+    }
+
+    function getRealWeightInfo() {
+        const inv = window.__latestInventory || {};
+        const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+        const weight = Number(inv.weight ?? live.weight) || 0;
+        const weightLimit = Number(inv.weightLimit ?? live.weightLimit) || 2000;
+        return { weight, weightLimit };
+    }
+
     // Helper: Get matching stash items currently in character bag
     window.getConsolidationMatchingBagItems = function(itemList) {
         const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
@@ -19319,6 +19393,7 @@
             totalQty += qty;
             totalWeight += qty * unitW;
         }
+        matched.sort((a, b) => (b.qty || 0) - (a.qty || 0));
         return { items: matched, totalQty, totalWeight };
     };
 
@@ -19339,10 +19414,11 @@
             if (typeof window.closeShopUI === 'function') window.closeShopUI();
             if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
             const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            const wInfo = getRealWeightInfo();
             return {
                 success: true,
-                weight: Number(live.weight) || 0,
-                weightLimit: Number(live.weightLimit) || 2000,
+                weight: wInfo.weight,
+                weightLimit: wInfo.weightLimit,
                 zeny: Number(live.zeny) || 0
             };
         } catch (err) {
@@ -19360,21 +19436,9 @@
         if (!room) return { success: false, error: 'No room connection', withdrawnQty: 0 };
 
         try {
-            // Walk to capital storage NPC (159, 64)
-            const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
-            const coords = curMap.includes('คาราวาน') ? { x: 25, y: 18 } : { x: 159, y: 64 };
-            const pos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
-            if (!pos || Math.hypot(pos.x - coords.x, pos.y - coords.y) > 4) {
-                room.send('move_to', { x: coords.x * 32 + 16, y: coords.y * 32 + 16 });
-                const walkStart = Date.now();
-                while (Date.now() - walkStart < 15000) {
-                    await new Promise(r => setTimeout(r, 350));
-                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
-                    if (p && Math.hypot(p.x - coords.x, p.y - coords.y) <= 4) break;
-                }
-            }
-
-            let st = (typeof window.openStorageWindow === 'function') ? await window.openStorageWindow(8000) : null;
+            let st = (typeof window.openStorageWindow === 'function')
+                ? await window.openStorageWindow(room, () => false)
+                : null;
             if (!st || !Array.isArray(st.items)) {
                 return { success: false, error: 'เปิดคลังไม่สำเร็จ', withdrawnQty: 0 };
             }
@@ -19382,15 +19446,19 @@
             let withdrawnQty = 0;
             const withdrawnDetails = [];
 
-            for (let pass = 0; pass < 8; pass++) {
-                const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
-                const curWeight = Number(live.weight) || 0;
-                const maxWeight = Number(live.weightLimit) || 2000;
-                const safeAvailWeight = Math.max(0, maxWeight - curWeight - 20); // Leave 20 weight safety margin
+            for (let pass = 0; pass < 60; pass++) {
+                const wInfo = getRealWeightInfo();
+                const safeAvailWeight = Math.max(0, wInfo.weightLimit - wInfo.weight - 20); // Leave 20 weight safety margin
                 if (safeAvailWeight <= 0) break;
 
+                const slots = (typeof window.getBagSlots === 'function') ? window.getBagSlots() : null;
+                if (slots && Number.isFinite(slots.max) && slots.max > 0 && slots.used >= slots.max - 1) break;
+
                 const stItems = Array.isArray(st.items) ? st.items : [];
-                const target = stItems.find(it => it && window.matchesStashItemList(it, list) && (Number(it.qty) || 0) > 0);
+                const candidates = stItems
+                    .filter(it => it && window.matchesStashItemList(it, list) && (Number(it.qty) || 0) > 0)
+                    .sort((a, b) => (Number(b.qty) || 0) - (Number(a.qty) || 0));
+                const target = candidates[0];
                 if (!target) break;
 
                 const unitW = Math.max(0.1, Number(target.weight) || 1);
@@ -19424,20 +19492,24 @@
                     await new Promise(r => setTimeout(r, 350));
                     break;
                 }
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 180));
             }
 
             if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            if (withdrawnQty > 0) {
+                try { room.send('inv_sort', {}); } catch (e) {}
+                await new Promise(r => setTimeout(r, 450));
+            }
             const bagMatch = window.getConsolidationMatchingBagItems(list);
-            const liveAfter = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            const wAfter = getRealWeightInfo();
             return {
                 success: true,
                 withdrawnQty,
                 withdrawnDetails,
                 bagMatchingQty: bagMatch.totalQty,
                 bagMatchingWeight: bagMatch.totalWeight,
-                weight: Number(liveAfter.weight) || 0,
-                weightLimit: Number(liveAfter.weightLimit) || 2000
+                weight: wAfter.weight,
+                weightLimit: wAfter.weightLimit
             };
         } catch (err) {
             if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
@@ -19453,22 +19525,11 @@
         const room = tradeRoom();
         if (!room) return { success: false, error: 'No room connection', depositedQty: 0 };
 
-        const beforePos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+        const beforePos = getPlayerPixelPos(room);
         try {
-            const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
-            const coords = curMap.includes('คาราวาน') ? { x: 25, y: 18 } : { x: 159, y: 64 };
-            const pos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
-            if (!pos || Math.hypot(pos.x - coords.x, pos.y - coords.y) > 4) {
-                room.send('move_to', { x: coords.x * 32 + 16, y: coords.y * 32 + 16 });
-                const walkStart = Date.now();
-                while (Date.now() - walkStart < 15000) {
-                    await new Promise(r => setTimeout(r, 350));
-                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
-                    if (p && Math.hypot(p.x - coords.x, p.y - coords.y) <= 4) break;
-                }
-            }
-
-            let st = (typeof window.openStorageWindow === 'function') ? await window.openStorageWindow(8000) : null;
+            let st = (typeof window.openStorageWindow === 'function')
+                ? await window.openStorageWindow(room, () => false)
+                : null;
             if (!st || !Array.isArray(st.items)) {
                 return { success: false, error: 'เปิดคลังไม่สำเร็จ', depositedQty: 0 };
             }
@@ -19486,21 +19547,23 @@
             // Walk back to trade spot if requested
             const backTarget = returnTileCoords || beforePos;
             if (backTarget && Number.isFinite(backTarget.x) && Number.isFinite(backTarget.y)) {
-                room.send('move_to', { x: backTarget.x * 32 + 16, y: backTarget.y * 32 + 16 });
+                const tx = backTarget.x > 250 ? backTarget.x : (backTarget.x * 32 + 16);
+                const ty = backTarget.y > 250 ? backTarget.y : (backTarget.y * 32 + 16);
+                room.send('move_to', { x: tx, y: ty });
                 const backStart = Date.now();
                 while (Date.now() - backStart < 12000) {
                     await new Promise(r => setTimeout(r, 350));
-                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
-                    if (p && Math.hypot(p.x - backTarget.x, p.y - backTarget.y) <= 3) break;
+                    const p = getPlayerPixelPos(room);
+                    if (p && Math.hypot(p.x - tx, p.y - ty) <= 96) break;
                 }
             }
 
-            const liveAfter = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            const wAfter = getRealWeightInfo();
             return {
                 success: true,
                 depositedQty,
-                weight: Number(liveAfter.weight) || 0,
-                weightLimit: Number(liveAfter.weightLimit) || 2000
+                weight: wAfter.weight,
+                weightLimit: wAfter.weightLimit
             };
         } catch (err) {
             if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
