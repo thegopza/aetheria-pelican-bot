@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.41.2
+// @version      4.41.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.41.2';
+    const PELICAN_BOT_VERSION = '4.41.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -693,9 +693,213 @@
             }
         }
 
+        // Restore persisted Zero-Render state for this profile
+        try {
+            const savedZr = localStorage.getItem('pelican_zero_render');
+            if (savedZr === 'true') window.__pmZeroRender = true;
+            else if (savedZr === 'false') window.__pmZeroRender = false;
+        } catch (e) {}
+
+        function updateZeroRenderBanner() {
+            if (!document.body) return;
+            let banner = document.getElementById('pm-zero-render-banner');
+            if (!window.__pmZeroRender) {
+                if (banner) banner.style.display = 'none';
+                return;
+            }
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'pm-zero-render-banner';
+                banner.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99990;background:rgba(15,23,42,0.92);border:1.5px solid rgba(56,189,248,0.55);border-radius:10px;padding:7px 14px;color:#e2e8f0;font-family:"Segoe UI",Tahoma,sans-serif;font-size:12px;display:flex;align-items:center;gap:10px;box-shadow:0 10px 25px rgba(0,0,0,0.75);backdrop-filter:blur(4px);';
+                banner.innerHTML = `
+                    <span style="color:#38bdf8;font-weight:700;">⚡ โหมดพักการ์ดจอ (Zero-Render)</span>
+                    <span style="color:#94a3b8;font-size:11px;">บอททำงานปกติ 100% · ใช้ GPU 0%</span>
+                    <button type="button" id="pm-zr-wake-btn" style="background:#0284c7;color:#fff;border:1px solid #38bdf8;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">🖥️ แสดงภาพจอนี้</button>
+                `;
+                document.body.appendChild(banner);
+                const btn = banner.querySelector('#pm-zr-wake-btn');
+                if (btn) {
+                    btn.onclick = (e) => {
+                        e.stopPropagation();
+                        window.setZeroRenderMode(false);
+                    };
+                }
+            }
+            banner.style.display = 'flex';
+        }
+
+        function isSceneStillBooting() {
+            const g = window.__pmPhaserGame;
+            const sc = g && g.scene && Array.isArray(g.scene.scenes) ? g.scene.scenes[0] : null;
+            return Boolean(!sc || !sc.room || sc.mapMissing);
+        }
+
+        function isWindowActiveForRender() {
+            if (window.__pmZeroRender) {
+                return isSceneStillBooting();
+            }
+            if (!window.__ultraLowSpecEnabled) return true;
+            if (document.hasFocus() || window.__pmHovered || window.__pmTestActive) return true;
+            if (isSceneStillBooting()) return true;
+            return false;
+        }
+
+        function shouldSkipWebGLDraw(bgTick) {
+            if (isSceneStillBooting()) return false;
+            if (window.__pmZeroRender) return true;
+            if (!isWindowActiveForRender() && (bgTick % 4 !== 0)) return true;
+            return false;
+        }
+
+        function installSmartFramePacer(game) {
+            if (!game || !game.loop || !game.loop.raf) return;
+            window.__pmPhaserGame = game;
+
+            // Prevent Phaser from ever pausing its loop when window is unfocused/hidden
+            try {
+                if (game.events && typeof game.events.off === 'function') {
+                    game.events.off('hidden');
+                }
+                if (game.loop) {
+                    game.loop.pause = function () {};
+                    game.loop.blur = function () {};
+                    if (game.loop.hasFpsLimit && typeof game.loop.setFPSLimit === 'function') {
+                        game.loop.setFPSLimit(0);
+                    }
+                }
+            } catch (e) {}
+
+            const rafObj = game.loop.raf;
+            if (rafObj.__pmSmartPacerInstalled) return;
+            rafObj.__pmSmartPacerInstalled = true;
+
+            if (!game.loop.__origStepFn && typeof game.loop.step === 'function') {
+                game.loop.__origStepFn = game.loop.step.bind(game.loop);
+            }
+            if (game.loop.__origStepFn) {
+                rafObj.callback = game.loop.__origStepFn;
+            }
+
+            if (game.renderer && !game.renderer.__origPreRender) {
+                game.renderer.__origPreRender = game.renderer.preRender;
+                game.renderer.__origPostRender = game.renderer.postRender;
+                game.scene.__origRender = game.scene.render;
+            }
+
+            let bgTick = 0;
+            if (game.renderer && game.renderer.__origPreRender) {
+                game.renderer.preRender = function () {
+                    bgTick++;
+                    if (shouldSkipWebGLDraw(bgTick)) return;
+                    return game.renderer.__origPreRender.apply(this, arguments);
+                };
+                game.scene.render = function (r) {
+                    if (shouldSkipWebGLDraw(bgTick)) {
+                        try {
+                            const scenes = this.scenes;
+                            if (Array.isArray(scenes)) {
+                                for (let i = 0; i < scenes.length; i++) {
+                                    const sys = scenes[i] && scenes[i].sys;
+                                    const cams = sys && sys.cameras && sys.cameras.cameras;
+                                    if (Array.isArray(cams)) {
+                                        for (let j = 0; j < cams.length; j++) {
+                                            if (cams[j] && cams[j].visible && typeof cams[j].preRender === 'function') {
+                                                cams[j].preRender();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                        this.isProcessing = false;
+                        return;
+                    }
+                    return game.scene.__origRender.apply(this, arguments);
+                };
+                game.renderer.postRender = function () {
+                    if (shouldSkipWebGLDraw(bgTick)) return;
+                    return game.renderer.__origPostRender.apply(this, arguments);
+                };
+            }
+
+            let st = document.getElementById('pm-bg-anim-pause');
+            if (!st) {
+                st = document.createElement('style');
+                st.id = 'pm-bg-anim-pause';
+                document.head.appendChild(st);
+            }
+            window.__pmTestZeroRender = false;
+            const syncActiveState = () => {
+                updateZeroRenderBanner();
+                const g = window.__pmPhaserGame;
+                if (g && g.canvas && g.canvas.style) {
+                    const hideCanvas = Boolean(window.__pmZeroRender && !isSceneStillBooting());
+                    const nextVis = hideCanvas ? 'hidden' : '';
+                    if (g.canvas.style.visibility !== nextVis) g.canvas.style.visibility = nextVis;
+                }
+                const active = isWindowActiveForRender() && !document.hidden;
+                st.textContent = active ? '' : '* , *::before, *::after { animation-play-state: paused !important; transition: none !important; }';
+                if (active && rafObj.__pmWaitingBgTimer && rafObj.isRunning) {
+                    clearTimeout(rafObj.timeOutID);
+                    rafObj.__pmWaitingBgTimer = false;
+                    rafObj.timeOutID = window.requestAnimationFrame(rafObj.step);
+                } else if (!active && !rafObj.__pmWaitingBgTimer && rafObj.isRunning) {
+                    try { window.cancelAnimationFrame(rafObj.timeOutID); } catch (e) {}
+                    rafObj.__pmWaitingBgTimer = true;
+                    rafObj.timeOutID = setTimeout(() => {
+                        rafObj.__pmWaitingBgTimer = false;
+                        if (rafObj.isRunning) rafObj.step(typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+                    }, 80);
+                }
+            };
+            window.__pmSyncActiveState = syncActiveState;
+
+            if (!window.__pmHoverHooked) {
+                window.__pmHoverHooked = true;
+                window.addEventListener('mouseenter', () => { window.__pmHovered = true; syncActiveState(); }, { passive: true });
+                window.addEventListener('mouseleave', () => { window.__pmHovered = false; syncActiveState(); }, { passive: true });
+                window.addEventListener('focus', syncActiveState);
+                window.addEventListener('blur', syncActiveState);
+                try { document.addEventListener('visibilitychange', syncActiveState); } catch (e) {}
+            }
+            syncActiveState();
+
+            if (rafObj.timeOutID) {
+                try { window.cancelAnimationFrame(rafObj.timeOutID); } catch (e) {}
+                clearTimeout(rafObj.timeOutID);
+            }
+
+            rafObj.step = function stepSmart(now) {
+                rafObj.__pmWaitingBgTimer = false;
+                const ts = (typeof now === 'number' && now > 0) ? now : (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+                rafObj.callback(ts);
+                if (!rafObj.isRunning) return;
+                if (!window.__pmZeroRender && isWindowActiveForRender() && !document.hidden) {
+                    rafObj.timeOutID = window.requestAnimationFrame(stepSmart);
+                } else {
+                    const delayMs = window.__pmZeroRender ? 65 : 120;
+                    rafObj.__pmWaitingBgTimer = true;
+                    rafObj.timeOutID = setTimeout(() => {
+                        rafObj.__pmWaitingBgTimer = false;
+                        if (rafObj.isRunning) stepSmart(typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+                    }, delayMs);
+                }
+            };
+            if (!window.__pmZeroRender && isWindowActiveForRender() && !document.hidden) {
+                rafObj.timeOutID = window.requestAnimationFrame(rafObj.step);
+            } else {
+                rafObj.__pmWaitingBgTimer = true;
+                rafObj.timeOutID = setTimeout(() => {
+                    rafObj.__pmWaitingBgTimer = false;
+                    if (rafObj.isRunning) rafObj.step(typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+                }, 50);
+            }
+        }
+
         function applyUltraLowSpecNow() {
             const game = findPhaserGame();
             if (!game || !game.scene || !Array.isArray(game.scene.scenes)) return false;
+            installSmartFramePacer(game);
             const scene = game.scene.scenes[0];
             if (!scene) return false;
             patchScenePrototype(scene);
@@ -720,17 +924,38 @@
             console.log(`%c[PmheeAether Power] ⚡ โหมดตัดกราฟิกขั้นสุด (Ultra-Low Spec): ${window.__ultraLowSpecEnabled ? 'เปิดใช้งาน (ตัดพื้นหลัง/มอนสเตอร์/เอฟเฟกต์/เงา)' : 'ปิดใช้งาน (จะแสดงผลปกติเมื่อย้ายแมพหรือโหลดใหม่)'}`, 'color: #38bdf8; font-weight: bold;');
         };
 
-        window.setLowPowerMode = function (on) {
+        window.setZeroRenderMode = function (on) {
+            window.__pmZeroRender = !!on;
             window.__pmForceLowPower = !!on;
+            try { localStorage.setItem('pelican_zero_render', window.__pmZeroRender ? 'true' : 'false'); } catch (e) {}
+            try {
+                const game = findPhaserGame();
+                if (game) installSmartFramePacer(game);
+            } catch (e) {}
+            try { updateZeroRenderBanner(); } catch (e) {}
+            if (typeof window.__pmSyncActiveState === 'function') {
+                try { window.__pmSyncActiveState(); } catch (e) {}
+            }
+            try {
+                const hideCanvas = Boolean(window.__pmZeroRender && !isSceneStillBooting());
+                document.querySelectorAll('canvas').forEach(cv => {
+                    if (cv && cv.style) cv.style.visibility = hideCanvas ? 'hidden' : '';
+                });
+            } catch (e) {}
             if (window.__ultraLowSpecEnabled !== false) {
                 try { applyUltraLowSpecNow(); } catch (e) {}
             }
+            return { success: true, zeroRender: window.__pmZeroRender };
         };
+
+        window.setLowPowerMode = window.setZeroRenderMode;
 
         // Poll lightly to attach to Phaser scene as soon as it initializes or recreates
         let lastSceneRef = null;
         setInterval(() => {
             const game = findPhaserGame();
+            if (game) installSmartFramePacer(game);
+            updateZeroRenderBanner();
             const scene = game && game.scene && Array.isArray(game.scene.scenes) ? game.scene.scenes[0] : null;
             if (!scene) return;
             patchScenePrototype(scene);
@@ -3273,9 +3498,15 @@
     function syncAmmoFromDOM() {
         try {
             const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
-            const arrowInfo = ARROW_DATA[targetArrowId] || { name: 'Arrow' };
 
-            // 0. PRIORITY 1: ตรวจจาก Server Inventory Payload โดยตรง 100% (รวมทุก Stack ของลูกธนูชนิดที่เลือก)
+            if (!window.__latestInventory && typeof window.getLiveInventoryData === 'function') {
+                try { window.getLiveInventoryData(); } catch (e) {}
+            }
+            if (!window.__latestCharacterData && typeof window.getLiveCharacterData === 'function') {
+                try { window.getLiveCharacterData(); } catch (e) {}
+            }
+
+            // 0. PRIORITY 1: ตรวจจาก Server Inventory Payload โดยตรง 100% (ใน Aetheria ลูกธนูที่สวมใส่อยู่จะยังคงอยู่ใน inventory.items ด้วย จึงห้ามบวกซ้ำกับ ch.ammo)
             if (window.__latestInventory) {
                 let totalAmmo = 0;
                 let foundAny = false;
@@ -3301,15 +3532,9 @@
 
                 try {
                     const ch = window.__latestCharacterData;
-                    if (ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
-                        const eqQty = Number(ch.ammo.qty) || 0;
-                        if (isTargetArrow(ch.ammo, targetArrowId)) {
-                            foundAny = true;
-                            totalAmmo += eqQty;
-                        } else if (!foundAny) {
-                            foundAny = true;
-                            totalAmmo = eqQty;
-                        }
+                    if (!foundAny && ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
+                        foundAny = true;
+                        totalAmmo = Number(ch.ammo.qty) || 0;
                     }
                 } catch (e) {}
 
@@ -3331,7 +3556,7 @@
                 }
             }
 
-            // 1. Fallback รอง: ตรวจจากช่อง ItemBar / Hotbar ด้านล่างจอ
+            // 1. Fallback รอง: ตรวจจากช่อง ItemBar / Hotbar ด้านล่างจอ (เฉพาะกรณีไม่มีข้อมูล Server Inventory)
             const hotbarSlots = Array.from(document.querySelectorAll('[class*="itembar"] [class*="slot"], [class*="hotbar"] [class*="slot"], [class*="item-slot"], .quick-slot'));
             for (const slot of hotbarSlots) {
                 const img = slot.querySelector('img');
@@ -3354,52 +3579,6 @@
                             return parsed;
                         }
                     }
-                }
-            }
-
-            // 2. ตรวจจากหน้าต่างกระเป๋า (Inventory) ถ้าผู้เล่นเปิดหน้าต่างกระเป๋าอยู่
-            const bagModal = Array.from(document.querySelectorAll('.modal, .window, [class*="inventory"], [class*="bag"], [class*="dialog"]')).find(el => {
-                if (el.closest('#pelican-hud')) return false;
-                const headerText = (el.innerText || '').slice(0, 80);
-                return headerText.includes('กระเป๋า') || headerText.includes('Inventory');
-            });
-
-            if (bagModal && bagModal.offsetWidth > 0) {
-                const bagItems = Array.from(bagModal.querySelectorAll('[class*="slot"], [class*="item"], [class*="cell"]'));
-                let arrowInBagFound = false;
-                let bagArrowQty = 0;
-
-                for (const itemEl of bagItems) {
-                    const img = itemEl.querySelector('img');
-                    const src = img ? (img.src || '').toLowerCase() : '';
-                    const title = (itemEl.getAttribute('title') || itemEl.getAttribute('data-name') || itemEl.innerText || '').toLowerCase();
-                    const isArrow = isTargetArrowDom(src, title, targetArrowId);
-
-                    if (isArrow) {
-                        arrowInBagFound = true;
-                        const match = (itemEl.innerText || itemEl.textContent || '').match(/(\d+)/);
-                        if (match) {
-                            bagArrowQty += parseInt(match[1]);
-                        }
-                    }
-                }
-
-                // ถ้าเปิดหน้าต่างกระเป๋าอยู่ แล้วสแกนไม่เจอลูกธนูชนิดนี้เลย -> ลูกธนู = 0 ทันที 100%!
-                if (!arrowInBagFound) {
-                    if (window.__currentAmmo !== 0) {
-                        console.log(`%c[PmheeAether Ammo] 🎒 สแกนกระเป๋าแล้ว: ไม่พบลูกธนู "${arrowInfo.name}" ในตัวเลย -> ปรับ Ammo = 0 ดอก`, 'color: #ef4444; font-weight: bold;');
-                        window.__currentAmmo = 0;
-                        localStorage.setItem('pelican_current_ammo', 0);
-                        updateAmmoHUD();
-                    }
-                    return 0;
-                } else if (bagArrowQty > 0) {
-                    if (window.__currentAmmo !== bagArrowQty) {
-                        window.__currentAmmo = bagArrowQty;
-                        localStorage.setItem('pelican_current_ammo', bagArrowQty);
-                        updateAmmoHUD();
-                    }
-                    return bagArrowQty;
                 }
             }
         } catch(e) {}
@@ -6564,18 +6743,12 @@
 
         inspectObject(dec);
 
-        // Also include equipped ammo on character (sum if matching targetArrowId, or use equipped qty if bag count is 0)
+        // Fallback to equipped ammo on character only when bag count is 0 (in Aetheria, equipped arrows remain inside inventory.items)
         try {
             const ch = window.__latestCharacterData;
-            if (ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
-                const eqQty = Number(ch.ammo.qty) || 0;
-                if (typeof isTargetArrow === 'function' && isTargetArrow(ch.ammo, targetArrowId)) {
-                    foundAny = true;
-                    totalAmmo += eqQty;
-                } else if (!foundAny) {
-                    foundAny = true;
-                    totalAmmo = eqQty;
-                }
+            if (!foundAny && ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0) {
+                foundAny = true;
+                totalAmmo = Number(ch.ammo.qty) || 0;
             }
         } catch(e) {}
 
@@ -6603,8 +6776,9 @@
         const hasInventoryList = dec && (dec.slots !== undefined || Array.isArray(dec.items) || Array.isArray(dec));
         if (hasInventoryList) {
             const realQty = foundAny ? totalAmmo : 0;
-            if (window.__currentAmmo !== realQty) {
-                console.log(`%c[PmheeAether Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${window.__currentAmmo})`, 'color: #00ffcc; font-weight: bold;');
+            const prevAmmo = window.__currentAmmo;
+            if (prevAmmo !== realQty && (!silent || realQty === 0 || Math.abs(realQty - (Number(prevAmmo) || 0)) >= 20)) {
+                console.log(`%c[PmheeAether Ammo] 🏹 ซิงก์จำนวนลูกธนู "${arrowInfo.name}" จริงจาก Server: ${realQty} ดอก (เดิม ${prevAmmo})`, 'color: #00ffcc; font-weight: bold;');
             }
             window.__currentAmmo = realQty;
             try { localStorage.setItem('pelican_current_ammo', realQty); } catch(e) {}
@@ -7138,6 +7312,22 @@
 
             // 3. ตรวจสอบแมพปัจจุบันและแมพเป้าหมาย (Map Check) — a target stuck on the capital is fixed first
             if (typeof window.recoverFarmTarget === 'function') window.recoverFarmTarget('START BOT');
+            const selMapEl = document.getElementById('p-target-map-select');
+            const selMapVal = selMapEl && selMapEl.value ? selMapEl.value.replace(/\s*\(Lv\..*?\)/i, '').trim() : '';
+            if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') {
+                const planMap = window.planMapForNow();
+                if (planMap && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(planMap) && planMap !== window.__targetFarmMap) {
+                    console.log(`%c[PmheeAether Plan] 🗺️ แผนกำหนดแมพสำหรับเลเวลนี้คือ "${planMap}" (แทน "${window.__targetFarmMap}")`, 'color: #38bdf8; font-weight: bold;');
+                    window.__targetFarmMap = planMap;
+                    try { localStorage.setItem('pelican_farm_map', planMap); } catch (e) {}
+                    if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(planMap);
+                    if (selMapEl && selMapEl.value !== planMap) selMapEl.value = planMap;
+                }
+            } else if (selMapVal && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(selMapVal) && selMapVal !== window.__targetFarmMap) {
+                window.__targetFarmMap = selMapVal;
+                try { localStorage.setItem('pelican_farm_map', selMapVal); } catch (e) {}
+                if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(selMapVal);
+            }
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
             console.log(`%c[PmheeAether Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
@@ -7487,19 +7677,35 @@
 
         // ตรวจสอบว่าหน้าต่างบทสนทนาของ Alice เปิดอยู่บนจอหรือไม่
         function isAliceDialogOpen() {
-            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
+            const dlg = document.querySelector('.npc-dialog');
+            if (dlg) {
+                const txt = (dlg.innerText || dlg.textContent || '').trim();
+                if (txt.includes('Alice') || txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)')) {
+                    return true;
+                }
+            }
+            const candidates = Array.from(document.querySelectorAll('.npc-dialog, [class*="npc-dialog"]')).filter(el => {
                 if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
-                return (txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)')) && el.offsetWidth > 0;
+                return (txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)'));
             });
             return candidates.length > 0;
         }
 
         // ตรวจสอบว่าหน้าต่างแผนที่วาร์ปของ Alice หรือหน้าต่าง WorldMap เปิดอยู่แล้วหรือไม่
-        function isAliceMapWindowOpen() {
-            if (typeof isWorldMapOpen === 'function' && isWorldMapOpen()) return true;
+        function isAliceMapWindowOpen(requireWarpMode = false) {
             const stage = document.querySelector('.worldmap-stage, .worldmap-body, .worldmap-window, [class*="worldmap"]');
-            if (stage && stage.offsetWidth > 0) return true;
+            if (requireWarpMode) {
+                if (!stage) return false;
+                if (document.querySelector('.worldmap-warp')) return true;
+                const warpBtn = Array.from(stage.querySelectorAll('button')).find(b => {
+                    const txt = (b.innerText || b.textContent || '').trim();
+                    return txt.includes('วาร์ปไปที่นี่');
+                });
+                return !!warpBtn;
+            }
+            if (stage) return true;
+            if (typeof isWorldMapOpen === 'function' && isWorldMapOpen()) return true;
             const warpBtn = Array.from(document.querySelectorAll('button, [role="button"], div')).find(b => {
                 if (b.closest('#pelican-hud') || b.closest('#pelican-data-modal')) return false;
                 const txt = (b.innerText || b.textContent || '').trim();
@@ -7508,34 +7714,28 @@
             return !!warpBtn;
         }
 
-        // ฟังก์ชันช่วยค้นหาปุ่ม/แถวตัวเลือกในหน้าต่างสนทนาตามคีย์เวิร์ด
+        // ฟังก์ชันช่วยค้นหาปุ่มตัวเลือกในหน้าต่างสนทนาตามคีย์เวิร์ด (เฉพาะปุ่มใน .npc-options เท่านั้น ห้ามจับทั้งกล่อง .npc-dialog)
         function findDialogOption(keywords) {
-            const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
-                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
-                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
-                const txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!txt) return false;
+            const optionButtons = Array.from(document.querySelectorAll('.npc-dialog .npc-options button, .npc-options button'));
+            for (const btn of optionButtons) {
+                if (btn.closest('#pelican-hud') || btn.closest('#pelican-data-modal') || btn.closest('#pelican-log')) continue;
+                const txt = (btn.innerText || btn.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!txt) continue;
                 const matches = keywords.every(kw => txt.includes(kw)) || (keywords.length > 1 && keywords.some(kw => txt.includes(kw) && kw.length >= 3));
-                if (!matches) return false;
-                const rect = el.getBoundingClientRect();
-                return rect.width >= 40 && rect.width <= 650 && rect.height >= 15 && rect.height <= 85;
-            });
-
-            if (candidates.length === 0) return null;
-
-            // เลือกระดับ element ที่เล็กที่สุด (innermost row/button)
-            candidates.sort((a, b) => {
-                const ra = a.getBoundingClientRect();
-                const rb = b.getBoundingClientRect();
-                return (ra.width * ra.height) - (rb.width * rb.height);
-            });
-            return candidates[0];
+                if (matches) return btn;
+            }
+            return null;
         }
 
-        if (isAliceMapWindowOpen()) {
+        if (isAliceMapWindowOpen(true)) {
             console.log('%c[PmheeAether Warp] 🗺️ หน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
             if (callback) callback();
             return;
+        }
+        // ถ้าแผนที่โลกเปิดค้างในโหมดเดินปกติ (ไม่ใช่โหมดวาร์ปของ Alice) ให้ปิดก่อนเพื่อคุยกับ Alice เปิดโหมดวาร์ป
+        const plainMapClose = document.querySelector('.worldmap-window .win-close');
+        if (plainMapClose && !document.querySelector('.worldmap-warp')) {
+            try { plainMapClose.click(); } catch (e) {}
         }
 
         console.log('%c[PmheeAether Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (Warp Service) เพื่อเปิดวาร์ปเกต...', 'color: #eab308; font-weight: bold;');
@@ -7656,19 +7856,24 @@
 
             const dialogOpen = isAliceDialogOpen();
             const now = Date.now();
+            const currentAliceKey = ((typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : null) || aliceKey;
 
             // =========================================================
             // กรณีที่ 1: หน้าต่างสนทนา Alice เปิดอยู่บนจอแล้ว
-            // (หยุดคลิกเดินและหยุดส่ง npc_talk ซ้ำโดยเด็ดขาด!)
             // =========================================================
             if (dialogOpen) {
+                const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+                const hp = Number(liveChar.hp) || 0, maxHp = Number(liveChar.maxHp) || 0;
+                const sp = Number(liveChar.sp) || 0, maxSp = Number(liveChar.maxSp) || 0;
+                const needsHeal = (maxHp > 0 && hp < maxHp * 0.95) || (maxSp > 0 && sp < maxSp * 0.90);
+
                 const healOption = findDialogOption(['ขอรักษาหน่อย']) || findDialogOption(['รักษา']) || findDialogOption(['ฟื้นฟู']);
                 const warpOption = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
 
-                // สเต็ป 1: กดฮีลฟื้นฟูเลือด/มานาก่อน (index: 3)
-                if (!hasHealed) {
+                // สเต็ป 1: กดฮีลฟื้นฟูเลือด/มานาก่อนเฉพาะเมื่อเลือด/มานาไม่เต็ม (เพราะการฮีลจะปิด dialog ทันที ต้องเปิดคุยใหม่ก่อนกดวาร์ป)
+                if (!hasHealed && needsHeal) {
                     if (healOption) {
-                        console.log('%c[PmheeAether Warp] 💖 พบคลิกตัวเลือกฮีลบนจอ: "' + (healOption.innerText || '').trim() + '"', 'color: #ec4899; font-weight: bold;');
+                        console.log('%c[PmheeAether Warp] 💖 คลิกตัวเลือกฮีลบนจอ: "' + (healOption.innerText || '').trim() + '"', 'color: #ec4899; font-weight: bold;');
                         triggerClick(healOption);
                     }
                     if (typeof window.sendRemoteNpcHeal === 'function') {
@@ -7679,28 +7884,34 @@
                     hasHealed = true;
                     lastActionTime = now;
 
-                    // เว้นจังหวะ 350ms แล้วกดเลือกเปิดแผนที่วาร์ป (Option 2 / index: 1)
+                    // การกดฮีล (index: 3) เซิร์ฟเวอร์จะส่ง npc_close ปิดหน้าต่างสนทนา -> ต้องส่ง npc_talk เปิดคุยใหม่อีกครั้งแล้วค่อยเลือกวาร์ป (index: 1)
                     setTimeout(() => {
                         if (!window.__isBotRunning && !window.__isManualWarping) return;
                         if (isAliceMapWindowOpen()) return;
-
-                        const curWarpOpt = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
-                        if (curWarpOpt) {
-                            console.log('%c[PmheeAether Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (curWarpOpt.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
-                            triggerClick(curWarpOpt);
-                        }
-                        console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
-                        window.sendRemoteNpcOption(1);
-                        hasRequestedMap = true;
-                        lastActionTime = Date.now();
-                    }, 350);
+                        if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
+                        setTimeout(() => {
+                            if (!window.__isBotRunning && !window.__isManualWarping) return;
+                            if (isAliceMapWindowOpen()) return;
+                            const curWarpOpt = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
+                            if (curWarpOpt) {
+                                console.log('%c[PmheeAether Warp] 🔘 คลิกตัวเลือกในกล่องสนทนา: "' + (curWarpOpt.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
+                                triggerClick(curWarpOpt);
+                            }
+                            console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
+                            window.sendRemoteNpcOption(1);
+                            hasRequestedMap = true;
+                            lastActionTime = Date.now();
+                        }, 450);
+                    }, 400);
                     return;
                 }
 
-                // สเต็ป 2: ถ้าฮีลแล้ว แต่ยังไม่ได้เลือกวาร์ป หรือรอเกิน 1.2 วินาทีแล้วแผนที่ยังไม่เปิด
+                hasHealed = true;
+
+                // สเต็ป 2: เลือกเปิดแผนที่วาร์ป (Option 2 / index: 1) ทันที
                 if (!hasRequestedMap || (now - lastActionTime > 1200)) {
                     if (warpOption) {
-                        console.log('%c[PmheeAether Warp] 🔘 พบคลิกตัวเลือกในกล่องสนทนา: "' + (warpOption.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
+                        console.log('%c[PmheeAether Warp] 🔘 คลิกตัวเลือกในกล่องสนทนา: "' + (warpOption.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
                         triggerClick(warpOption);
                     }
                     console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
@@ -7713,6 +7924,13 @@
                 return;
             }
 
+            // ถ้าเพิ่งกดฮีลไปแล้วหน้าต่างสนทนาถูกปิดลง ให้เปิดคุยกับ Alice ใหม่ทันทีเพื่อกดวาร์ป
+            if (hasHealed && !hasRequestedMap && (now - lastActionTime > 700)) {
+                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
+                lastActionTime = now;
+                return;
+            }
+
             // =========================================================
             // กรณีที่ 2: หน้าต่างสนทนายังไม่เปิด (ตัวละครกำลังเดินข้ามเมืองไปหา Alice)
             // =========================================================
@@ -7720,8 +7938,6 @@
             const isStationary = (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0);
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
-
-            const currentAliceKey = (typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : null;
 
             // ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก เฉพาะตอนที่ dialog ยังไม่เปิด
             if (attempts % 5 === 0) {
@@ -8196,6 +8412,166 @@
                 }, 300);
             }
         }
+    };
+
+    // ---------- 👑 Premium Status Detection (ui:token buff) ----------
+    // Matches the game client's exact check: `fF = e => !!e?.buffs.some(e => e.skillId === "ui:token")`
+    window.getCharacterPremiumUntil = function () {
+        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const buffs = Array.isArray(liveChar.buffs) ? liveChar.buffs : [];
+        const premBuff = buffs.find(b => b && (b.skillId === 'ui:token' || /^premium$/i.test(String(b.name || '').trim())));
+        if (premBuff) {
+            const endsAt = Number(premBuff.endsAt) || 0;
+            if (endsAt > 0) return endsAt;
+            const rem = Number(premBuff.remainingMs) || 0;
+            if (rem > 0) return Date.now() + rem;
+            return Date.now() + 86400000;
+        }
+        return Number(liveChar.premiumUntil) || Number(window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.premiumUntil) || 0;
+    };
+
+    window.hasCharacterPremium = function () {
+        const until = window.getCharacterPremiumUntil();
+        if (until > Date.now()) return true;
+        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        if (Array.isArray(liveChar.buffs) && liveChar.buffs.some(b => b && (b.skillId === 'ui:token' || /^premium$/i.test(String(b.name || '').trim())))) {
+            return true;
+        }
+        return Boolean(document.querySelector('.hud-buff-icon[title*="Premium" i], .hud-buff-icon[title*="พรีเมียม" i], .buff-icon[title*="Premium" i], [data-buff*="premium" i]'));
+    };
+
+    // ---------- 🏛️ Daily Guild Donation Material Reservation ----------
+    // Always reserve the required daily guild donation quantity in the character's bag so NPC Auto-Sell,
+    // Market Auto-Sell, and Kafra Storage Deposit only sell/deposit the excess above the required amount.
+    const GUILD_DONATION_DEFAULT_BY_ID = { 90203: 20, 90205: 20 };
+    const GUILD_DONATION_DEFAULT_BY_NAME = { 'oridecon': 20, 'โอริเดคอน': 20, 'elunium': 20, 'อีลูเนียม': 20 };
+    let __guildDonationCacheAt = 0;
+    let __guildDonationCache = null;
+
+    window.getGuildDonationReserveMap = function () {
+        const now = Date.now();
+        if (__guildDonationCache && (now - __guildDonationCacheAt < 5000)) return __guildDonationCache;
+        const byId = Object.assign({}, GUILD_DONATION_DEFAULT_BY_ID);
+        const byName = Object.assign({}, GUILD_DONATION_DEFAULT_BY_NAME);
+        try {
+            let g = window.__pmGuildData || null;
+            if (!g || (now - (window.__pmGuildDataAt || 0) > 15000)) {
+                const root = document.getElementById('root');
+                const fk = root ? Object.keys(root).find(k => k.startsWith('__reactContainer')) : null;
+                const q = fk && root[fk] ? [root[fk]] : [];
+                const seen = new Set();
+                while (q.length && seen.size < 400) {
+                    const n = q.shift();
+                    if (!n || seen.has(n)) continue;
+                    seen.add(n);
+                    let m = n.memoizedState;
+                    while (m) {
+                        const v = m.memoizedState;
+                        if (v && typeof v === 'object' && !Array.isArray(v) && 'guild' in v && 'inventory' in v) {
+                            if (typeof v.guild === 'function') {
+                                const liveG = v.guild();
+                                if (liveG) { g = liveG; window.__pmGuildData = liveG; window.__pmGuildDataAt = now; }
+                            }
+                            break;
+                        }
+                        m = m.next;
+                    }
+                    if (g && window.__pmGuildDataAt === now) break;
+                    if (n.child) q.push(n.child);
+                    if (n.sibling) q.push(n.sibling);
+                }
+            }
+            if (g && Array.isArray(g.materials)) {
+                g.materials.forEach(tier => {
+                    if (!tier || !Array.isArray(tier.items)) return;
+                    tier.items.forEach(entry => {
+                        const id = Number(entry && entry.itemId);
+                        const qty = Number(entry && entry.qty) || 0;
+                        if (Number.isFinite(id) && id > 0 && qty > 0) {
+                            byId[id] = Math.max(byId[id] || 0, qty);
+                        }
+                    });
+                });
+            }
+        } catch (e) {}
+        __guildDonationCache = { byId, byName };
+        __guildDonationCacheAt = now;
+        return __guildDonationCache;
+    };
+
+    window.getGuildDonationReserveQty = function (itemOrNameOrId) {
+        if (itemOrNameOrId === null || itemOrNameOrId === undefined) return 0;
+        const { byId, byName } = window.getGuildDonationReserveMap();
+        if (typeof itemOrNameOrId === 'number' || (typeof itemOrNameOrId === 'string' && /^\d+$/.test(itemOrNameOrId.trim()))) {
+            return byId[Number(itemOrNameOrId)] || 0;
+        }
+        if (typeof itemOrNameOrId === 'string') {
+            const norm = itemOrNameOrId.replace(/^\+\s*\d+\s*/, '').replace(/\s*\[\s*\d+\s*\]\s*$/, '').trim().toLowerCase();
+            if (byName[norm] > 0) return byName[norm];
+            const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+            const match = bag.find(b => b && b.name && b.name.trim().toLowerCase() === norm);
+            if (match) {
+                const mid = Number((match.raw && match.raw.itemId) ?? match.itemId ?? match.id);
+                if (Number.isFinite(mid) && byId[mid] > 0) return byId[mid];
+            }
+            return 0;
+        }
+        const raw = itemOrNameOrId.raw || itemOrNameOrId;
+        const id = Number(raw.itemId ?? raw.id ?? itemOrNameOrId.itemId ?? itemOrNameOrId.id);
+        if (Number.isFinite(id) && byId[id] > 0) return byId[id];
+        const name = String(raw.name || itemOrNameOrId.name || '').replace(/^\+\s*\d+\s*/, '').replace(/\s*\[\s*\d+\s*\]\s*$/, '').trim().toLowerCase();
+        return byName[name] || 0;
+    };
+
+    window.getGuildDonationSlotSellableQty = function (slot, bagList, itemHint = null) {
+        const bag = Array.isArray(bagList) ? bagList : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+        const targetSlot = Number(slot);
+        const slotEntry = bag.find(b => b && Number(b.slot) === targetSlot) || itemHint;
+        if (!slotEntry) return { reserveQty: 0, keepQty: 0, sellableQty: 0, totalQty: 0 };
+        const raw = slotEntry.raw || slotEntry;
+        const slotQty = Math.max(0, Number(slotEntry.qty ?? raw.qty) || 1);
+        const reserveQty = window.getGuildDonationReserveQty(slotEntry);
+        if (reserveQty <= 0) {
+            return { reserveQty: 0, keepQty: 0, sellableQty: slotQty, totalQty: slotQty };
+        }
+        const targetId = Number(raw.itemId ?? raw.id ?? slotEntry.itemId ?? slotEntry.id);
+        const targetName = String(raw.name || slotEntry.name || '').trim().toLowerCase();
+        const sameStacks = bag
+            .filter(b => {
+                if (!b) return false;
+                const r = b.raw || b;
+                const bid = Number(r.itemId ?? r.id ?? b.itemId ?? b.id);
+                if (Number.isFinite(targetId) && targetId > 0 && Number.isFinite(bid) && bid > 0) return bid === targetId;
+                return String(r.name || b.name || '').trim().toLowerCase() === targetName;
+            })
+            .slice()
+            .sort((a, b) => Number(a.slot) - Number(b.slot));
+        if (!sameStacks.length) {
+            const keepQty = Math.min(slotQty, reserveQty);
+            return { reserveQty, keepQty, sellableQty: Math.max(0, slotQty - keepQty), totalQty: slotQty };
+        }
+        const totalQty = sameStacks.reduce((sum, b) => sum + Math.max(0, Number(b.qty ?? (b.raw && b.raw.qty)) || 1), 0);
+        let reserveRemaining = reserveQty;
+        for (const b of sameStacks) {
+            const q = Math.max(0, Number(b.qty ?? (b.raw && b.raw.qty)) || 1);
+            const keepHere = Math.min(q, reserveRemaining);
+            reserveRemaining = Math.max(0, reserveRemaining - keepHere);
+            if (Number(b.slot) === targetSlot) {
+                return {
+                    reserveQty,
+                    keepQty: keepHere,
+                    sellableQty: Math.max(0, q - keepHere),
+                    totalQty
+                };
+            }
+        }
+        const keepFallback = Math.min(slotQty, reserveRemaining);
+        return {
+            reserveQty,
+            keepQty: keepFallback,
+            sellableQty: Math.max(0, slotQty - keepFallback),
+            totalQty
+        };
     };
 
     window.triggerAutoSellTrash = triggerAutoSellTrash;
@@ -8862,6 +9238,70 @@
             else el.click();
         }
 
+        function setShopCartSlotQty(slot, desiredQty) {
+            const shopModal = document.querySelector('.shop-window') || document.body;
+            const targetKey = 's' + Number(slot);
+            const lines = Array.from(shopModal.querySelectorAll('.cart-line'));
+            const lineEl = lines.find(el => {
+                const fk = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+                return fk && el[fk] && String(el[fk].key) === targetKey;
+            });
+            if (!lineEl) return false;
+            if (desiredQty <= 0) {
+                const rmBtn = lineEl.querySelector('button.cart-remove');
+                if (rmBtn) { clickOnce(rmBtn); return true; }
+            }
+            const stepper = lineEl.querySelector('.qty-stepper') || lineEl.querySelector('input');
+            if (stepper) {
+                const fk = Object.keys(stepper).find(k => k.startsWith('__reactFiber'));
+                let f = fk ? stepper[fk] : null;
+                while (f) {
+                    const mp = f.memoizedProps;
+                    if (mp && typeof mp.onChange === 'function' && (typeof mp.max === 'number' || typeof mp.value === 'number')) {
+                        mp.onChange(desiredQty);
+                        return true;
+                    }
+                    f = f.return;
+                }
+                const inp = lineEl.querySelector('input');
+                if (inp) {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                    if (setter) setter.call(inp, String(desiredQty));
+                    else inp.value = String(desiredQty);
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    inp.dispatchEvent(new Event('blur', { bubbles: true }));
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function enforceGuildDonationReserveInShopCart() {
+            const shopModal = document.querySelector('.shop-window') || document.body;
+            const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+            const bySlot = {};
+            bag.forEach(b => { bySlot[Number(b.slot)] = b; });
+            shopModal.querySelectorAll('.cart-line').forEach(lineEl => {
+                const fk = Object.keys(lineEl).find(k => k.startsWith('__reactFiber'));
+                const key = fk && lineEl[fk] ? String(lineEl[fk].key || '') : '';
+                if (!/^s\d+$/.test(key)) return;
+                const slot = Number(key.slice(1));
+                const b = bySlot[slot];
+                const raw = b ? (b.raw || b) : null;
+                if (!raw) return;
+                const gdInfo = window.getGuildDonationSlotSellableQty(slot, bag, b);
+                if (gdInfo.reserveQty <= 0) return;
+                if (isWhitelisted(raw.name) || gdInfo.sellableQty <= 0) {
+                    console.log(`%c[PmheeAether Shop] 🏛️ [ของบริจาคกิลด์] เอา "${raw.name}" ออกจากตะกร้าขาย (เก็บสำรองไว้บริจาค ${gdInfo.reserveQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                    setShopCartSlotQty(slot, 0);
+                } else if (gdInfo.keepQty > 0) {
+                    console.log(`%c[PmheeAether Shop] 🏛️ [ของบริจาคกิลด์] ปรับจำนวนขาย "${raw.name}" เหลือ ${gdInfo.sellableQty} ชิ้น (เก็บสำรองไว้บริจาค ${gdInfo.keepQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                    setShopCartSlotQty(slot, gdInfo.sellableQty);
+                }
+            });
+        }
+
         function processStackCategory(catName, types, onDone) {
             const catBtn = findCategoryTab(catName);
             if (!catBtn) {
@@ -8896,11 +9336,17 @@
                         console.log(`[PmheeAether Shop] 🔒 [Whitelist] เก็บ: "${raw.name}"`);
                         return;
                     }
+                    const gdInfo = window.getGuildDonationSlotSellableQty(slot, bag, b);
+                    if (gdInfo.reserveQty > 0 && gdInfo.sellableQty <= 0) {
+                        console.log(`%c[PmheeAether Shop] 🏛️ [ของบริจาคกิลด์] เก็บสำรองไว้บริจาคกิลด์รายวัน: "${raw.name}" x${raw.qty || 1} (สำรอง ${gdInfo.reserveQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                        return;
+                    }
                     const allBtn = row.querySelector('button.cart-all');
                     const addBtn = row.querySelector('button.cart-add');
                     const btn = (allBtn && !allBtn.disabled) ? allBtn : addBtn;
                     if (!btn || btn.disabled) return;
-                    picks.push({ name: raw.name, qty: raw.qty || 1, btn });
+                    const sellQty = gdInfo.reserveQty > 0 ? gdInfo.sellableQty : (raw.qty || 1);
+                    picks.push({ name: raw.name, slot, qty: sellQty, totalSlotQty: raw.qty || 1, keepQty: gdInfo.keepQty || 0, btn });
                 });
 
                 if (!picks.length) {
@@ -8912,9 +9358,20 @@
                 (function step() {
                     if (i >= picks.length) { setTimeout(onDone, 500); return; }
                     const p = picks[i++];
-                    console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้า (${catName}): "${p.name}" x${p.qty}`, 'color: #22c55e;');
+                    if (p.keepQty > 0) {
+                        console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้าส่วนเกินของบริจาคกิลด์ (${catName}): "${p.name}" ขาย ${p.qty}/${p.totalSlotQty} ชิ้น (เก็บสำรองบริจาค ${p.keepQty} ชิ้น)`, 'color: #22c55e;');
+                    } else {
+                        console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้า (${catName}): "${p.name}" x${p.qty}`, 'color: #22c55e;');
+                    }
                     clickOnce(p.btn);
-                    setTimeout(step, 150);
+                    if (p.keepQty > 0 && p.slot !== null) {
+                        setTimeout(() => {
+                            setShopCartSlotQty(p.slot, p.qty);
+                            setTimeout(step, 120);
+                        }, 80);
+                    } else {
+                        setTimeout(step, 150);
+                    }
                 })();
             }, 600);
         }
@@ -8950,6 +9407,7 @@
 
             function runSteps(idx) {
                 if (idx >= steps.length) {
+                    enforceGuildDonationReserveInShopCart();
                     setTimeout(() => {
                         if (typeof window.isStashOnlyItem === 'function') {
                             document.querySelectorAll('.cart-line').forEach(line => {
@@ -8957,7 +9415,7 @@
                                 const rawTxt = nameEl ? (nameEl.innerText || nameEl.textContent || '') : '';
                                 const cleanTxt = rawTxt.replace(/\s*x\d+\s*$/i, '').trim();
                                 if (cleanTxt && window.isStashOnlyItem(cleanTxt)) {
-                                    const rmBtn = line.querySelector('button.cart-rm');
+                                    const rmBtn = line.querySelector('button.cart-rm, button.cart-remove');
                                     if (rmBtn) {
                                         console.log(`%c[PmheeAether Shop] 🔒 นำ "${cleanTxt}" ออกจากตะกร้าขาย (โหมดเก็บเข้าคลังอย่างเดียว)`, 'color: #38bdf8; font-weight: bold;');
                                         clickOnce(rmBtn);
@@ -9113,6 +9571,9 @@
     window.getBagItemCount = function(itemId) {
         const targetId = parseInt(itemId);
         if (isNaN(targetId)) return 0;
+        if (typeof window.getLiveInventoryData === 'function') {
+            try { window.getLiveInventoryData(); } catch (e) {}
+        }
         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         let count = 0;
         bagItems.forEach(it => {
@@ -9121,15 +9582,19 @@
                 count += Number(it.qty) || 1;
             }
         });
-        if (count === 0 && targetId === 90311) {
+        const hasAuthoritativeInv = Boolean(window.__latestInventory && Array.isArray(window.__latestInventory.items));
+        if (count === 0 && targetId === 90311 && !hasAuthoritativeInv) {
             try {
-                const slots = Array.from(document.querySelectorAll('.hotbars button, .hotbars [class*="slot"], [class*="hotbar"] > *'));
+                const slots = Array.from(document.querySelectorAll('.hotbars button.hot-slot.item:not(.disabled)'));
                 for (const s of slots) {
+                    if (s.classList && (s.classList.contains('disabled') || s.classList.contains('empty'))) continue;
                     const img = s.querySelector('img');
                     const src = (img?.src || s.style?.backgroundImage || '').toLowerCase();
-                    const txt = (s.getAttribute('title') || s.innerText || s.textContent || '');
-                    if (src.includes('butterfly-wing') || src.includes('90311') || src.includes('160c7') || /butterfly\s*wing/i.test(txt)) {
-                        const m = txt.match(/[×xX]\s*(\d+)/) || txt.match(/(\d+)/);
+                    const titleTxt = (s.getAttribute('title') || '');
+                    if (src.includes('butterfly-wing') || src.includes('90311') || src.includes('160c7') || /butterfly\s*wing/i.test(titleTxt)) {
+                        const subEl = s.querySelector('.hot-sub');
+                        const subTxt = (subEl ? (subEl.innerText || subEl.textContent || '') : '');
+                        const m = subTxt.match(/[×xX]?\s*(\d+)/);
                         const qty = m ? parseInt(m[1], 10) : 1;
                         if (qty > 0) return qty;
                     }
@@ -9408,18 +9873,20 @@
     function isItemOnMarketSellList(it) {
         if (!it) return false;
         if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) return false;
-        const rules = (window.__autoMarketSellConfig && Array.isArray(window.__autoMarketSellConfig.rules)) ? window.__autoMarketSellConfig.rules : [];
+        if (!window.__autoMarketSellConfig || !window.__autoMarketSellConfig.enabled) return false;
+        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) return false;
+        const rules = Array.isArray(window.__autoMarketSellConfig.rules) ? window.__autoMarketSellConfig.rules : [];
         const name = String(it.name || '').trim().toLowerCase();
         const id = Number(it.itemId || it.id);
         return rules.some(r => {
-            if (!r || !r.enabled) return false;
+            if (!r || r.enabled === false) return false;
             if (r.itemId && Number(r.itemId) === id) return true;
             if (r.itemName && String(r.itemName).trim().toLowerCase() === name) return true;
             return false;
         });
     }
 
-    function storeEligible(it, cfg, refused, opts = {}) {
+    function storeEligible(it, cfg, refused, opts = {}, bagList = null) {
         if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) {
             if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;
             return true;
@@ -9430,6 +9897,10 @@
         if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
         if (planStillNeeds(it)) return false;
         if (refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
+        if (typeof window.getGuildDonationSlotSellableQty === 'function') {
+            const gdInfo = window.getGuildDonationSlotSellableQty(it.slot, bagList, it);
+            if (gdInfo.reserveQty > 0 && gdInfo.sellableQty <= 0) return false;
+        }
 
         // Only weapons / armor / accessories+gems / refine ores, Whitelist or not: arrows, usables (potions,
         // Butterfly Wing, scrolls), cards and materials are never deposited — even when they are in the Whitelist
@@ -9442,7 +9913,7 @@
     window.getStorageDepositList = function (cfg = window.__sellConfig || {}, opts = {}) {
         const bag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
         const refused = storeState().refused || {};
-        return bag.filter(it => storeEligible(it, cfg, refused, opts));
+        return bag.filter(it => storeEligible(it, cfg, refused, opts, bag));
     };
     // Open the storage: the NPC that worked last time first, then Alice Service / anything storage-like, then the
     // other town NPCs; the dialog option with "คลัง" (never a guild storage) — remembered for next time
@@ -9544,20 +10015,35 @@
                     console.warn('[PmheeAether Storage] ⚠️ คลังเต็มแล้ว — ของที่เหลือเก็บไว้ในกระเป๋า (ไม่เปิดคลังอีก 6 ชั่วโมง)');
                     break;
                 }
-                const cur = bagAt(it.slot);
+                const curBag = (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items.filter(Boolean) : [];
+                const cur = curBag.find(x => x && Number(x.slot) === Number(it.slot));
                 // the slot changed (bag sorted...): never deposit something else — same item, still allowed to go
                 if (!cur || Number(cur.itemId) !== Number(it.itemId) || JSON.stringify(cur.affixes || []) !== JSON.stringify(it.affixes || [])
-                    || (Number(cur.refine) || 0) !== (Number(it.refine) || 0) || !storeEligible(cur, cfg, null, opts)) continue;
-                room.send('storage_put', { slot: Number(it.slot), qty: Math.max(1, Number(cur.qty) || 1) });
+                    || (Number(cur.refine) || 0) !== (Number(it.refine) || 0) || !storeEligible(cur, cfg, null, opts, curBag)) continue;
+                const beforeQty = Math.max(1, Number(cur.qty) || 1);
+                const isStashOnlyCur = typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(cur);
+                const gdInfo = (!isStashOnlyCur && typeof window.getGuildDonationSlotSellableQty === 'function')
+                    ? window.getGuildDonationSlotSellableQty(cur.slot, curBag, cur)
+                    : { reserveQty: 0, keepQty: 0, sellableQty: beforeQty };
+                const qtyToDeposit = gdInfo.reserveQty > 0 ? gdInfo.sellableQty : beforeQty;
+                if (qtyToDeposit <= 0) continue;
+                if (gdInfo.reserveQty > 0 && gdInfo.keepQty > 0) {
+                    console.log(`%c[PmheeAether Storage] 🏛️ [ของบริจาคกิลด์] ฝากส่วนเกิน "${it.name}" x${qtyToDeposit} เข้าคลัง (เก็บสำรองไว้บริจาคกิลด์รายวัน ${gdInfo.keepQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                }
+                room.send('storage_put', { slot: Number(it.slot), qty: qtyToDeposit });
                 let moved = false;
-                for (let i = 0; i < 10 && !moved; i++) { await sleep(200); const now = bagAt(it.slot); moved = !now || Number(now.itemId) !== Number(it.itemId); }
+                for (let i = 0; i < 10 && !moved; i++) {
+                    await sleep(200);
+                    const now = bagAt(it.slot);
+                    moved = !now || Number(now.itemId) !== Number(it.itemId) || (Number(now.qty) || 0) <= beforeQty - qtyToDeposit;
+                }
                 if (!moved) {
                     state.refused[it.itemId] = Date.now();   // left out for a day (the game won't take it)
                     console.warn(`[PmheeAether Storage] ⚠️ ฝาก "${it.name}" ไม่สำเร็จ — ข้าม (ไม่ลองฝากชิ้นนี้อีก 1 วัน)`);
                     continue;
                 }
                 put++; free--;
-                const cat = STORE_CAT_TH[storeCategoryOf(it)] || (window.isStashOnlyItem && window.isStashOnlyItem(it) ? 'ของเก็บคลัง' : 'อื่นๆ');
+                const cat = STORE_CAT_TH[storeCategoryOf(it)] || (isStashOnlyCur ? 'ของเก็บคลัง' : 'อื่นๆ');
                 done[cat] = (done[cat] || 0) + 1;
                 await sleep(250);
             }
@@ -9592,48 +10078,82 @@
         triggerAutoSellTrash(() => {
             if (!window.__isBotRunning && !window.__isManualSelling) return;
             const cfg = window.__archerConfig || {};
+            const useBwing = cfg.useBwing !== false;
+            const bwingId = parseInt(cfg.bwingItemId) || 0x000160c7;
+            const targetBwing = Math.max(1, parseInt(cfg.bwingBuyQty) || 5);
             const arrowId = parseInt(cfg.arrowType) || 0x00015fae;
-            const arrowQty = parseInt(cfg.arrowBuyQty) || 200;
-
-            // 2. ซื้อลูกธนูชนิดที่เลือก (Smart Restock: เติมส่วนต่างให้ครบ targetQty ป้องกันซื้อเกินจนน้ำหนักล้น)
             const targetQty = parseInt(cfg.arrowBuyQty) || 1000;
-            // Count only the arrow type to buy: arrows of another type (e.g. 1306 normal Arrows while the plan
-            // switched to Fire Arrow) must not make it look like there are enough
-            const worn = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
-            const wornSame = worn.ammo && Number(worn.ammo.itemId) === arrowId ? Number(worn.ammo.qty) || 0 : 0;
-            const bagSame = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(arrowId) : 0;
-            const curAmmo = Math.max(wornSame, bagSame);
-            const qtyToBuy = Math.max(0, targetQty - curAmmo);
             const needArrows = window.arrowsNeeded();
 
-            if (needArrows && qtyToBuy > 0) {
-                console.log(`%c[PmheeAether Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
-                window.sendShopBuy(arrowId, qtyToBuy);
-            } else if (needArrows) {
-                console.log(`%c[PmheeAether Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+            // 2. ซื้อ Butterfly Wing เป็นอันดับแรกเสมอ (ป้องกันซื้อลูกธนู/ยาจนเงินหรือน้ำหนักเต็มก่อนซื้อบีวิง)
+            if (useBwing) {
+                const curBwing = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(bwingId) : 0;
+                const needBwing = Math.max(0, targetBwing - curBwing);
+                if (needBwing > 0) {
+                    console.log(`%c[PmheeAether Shop] 🦋 คำนวณการเติม Butterfly Wing: ในกระเป๋ามี ${curBwing} ใบ / ตั้งเป้าพก ${targetBwing} ใบ -> ซื้อเพิ่ม ${needBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
+                    window.sendShopBuy(bwingId, needBwing);
+                } else {
+                    console.log(`%c[PmheeAether Shop] 🦋 Butterfly Wing มีเพียงพอแล้ว (${curBwing} >= ${targetBwing} ใบ) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                }
             }
 
-            // 2.5 ซื้อเติมยาบัพ (Smart Restock สำหรับ Concentration, Awakening, Berserk Potion)
-            let potionDelay = 350;
-            if (typeof window.executeBuffPotionRestock === 'function') {
-                potionDelay = window.executeBuffPotionRestock();
-            }
-
-            // 3. ซื้อ Butterfly Wing พ่วงด้วยถ้าเปิดใช้ (Smart Restock: คำนวณส่วนต่างให้ครบ targetQty)
+            // 3. ซื้อลูกธนูชนิดที่เลือก (Smart Restock: เติมส่วนต่างให้ครบ targetQty และจำกัดไม่ให้เกินน้ำหนัก/เงินที่มี)
             setTimeout(() => {
                 if (!window.__isBotRunning && !window.__isManualSelling) return;
-                if (cfg.useBwing) {
-                    const bwingId = parseInt(cfg.bwingItemId) || 0x000160c7;
-                    const targetBwing = parseInt(cfg.bwingBuyQty) || 5;
-                    const curBwing = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(bwingId) : 0;
-                    const needBwing = Math.max(0, targetBwing - curBwing);
+                const worn = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+                const wornSame = worn.ammo && Number(worn.ammo.itemId) === arrowId ? Number(worn.ammo.qty) || 0 : 0;
+                const bagSame = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(arrowId) : 0;
+                const curAmmo = Math.max(wornSame, bagSame);
+                let qtyToBuy = Math.max(0, targetQty - curAmmo);
 
-                    if (needBwing > 0) {
-                        console.log(`%c[PmheeAether Shop] 🦋 คำนวณการเติม Butterfly Wing: ในกระเป๋ามี ${curBwing} ใบ / ตั้งเป้าพก ${targetBwing} ใบ -> ซื้อเพิ่ม ${needBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
-                        window.sendShopBuy(bwingId, needBwing);
-                    } else {
-                        console.log(`%c[PmheeAether Shop] 🦋 Butterfly Wing มีเพียงพอแล้ว (${curBwing} >= ${targetBwing} ใบ) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                if (needArrows && qtyToBuy > 0) {
+                    const inv = window.__latestInventory || {};
+                    const curWeight = Number(inv.weight) || 0;
+                    const maxWeight = Number(inv.weightLimit) || 0;
+                    if (maxWeight > 0 && curWeight > 0) {
+                        const safeFreeWeight = Math.max(0, maxWeight * 0.88 - curWeight);
+                        const maxByWeight = Math.floor(safeFreeWeight / 0.1);
+                        if (maxByWeight > 0 && qtyToBuy > maxByWeight) {
+                            console.log(`%c[PmheeAether Shop] ⚖️ ปรับจำนวนซื้อลูกธนูจาก ${qtyToBuy} -> ${maxByWeight} ดอก เพื่อไม่ให้น้ำหนักเกิน 88%`, 'color: #f59e0b;');
+                            qtyToBuy = maxByWeight;
+                        }
                     }
+                    const zeny = Number(worn.zeny) || Number(window.__currentZeny) || 0;
+                    const estArrowPrice = arrowId === 90030 ? 1 : 3;
+                    if (zeny > 0 && qtyToBuy * estArrowPrice > zeny) {
+                        const maxByZeny = Math.max(0, Math.floor(zeny / estArrowPrice));
+                        if (maxByZeny > 0 && maxByZeny < qtyToBuy) {
+                            qtyToBuy = maxByZeny;
+                        }
+                    }
+                    if (qtyToBuy > 0) {
+                        console.log(`%c[PmheeAether Shop] 🏹 คำนวณการเติมลูกธนู: ปัจจุบันมี ${curAmmo} ดอก / ตั้งเป้าพก ${targetQty} ดอก -> ซื้อเพิ่ม ${qtyToBuy} ดอก`, 'color: #00ffcc; font-weight: bold;');
+                        window.sendShopBuy(arrowId, qtyToBuy);
+                    }
+                } else if (needArrows) {
+                    console.log(`%c[PmheeAether Shop] 🏹 ลูกธนูยังมีเพียงพอ (${curAmmo} >= ${targetQty} ดอก) ไม่จำเป็นต้องซื้อเพิ่ม`, 'color: #94a3b8;');
+                }
+            }, 250);
+
+            // 3.5 ซื้อเติมยาบัพ (Smart Restock สำหรับ Concentration, Awakening, Berserk Potion)
+            let potionDelay = 550;
+            if (typeof window.executeBuffPotionRestock === 'function') {
+                potionDelay = Math.max(550, window.executeBuffPotionRestock() + 250);
+            }
+
+            // 3.8 ตรวจสอบซ้ำว่า Butterfly Wing เข้ากระเป๋าครบตามจำนวนที่ตั้งค่าจริงหรือไม่ (ถ้ายังไม่ครบให้ยิงซื้อซ้ำ)
+            setTimeout(() => {
+                if (!window.__isBotRunning && !window.__isManualSelling) return;
+                if (useBwing) {
+                    const afterBwing = typeof window.getBagItemCount === 'function' ? window.getBagItemCount(bwingId) : 0;
+                    const stillNeedBwing = Math.max(0, targetBwing - afterBwing);
+                    if (stillNeedBwing > 0) {
+                        console.log(`%c[PmheeAether Shop] 🦋 ตรวจสอบซ้ำ: Butterfly Wing มี ${afterBwing}/${targetBwing} ใบ -> ส่งคำสั่งซื้อซ้ำอีก ${stillNeedBwing} ใบ`, 'color: #38bdf8; font-weight: bold;');
+                        window.sendShopBuy(bwingId, stillNeedBwing);
+                    }
+                    setTimeout(() => {
+                        if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
+                    }, 350);
                 }
             }, potionDelay);
 
@@ -9644,16 +10164,16 @@
                     if (typeof cfg.arrowHotbarSlot === 'number' && cfg.arrowHotbarSlot >= 0) {
                         window.sendItembarSet(cfg.arrowHotbarSlot, arrowId);
                     }
-                    // แก้นับเบิ้ล (ถ้า Server ซิงก์มาแล้วให้ใช้ค่านั้น หรือตั้งเป็น arrowQty ไม่บวกซ้ำ)
                     if (!window.__currentAmmo || window.__currentAmmo < targetQty) {
                         window.__currentAmmo = targetQty;
                     }
                     localStorage.setItem('pelican_current_ammo', window.__currentAmmo);
                     updateAmmoHUD();
                 }
-                if (cfg.useBwing) {
-                    window.sendItembarSet(8, cfg.bwingItemId || 0x000160c7); // ใส่ Bwing ที่ช่อง 8
+                if (useBwing) {
+                    window.sendItembarSet(8, bwingId); // ใส่ Bwing ที่ช่อง 8
                 }
+                if (typeof window.updatePotionHUD === 'function') window.updatePotionHUD();
             }, potionDelay + 600);
 
             // 5. สั่งสวมใส่คันธนูและลูกธนู (ดึงคันธนูกลับเข้ามือแทนมีด Damascus และติดตั้งลูกธนู)
@@ -10049,7 +10569,7 @@
     }
 
     async function humanizeSundriesTask() {
-        console.log('%c[PmheeAether Humanize] 🏪 กิจกรรม: คุยกับร้านพ่อค้าซื้อยา/บีวิงมาขาย...', 'color: #38bdf8; font-weight: bold;');
+        console.log('%c[PmheeAether Humanize] 🏪 กิจกรรม: คุยกับร้านพ่อค้าซื้อยาเรดมาขาย...', 'color: #38bdf8; font-weight: bold;');
         const live = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
         const zeny = Number(live.zeny) || window.__currentZeny || 0;
         if (zeny < 5000) {
@@ -10069,8 +10589,8 @@
             await new Promise(r => setTimeout(r, 800));
         }
 
-        const isBwing = Math.random() < 0.5;
-        const itemToBuy = isBwing ? { id: 90311, name: 'Butterfly Wing', qty: 1 } : { id: 90301, name: 'Red Potion', qty: Math.floor(Math.random() * 2) + 1 };
+        // ห้ามใช้ Butterfly Wing (90311) หรือกด cart-all เด็ดขาด เพราะจะขายบีวิงที่เพิ่งซื้อไว้กลับเมืองทิ้งทั้งหมด!
+        const itemToBuy = { id: 90301, name: 'Red Potion', qty: Math.floor(Math.random() * 2) + 1 };
 
         if (room) {
             room.send('shop_buy_many', { lines: [{ itemId: itemToBuy.id, qty: itemToBuy.qty }] });
@@ -10084,10 +10604,10 @@
             const rows = Array.from(shopModal.querySelectorAll('.shop-row'));
             const targetRow = rows.find(r => {
                 const txt = (r.innerText || '').toLowerCase();
-                return isBwing ? (txt.includes('butterfly') || txt.includes('วิง')) : (txt.includes('red potion') || txt.includes('เรด'));
+                return txt.includes('red potion') || txt.includes('เรด');
             });
             if (targetRow) {
-                const addBtn = targetRow.querySelector('button.cart-all') || targetRow.querySelector('button.cart-add');
+                const addBtn = targetRow.querySelector('button.cart-add');
                 if (addBtn && !addBtn.disabled) {
                     addBtn.click();
                     await new Promise(r => setTimeout(r, 350));
@@ -10097,7 +10617,7 @@
                         await new Promise(r => setTimeout(r, 450));
                         const finalBtn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim().includes('ยืนยันขาย'));
                         if (finalBtn) finalBtn.click();
-                        console.log(`[PmheeAether Humanize] 💵 ขาย ${itemToBuy.name} คืนให้ร้านเรียบร้อย`);
+                        console.log(`[PmheeAether Humanize] 💵 ขาย ${itemToBuy.name} 1 ชิ้นคืนให้ร้านเรียบร้อย`);
                     }
                 }
             }
@@ -10365,6 +10885,10 @@
         window.__targetFarmMap = mapName;
         localStorage.setItem('pelican_farm_map', mapName);
         if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(mapName);
+        if (!/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(mapName || '')) {
+            const selMapEl = document.getElementById('p-target-map-select');
+            if (selMapEl && selMapEl.value !== mapName) selMapEl.value = mapName;
+        }
         const navSeq = window.__navSeq = (window.__navSeq || 0) + 1;
         const navLive = () => window.__navSeq === navSeq;
         let navClicked = false;   // a world-map walk/warp button was pressed for this trip
@@ -10394,6 +10918,9 @@
 
         const saveWarp = window.isWarpTooExpensive() || !!(opts && opts.walkOnly);
         window.__navWalkOnly = !!(opts && opts.walkOnly);
+        const cleanTargetMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim();
+        const targetMapId = MAP_NAME_TO_ID[cleanTargetMapName] || MAP_NAME_TO_ID[mapName];
+
         function clickWalkButton() {
             // เงินต่ำกว่าที่ตั้งไว้: เดินผ่านแผนที่โลก (ฟรี) ก่อน — วาร์ปเฉพาะเมื่อเดินจากตรงนี้ไม่ได้
             if (saveWarp) {
@@ -10409,9 +10936,10 @@
                 if (freeWalk) console.warn('[PmheeAether Warp] ⚠️ เดินไปจากตรงนี้ไม่ได้ -> จำเป็นต้องวาร์ป');
             }
             // 1. ถ้ามีปุ่ม "วาร์ปไปที่นี่" (Alice Warp Service จาก NPC n6) ให้กดวาร์ปทันที!
-            const warpBtn = Array.from(document.querySelectorAll('button')).find(b => {
-                const txt = (b.innerText || '').trim();
-                return txt.includes('วาร์ปไปที่นี่') && !b.disabled && !b.className.includes('disabled') && b.offsetWidth > 0;
+            // ไม่เช็ก offsetWidth > 0 เพราะตอนพับจอ/ย่อจอขนาดอาจเป็น 0
+            const warpBtn = Array.from(document.querySelectorAll('.worldmap-window button, .worldmap-inspect button, button')).find(b => {
+                const txt = (b.innerText || b.textContent || '').trim();
+                return txt.includes('วาร์ปไปที่นี่') && !b.disabled && !b.className.includes('disabled');
             });
 
             if (warpBtn) {
@@ -10431,9 +10959,14 @@
 
             // 2. ถ้าไม่มีปุ่มวาร์ป ให้กด "เดินไปที่นี่" ปกติ
             const walkBtn = document.querySelector('.worldmap-walk button') ||
-                            Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.includes('เดินไปที่นี่'));
-            if (walkBtn) {
+                            Array.from(document.querySelectorAll('button')).find(b => (b.innerText || b.textContent || '').includes('เดินไปที่นี่') && !b.disabled);
+            if (walkBtn && !walkBtn.disabled) {
                 navClicked = true;
+                // หากอยู่ในเมืองและไม่ได้เปิดประหยัดค่าวาร์ป แต่หน้าต่างที่เปิดเป็นแผนที่โลกปกติ (ไม่ใช่โหมดวาร์ปของ Alice)
+                // ให้ยิง sendNpcWarp คู่ไปด้วยเผื่อแมพนี้เคยเปิดแล้วจะได้วาร์ปทันที ส่วนแมพที่ยังไม่เคยเปิดก็จะเดินไปตามปกติ
+                if (inCity && !saveWarp && targetMapId && typeof window.sendNpcWarp === 'function') {
+                    window.sendNpcWarp(targetMapId);
+                }
                 triggerClick(walkBtn);
                 console.log('%c[PmheeAether] 🚀 คลิก "เดินไปที่นี่" สำเร็จ! กำลังเฝ้าดูการเดินทาง...', 'color: #22c55e; font-weight: bold;');
 
@@ -10452,7 +10985,7 @@
         function clickMapPin(retries = 3) {
             if (!navLive()) return;   // a newer trip took over
             // ตัดข้อความวงเล็บเลเวลออก เช่น "ทะเลสาบอาซูร์ (Lv. 12-20)" -> "ทะเลสาบอาซูร์"
-            const cleanMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim();
+            const cleanMapName = cleanTargetMapName;
 
             const currentInspect = document.querySelector('.worldmap-inspect h3');
             if (currentInspect && currentInspect.textContent.includes(cleanMapName)) {
@@ -10475,22 +11008,25 @@
                 return;
             }
 
-            const matches = Array.from(stage.querySelectorAll('*')).filter(el => {
-                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+            const atlasPins = Array.from(stage.querySelectorAll('button.atlas-pin, .atlas-pin')).filter(el => {
                 const txt = (el.textContent || '').trim();
-                if (!txt.includes(cleanMapName)) return false;
-                const rect = el.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
+                return txt.includes(cleanMapName);
             });
 
-            const pin = matches.find(el => !Array.from(el.children).some(c => c.textContent && c.textContent.includes(cleanMapName))) || matches[0];
+            const matches = atlasPins.length > 0 ? atlasPins : Array.from(stage.querySelectorAll('*')).filter(el => {
+                if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal')) return false;
+                const txt = (el.textContent || '').trim();
+                return txt.includes(cleanMapName);
+            });
+
+            const pin = atlasPins[0] || matches.find(el => !Array.from(el.children).some(c => c.textContent && c.textContent.includes(cleanMapName))) || matches[0];
 
             if (pin) {
                 console.log(`%c[PmheeAether Map] 📍 คลิกหมุดแมพ: "${cleanMapName}"`, 'color: #00ffcc; font-weight: bold;');
                 triggerClick(pin);
                 try { pin.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch(e) {}
 
-                const mapId = MAP_NAME_TO_ID[cleanMapName] || MAP_NAME_TO_ID[mapName];
+                const mapId = targetMapId;
 
                 if (window.__walkClickInterval) {
                     clearInterval(window.__walkClickInterval);
@@ -10754,32 +11290,13 @@
         if (window.arrowsNeeded() && !inCity) {
             const threshold = typeof window.__archerConfig.ammoThreshold === 'number' ? window.__archerConfig.ammoThreshold : 50;
 
-            // ซิงก์จำนวนล่าสุดจาก DOM ก่อนตัดสินใจ
+            // ซิงก์จำนวนล่าสุดจาก Server / DOM ก่อนตัดสินใจ (ห้ามสแกน document.body.innerText เพราะจะไปเจอข้อความเก่าในแชทแล้วรีเซ็ต Ammo เป็น 0)
             if (typeof syncAmmoFromDOM === 'function') {
                 syncAmmoFromDOM();
             }
 
-            // ตรวจจับข้อความเตือนลูกธนูหมดในจอหรือหน้าต่างแชท/แจ้งเตือน
-            const screenText = document.body.innerText || '';
-            const noAmmoWarning = screenText.includes('ไม่มีลูกธนู') || 
-                                  screenText.includes('ลูกธนูหมด') || 
-                                  screenText.includes('ไม่พอลูกธนู') || 
-                                  screenText.includes('กระสุนหมด') || 
-                                  screenText.includes('ต้องการลูกธนู') || 
-                                  screenText.includes('Arrow depleted') || 
-                                  screenText.includes('Out of arrows');
-
-            if (noAmmoWarning) {
-                console.warn('%c[PmheeAether Archer] ⚠️ ตรวจพบข้อความลูกธนูหมดบนหน้าจอ! ปรับ Ammo = 0 และสั่งวาร์ปทันที!', 'color: #ef4444; font-weight: bold;');
-                window.__currentAmmo = 0;
-                localStorage.setItem('pelican_current_ammo', 0);
-                updateAmmoHUD();
-                autoActivateFailCount = 0;
-                window.executeAutoShopRoutine();
-                return;
-            }
-
             if (typeof window.__currentAmmo === 'number' && window.__currentAmmo <= threshold) {
+                if (window.equipAnyArrowFromBag()) return;
                 console.log(`%c[PmheeAether Archer] 🏹 ลูกธนูหมดหรือเหลือน้อย (${window.__currentAmmo} <= ${threshold} ดอก) -> สั่งวาร์ปกลับไปซื้อทันที!`, 'color: #ef4444; font-weight: bold;');
                 autoActivateFailCount = 0;
                 window.executeAutoShopRoutine();
@@ -12733,18 +13250,39 @@
 
     window.getAutoSellRuleBagStatusHtml = function(itemName, minQty) {
         if (!itemName) return '<span style="color: #64748b; font-size: 10px;">รอระบุชื่อ</span>';
+        const hasPrem = typeof window.hasCharacterPremium === 'function' ? window.hasCharacterPremium() : true;
         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         const norm = itemName.trim().toLowerCase();
         let totalCount = 0;
+        let sampleItem = null;
         bagItems.forEach(it => {
-            if (it.name && it.name.trim().toLowerCase() === norm) {
+            if (it && !it.locked && it.name && it.name.trim().toLowerCase() === norm) {
                 totalCount += (Number(it.qty) || 1);
+                if (!sampleItem) sampleItem = it;
             }
         });
+        if (!hasPrem) {
+            return `<span style="color: #f59e0b; font-size: 10px;" title="ระบบเกมต้องมี Premium จึงจะตั้งขายตลาดกลางได้">🔒 ไม่มี Premium (มี ${totalCount.toLocaleString()} ชิ้น · ตั้งขายไม่ได้)</span>`;
+        }
         const threshold = Number(minQty) || 1;
+        const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
+            ? window.getGuildDonationReserveQty(sampleItem || itemName)
+            : 0;
         if (totalCount === 0) {
             return '<span style="color: #94a3b8; font-size: 10px;">❌ ไม่มีในตัว</span>';
-        } else if (totalCount >= threshold) {
+        }
+        if (reserveQty > 0) {
+            const sellableCount = Math.max(0, totalCount - reserveQty);
+            const effectiveThreshold = threshold <= reserveQty ? (reserveQty + threshold) : threshold;
+            if (totalCount <= reserveQty) {
+                return `<span style="color: #38bdf8; font-size: 10px;" title="เก็บสำรองไว้บริจาคกิลด์รายวัน ${reserveQty} ชิ้น">🏛️ มี ${totalCount.toLocaleString()}/${reserveQty} ชิ้น (สำรองบริจาคกิลด์)</span>`;
+            } else if (totalCount >= effectiveThreshold && sellableCount > 0) {
+                return `<span style="color: #4ade80; font-weight: bold; font-size: 10.5px;" title="เก็บสำรองบริจาคกิลด์ ${reserveQty} ชิ้น · ขายส่วนเกิน ${sellableCount} ชิ้น">✅ มี ${totalCount.toLocaleString()} ชิ้น (ขายส่วนเกิน ${sellableCount.toLocaleString()} · เก็บบริจาค ${reserveQty})</span>`;
+            } else {
+                return `<span style="color: #facc15; font-size: 10px;" title="เก็บสำรองไว้บริจาคกิลด์ ${reserveQty} ชิ้น">⏳ มี ${totalCount.toLocaleString()}/${effectiveThreshold} ชิ้น (สำรองบริจาค ${reserveQty})</span>`;
+            }
+        }
+        if (totalCount >= threshold) {
             return `<span style="color: #4ade80; font-weight: bold; font-size: 10.5px;">✅ มี ${totalCount.toLocaleString()} ชิ้น (พร้อมขาย)</span>`;
         } else {
             return `<span style="color: #facc15; font-size: 10px;">⏳ มี ${totalCount.toLocaleString()}/${threshold} ชิ้น (รอฟาร์ม)</span>`;
@@ -13101,22 +13639,47 @@
             console.log(`%c[PmheeAether AutoSell] 🔒 ข้าม "${rule.itemName}" — อยู่ในโหมดเก็บเข้าคลังอย่างเดียว (ห้ามขายตลาดกลาง)`, 'color: #38bdf8; font-weight: bold;');
             return;
         }
+        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) {
+            console.warn('[PmheeAether AutoSell] ⚠️ ตัวละครนี้ไม่มีสถานะ Premium — ไม่สามารถตั้งขายของในตลาดกลางได้ (ระบบเกมอนุญาตให้ซื้อได้อย่างเดียว)');
+            return;
+        }
 
         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         const norm = rule.itemName.trim().toLowerCase();
+        const gearKept = it => typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it.raw || it);
         const stashOnly = it => typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it.raw || it);
-        const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !stashOnly(it));
+        const matchingItems = bagItems.filter(it => it && !it.locked && it.name && it.name.trim().toLowerCase() === norm && !gearKept(it) && !stashOnly(it));
 
         if (matchingItems.length === 0) {
-            console.warn(`[PmheeAether AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ในกระเป๋าตัวละคร`);
+            console.warn(`[PmheeAether AutoSell] ⚠️ ไม่พบไอเทม "${rule.itemName}" ที่พร้อมขายในกระเป๋าตัวละคร`);
             return;
         }
 
         let totalQty = 0;
         matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
-        const targetSlotItem = matchingItems[0];
-        const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
+        const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
+            ? window.getGuildDonationReserveQty(matchingItems[0] || rule.itemName)
+            : 0;
+        let targetSlotItem = matchingItems[0];
+        let maxFromSlot = Number(targetSlotItem.qty) || 1;
+        if (reserveQty > 0 && typeof window.getGuildDonationSlotSellableQty === 'function') {
+            const candidates = matchingItems
+                .map(it => ({ it, gd: window.getGuildDonationSlotSellableQty(it.slot, bagItems, it) }))
+                .filter(x => x.gd.sellableQty > 0)
+                .sort((a, b) => b.gd.sellableQty - a.gd.sellableQty);
+            if (!candidates.length) {
+                console.warn(`[PmheeAether AutoSell] 🏛️ ไม่สามารถลงขาย "${rule.itemName}" ได้ เนื่องจากมี ${totalQty}/${reserveQty} ชิ้น (ต้องเก็บสำรองไว้บริจาคกิลด์รายวัน ${reserveQty} ชิ้น)`);
+                return;
+            }
+            targetSlotItem = candidates[0].it;
+            maxFromSlot = candidates[0].gd.sellableQty;
+        }
+        let qtyToSell = (rule.sellMode === 'min') ? Math.min(Number(rule.minQty) || 1, maxFromSlot) : maxFromSlot;
+        if (qtyToSell <= 0) return;
 
+        if (reserveQty > 0) {
+            console.log(`%c[PmheeAether AutoSell] 🏛️ เก็บสำรอง "${rule.itemName}" ไว้บริจาคกิลด์รายวัน ${reserveQty} ชิ้น -> ลงขายเฉพาะส่วนเกิน ${qtyToSell} ชิ้น`, 'color: #38bdf8; font-weight: bold;');
+        }
         console.log(`%c[PmheeAether AutoSell] 🔍 กำลังคำนวณราคาลงขาย ${rule.itemName} (ID: ${targetSlotItem.id}) — ถูกกว่าคนอื่น 1 z โดยข้ามราคาล่อ...`, 'color: #38bdf8; font-weight: bold;');
 
         const priceInfo = await window.fetchItemSmartSellPrice(targetSlotItem);
@@ -13126,21 +13689,47 @@
         }
 
         const medianUnitPrice = priceInfo.unitPrice;
+        const maxQtyByPriceCap = Math.max(1, Math.floor(1000000000 / medianUnitPrice));
+        if (qtyToSell > maxQtyByPriceCap) qtyToSell = maxQtyByPriceCap;
         const totalPrice = medianUnitPrice * qtyToSell;
+        const depositFee = Math.max(1, Math.floor(totalPrice * 2 / 100));
+        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const curZeny = typeof liveChar.zeny === 'number' ? liveChar.zeny : (typeof window.__currentZeny === 'number' ? window.__currentZeny : null);
+        if (typeof curZeny === 'number' && curZeny < depositFee) {
+            console.warn(`[PmheeAether AutoSell] ⚠️ เงิน Zeny ไม่พอจ่ายค่ามัดจำตลาด 2% สำหรับ ${rule.itemName} x${qtyToSell} (ต้องใช้มัดจำ ${depositFee.toLocaleString()} z แต่มี ${curZeny.toLocaleString()} z)`);
+            return;
+        }
 
-        console.log(`%c[PmheeAether AutoSell] 📊 ราคาลงขาย ${medianUnitPrice.toLocaleString()} z/ชิ้น — ${smartPriceText(priceInfo)} | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z`, 'color: #c084fc; font-weight: bold;');
+        console.log(`%c[PmheeAether AutoSell] 📊 ราคาลงขาย ${medianUnitPrice.toLocaleString()} z/ชิ้น — ${smartPriceText(priceInfo)} | ราคารวม ${qtyToSell} ชิ้น = ${totalPrice.toLocaleString()} z (มัดจำ ${depositFee.toLocaleString()} z)`, 'color: #c084fc; font-weight: bold;');
 
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (room && room.connection?.isOpen) {
+            const beforeSlotQty = Number(targetSlotItem.qty) || 1;
+            const targetSlotNum = Number(targetSlotItem.slot);
             room.send('market', {
                 op: 'list',
-                slot: Number(targetSlotItem.slot),
+                slot: targetSlotNum,
                 qty: Number(qtyToSell),
                 price: Number(totalPrice),
                 hours: 24
             });
-            console.log(`%c[PmheeAether AutoSell] 🚀 ยิงคำสั่งลงขายสำเร็จ! { op: 'list', slot: ${targetSlotItem.slot}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
-            if (typeof playWarningChime === 'function') playWarningChime();
+            let listedOk = false;
+            for (let w = 0; w < 10; w++) {
+                await new Promise(r => setTimeout(r, 250));
+                const nowBag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+                const nowSlot = nowBag.find(b => b && Number(b.slot) === targetSlotNum && b.name && b.name.trim().toLowerCase() === norm);
+                const nowQty = nowSlot ? (Number(nowSlot.qty) || 1) : 0;
+                if (nowQty <= beforeSlotQty - qtyToSell) {
+                    listedOk = true;
+                    break;
+                }
+            }
+            if (listedOk) {
+                console.log(`%c[PmheeAether AutoSell] 🚀 ลงขายสำเร็จ! { op: 'list', slot: ${targetSlotNum}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
+                if (typeof playWarningChime === 'function') playWarningChime();
+            } else {
+                console.warn(`[PmheeAether AutoSell] ⚠️ ส่งคำสั่งลงขาย ${rule.itemName} x${qtyToSell} แล้ว แต่จำนวนในกระเป๋าไม่ลดลง (เซิร์ฟเวอร์อาจปฏิเสธเนื่องจากไม่มี Premium / เงินมัดจำไม่พอ / โควตาเต็ม)`);
+            }
 
             setTimeout(() => {
                 const hudContainer = document.getElementById('p-autosell-hud-rules-container');
@@ -13162,6 +13751,21 @@
         if (!manual && !window.__isBotRunning) return;
         if (window.__isAutoSellingNow) return;
 
+        // GUARD: Characters without Premium (ui:token buff) cannot list items on the market in Aetheria Online
+        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) {
+            if (manual) {
+                console.warn('[PmheeAether AutoSell] ⚠️ ตัวละครนี้ไม่มีสถานะ Premium — ไม่สามารถตั้งขายของในตลาดกลางได้ (ระบบเกมอนุญาตให้ซื้อได้อย่างเดียว)');
+            } else if (!window.__warnedNoPremiumAutoSell) {
+                window.__warnedNoPremiumAutoSell = true;
+                console.log('%c[PmheeAether AutoSell] ⏸️ ตัวละครไม่มีสถานะ Premium — ข้ามการลงขายตลาดกลางอัตโนมัติ', 'color: #94a3b8;');
+            }
+            return;
+        }
+        window.__warnedNoPremiumAutoSell = false;
+
+        if (!window.__autoSellRuleBackoffUntil) window.__autoSellRuleBackoffUntil = {};
+        if (manual) window.__autoSellRuleBackoffUntil = {};
+
         window.__isAutoSellingNow = true;
         let soldCount = 0;
         try {
@@ -13169,7 +13773,7 @@
             if (!bagItems || bagItems.length === 0) return;
 
             const activeCount = await window.fetchMyMarketActiveCount();
-            const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : (cfg.maxActiveListings || 10);
+            const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : (cfg.maxActiveListings || 20);
             if (activeCount >= maxQuota) {
                 console.log(`%c[PmheeAether AutoSell] ⏸️ โควตาลงขายเต็มแล้ว (${activeCount}/${maxQuota} รายการ) รอขายออกก่อน`, 'color: #f59e0b;');
                 return;
@@ -13180,40 +13784,105 @@
             for (const rule of (cfg.rules || [])) {
                 if (!rule || !rule.itemName || rule.enabled === false) continue;
                 if (remainingSlots <= 0) break;
-                if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(rule.itemName)) continue;
 
                 const norm = rule.itemName.trim().toLowerCase();
+                const ruleKey = rule.id || norm;
+                if (!manual && (window.__autoSellRuleBackoffUntil[ruleKey] || 0) > Date.now()) continue;
+
+                const currentBag = (typeof window.getBagItems === 'function') ? window.getBagItems() : bagItems;
                 const gearKept = it => typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it.raw || it);
                 const stashOnly = it => typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it.raw || it);
-                const matchingItems = bagItems.filter(it => it.name && it.name.trim().toLowerCase() === norm && !gearKept(it) && !stashOnly(it));
+                if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(rule.itemName)) continue;
+                const matchingItems = currentBag.filter(it => it && !it.locked && it.name && it.name.trim().toLowerCase() === norm && !gearKept(it) && !stashOnly(it));
                 if (matchingItems.length === 0) continue;
 
                 let totalQty = 0;
                 matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
 
-                if (totalQty >= (Number(rule.minQty) || 1)) {
-                    const targetSlotItem = matchingItems[0];
-                    const qtyToSell = (rule.sellMode === 'min') ? Math.min(rule.minQty, targetSlotItem.qty) : targetSlotItem.qty;
+                const threshold = Number(rule.minQty) || 1;
+                const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
+                    ? window.getGuildDonationReserveQty(matchingItems[0] || rule.itemName)
+                    : 0;
+                const effectiveThreshold = reserveQty > 0
+                    ? ((rule.sellMode === 'min' || threshold <= reserveQty) ? (reserveQty + threshold) : threshold)
+                    : threshold;
+
+                if (totalQty >= effectiveThreshold) {
+                    let targetSlotItem = matchingItems[0];
+                    let maxFromSlot = Number(targetSlotItem.qty) || 1;
+                    if (reserveQty > 0 && typeof window.getGuildDonationSlotSellableQty === 'function') {
+                        const candidates = matchingItems
+                            .map(it => ({ it, gd: window.getGuildDonationSlotSellableQty(it.slot, currentBag, it) }))
+                            .filter(x => x.gd.sellableQty > 0)
+                            .sort((a, b) => b.gd.sellableQty - a.gd.sellableQty);
+                        if (!candidates.length) continue;
+                        targetSlotItem = candidates[0].it;
+                        maxFromSlot = candidates[0].gd.sellableQty;
+                    }
+                    let qtyToSell = (rule.sellMode === 'min') ? Math.min(threshold, maxFromSlot) : maxFromSlot;
+                    if (qtyToSell <= 0) continue;
 
                     const priceInfo = await window.fetchItemSmartSellPrice(targetSlotItem);
                     if (priceInfo && priceInfo.unitPrice > 0) {
                         const medianUnitPrice = priceInfo.unitPrice;
-                        const totalPrice = medianUnitPrice * qtyToSell;
+                        const maxQtyByPriceCap = Math.max(1, Math.floor(1000000000 / medianUnitPrice));
+                        if (qtyToSell > maxQtyByPriceCap) qtyToSell = maxQtyByPriceCap;
+
+                        let totalPrice = medianUnitPrice * qtyToSell;
+                        let depositFee = Math.max(1, Math.floor(totalPrice * 2 / 100));
+                        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+                        const curZeny = typeof liveChar.zeny === 'number' ? liveChar.zeny : (typeof window.__currentZeny === 'number' ? window.__currentZeny : null);
+
+                        if (typeof curZeny === 'number' && curZeny < depositFee) {
+                            const maxAffordablePrice = Math.floor((curZeny * 100) / 2);
+                            const affordableQty = Math.floor(maxAffordablePrice / medianUnitPrice);
+                            const minAcceptableQty = (rule.sellMode === 'min') ? threshold : Math.min(threshold, qtyToSell);
+                            if (affordableQty >= 1 && affordableQty >= minAcceptableQty) {
+                                qtyToSell = Math.min(qtyToSell, affordableQty);
+                                totalPrice = medianUnitPrice * qtyToSell;
+                                depositFee = Math.max(1, Math.floor(totalPrice * 2 / 100));
+                            } else {
+                                console.warn(`[PmheeAether AutoSell] ⚠️ เงิน Zeny ไม่พอจ่ายค่ามัดจำตลาด 2% สำหรับ ${rule.itemName} x${qtyToSell} (ต้องใช้มัดจำ ${depositFee.toLocaleString()} z แต่มี ${curZeny.toLocaleString()} z) — พักรายการนี้ชั่วคราว 5 นาที`);
+                                window.__autoSellRuleBackoffUntil[ruleKey] = Date.now() + 5 * 60 * 1000;
+                                continue;
+                            }
+                        }
 
                         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
                         if (room && room.connection?.isOpen) {
+                            if (reserveQty > 0) {
+                                console.log(`%c[PmheeAether AutoSell] 🏛️ [ของบริจาคกิลด์] เก็บสำรอง "${rule.itemName}" ไว้บริจาครายวัน ${reserveQty} ชิ้น -> ลงขายเฉพาะส่วนเกิน ${qtyToSell} ชิ้น`, 'color: #38bdf8; font-weight: bold;');
+                            }
+                            const beforeSlotQty = Number(targetSlotItem.qty) || 1;
+                            const targetSlotNum = Number(targetSlotItem.slot);
                             room.send('market', {
                                 op: 'list',
-                                slot: Number(targetSlotItem.slot),
+                                slot: targetSlotNum,
                                 qty: Number(qtyToSell),
                                 price: Number(totalPrice),
                                 hours: 24
                             });
-                            console.log(`%c[PmheeAether AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z) — ${smartPriceText(priceInfo)}`, 'color: #10b981; font-weight: bold;');
-                            if (typeof playWarningChime === 'function') playWarningChime();
-                            remainingSlots--;
-                            soldCount++;
-                            await new Promise(r => setTimeout(r, 1200));
+                            let listedOk = false;
+                            for (let w = 0; w < 10; w++) {
+                                await new Promise(r => setTimeout(r, 250));
+                                const nowBag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+                                const nowSlot = nowBag.find(b => b && Number(b.slot) === targetSlotNum && b.name && b.name.trim().toLowerCase() === norm);
+                                const nowQty = nowSlot ? (Number(nowSlot.qty) || 1) : 0;
+                                if (nowQty <= beforeSlotQty - qtyToSell) {
+                                    listedOk = true;
+                                    break;
+                                }
+                            }
+                            if (listedOk) {
+                                console.log(`%c[PmheeAether AutoSell] 🏷️ ลงขายอัตโนมัติสำเร็จ: ${rule.itemName} x${qtyToSell} @ ${medianUnitPrice.toLocaleString()} z (รวม ${totalPrice.toLocaleString()} z) — ${smartPriceText(priceInfo)}`, 'color: #10b981; font-weight: bold;');
+                                if (typeof playWarningChime === 'function') playWarningChime();
+                                remainingSlots--;
+                                soldCount++;
+                                await new Promise(r => setTimeout(r, 600));
+                            } else {
+                                console.warn(`[PmheeAether AutoSell] ⚠️ ส่งคำสั่งลงขาย ${rule.itemName} x${qtyToSell} แล้วแต่ของในกระเป๋าไม่ลดลง (เซิร์ฟเวอร์ปฏิเสธ เช่น ไม่มี Premium / เงินมัดจำไม่พอ / โควตาเต็ม) — พักรายการนี้ชั่วคราว 5 นาที`);
+                                window.__autoSellRuleBackoffUntil[ruleKey] = Date.now() + 5 * 60 * 1000;
+                            }
                         }
                     }
                 }
@@ -13596,10 +14265,11 @@
 
             // 6. Target Map & Auto Loop
             if (data.targetMap) {
+                const cleanImportedMap = String(data.targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim();
                 try {
                     localStorage.removeItem('pelican_plan_manual_map');
                 } catch (_) {}
-                let nextMap = data.targetMap;
+                let nextMap = cleanImportedMap;
                 if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') {
                     nextMap = window.planMapForNow() || nextMap;
                 }
@@ -13610,6 +14280,7 @@
                     window.__targetFarmMap = nextMap;
                     safeSetConfigItem('pelican_target_map', nextMap);
                     safeSetConfigItem('pelican_farm_map', nextMap);
+                    if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(nextMap);
                     const sel = document.getElementById('p-target-map-select');
                     if (sel) sel.value = nextMap;
                 }
@@ -14887,7 +15558,7 @@
                 window.__targetFarmMap = e.target.value;
                 localStorage.setItem('pelican_farm_map', window.__targetFarmMap);
                 if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(e.target.value);
-                if (window.__planScriptEnabled && typeof window.setPlanManualMap === 'function') window.setPlanManualMap(e.target.value);
+                if (typeof window.setPlanManualMap === 'function') window.setPlanManualMap(e.target.value);
             };
         }
 
@@ -17214,8 +17885,15 @@
         }
     };
 
+    // The farm map the plan says to be on now: the change_map of the highest Base trigger at or below the
+    // current Base Lv. (and Job triggers of the current class at or below the current Job Lv.)
+    const planLastMapKey = () => {
+        const plan = window.__currentScriptPlan || {};
+        const name = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
+        return `pelican_plan_lastmap_${name}_${plan.id || plan.name || 'plan'}`;
+    };
     function inferJobTriggerClassId(t, plan) {
-        if (!t) return '';
+        if (!t || t.type !== 'job_level') return '';
         if (t.classId) return String(t.classId).trim().toLowerCase();
         const cc = (t.actions || []).find(a => a && a.type === 'change_class' && a.targetClass);
         if (cc) {
@@ -17232,7 +17910,6 @@
         }
         return '';
     }
-
     const PLAN_MAP_MIN_LEVEL = {
         'ทุ่งโคลเวอร์': 1,
         'ทุ่งหญ้าตะวันออก': 1,
@@ -17261,14 +17938,17 @@
         'แกนลาวา': 137
     };
 
-    const planLastMapKey = () => {
-        const plan = window.__currentScriptPlan || {};
-        const name = (typeof window.getCharacterName === 'function') ? window.getCharacterName() : '';
-        return `pelican_plan_lastmap_${name}_${plan.id || plan.name || 'plan'}`;
-    };
     window.setPlanManualMap = function (map) {
-        if (!map || !window.__currentScriptPlan || /เมืองหลวง|โซลเฮเวน/.test(map)) return;
-        try { localStorage.setItem(planLastMapKey(), map); localStorage.setItem(planLastMapKey() + '_manual', map); } catch (e) {}
+        if (!map || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(map)) return;
+        const cleanMap = String(map).replace(/\s*\(Lv\..*?\)/i, '').trim();
+        if (!cleanMap) return;
+        try {
+            localStorage.setItem('pelican_plan_manual_map', cleanMap);
+            if (window.__currentScriptPlan) {
+                localStorage.setItem(planLastMapKey(), cleanMap);
+                localStorage.setItem(planLastMapKey() + '_manual', cleanMap);
+            }
+        } catch (e) {}
     };
     window.planMapForNow = function() {
         const plan = window.__currentScriptPlan;
@@ -17345,7 +18025,11 @@
                 console.log(`%c[PmheeAether Plan] 🗺️ ข้ามการย้อนแมพ "${targetMap}" (แมพเป้าหมายตามเงื่อนไขปัจจุบันคือ "${planMap}")`, 'color: #38bdf8; font-weight: bold;');
                 targetMap = planMap;
             }
-            try { localStorage.setItem(planLastMapKey(), targetMap); localStorage.removeItem(planLastMapKey() + '_manual'); localStorage.removeItem('pelican_plan_manual_map'); } catch (e) {}
+            try {
+                localStorage.setItem(planLastMapKey(), targetMap);
+                localStorage.removeItem(planLastMapKey() + '_manual');
+                localStorage.removeItem('pelican_plan_manual_map');
+            } catch (e) {}
             console.log(`%c[PmheeAether Plan] 🗺️ เปลี่ยนแมพฟาร์มเป็น "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
             window.setTargetFarmMap(targetMap, true);
             return 'done';
@@ -17428,8 +18112,9 @@
         const lastMapTrigger = [...crossed].reverse().find(c => (c.t.actions || []).some(a => a.type === 'change_map'));
         crossed.forEach(c => {
             const actions = (c.t.actions || []).map((a, i) => i).filter(i => c.t.actions[i].type !== 'change_map' || c === lastMapTrigger);
-            st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level', cls: c.t.type === 'job_level' ? (c.t.classId || '') : '' };
-            const what = c.t.type === 'zeny' ? `เงินถึง ${c.lvl.toLocaleString()} z` : `${c.t.type === 'job_level' ? `Job${c.t.classId ? ' (' + c.t.classId + ')' : ''}` : 'Base'} Lv.${c.lvl}`;
+            const cCls = c.t.type === 'job_level' ? inferJobTriggerClassId(c.t, plan) : '';
+            st.pending[c.id] = { actions, firstAt: Date.now(), nextAt: 0, level: c.lvl, type: c.t.type || 'base_level', cls: cCls };
+            const what = c.t.type === 'zeny' ? `เงินถึง ${c.lvl.toLocaleString()} z` : `${c.t.type === 'job_level' ? `Job${cCls ? ' (' + cCls + ')' : ''}` : 'Base'} Lv.${c.lvl}`;
             console.log(`%c[PmheeAether Plan] 🎯 ถึงเงื่อนไข ${what} — เริ่มทำ ${actions.length} action`, 'color: #f59e0b; font-weight: bold;');
         });
         save();
@@ -17446,11 +18131,14 @@
             if (!pTrig || !pe || !Array.isArray(pe.actions)) continue;
             const timedOut30m = pe.firstAt && (Date.now() - pe.firstAt > 30 * 60 * 1000);
             const laterBaseDone = pTrig.type === 'base_level' && plan.triggers.some((t2, j) => t2 && t2.type === 'base_level' && (Number(t2.targetLevel) || 0) > (Number(pTrig.targetLevel) || 0) && st.done[planTriggerId(t2, j)]);
+            const pTrigCls = pTrig.type === 'job_level' ? inferJobTriggerClassId(pTrig, plan) : '';
+            const outdatedJobTrig = pTrigCls && lv.cls && pTrigCls !== lv.cls && planClassLineage(lv.cls).includes(pTrigCls);
             const filtered = pe.actions.filter(ai => {
                 const a = (pTrig.actions || [])[ai];
                 if (!a) return false;
+                if (a.type === 'change_map' && (laterBaseDone || outdatedJobTrig)) return false;
                 if (a.type === 'equip_item') {
-                    if (timedOut30m || gpWornAny || (laterBaseDone && lv.base >= (Number(pTrig.targetLevel) || 0) + 15)) {
+                    if (timedOut30m || gpWornAny || outdatedJobTrig || (laterBaseDone && lv.base >= (Number(pTrig.targetLevel) || 0) + 15)) {
                         console.log(`%c[PmheeAether Plan] ⏭️ ข้ามการใส่ "${a.itemName}" ของเงื่อนไข Lv.${pe.level} (ใส่เซ็ตอุปกรณ์/ผ่านระดับนี้ไปแล้ว หรือเกิน 30 นาที)`, 'color: #94a3b8;');
                         return false;
                     }
@@ -17474,7 +18162,15 @@
         if (busy) return;
         const nextId = Object.keys(st.pending).sort((a, b) => st.pending[a].level - st.pending[b].level)
             .find(id => Date.now() >= (st.pending[id].nextAt || 0));
-        if (!nextId) return;
+        if (!nextId) {
+            const expectedMap = window.planMapForNow();
+            if (expectedMap && window.__targetFarmMap && expectedMap !== window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(window.__targetFarmMap)) {
+                console.log(`%c[PmheeAether Plan] 🗺️ ซิงค์แมพฟาร์มตามแผนสำหรับเลเวลปัจจุบัน: "${expectedMap}" (แทน "${window.__targetFarmMap}")`, 'color: #38bdf8; font-weight: bold;');
+                try { localStorage.setItem(planLastMapKey(), expectedMap); } catch (e) {}
+                window.setTargetFarmMap(expectedMap, true);
+            }
+            return;
+        }
         const trig = plan.triggers.find((t, i) => planTriggerId(t, i) === nextId);
         if (!trig) { delete st.pending[nextId]; save(); return; }
 
@@ -18594,311 +19290,222 @@
     const tradeZeny = () => Number(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).zeny);
     const sameName = (x, y) => String(x || '').trim().toLowerCase() === String(y || '').trim().toLowerCase();
 
-    window.getConsolidationMatchingBagItems = function (itemNames) {
-        const list = Array.isArray(itemNames) && itemNames.length
-            ? itemNames
-            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
-        const inv = window.__latestInventory || {};
-        const liveCh = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
-        const bag = Array.isArray(inv.items)
-            ? inv.items.filter(Boolean)
-            : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+    window.stopReceiverTradeWatcher = function () {
+        if (typeof window.__receiverWatcherStop === 'function') window.__receiverWatcherStop('stopped');
+        return true;
+    };
+
+    // Helper: Get matching stash items currently in character bag
+    window.getConsolidationMatchingBagItems = function(itemList) {
+        const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
+        const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         const matched = [];
         let totalQty = 0;
         let totalWeight = 0;
         for (const it of bag) {
-            if (!it) continue;
+            if (!it || it.locked || it.equipped) continue;
             const raw = it.raw || it;
-            if (it.locked || raw.locked) continue;
-            if (typeof window.matchesStashItemList === 'function' && window.matchesStashItemList(raw, list)) {
-                const qty = Math.max(1, Number(it.qty ?? raw.qty) || 1);
-                const unitW = Math.max(0, Number(it.weight ?? raw.weight) || 1);
-                totalQty += qty;
-                totalWeight += qty * unitW;
-                matched.push({
-                    slot: Number(it.slot ?? raw.slot),
-                    itemId: Number(it.itemId || it.id || raw.itemId || raw.id),
-                    name: it.name || raw.name || '',
-                    qty,
-                    weight: unitW
-                });
-            }
+            if (!window.matchesStashItemList(raw, list)) continue;
+            const qty = Math.max(1, Number(it.qty ?? raw.qty ?? 1) || 1);
+            const unitW = Math.max(0, Number(raw.weight ?? it.weight ?? 1) || 1);
+            matched.push({
+                slot: Number(it.slot ?? raw.slot),
+                id: raw.id ?? it.id,
+                name: it.name || raw.name || 'Item',
+                qty,
+                unitWeight: unitW,
+                totalWeight: qty * unitW
+            });
+            totalQty += qty;
+            totalWeight += qty * unitW;
         }
-        return {
-            items: matched,
-            totalQty,
-            totalWeight,
-            curWeight: Number(inv.weight ?? liveCh.weight) || 0,
-            weightLimit: Number(inv.weightLimit ?? liveCh.weightLimit) || 2000
-        };
+        return { items: matched, totalQty, totalWeight };
     };
 
-    window.runConsolidationQuickSellTrash = async function (timeoutMs = 35000) {
-        const sleep = ms => new Promise(r => setTimeout(r, ms));
-        if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
-            return { success: false, error: 'not-in-capital' };
-        }
-        const room = tradeRoom();
-        if (!room) return { success: false, error: 'no-room' };
-        const targetNpc = (window.__shopConfig && window.__shopConfig.npcKey) ? window.__shopConfig.npcKey : 'n2';
-        const start = Date.now();
+    // Helper: Quick sell trash at capital shop before withdrawing stash items during consolidation
+    window.runConsolidationQuickSellTrash = async function(timeoutMs = 28000) {
         try {
-            try { if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
-            await sleep(250);
-
-            let shopOpen = typeof document !== 'undefined' && !!document.querySelector('.shop-window');
-            if (!shopOpen && typeof document !== 'undefined') {
-                if (typeof window.sendRemoteNpcTalk === 'function') window.sendRemoteNpcTalk(targetNpc);
-                else room.send('npc_talk', { npcKey: targetNpc });
-                let lastTalkAt = Date.now();
-                let lastPos = { x: (window.__currentPos && window.__currentPos.x) || 0, y: (window.__currentPos && window.__currentPos.y) || 0 };
-                let stationaryTicks = 0;
-                while (Date.now() - start < Math.min(16000, timeoutMs)) {
-                    await sleep(350);
-                    if (document.querySelector('.shop-window')) { shopOpen = true; break; }
-                    const dlg = document.querySelector('.npc-dialog');
-                    if (dlg && dlg.querySelector('.npc-options button')) {
-                        if (typeof window.sendRemoteNpcOption === 'function') window.sendRemoteNpcOption(0);
-                        else room.send('npc_option', { index: 0 });
-                        for (let w = 0; w < 12; w++) {
-                            await sleep(250);
-                            if (document.querySelector('.shop-window')) { shopOpen = true; break; }
-                        }
-                        if (shopOpen) break;
-                    }
-                    const curPos = window.__currentPos || { x: 0, y: 0 };
-                    if (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0) {
-                        stationaryTicks++;
-                    } else {
-                        stationaryTicks = 0;
-                        lastPos = { x: curPos.x, y: curPos.y };
-                    }
-                    if (stationaryTicks >= 2 && Date.now() - lastTalkAt >= 1200) {
-                        if (typeof window.sendRemoteNpcTalk === 'function') window.sendRemoteNpcTalk(targetNpc);
-                        else room.send('npc_talk', { npcKey: targetNpc });
-                        lastTalkAt = Date.now();
-                        await sleep(450);
-                        if (typeof window.sendRemoteNpcOption === 'function') window.sendRemoteNpcOption(0);
-                        else room.send('npc_option', { index: 0 });
-                    }
-                }
+            if (typeof window.triggerAutoSellTrash !== 'function') return { success: false, error: 'No triggerAutoSellTrash' };
+            const wasConsolidating = window.__isConsolidating;
+            window.__isConsolidating = false; // Allow triggerAutoSellTrash to walk to shop
+            window.triggerAutoSellTrash();
+            await new Promise(r => setTimeout(r, 900));
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+                if (!window.__isShopping && !window.__isNavigating) break;
+                await new Promise(r => setTimeout(r, 500));
             }
-            if (!shopOpen && (typeof document === 'undefined' || !document.querySelector('.shop-window'))) {
-                return { success: false, error: 'เปิดร้านค้าไม่สำเร็จ' };
-            }
-            const prevManual = window.__isManualSelling;
-            const prevSellCfg = window.__sellConfig ? Object.assign({}, window.__sellConfig) : null;
-            window.__isManualSelling = true;
-            if (!window.__sellConfig || !window.__sellConfig.enabled) {
-                window.__sellConfig = Object.assign({}, window.__sellConfig || {}, { enabled: true, sellMaterials: true });
-            }
-            await new Promise(resolve => {
-                let done = false;
-                const t = setTimeout(() => { if (!done) { done = true; resolve(); } }, 20000);
-                try {
-                    if (typeof window.triggerAutoSellTrash === 'function') {
-                        window.triggerAutoSellTrash(() => {
-                            if (!done) { done = true; clearTimeout(t); resolve(); }
-                        });
-                    } else {
-                        done = true; clearTimeout(t); resolve();
-                    }
-                } catch (e) {
-                    if (!done) { done = true; clearTimeout(t); resolve(); }
-                }
-            });
-            window.__isManualSelling = prevManual;
-            if (prevSellCfg) window.__sellConfig = prevSellCfg;
-            try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
-            await sleep(400);
-            if (typeof window.refreshInventoryAndWeight === 'function') {
-                await new Promise(r => {
-                    const t = setTimeout(r, 2000);
-                    window.refreshInventoryAndWeight(() => { clearTimeout(t); r(); });
-                });
-            }
-            const inv = window.__latestInventory || {};
-            const liveCh = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || {};
+            window.__isConsolidating = wasConsolidating;
+            if (typeof window.closeShopUI === 'function') window.closeShopUI();
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
             return {
                 success: true,
-                weight: Number(inv.weight ?? liveCh.weight) || 0,
-                weightLimit: Number(inv.weightLimit ?? liveCh.weightLimit) || 2000
+                weight: Number(live.weight) || 0,
+                weightLimit: Number(live.weightLimit) || 2000,
+                zeny: Number(live.zeny) || 0
             };
-        } catch (e) {
-            try { window.sendNpcClose(); if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (_) {}
-            return { success: false, error: e.message || String(e) };
+        } catch (err) {
+            window.__isConsolidating = true;
+            return { success: false, error: err.message };
         }
     };
 
-    window.withdrawConsolidationItemsFromStorage = async function (itemNames, maxExtraWeight = null) {
-        const sleep = ms => new Promise(r => setTimeout(r, ms));
-        const list = Array.isArray(itemNames) && itemNames.length
-            ? itemNames
-            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
-        if (!list.length) return { success: true, withdrawnQty: 0, bagMatchingQty: 0, bagMatchingWeight: 0, items: [] };
-        if (typeof window.isInCapital === 'function' && !window.isInCapital()) {
-            return { success: false, error: 'not-in-capital' };
-        }
+    // Helper: Walk to capital storage & withdraw matching items into bag (respecting weight limit)
+    window.withdrawConsolidationItemsFromStorage = async function(itemList) {
+        const list = Array.isArray(itemList) && itemList.length > 0
+            ? itemList
+            : ((window.__stashTradeConfig && window.__stashTradeConfig.items) || ['Enchant Rune']);
         const room = tradeRoom();
-        if (!room) return { success: false, error: 'no-room' };
-        if (typeof window.openStorageWindow !== 'function') {
-            return { success: false, error: 'no-openStorageWindow' };
-        }
-        let withdrawnQty = 0;
-        let cappedByWeight = false;
-        window.__isStoring = true;
+        if (!room) return { success: false, error: 'No room connection', withdrawnQty: 0 };
+
         try {
-            try { if (typeof window.closeShopUI === 'function') window.closeShopUI(); } catch (e) {}
-            await sleep(250);
-            const st = await window.openStorageWindow(room, () => false);
+            // Walk to capital storage NPC (159, 64)
+            const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
+            const coords = curMap.includes('คาราวาน') ? { x: 25, y: 18 } : { x: 159, y: 64 };
+            const pos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+            if (!pos || Math.hypot(pos.x - coords.x, pos.y - coords.y) > 4) {
+                room.send('move_to', { x: coords.x * 32 + 16, y: coords.y * 32 + 16 });
+                const walkStart = Date.now();
+                while (Date.now() - walkStart < 15000) {
+                    await new Promise(r => setTimeout(r, 350));
+                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+                    if (p && Math.hypot(p.x - coords.x, p.y - coords.y) <= 4) break;
+                }
+            }
+
+            let st = (typeof window.openStorageWindow === 'function') ? await window.openStorageWindow(8000) : null;
             if (!st || !Array.isArray(st.items)) {
-                const curBag = window.getConsolidationMatchingBagItems(list);
-                return {
-                    success: false,
-                    error: 'เปิดคลังไม่สำเร็จ',
-                    withdrawnQty: 0,
-                    bagMatchingQty: curBag.totalQty,
-                    bagMatchingWeight: curBag.totalWeight,
-                    items: curBag.items
-                };
+                return { success: false, error: 'เปิดคลังไม่สำเร็จ', withdrawnQty: 0 };
             }
-            const matchingInStorage = st.items.filter(it => it && typeof window.matchesStashItemList === 'function' && window.matchesStashItemList(it, list));
-            if (matchingInStorage.length > 0) {
-                const bagState0 = window.getConsolidationMatchingBagItems(list);
-                const inv0 = window.__latestInventory || {};
-                const weightLimit = bagState0.weightLimit || 2000;
-                const safeMaxWeight = Math.max(0, weightLimit - 20);
-                let availWeight = Math.max(0, safeMaxWeight - bagState0.curWeight);
-                if (maxExtraWeight !== null && isFinite(maxExtraWeight)) {
-                    availWeight = Math.min(availWeight, Math.max(0, Number(maxExtraWeight)));
-                }
-                const maxSlots = Number(inv0.slots) || 100;
 
-                for (const stItem of matchingInStorage) {
-                    const stQty = Math.max(1, Number(stItem.qty) || 1);
-                    const unitW = Math.max(0, Number(stItem.weight) || 1);
-                    const curInv = window.__latestInventory || {};
-                    const curBagItems = Array.isArray(curInv.items)
-                        ? curInv.items.filter(Boolean)
-                        : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
-                    const stItemId = Number(stItem.itemId || stItem.id);
-                    const hasStackInBag = curBagItems.some(b => Number(b.itemId || b.id) === stItemId && (b.qty || 1) > 1);
-                    const freeSlots = maxSlots - curBagItems.length;
-                    if (!hasStackInBag && freeSlots <= 2) {
-                        console.warn('[PmheeAether Storage] ⚠️ ช่องกระเป๋าใกล้เต็ม หยุดเบิกของเพิ่ม');
-                        break;
-                    }
-                    const maxByWeight = unitW > 0 ? Math.floor(availWeight / unitW) : stQty;
-                    if (maxByWeight < stQty) cappedByWeight = true;
-                    const qtyToTake = Math.min(stQty, maxByWeight);
-                    if (qtyToTake <= 0) {
-                        cappedByWeight = true;
-                        console.warn(`[PmheeAether Storage] ⚠️ น้ำหนักกระเป๋าไม่พอเบิก "${stItem.name}" เพิ่ม (เหลือรับได้ ${availWeight} หน่วย)`);
-                        continue;
-                    }
-                    const beforeMatch = window.getConsolidationMatchingBagItems(list).totalQty;
-                    console.log(`%c[PmheeAether Storage] 📤 เบิก "${stItem.name}" x${qtyToTake} จากคลัง (Slot ${stItem.slot})...`, 'color: #38bdf8; font-weight: bold;');
-                    room.send('storage_take', { slot: Number(stItem.slot), qty: Number(qtyToTake) });
-                    let confirmed = false;
-                    for (let i = 0; i < 12; i++) {
-                        await sleep(180);
-                        const nowMatch = window.getConsolidationMatchingBagItems(list).totalQty;
-                        if (nowMatch > beforeMatch) {
-                            withdrawnQty += (nowMatch - beforeMatch);
-                            confirmed = true;
-                            break;
-                        }
-                    }
-                    if (!confirmed) {
-                        console.warn(`[PmheeAether Storage] ⚠️ เบิก "${stItem.name}" ไม่สำเร็จหรือเซิร์ฟเวอร์ไม่ตอบรับ`);
-                    }
-                    const updatedBag = window.getConsolidationMatchingBagItems(list);
-                    availWeight = Math.max(0, safeMaxWeight - updatedBag.curWeight);
-                    if (maxExtraWeight !== null && isFinite(maxExtraWeight)) {
-                        availWeight = Math.min(availWeight, Math.max(0, Number(maxExtraWeight) - withdrawnQty * unitW));
-                    }
-                    await sleep(220);
+            let withdrawnQty = 0;
+            const withdrawnDetails = [];
+
+            for (let pass = 0; pass < 8; pass++) {
+                const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+                const curWeight = Number(live.weight) || 0;
+                const maxWeight = Number(live.weightLimit) || 2000;
+                const safeAvailWeight = Math.max(0, maxWeight - curWeight - 20); // Leave 20 weight safety margin
+                if (safeAvailWeight <= 0) break;
+
+                const stItems = Array.isArray(st.items) ? st.items : [];
+                const target = stItems.find(it => it && window.matchesStashItemList(it, list) && (Number(it.qty) || 0) > 0);
+                if (!target) break;
+
+                const unitW = Math.max(0.1, Number(target.weight) || 1);
+                const maxByWeight = unitW > 0 ? Math.floor(safeAvailWeight / unitW) : target.qty;
+                const takeQty = Math.min(Number(target.qty) || 1, maxByWeight);
+                if (takeQty <= 0) break;
+
+                const nextPromise = new Promise(resolve => {
+                    let done = false;
+                    const unsub = room.onMessage('storage', msg => {
+                        if (done) return;
+                        done = true;
+                        if (typeof unsub === 'function') unsub();
+                        resolve(msg);
+                    });
+                    setTimeout(() => {
+                        if (done) return;
+                        done = true;
+                        if (typeof unsub === 'function') unsub();
+                        resolve(null);
+                    }, 3000);
+                });
+
+                room.send('storage_take', { slot: Number(target.slot), qty: Number(takeQty) });
+                const updated = await nextPromise;
+                withdrawnQty += takeQty;
+                withdrawnDetails.push(`${target.name || 'Item'} x${takeQty}`);
+                if (updated && Array.isArray(updated.items)) {
+                    st = updated;
+                } else {
+                    await new Promise(r => setTimeout(r, 350));
+                    break;
                 }
+                await new Promise(r => setTimeout(r, 200));
             }
-            const x = typeof document !== 'undefined' ? document.querySelector('.storage-window .win-close') : null;
-            if (x) x.click(); else if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
-            await sleep(300);
-        } catch (e) {
-            console.warn('[PmheeAether Storage] withdraw error:', e);
-        } finally {
-            window.__isStoring = false;
+
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            const bagMatch = window.getConsolidationMatchingBagItems(list);
+            const liveAfter = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            return {
+                success: true,
+                withdrawnQty,
+                withdrawnDetails,
+                bagMatchingQty: bagMatch.totalQty,
+                bagMatchingWeight: bagMatch.totalWeight,
+                weight: Number(liveAfter.weight) || 0,
+                weightLimit: Number(liveAfter.weightLimit) || 2000
+            };
+        } catch (err) {
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            return { success: false, error: err.message, withdrawnQty: 0 };
         }
-        const finalBag = window.getConsolidationMatchingBagItems(list);
-        return {
-            success: true,
-            withdrawnQty,
-            cappedByWeight,
-            bagMatchingQty: finalBag.totalQty,
-            bagMatchingWeight: finalBag.totalWeight,
-            curWeight: finalBag.curWeight,
-            weightLimit: finalBag.weightLimit,
-            items: finalBag.items
-        };
     };
 
-    window.depositConsolidationItemsToStorage = async function (itemNames, returnToPos = null) {
-        const sleep = ms => new Promise(r => setTimeout(r, ms));
-        const list = Array.isArray(itemNames) && itemNames.length
-            ? itemNames
-            : ((window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items)) ? window.__stashTradeConfig.items : ['Enchant Rune']);
-        const check0 = window.getConsolidationMatchingBagItems(list);
-        if (!check0.items.length) {
-            return { success: true, depositedQty: 0, curWeight: check0.curWeight, weightLimit: check0.weightLimit };
-        }
+    // Helper: Walk to capital storage & deposit matching items from bag into storage (used by Receiver when bag gets heavy or after consolidation)
+    window.depositConsolidationItemsToStorage = async function(itemList, returnTileCoords = null) {
+        const list = Array.isArray(itemList) && itemList.length > 0
+            ? itemList
+            : ((window.__stashTradeConfig && window.__stashTradeConfig.items) || ['Enchant Rune']);
         const room = tradeRoom();
-        if (!room || typeof window.openStorageWindow !== 'function') {
-            return { success: false, error: 'no-room-or-storage' };
-        }
-        let depositedQty = 0;
-        window.__isStoring = true;
-        try {
-            const st = await window.openStorageWindow(room, () => false);
-            if (!st) {
-                return { success: false, error: 'เปิดคลังไม่สำเร็จ' };
-            }
-            const bagNow = window.getConsolidationMatchingBagItems(list).items;
-            for (const it of bagNow) {
-                const qty = Math.max(1, Number(it.qty) || 1);
-                room.send('storage_put', { slot: Number(it.slot), qty });
-                for (let i = 0; i < 10; i++) {
-                    await sleep(180);
-                    const nowScan = window.getConsolidationMatchingBagItems(list).items;
-                    const stillThere = nowScan.find(x => x && Number(x.slot) === Number(it.slot) && Number(x.itemId) === Number(it.itemId));
-                    if (!stillThere) {
-                        depositedQty += qty;
-                        break;
-                    }
-                }
-                await sleep(220);
-            }
-            const x = typeof document !== 'undefined' ? document.querySelector('.storage-window .win-close') : null;
-            if (x) x.click(); else if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
-            await sleep(300);
-            if (returnToPos && typeof returnToPos.x === 'number' && typeof returnToPos.y === 'number' && typeof window.moveCharacterToTile === 'function') {
-                await window.moveCharacterToTile(returnToPos.x, returnToPos.y, 2);
-            }
-        } catch (e) {
-            console.warn('[PmheeAether Storage] depositConsolidationItemsToStorage error:', e);
-        } finally {
-            window.__isStoring = false;
-        }
-        const after = window.getConsolidationMatchingBagItems(list);
-        return {
-            success: true,
-            depositedQty,
-            curWeight: after.curWeight,
-            weightLimit: after.weightLimit
-        };
-    };
+        if (!room) return { success: false, error: 'No room connection', depositedQty: 0 };
 
-    window.stopReceiverTradeWatcher = function () {
-        if (typeof window.__receiverWatcherStop === 'function') window.__receiverWatcherStop('stopped');
-        return true;
+        const beforePos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+        try {
+            const curMap = (typeof window.getCurrentMapName === 'function') ? window.getCurrentMapName() : '';
+            const coords = curMap.includes('คาราวาน') ? { x: 25, y: 18 } : { x: 159, y: 64 };
+            const pos = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+            if (!pos || Math.hypot(pos.x - coords.x, pos.y - coords.y) > 4) {
+                room.send('move_to', { x: coords.x * 32 + 16, y: coords.y * 32 + 16 });
+                const walkStart = Date.now();
+                while (Date.now() - walkStart < 15000) {
+                    await new Promise(r => setTimeout(r, 350));
+                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+                    if (p && Math.hypot(p.x - coords.x, p.y - coords.y) <= 4) break;
+                }
+            }
+
+            let st = (typeof window.openStorageWindow === 'function') ? await window.openStorageWindow(8000) : null;
+            if (!st || !Array.isArray(st.items)) {
+                return { success: false, error: 'เปิดคลังไม่สำเร็จ', depositedQty: 0 };
+            }
+
+            const bagMatch = window.getConsolidationMatchingBagItems(list);
+            let depositedQty = 0;
+            for (const it of bagMatch.items) {
+                if (!Number.isFinite(it.slot) || it.qty <= 0) continue;
+                room.send('storage_put', { slot: Number(it.slot), qty: Number(it.qty) });
+                depositedQty += it.qty;
+                await new Promise(r => setTimeout(r, 260));
+            }
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+
+            // Walk back to trade spot if requested
+            const backTarget = returnTileCoords || beforePos;
+            if (backTarget && Number.isFinite(backTarget.x) && Number.isFinite(backTarget.y)) {
+                room.send('move_to', { x: backTarget.x * 32 + 16, y: backTarget.y * 32 + 16 });
+                const backStart = Date.now();
+                while (Date.now() - backStart < 12000) {
+                    await new Promise(r => setTimeout(r, 350));
+                    const p = (typeof window.getPlayerCoords === 'function') ? window.getPlayerCoords() : null;
+                    if (p && Math.hypot(p.x - backTarget.x, p.y - backTarget.y) <= 3) break;
+                }
+            }
+
+            const liveAfter = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            return {
+                success: true,
+                depositedQty,
+                weight: Number(liveAfter.weight) || 0,
+                weightLimit: Number(liveAfter.weightLimit) || 2000
+            };
+        } catch (err) {
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            return { success: false, error: err.message, depositedQty: 0 };
+        }
     };
 
     window.setupReceiverTradeWatcher = function(allowedSenderName, timeoutMs = 60000) {
@@ -18915,7 +19522,7 @@
             console.log(`%c[PmheeAether Trade] 👑 Receiver Standby: รอรับคำขอเทรดจาก '${expected}'...`, 'color: #a855f7; font-weight: bold;');
 
             const zenyBefore = tradeZeny();
-            let accepted = false, lockSent = false, confirmSent = false, finished = false, receivedOffer = 0, receivedItemsOffer = 0;
+            let accepted = false, lockSent = false, confirmSent = false, finished = false, receivedOffer = 0, receivedItemsCount = 0;
             let unsubInvite = null, unsubTrade = null;
 
             const finish = (result) => {
@@ -18949,25 +19556,26 @@
             unsubTrade = room.onMessage('trade', (tr) => {
                 if (finished) return;
                 if (!tr) {
-                    // window closed: done if we confirmed and the zeny or items arrived, else the sender cancelled
+                    // window closed: done if we confirmed and the zeny/items arrived, else the sender cancelled
                     if (!confirmSent) { accepted = false; lockSent = false; return; }
                     setTimeout(() => {
                         const now = tradeZeny();
-                        const got = (isFinite(now) && isFinite(zenyBefore)) ? Math.max(0, now - zenyBefore) : receivedOffer;
-                        finish((got > 0 || receivedItemsOffer > 0)
-                            ? { success: true, receivedZeny: got, receivedItemsQty: receivedItemsOffer }
-                            : { success: false, error: 'หน้าต่างเทรดปิดแต่เงินหรือไอเทมไม่เข้า' });
+                        const got = (isFinite(now) && isFinite(zenyBefore)) ? now - zenyBefore : receivedOffer;
+                        finish((got > 0 || receivedItemsCount > 0)
+                            ? { success: true, receivedZeny: Math.max(0, got), receivedItemsCount }
+                            : { success: false, error: 'หน้าต่างเทรดปิดแต่เงิน/ไอเทมไม่เข้า' });
                     }, 1200);
                     return;
                 }
                 if (!sameName(tr.partner, expected)) return;
                 if (tr.theirs && typeof tr.theirs.zeny === 'number') receivedOffer = tr.theirs.zeny;
                 if (tr.theirs && Array.isArray(tr.theirs.items)) {
-                    receivedItemsOffer = tr.theirs.items.reduce((sum, it) => sum + (Number(it && it.qty) || 1), 0);
+                    receivedItemsCount = tr.theirs.items.reduce((sum, x) => sum + (Number(x && x.qty) || 0), 0);
                 }
                 if (tr.theirs && tr.theirs.locked && tr.mine && !tr.mine.locked && !lockSent) {
                     lockSent = true;
-                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${Number(tr.theirs.zeny || 0).toLocaleString()} z${receivedItemsOffer > 0 ? ` + ไอเทม ${receivedItemsOffer} ชิ้น` : ''}) -> ล็อค`, 'color: #38bdf8;');
+                    const itemNote = receivedItemsCount > 0 ? ` + ไอเทม ${receivedItemsCount} ชิ้น` : '';
+                    console.log(`%c[PmheeAether Trade] 👑 Receiver: อีกฝ่ายล็อคแล้ว (เสนอ ${Number(tr.theirs.zeny || 0).toLocaleString()} z${itemNote}) -> ล็อค`, 'color: #38bdf8;');
                     setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 300);
                 }
                 if (tr.theirs && tr.theirs.locked && tr.mine && tr.mine.locked && !tr.mine.confirmed && !confirmSent) {
@@ -18979,7 +19587,7 @@
         });
     };
 
-    window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000, tradeItemNames = [], maxReceiverExtraWeight = null) {
+    window.executeSenderTrade = function(receiverCharName, zenyAmount, timeoutMs = 45000, itemNamesToOffer = null, maxReceiverExtraWeight = null) {
         // one trade at a time per client: a second call while one runs must not send another request
         if (window.__senderTradeBusy) return Promise.resolve({ success: false, error: 'กำลังเทรดอยู่แล้ว (ไม่ส่งซ้ำ)' });
         return new Promise((resolve) => {
@@ -18990,28 +19598,39 @@
             const zenyBefore = tradeZeny();
             if (isFinite(zenyBefore) && amount > zenyBefore) return resolve({ success: false, error: `เงินไม่พอ (มี ${zenyBefore.toLocaleString()} z)` });
 
-            const itemList = Array.isArray(tradeItemNames) ? tradeItemNames.filter(Boolean) : [];
-            const bagScan = itemList.length > 0 ? window.getConsolidationMatchingBagItems(itemList) : { items: [], totalQty: 0 };
-            const itemsBeforeQty = bagScan.totalQty;
+            // Build items offer array (up to 10 trade slots, respecting receiver available weight if provided)
             const offerItems = [];
-            let remWeight = (maxReceiverExtraWeight !== null && isFinite(maxReceiverExtraWeight)) ? Math.max(0, Number(maxReceiverExtraWeight)) : Infinity;
-            for (const it of bagScan.items) {
-                if (offerItems.length >= 10) break;
-                const unitW = Math.max(0, Number(it.weight) || 0);
-                const maxByW = (unitW > 0 && isFinite(remWeight)) ? Math.floor(remWeight / unitW) : it.qty;
-                const q = Math.min(it.qty, maxByW);
-                if (q <= 0) continue;
-                offerItems.push({ slot: Number(it.slot), qty: Number(q), name: it.name, itemId: it.itemId });
-                if (unitW > 0 && isFinite(remWeight)) remWeight -= q * unitW;
+            let offerItemsTotalQty = 0;
+            if (Array.isArray(itemNamesToOffer) && itemNamesToOffer.length > 0 && typeof window.getConsolidationMatchingBagItems === 'function') {
+                const bagMatch = window.getConsolidationMatchingBagItems(itemNamesToOffer);
+                let remWeight = (typeof maxReceiverExtraWeight === 'number' && Number.isFinite(maxReceiverExtraWeight))
+                    ? Math.max(0, maxReceiverExtraWeight)
+                    : Infinity;
+                for (const it of bagMatch.items) {
+                    if (offerItems.length >= 10) break;
+                    if (!Number.isFinite(it.slot) || it.qty <= 0) continue;
+                    const unitW = Math.max(0, Number(it.unitWeight) || 1);
+                    const allowedQty = (unitW > 0 && Number.isFinite(remWeight))
+                        ? Math.min(it.qty, Math.floor(remWeight / unitW))
+                        : it.qty;
+                    if (allowedQty <= 0) continue;
+                    offerItems.push({ slot: Number(it.slot), qty: Number(allowedQty) });
+                    offerItemsTotalQty += allowedQty;
+                    if (Number.isFinite(remWeight)) remWeight = Math.max(0, remWeight - allowedQty * unitW);
+                }
             }
-            const offeredItemsTotalQty = offerItems.reduce((s, x) => s + x.qty, 0);
 
             if (amount <= 0 && offerItems.length === 0) {
-                return resolve({ success: true, transferredZeny: 0, transferredItemsQty: 0, transferredItems: [] });
+                return resolve({ success: false, error: 'ไม่มีเงินหรือไอเทมที่จะเทรด' });
             }
 
+            const bagMatchBefore = (offerItems.length > 0 && typeof window.getConsolidationMatchingBagItems === 'function')
+                ? window.getConsolidationMatchingBagItems(itemNamesToOffer).totalQty
+                : 0;
+
             window.__senderTradeBusy = true;
-            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มเทรดเงิน ${amount.toLocaleString()} z${offeredItemsTotalQty > 0 ? ` + ไอเทม ${offeredItemsTotalQty} ชิ้น` : ''} ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
+            const itemDesc = offerItemsTotalQty > 0 ? ` + ไอเทม ${offerItemsTotalQty} ชิ้น` : '';
+            console.log(`%c[PmheeAether Trade] 📤 Sender: เริ่มเทรดเงิน ${amount.toLocaleString()} z${itemDesc} ให้ '${receiverCharName}'...`, 'color: #38bdf8; font-weight: bold;');
 
             let opened = false, offerSent = false, lockSent = false, confirmSent = false, finished = false;
             let unsubTrade = null;
@@ -19040,20 +19659,17 @@
                     if (!confirmSent) return finish({ success: false, error: 'อีกฝ่ายยกเลิก/ปิดหน้าต่างเทรด' });
                     setTimeout(() => {
                         const now = tradeZeny();
-                        const sent = (isFinite(now) && isFinite(zenyBefore)) ? Math.max(0, zenyBefore - now) : null;
-                        const nowItemsQty = itemList.length > 0 ? window.getConsolidationMatchingBagItems(itemList).totalQty : 0;
-                        const sentItemsQty = itemList.length > 0 ? Math.max(0, itemsBeforeQty - nowItemsQty) : 0;
-                        if (sent === null && offeredItemsTotalQty === 0) {
-                            finish({ success: true, transferredZeny: amount, transferredItemsQty: 0, transferredItems: [], unverified: true });
-                        } else if ((sent !== null && sent > 0) || sentItemsQty > 0) {
-                            finish({
-                                success: true,
-                                transferredZeny: sent !== null ? sent : amount,
-                                transferredItemsQty: sentItemsQty || offeredItemsTotalQty,
-                                transferredItems: offerItems
-                            });
+                        const sent = (isFinite(now) && isFinite(zenyBefore)) ? zenyBefore - now : null;
+                        const bagMatchAfter = (offerItems.length > 0 && typeof window.getConsolidationMatchingBagItems === 'function')
+                            ? window.getConsolidationMatchingBagItems(itemNamesToOffer).totalQty
+                            : 0;
+                        const sentItems = Math.max(0, bagMatchBefore - bagMatchAfter);
+                        if (sent === null && offerItems.length === 0) {
+                            finish({ success: true, transferredZeny: amount, transferredItemsQty: offerItemsTotalQty, unverified: true });
+                        } else if ((sent !== null && sent > 0) || sentItems > 0) {
+                            finish({ success: true, transferredZeny: Math.max(0, sent || 0), transferredItemsQty: sentItems });
                         } else {
-                            finish({ success: false, error: 'หน้าต่างเทรดปิดแต่เงินและไอเทมไม่ลด (เทรดไม่สำเร็จ)' });
+                            finish({ success: false, error: 'หน้าต่างเทรดปิดแต่เงิน/ไอเทมไม่ลด (เทรดไม่สำเร็จ)' });
                         }
                     }, 1200);
                     return;
@@ -19062,14 +19678,13 @@
                 opened = true;
                 if (!offerSent) {
                     offerSent = true;
-                    const payloadItems = offerItems.map(x => ({ slot: x.slot, qty: x.qty }));
-                    console.log(`%c[PmheeAether Trade] 📤 Sender: ใส่ข้อเสนอ ${amount.toLocaleString()} z${offeredItemsTotalQty > 0 ? ` + ไอเทม ${offeredItemsTotalQty} ชิ้น` : ''}`, 'color: #38bdf8;');
-                    setTimeout(() => { if (!finished) room.send('trade', { action: 'offer', items: payloadItems, zeny: amount }); }, 350);
+                    console.log(`%c[PmheeAether Trade] 📤 Sender: ใส่ข้อเสนอ ${amount.toLocaleString()} z${itemDesc}`, 'color: #38bdf8;');
+                    setTimeout(() => { if (!finished) room.send('trade', { action: 'offer', items: offerItems, zeny: amount }); }, 350);
                     return;
                 }
-                const zenyReady = tr.mine && Number(tr.mine.zeny || 0) === amount;
-                const itemsReady = offerItems.length === 0 || (tr.mine && Array.isArray(tr.mine.items) && tr.mine.items.length === offerItems.length);
-                if (!lockSent && zenyReady && itemsReady && !tr.mine.locked) {
+                const zenyMatched = tr.mine && tr.mine.zeny === amount;
+                const itemsMatched = offerItems.length === 0 || (tr.mine && Array.isArray(tr.mine.items) && tr.mine.items.length === offerItems.length);
+                if (!lockSent && zenyMatched && itemsMatched && !tr.mine.locked) {
                     lockSent = true;
                     console.log('%c[PmheeAether Trade] 📤 Sender: ล็อคข้อเสนอ (lock)', 'color: #38bdf8;');
                     setTimeout(() => { if (!finished) room.send('trade', { action: 'lock' }); }, 400);
@@ -19157,8 +19772,12 @@
         const faceUrl = `https://www.aetheria-online.in.th/art/classes/${cId}-face.webp`;
         const fullArtUrl = `https://www.aetheria-online.in.th/art/classes/${cId}.webp`;
 
-        const premUntil = Number(liveChar.premiumUntil) || Number(window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.premiumUntil) || 0;
-        const hasPremium = premUntil > Date.now() || Boolean(document.querySelector('.hud-buff-icon[title*="Premium" i], .hud-buff-icon[title*="พรีเมียม" i], .buff-icon[title*="Premium" i], [data-buff*="premium" i]'));
+        const premUntil = (typeof window.getCharacterPremiumUntil === 'function')
+            ? window.getCharacterPremiumUntil()
+            : (Number(liveChar.premiumUntil) || Number(window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.premiumUntil) || 0);
+        const hasPremium = (typeof window.hasCharacterPremium === 'function')
+            ? window.hasCharacterPremium()
+            : (premUntil > Date.now() || Boolean(document.querySelector('.hud-buff-icon[title*="Premium" i], .hud-buff-icon[title*="พรีเมียม" i], .buff-icon[title*="Premium" i], [data-buff*="premium" i]')));
 
         const resolvedCharName = nameEl?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || liveChar.name || liveChar.charName || window.__charName || null;
         if (resolvedCharName) window.__charName = resolvedCharName;
@@ -19203,6 +19822,7 @@
             humanizing: !!window.__isHumanizing,
             autoLoop: !!window.__autoLoopEnabled,
             isBotRunning: !!window.__isBotRunning,
+            zeroRender: !!window.__pmZeroRender,
             hasSocket: !!window.__gameSocket,
             hasInventory: !!window.__latestInventory,
             premiumUntil: premUntil,
