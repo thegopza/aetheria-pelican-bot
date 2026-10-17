@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.42.3
+// @version      4.42.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.42.3';
+    const PELICAN_BOT_VERSION = '4.42.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1491,6 +1491,38 @@
             }
             R.set(nR); G.set(nG); B.set(nB);
         }
+        for (const rad of [3, 4, 3, 4]) {
+            const nR = new Float32Array(R), nG = new Float32Array(G), nB = new Float32Array(B);
+            for (let ly = rad; ly < h - rad; ly++) {
+                for (let lx = rad; lx < w - rad; lx++) {
+                    const p = ly * w + lx;
+                    const dirs = [
+                        [p - rad, p + rad],
+                        [p - rad * w, p + rad * w],
+                        [p - rad * w - rad, p + rad * w + rad],
+                        [p - rad * w + rad, p + rad * w - rad]
+                    ];
+                    let scribPairs = 0, sR = 0, sG = 0, sB = 0;
+                    for (const [p1, p2] of dirs) {
+                        const d12 = Math.abs(R[p1] - R[p2]) + Math.abs(G[p1] - G[p2]) + Math.abs(B[p1] - B[p2]);
+                        if (d12 >= 22) continue;
+                        const mR = (R[p1] + R[p2]) * 0.5, mG = (G[p1] + G[p2]) * 0.5, mB = (B[p1] + B[p2]) * 0.5;
+                        const dR = R[p] - mR, dG = G[p] - mG, dB = B[p] - mB;
+                        const chromaDelta = Math.max(dR, dG, dB) - Math.min(dR, dG, dB);
+                        if (dR > 10 && dG > 10 && dB > 10 && dR < 85 && chromaDelta <= 16) {
+                            scribPairs++;
+                            sR += mR; sG += mG; sB += mB;
+                        }
+                    }
+                    if (scribPairs >= 1) {
+                        nR[p] = sR / scribPairs;
+                        nG[p] = sG / scribPairs;
+                        nB[p] = sB / scribPairs;
+                    }
+                }
+            }
+            R.set(nR); G.set(nG); B.set(nB);
+        }
 
         const colorBins = new Map();
         for (let ly = 2; ly < h - 2; ly++) {
@@ -1525,7 +1557,7 @@
             const mr = entry.sumR / entry.count, mg = entry.sumG / entry.count, mb = entry.sumB / entry.count;
             const sum = mr + mg + mb;
             const sat = Math.max(mr, mg, mb) - Math.min(mr, mg, mb);
-            if (sum < 270 && sat < 140 && (entry.count >= 14 || (entry.count >= 5 && sum < 245))) {
+            if (sum < 265 && sat < 56 && (entry.count >= 14 || (entry.count >= 5 && sum < 115))) {
                 bgColors.push({ r: mr, g: mg, b: mb });
             }
         }
@@ -1607,8 +1639,8 @@
         const validPts = [];
         for (const c of comps) {
             const distMain = Math.hypot(c.cx - main.cx, c.cy - main.cy);
-            const inInterior = c.cx >= 24 && c.cx <= w - 24 && c.cy >= 22 && c.cy <= h - 22;
-            const isBowPart = inInterior && ((main.count <= 900 && c.count >= 160 && distMain <= 42.6) || (main.count < 120 && c.count >= 65 && distMain <= 36));
+            const inInterior = c.cx >= 16 && c.cx <= w - 16 && c.cy >= 16 && c.cy <= h - 16;
+            const isBowPart = inInterior && ((main.count <= 900 && c.count >= 135 && distMain <= 50) || (main.count < 180 && c.count >= 65 && distMain <= 40));
             if (c === main || (c.count >= 25 && distMain <= 32) || isBowPart) {
                 for (const [px, py] of c.pts) {
                     for (let dy = -1; dy <= 1; dy++) {
@@ -1704,7 +1736,7 @@
                 colorHist[3]++;
             } else if (r - g > 42 && r > b + 35) {
                 colorHist[4]++;
-            } else if (r > b + 38 && g > b + 20) {
+            } else if (r > g + 5 && r > b + 50 && g > b + 30) {
                 colorHist[5]++;
             } else if (r >= g && g >= b) {
                 colorHist[6]++;
@@ -1875,8 +1907,8 @@
             }
             const topGray = top.colorHist[0] + top.colorHist[1], slotGray = slot.colorHist[0] + slot.colorHist[1];
             const topWarmAll = top.colorHist[4] + top.colorHist[5] + top.colorHist[6], slotWarmAll = slot.colorHist[4] + slot.colorHist[5] + slot.colorHist[6];
-            const isDaggerLike = (o, oGray, oWarm) => o.meanSat <= 20 && oGray >= 0.60 && o.colorHist[0] >= 0.38 && oWarm <= 0.30;
-            const isWoodLike = (o, oGray, oWarm) => o.meanSat >= 30 && oGray <= 0.35 && (oWarm >= 0.42 || o.colorHist[2] >= 0.06);
+            const isDaggerLike = (o, oGray, oWarm) => o.meanSat <= 23.5 && oGray >= 0.60 && o.colorHist[0] >= 0.38 && oWarm <= 0.30;
+            const isWoodLike = (o, oGray, oWarm) => (o.meanSat >= 30 && oGray <= 0.40 && (oWarm >= 0.42 || o.colorHist[2] >= 0.06)) || (o.meanSat >= 24 && oWarm >= 0.45 && o.colorHist[0] <= 0.34);
             if ((isDaggerLike(slot, slotGray, slotWarmAll) && (isWoodLike(top, topGray, topWarmAll) || (top.elongation <= 1.65 && slot.elongation >= 3.2))) ||
                 (isDaggerLike(top, topGray, topWarmAll) && (isWoodLike(slot, slotGray, slotWarmAll) || (slot.elongation <= 1.65 && top.elongation >= 3.2)))) {
                 structColorPenalty += 0.75;
