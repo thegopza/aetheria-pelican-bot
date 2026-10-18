@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.42.5
+// @version      4.43.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.42.5';
+    const PELICAN_BOT_VERSION = '4.43.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7220,6 +7220,20 @@
     }
 
     window.activateInGameAuto = function(force = false) {
+        if (window.__isCheckingPostSellChannel) return;
+        if (window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
+            const inCityNow = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
+            const curMapNow = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+            const isTargetCityNow = /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMapNow);
+            if (!inCityNow && curMapNow && !isTargetCityNow) {
+                window.runPostSellChannelCheck('after-sell').then(() => {
+                    if (window.__isBotRunning && !window.__isShopping && !window.__isNavigating) {
+                        window.activateInGameAuto(force);
+                    }
+                }).catch(() => {});
+                return;
+            }
+        }
         const status = getInGameAutoStatus();
         if (status === 'on' && !force) {
             console.log('%c[PmheeAether Auto] ⚡ In-Game AUTO เปิดอยู่แล้ว (Status: ON)', 'color: #22c55e;');
@@ -10336,7 +10350,11 @@
         lastAutoShopCompletionTime = Date.now();
         // a trip that walked toward the capital set it as the farm map: put the real one back
         const back = window.__shopReturnMap;
-        if (back && back !== window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(back) && typeof window.walkToTargetMap === 'function') window.walkToTargetMap(back);
+        if (back && back !== window.__targetFarmMap && !/เมืองหลวง|โซลเฮเวน/.test(back) && typeof window.walkToTargetMap === 'function') {
+            window.__pendingPostSellChannelCheck = true;
+            window.__pendingPostSellAt = Date.now();
+            window.walkToTargetMap(back);
+        }
     }, 30000);
 
     window.executeAutoShopRoutine = function() {
@@ -10483,6 +10501,8 @@
                                             if (!window.__isBotRunning) return;
                                             if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                             window.__isShopping = false;
+                                            window.__pendingPostSellChannelCheck = true;
+                                            window.__pendingPostSellAt = Date.now();
                                             if (typeof window.maybeRunHumanizeRoutine === 'function') {
                                                 window.maybeRunHumanizeRoutine(() => {
                                                     if (!window.__isBotRunning) return;
@@ -10501,6 +10521,8 @@
                                         if (!window.__isBotRunning) return;
                                         if (typeof window.closeShopUI === 'function') window.closeShopUI();
                                         window.__isShopping = false;
+                                        window.__pendingPostSellChannelCheck = true;
+                                        window.__pendingPostSellAt = Date.now();
                                         if (typeof window.maybeRunHumanizeRoutine === 'function') {
                                             window.maybeRunHumanizeRoutine(() => {
                                                 if (!window.__isBotRunning) return;
@@ -11033,11 +11055,18 @@
 
         // ถ้าตัวละครอยู่ในเมืองหลวง หรือกำลังฟื้นคืนชีพ (recovering) แต่เป้าหมายคือแมพมอนสเตอร์ -> ห้ามสรุปว่าถึงแล้วเด็ดขาด!
         if ((!inCity || isTargetCity) && curMap && curMap.includes(mapName) && !window.__isRecovering) {
-            console.log(`[PmheeAether] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
-            window.startBot();
-            window.__isNavigating = false;
-            window.__navWalkOnly = false;
-            window.__isRecovering = false;
+            (async () => {
+                try {
+                    if (!inCity && !isTargetCity && window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
+                        await window.runPostSellChannelCheck('after-sell');
+                    }
+                } catch (e) {}
+                console.log(`[PmheeAether] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
+                window.startBot();
+                window.__isNavigating = false;
+                window.__navWalkOnly = false;
+                window.__isRecovering = false;
+            })();
             return;
         }
 
@@ -11252,18 +11281,27 @@
             if ((!inCity || isTargetCity) && currentMap && currentMap.includes(targetMap)) {
                 stopArrivalWatcher();
                 console.log(`%c[PmheeAether] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
-                setTimeout(() => {
-                    if (window.__isBotRunning) {
-                        if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
-                            console.warn('%c[PmheeAether] ⚖️ ถึงแมพฟาร์มแล้วแต่น้ำหนักเต็มหรือเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
-                            window.executeAutoShopRoutine();
-                        } else {
-                            window.startBot();
+                setTimeout(async () => {
+                    try {
+                        if (window.__isBotRunning) {
+                            if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
+                                console.warn('%c[PmheeAether] ⚖️ ถึงแมพฟาร์มแล้วแต่น้ำหนักเต็มหรือเกินเกณฑ์ (>= 90%)! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
+                                window.__pendingPostSellChannelCheck = false;
+                                window.executeAutoShopRoutine();
+                            } else {
+                                if (!inCity && !isTargetCity && window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
+                                    await window.runPostSellChannelCheck('after-sell');
+                                }
+                                if (window.__isBotRunning) {
+                                    window.startBot();
+                                }
+                            }
                         }
+                    } finally {
+                        window.__isNavigating = false;
+                        window.__navWalkOnly = false;
+                        window.__isRecovering = false;
                     }
-                    window.__isNavigating = false;
-                    window.__navWalkOnly = false;
-                    window.__isRecovering = false;
                 }, 1500);
             }
         }, 1500);
@@ -11438,7 +11476,7 @@
         // เมื่ออยู่ในสนามฟาร์ม (ไม่ใช่ในเมือง) และบอทกำลัง START อยู่ และไม่ได้อยู่ในช่วงฟื้นฟู/เดินทาง/ช้อป/ตาย
         const isBusyTravelingOrRoutine = window.__isNavigating || window.__isWalkingToMap || window.__isShopping || 
             window.__isStoring || window.__isRecovering || window.__isConsolidating || window.__isGearRefining || 
-            window.__isChangingJob || window.__isManualWarping;
+            window.__isChangingJob || window.__isManualWarping || window.__isCheckingPostSellChannel;
 
         if (isBusyTravelingOrRoutine) {
             // ขณะเดินทางระหว่างแมพ หรือกำลังทำ Routine ห้ามเปิด AUTO เด็ดขาด และถ้าเปิดอยู่ให้ปิด
@@ -16846,6 +16884,7 @@
         if (window.__isWalkingToMap) return 'กำลังเดินกลับแมพผ่าน Alice';
         if (window.__isShopping) return 'กำลังซื้อ/ขายกับ NPC';
         if (window.__isStoring) return 'กำลังฝากของเข้าคลัง';
+        if (window.__isCheckingPostSellChannel) return 'กำลังเช็ค/ย้าย Channel ที่คนน้อยสุด';
         if (window.__consolidationPending) return 'รอรวมเงิน';
         if (window.__isRecovering) return 'กำลังชุบชีวิต';
         if (window.__isConsolidating || window.__consolidationReceiverMode) return 'กำลังรวมเงิน/เทรด';
@@ -19434,6 +19473,236 @@
         };
     };
 
+    // =========================================================================
+    // POST-SELL CHANNEL CHECK & PARTY CHANNEL FOLLOW HELPERS
+    // Modes: 'all' (default) | 'party_only' | 'solo_only' | 'off'
+    // =========================================================================
+    (function initChannelCheckMode() {
+        const VALID_MODES = ['all', 'party_only', 'solo_only', 'off'];
+        let saved = 'all';
+        try {
+            const raw = localStorage.getItem('pelican_channel_check_mode');
+            if (raw && VALID_MODES.includes(raw)) saved = raw;
+        } catch (e) {}
+        window.__channelCheckMode = saved;
+    })();
+
+    window.setChannelCheckMode = function(mode) {
+        const VALID_MODES = ['all', 'party_only', 'solo_only', 'off'];
+        const valid = VALID_MODES.includes(mode) ? mode : 'all';
+        window.__channelCheckMode = valid;
+        try { localStorage.setItem('pelican_channel_check_mode', valid); } catch (e) {}
+        return { success: true, mode: valid };
+    };
+
+    window.findBestChannelAfterSell = async function() {
+        const res = await window.getChannelsList(3500);
+        if (!res || !res.success || !res.data || !Array.isArray(res.data.channels)) {
+            return { success: false, error: (res && res.error) || 'no-channels' };
+        }
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const currentCh = (room && room.state && typeof room.state.channel === 'number')
+            ? room.state.channel
+            : (res.currentCh || res.data.current || 1);
+        const mapId = (room && room.state && room.state.mapId) || null;
+        const mapName = (room && room.state && room.state.displayName)
+            || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null);
+        const hardCap = res.data.hardCap || 45;
+
+        let inGameParty = null;
+        try {
+            if (window.__pmPartyGetters && typeof window.__pmPartyGetters.party === 'function') {
+                inGameParty = window.__pmPartyGetters.party();
+            }
+        } catch (e) {}
+        const sync = window.__pmPartySync || null;
+        const inParty = Boolean((inGameParty && Array.isArray(inGameParty.members) && inGameParty.members.length > 1) || (sync && sync.partyId));
+
+        // Count how many of our own party members are currently on each channel of this map
+        const partyCountByCh = {};
+        let partySize = 1;
+        if (inParty) {
+            const seenNames = new Set();
+            if (inGameParty && Array.isArray(inGameParty.members)) {
+                for (const m of inGameParty.members) {
+                    if (!m || m.online === false) continue;
+                    const nm = String(m.name || '').trim().toLowerCase();
+                    if (nm) seenNames.add(nm);
+                    if ((!mapId || !m.mapId || m.mapId === mapId) && typeof m.channel === 'number') {
+                        partyCountByCh[m.channel] = (partyCountByCh[m.channel] || 0) + 1;
+                    }
+                }
+            }
+            if (sync && Array.isArray(sync.partyNames)) {
+                for (const nm of sync.partyNames) {
+                    const clean = String(nm || '').trim().toLowerCase();
+                    if (clean) seenNames.add(clean);
+                }
+            }
+            partyCountByCh[currentCh] = Math.max(1, partyCountByCh[currentCh] || 0);
+            partySize = Math.max(1, seenNames.size);
+        } else {
+            partyCountByCh[currentCh] = 1;
+        }
+
+        // Determine the primary channel where our party currently is (if any)
+        let mainPartyCh = currentCh;
+        let maxPartyOnCh = partyCountByCh[currentCh] || 0;
+        for (const [chKey, cnt] of Object.entries(partyCountByCh)) {
+            const chNum = Number(chKey);
+            if (cnt > maxPartyOnCh) {
+                maxPartyOnCh = cnt;
+                mainPartyCh = chNum;
+            }
+        }
+
+        const list = res.data.channels;
+        const annotated = list.map(c => {
+            const chNum = Number(c.channel);
+            const totalPlayers = Math.max(0, Number(c.players) || 0);
+            const ownOnCh = partyCountByCh[chNum] || (chNum === currentCh ? 1 : 0);
+            const effectiveOthers = Math.max(0, totalPlayers - ownOnCh);
+            const extraNeeded = inParty ? Math.max(0, partySize - ownOnCh) : (chNum === currentCh ? 0 : 1);
+            const hasRoom = (totalPlayers + extraNeeded) <= hardCap || totalPlayers < hardCap;
+            return {
+                channel: chNum,
+                players: totalPlayers,
+                ownOnCh,
+                effectiveOthers,
+                hasRoom
+            };
+        });
+
+        const curEntry = annotated.find(x => x.channel === currentCh) || {
+            channel: currentCh,
+            players: 0,
+            ownOnCh: 1,
+            effectiveOthers: 0,
+            hasRoom: true
+        };
+        const available = annotated.filter(x => x.hasRoom);
+        if (!available.length) {
+            return {
+                success: true,
+                inParty,
+                partySize,
+                currentCh,
+                targetCh: currentCh,
+                bestChannel: currentCh,
+                currentPlayers: curEntry.players,
+                currentStrangers: curEntry.effectiveOthers,
+                bestPlayers: curEntry.players,
+                bestStrangers: curEntry.effectiveOthers,
+                shouldSwitch: false,
+                mapId,
+                mapName
+            };
+        }
+
+        available.sort((a, b) => {
+            if (a.effectiveOthers !== b.effectiveOthers) return a.effectiveOthers - b.effectiveOthers;
+            // Tie-breaker: prefer the channel where our party already is, then currentCh, then lowest channel number
+            if (a.channel === mainPartyCh && b.channel !== mainPartyCh) return -1;
+            if (b.channel === mainPartyCh && a.channel !== mainPartyCh) return 1;
+            if (a.channel === currentCh && b.channel !== currentCh) return -1;
+            if (b.channel === currentCh && a.channel !== currentCh) return 1;
+            return a.channel - b.channel;
+        });
+
+        const best = available[0];
+        const shouldSwitch = Boolean(
+            best &&
+            best.channel !== currentCh &&
+            (best.effectiveOthers < curEntry.effectiveOthers ||
+             (inParty && best.channel === mainPartyCh && best.effectiveOthers === curEntry.effectiveOthers))
+        );
+        return {
+            success: true,
+            inParty,
+            partySize,
+            currentCh,
+            targetCh: shouldSwitch ? best.channel : currentCh,
+            bestChannel: best ? best.channel : currentCh,
+            currentPlayers: curEntry.players,
+            currentStrangers: curEntry.effectiveOthers,
+            bestPlayers: best ? best.players : 0,
+            bestStrangers: best ? best.effectiveOthers : 0,
+            shouldSwitch,
+            mapId,
+            mapName
+        };
+    };
+
+    window.runPostSellChannelCheck = async function(reason = 'after-sell') {
+        window.__pendingPostSellChannelCheck = false;
+        window.__pendingPostSellAt = 0;
+
+        const mode = window.__channelCheckMode || 'all';
+        if (mode === 'off') {
+            return { skipped: true, reason: 'mode-off', mode };
+        }
+        if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
+            return { skipped: true, reason: 'in-city', mode };
+        }
+
+        let inGameParty = null;
+        try {
+            if (window.__pmPartyGetters && typeof window.__pmPartyGetters.party === 'function') {
+                inGameParty = window.__pmPartyGetters.party();
+            }
+        } catch (e) {}
+        const sync = window.__pmPartySync || null;
+        const inParty = Boolean((inGameParty && Array.isArray(inGameParty.members) && inGameParty.members.length > 1) || (sync && sync.partyId));
+
+        if (mode === 'party_only' && !inParty) {
+            return { skipped: true, reason: 'solo-in-party-only-mode', mode };
+        }
+        if (mode === 'solo_only' && inParty) {
+            return { skipped: true, reason: 'party-in-solo-only-mode', mode };
+        }
+
+        window.__isCheckingPostSellChannel = true;
+        try {
+            const plan = await window.findBestChannelAfterSell();
+            if (!plan || !plan.success) {
+                return { success: false, error: (plan && plan.error) || 'scan-failed' };
+            }
+            let finalCh = plan.currentCh;
+            let switched = false;
+            if (plan.shouldSwitch && plan.targetCh !== plan.currentCh) {
+                console.log(`%c[PmheeAether Channel] 🔄 หลังขายของกลับแมพ (${plan.mapName || ''}): CH ${plan.currentCh} มีคนอื่น ${plan.currentStrangers} คน -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยสุด (คนอื่น ${plan.bestStrangers} คน)...`, 'color: #22c55e; font-weight: bold;');
+                const mv = await window.moveToChannel(plan.targetCh, 45000);
+                const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+                finalCh = (mv && typeof mv.channel === 'number')
+                    ? mv.channel
+                    : ((room && room.state && typeof room.state.channel === 'number') ? room.state.channel : plan.currentCh);
+                switched = (finalCh !== plan.currentCh);
+            } else {
+                console.log(`%c[PmheeAether Channel] ✅ หลังขายของกลับแมพ (${plan.mapName || ''}): CH ${plan.currentCh} คนน้อยสุดอยู่แล้ว (คนอื่น ${plan.currentStrangers} คน) -> เริ่มฟาร์มทันที`, 'color: #38bdf8; font-weight: bold;');
+            }
+            const record = {
+                channel: finalCh,
+                previousChannel: plan.currentCh,
+                switched,
+                inParty: plan.inParty,
+                partySize: plan.partySize,
+                currentStrangers: plan.currentStrangers,
+                bestStrangers: plan.bestStrangers,
+                mapId: plan.mapId,
+                mapName: plan.mapName,
+                reason,
+                mode,
+                at: Date.now()
+            };
+            window.__lastPostSellChannelSwitch = record;
+            return Object.assign({ success: true }, record);
+        } catch (err) {
+            return { success: false, error: String((err && err.message) || err) };
+        } finally {
+            window.__isCheckingPostSellChannel = false;
+        }
+    };
+
     window.switchChannel = async function(targetCh, timeoutMs = 8000) {
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
         if (!room) return { success: false, error: 'No room connection' };
@@ -20132,6 +20401,7 @@
         let activity = '🟢 ยืนรอ / แสตนด์บาย';
         if (window.__isRecovering) activity = '⚠️ กำลังชุบชีวิต';
         else if (window.__isShopping) activity = '🛒 ซื้อ/ขายของที่ NPC';
+        else if (window.__isCheckingPostSellChannel) activity = '📡 กำลังเลือก CH ที่คนน้อยสุด...';
         else if (window.__isNavigating) activity = '🚶 กำลังเดินทาง';
         else if (window.__unexpectedTownWaiting) {
             const remSec = Math.max(0, Math.ceil(((window.__unexpectedTownWaitUntil || 0) - Date.now()) / 1000));

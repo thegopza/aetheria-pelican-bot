@@ -44,6 +44,7 @@ const CLIENT_PROBE_JS = `(() => {
   if (window.__unexpectedTownWaiting) busy.push('กำลังพักรอนิรภัย (กลับเมืองผิดปกติ)');
   if (window.__isHumanizing) busy.push('กำลังทำกิจกรรม Humanize ในเมือง');
   if (window.__isWeightScrollBusy) busy.push('กำลังใช้ Weight Limit Scroll');
+  if (window.__isCheckingPostSellChannel) busy.push('กำลังเช็ค/ย้าย Channel ที่คนน้อยสุด');
   if (window.__senderTradeBusy) busy.push('กำลังส่งของ/เงินผ่านเทรด');
   const nameEl = document.querySelector('.hud-name');
   let map = '';

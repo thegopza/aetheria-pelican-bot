@@ -3498,12 +3498,49 @@ const managerUpdater = createManagerSelfUpdater({
   isBusy: () => botAutoUpdater.isBusy() || consolidationState.running
 });
 
+const VALID_CHANNEL_CHECK_MODES = ["all", "party_only", "solo_only", "off"];
+
+function getEffectiveChannelCheckMode() {
+  const st = installer.loadSettings() || {};
+  const raw = typeof st.channelCheckMode === "string" ? st.channelCheckMode.trim() : "";
+  return VALID_CHANNEL_CHECK_MODES.includes(raw) ? raw : "all";
+}
+
+function saveChannelCheckMode(mode) {
+  const valid = VALID_CHANNEL_CHECK_MODES.includes(mode) ? mode : "all";
+  installer.saveSettings({ channelCheckMode: valid });
+  return valid;
+}
+
+async function syncChannelCheckModeToAllClients(mode) {
+  const valid = VALID_CHANNEL_CHECK_MODES.includes(mode) ? mode : getEffectiveChannelCheckMode();
+  const profiles = loadProfiles();
+  let syncedCount = 0;
+  let totalChecked = 0;
+  const evalCode = `(() => {
+    if (typeof window.setChannelCheckMode === 'function') return window.setChannelCheckMode(${JSON.stringify(valid)});
+    window.__channelCheckMode = ${JSON.stringify(valid)};
+    try { localStorage.setItem('pelican_channel_check_mode', ${JSON.stringify(valid)}); } catch (_) {}
+    return { success: true, mode: ${JSON.stringify(valid)} };
+  })()`;
+  await Promise.all(profiles.map(async (p) => {
+    if (!p || !p.debugPort) return;
+    totalChecked++;
+    try {
+      const r = await evalProfilePort(p.debugPort, evalCode, 3500);
+      if (r && r.success !== false) syncedCount++;
+    } catch (_) {}
+  }));
+  return { mode: valid, syncedCount, totalChecked };
+}
+
 // Party system: auto-form in-game parties from Manager clients (manager/party_api.js)
 const partyService = createPartyService({
   loadProfiles,
   evalProfilePort,
   dataFile: path.join(__dirname, "data", "parties.json"),
-  isBusy: () => consolidationState.running
+  isBusy: () => consolidationState.running,
+  getChannelCheckMode: getEffectiveChannelCheckMode
 });
 partyService.start();
 
@@ -4533,8 +4570,36 @@ const server = http.createServer(async (req, res) => {
       screenProxySummary: screenProxy.publicSettings(),
       gameExe: getGameExe(),
       allWindowsHidden,
-      captchaStats: getCaptchaStats()
+      captchaStats: getCaptchaStats(),
+      channelCheckMode: getEffectiveChannelCheckMode()
     });
+  }
+
+  // GET / POST /api/channel-check-mode
+  if (pathname === "/api/channel-check-mode") {
+    if (req.method === "GET") {
+      return sendJSON({ success: true, mode: getEffectiveChannelCheckMode(), validModes: VALID_CHANNEL_CHECK_MODES });
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => body += chunk);
+      req.on("end", async () => {
+        try {
+          const payload = JSON.parse(body || "{}");
+          const saved = saveChannelCheckMode(payload.mode);
+          const syncRes = await syncChannelCheckModeToAllClients(saved);
+          return sendJSON({
+            success: true,
+            mode: saved,
+            syncedClients: syncRes.syncedCount,
+            totalChecked: syncRes.totalChecked
+          });
+        } catch (e) {
+          return sendJSON({ success: false, error: e.message }, 400);
+        }
+      });
+      return;
+    }
   }
 
   // POST /api/profiles/:id/clear-jail

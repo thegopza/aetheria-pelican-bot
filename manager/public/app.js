@@ -220,6 +220,9 @@ async function fetchProfiles() {
       if (data.screenProxySummary && typeof updateScreenProxyToolbarBtn === 'function') {
         updateScreenProxyToolbarBtn(data.screenProxySummary);
       }
+      if (data.channelCheckMode && typeof syncChannelCheckModeUI === 'function') {
+        syncChannelCheckModeUI(data.channelCheckMode);
+      }
 
       // Play alert chime if any card has humanCheck active or is in prison
       const hasActiveHumanCheck = currentProfiles.some(p => p.liveState && p.liveState.humanCheck && p.liveState.humanCheck.active);
@@ -1733,6 +1736,7 @@ function syncViewModeControls() {
   if (btnDefault) btnDefault.classList.toggle('active', cardViewMode !== 'party');
   if (btnParty) btnParty.classList.toggle('active', cardViewMode === 'party');
   if (sortSel && sortSel.value !== cardSortMode) sortSel.value = cardSortMode;
+  if (typeof syncChannelCheckModeUI === 'function') syncChannelCheckModeUI(currentChannelCheckMode);
 }
 
 function setCardViewMode(mode) {
@@ -1751,6 +1755,58 @@ function setCardSortMode(sort) {
   syncViewModeControls();
   renderProfiles();
 }
+
+let currentChannelCheckMode = 'all';
+try {
+  currentChannelCheckMode = localStorage.getItem('pelican_channel_check_mode') || 'all';
+} catch (_) {}
+
+function syncChannelCheckModeUI(mode) {
+  const valid = ['all', 'party_only', 'solo_only', 'off'];
+  const norm = valid.includes(mode) ? mode : 'all';
+  currentChannelCheckMode = norm;
+  try { localStorage.setItem('pelican_channel_check_mode', norm); } catch (_) {}
+  const selMain = document.getElementById('channel-check-mode-select');
+  if (selMain && document.activeElement !== selMain && selMain.value !== norm) {
+    selMain.value = norm;
+  }
+  const selParty = document.getElementById('pt-channel-check-mode');
+  if (selParty && document.activeElement !== selParty && selParty.value !== norm) {
+    selParty.value = norm;
+  }
+}
+
+window.setChannelCheckMode = async function (mode) {
+  const valid = ['all', 'party_only', 'solo_only', 'off'];
+  const norm = valid.includes(mode) ? mode : 'all';
+  syncChannelCheckModeUI(norm);
+  const labels = {
+    all: '🔄 เช็ค CH คนน้อยสุดหลังขายของ + ดึงตี้ตาม (ทุกจอ)',
+    party_only: '👑 เฉพาะปาร์ตี้: หลังขายของย้าย CH คนน้อยสุด + ดึงตี้ตาม',
+    solo_only: '👤 เฉพาะฟาร์มเดี่ยว: เช็ค CH คนน้อยสุดหลังขายของ',
+    off: '⏸️ ปิดการเช็ค/ย้าย CH หลังขายของ'
+  };
+  try {
+    const res = await fetch(`${API_BASE}/api/channel-check-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: norm })
+    });
+    const j = await res.json().catch(() => ({}));
+    if (j && j.mode) syncChannelCheckModeUI(j.mode);
+    if (typeof showToast === 'function') {
+      showToast(`ตั้งโหมดเช็ค Channel: ${labels[norm] || norm}`, 'success');
+    }
+    if (typeof window.refreshPartyManagerData === 'function') {
+      window.refreshPartyManagerData();
+    }
+  } catch (err) {
+    console.error('Failed to save channelCheckMode:', err);
+    if (typeof showToast === 'function') {
+      showToast('บันทึกโหมดเช็ค Channel ไม่สำเร็จ', 'error');
+    }
+  }
+};
 
 function toggleCardGroupCollapse(groupKey, event) {
   if (event) event.stopPropagation();

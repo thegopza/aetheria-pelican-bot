@@ -108,7 +108,7 @@ function makeWorld(chars) {
     const c = chars[id];
     if (!c) return { success: false, error: 'ECONNREFUSED' };
     if (code === READ_JS) {
-      return { success: true, result: snap(c.name, c.level, { classId: c.classId || null, channel: c.channel, mapId: c.mapId, mapName: c.mapName || c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null, follow: c.follow || null, helpers: Object.assign({ moveToChannel: true, findLeast: true, setTargetFarmMap: true }, c.helpers || {}) }) };
+      return { success: true, result: snap(c.name, c.level, { classId: c.classId || null, channel: c.channel, mapId: c.mapId, mapName: c.mapName || c.mapId, targetMap: c.targetMap || c.mapId, party: partyView(c.name), invite: world.invites[c.name] ? { from: world.invites[c.name] } : null, plan: c.plan || null, follow: c.follow || null, lastPostSellChannelSwitch: c.lastPostSellChannelSwitch || null, channelCheckMode: c.channelCheckMode || 'all', helpers: Object.assign({ moveToChannel: true, findLeast: true, setTargetFarmMap: true }, c.helpers || {}) }) };
     }
     if (code.includes('evaluatePartyChannelSwitch(')) {
       world.evalAnchorCalls = (world.evalAnchorCalls || []).concat(c.name);
@@ -174,6 +174,7 @@ function service(chars, extra = {}) {
   const profiles = Object.keys(chars).map(id => ({ id, name: 'จอ ' + id, debugPort: chars[id].port }));
   const svc = createPartyService({
     loadProfiles: () => profiles, evalProfilePort, dataFile: path.join(dir, 'parties.json'),
+    getChannelCheckMode: extra.getChannelCheckMode,
     sleep: async () => {}, log: () => {}, timing: Object.assign({ inviteCooldownMs: 0, settingsCooldownMs: 0, mapCooldownMs: 0, channelCooldownMs: 0, fallbackCooldownMs: 0, disbandGapMs: 0, gatherCooldownMs: 0 }, extra)
   });
   return { svc, world, dir };
@@ -412,11 +413,76 @@ test('Priest-centric anchor: Priest picks least-crowded channel ONCE (never loop
   }
   assert.deepStrictEqual(world.evalAnchorCalls, ['Mix_999'], 'Must not re-evaluate or loop channel switching on the same map');
   assert.strictEqual(chars.P.channel, 11);
-  // 4. Follower B (followMode='leader') follows Priest Mix_999 instead of Leader, while Priest and Independent I do not follow anyone
-  assert.strictEqual(chars.B.follow, 'Mix_999', 'Member with followMode=leader follows Priest when Priest is in party');
+  // 4. When Priest is in the party, members farm independently on the Priest's CH (only returning to Priest when buffs are low)
+  assert.ok(!chars.B.follow, 'Member farms independently on Priest CH without continuous party_follow');
   assert.ok(!chars.P.follow, 'Priest anchor does not party_follow anyone');
   assert.ok(!chars.I.follow, 'Independent member farms freely on the same map & CH');
 });
 
+test('Post-sell channel check: when any party member returns from selling and switches to least-crowded CH, all other party members (including Leader & Priest) follow to that CH', async () => {
+  let currentMode = 'all';
+  const chars = {
+    L: { name: 'LeaderHunt', classId: 'hunter', level: 99, channel: 5, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 9000, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    P: { name: 'PriestAnchor', classId: 'priest', level: 99, channel: 5, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 9001, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    M1: { name: 'SellerBard', classId: 'bard', level: 99, channel: 5, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 9002, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    M2: { name: 'SoloWiz', classId: 'wizard', level: 99, channel: 5, mapId: 'abyss_cathedral', mapName: 'โบสถ์อเวจี', targetMap: 'โบสถ์อเวจี', port: 9003, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } }
+  };
+  const { svc } = service(chars, {
+    unfollowCooldownMs: 0,
+    followCooldownMs: 0,
+    getChannelCheckMode: () => currentMode
+  });
+  await post(svc, '/api/parties', {
+    leaderId: 'L',
+    memberIds: ['P', 'M1', 'M2'],
+    autoFill: false,
+    followModes: { P: 'leader', M1: 'leader', M2: 'none' }
+  });
+  await new Promise(r => setTimeout(r, 60));
+  for (let i = 0; i < 4; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 20));
+  }
+  assert.strictEqual(chars.L.channel, 5);
+  assert.strictEqual(chars.P.channel, 5);
+  assert.strictEqual(chars.M1.channel, 5);
+  assert.strictEqual(chars.M2.channel, 5);
 
+  // Now simulate M1 returning from town after selling items and moving to least-crowded CH 8
+  chars.M1.channel = 8;
+  chars.M1.lastPostSellChannelSwitch = {
+    channel: 8,
+    fromChannel: 5,
+    mapId: 'abyss_cathedral',
+    mapName: 'โบสถ์อเวจี',
+    reason: 'after-sell',
+    at: Date.now()
+  };
 
+  for (let i = 0; i < 4; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 20));
+  }
+
+  // All remaining party members (Leader L, Priest P, and independent member M2) must follow M1 to CH 8!
+  assert.strictEqual(chars.L.channel, 8, 'Leader must follow post-sell member to CH 8');
+  assert.strictEqual(chars.P.channel, 8, 'Priest must follow post-sell member to CH 8');
+  assert.strictEqual(chars.M1.channel, 8, 'Post-sell member stays on CH 8');
+  assert.strictEqual(chars.M2.channel, 8, 'Independent member M2 must also follow party to CH 8');
+
+  // If mode is 'off' or 'solo_only', a post-sell switch does NOT pull the party
+  currentMode = 'solo_only';
+  chars.M2.channel = 3;
+  chars.M2.lastPostSellChannelSwitch = {
+    channel: 3,
+    fromChannel: 8,
+    mapId: 'abyss_cathedral',
+    mapName: 'โบสถ์อเวจี',
+    reason: 'after-sell',
+    at: Date.now() + 5000
+  };
+  await svc.tick();
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(chars.L.channel, 8, 'Leader stays on CH 8 when mode is solo_only');
+  assert.strictEqual(chars.P.channel, 8, 'Priest stays on CH 8 when mode is solo_only');
+});
