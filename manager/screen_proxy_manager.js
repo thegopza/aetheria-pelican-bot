@@ -9,8 +9,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { createAssetCache } = require('./asset_cache');
+
 const DEFAULT_MAX_SCREENS_PER_IP = 3;
 const LEASE_TTL_MS = 180000;
+
 
 function isGameOrIpCheckHost(hostname) {
   const h = String(hostname || '').toLowerCase().replace(/:\d+$/, '');
@@ -280,15 +283,93 @@ function connectUpstream({ lease, targetHost, targetPort, timeoutMs = 12000 }) {
   });
 }
 
-function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.now } = {}) {
+function createScreenProxyManager({ dataDir, solver, loadProfiles, assetCache: providedAssetCache, now = Date.now } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
   const settingsFile = path.join(dataDir, 'screen_proxy_settings.json');
   const poolFile = path.join(dataDir, 'screen_proxy_pool.json');
   const leasesFile = path.join(dataDir, 'screen_proxy_leases.json');
+  const assetCache = providedAssetCache || createAssetCache({ dataDir, now });
 
   const tunnels = new Map();       // profileId -> { server, port, sockets: Set }
   const activeLeases = new Map();  // profileId -> lease object
   const stickyHistory = new Map(); // profileId -> proxyId
+
+  const trafficState = {
+    startedAt: now(),
+    proxyRxBytes: 0,
+    proxyTxBytes: 0,
+    directRxBytes: 0,
+    directTxBytes: 0,
+    byProfile: {}
+  };
+
+  function recordTraffic(profileId, rxBytes = 0, txBytes = 0, viaProxy = true) {
+    const rx = Math.max(0, Number(rxBytes) || 0);
+    const tx = Math.max(0, Number(txBytes) || 0);
+    if (rx === 0 && tx === 0) return;
+    if (viaProxy) {
+      trafficState.proxyRxBytes += rx;
+      trafficState.proxyTxBytes += tx;
+    } else {
+      trafficState.directRxBytes += rx;
+      trafficState.directTxBytes += tx;
+    }
+    if (profileId) {
+      let p = trafficState.byProfile[profileId];
+      if (!p) {
+        p = trafficState.byProfile[profileId] = {
+          proxyRxBytes: 0,
+          proxyTxBytes: 0,
+          directRxBytes: 0,
+          directTxBytes: 0,
+          updatedAt: now()
+        };
+      }
+      if (viaProxy) {
+        p.proxyRxBytes += rx;
+        p.proxyTxBytes += tx;
+      } else {
+        p.directRxBytes += rx;
+        p.directTxBytes += tx;
+      }
+      p.updatedAt = now();
+    }
+  }
+
+  function getTrafficStats() {
+    const elapsedSec = Math.max(1, Math.round((now() - trafficState.startedAt) / 1000));
+    const proxyTotalBytes = trafficState.proxyRxBytes + trafficState.proxyTxBytes;
+    const directTotalBytes = trafficState.directRxBytes + trafficState.directTxBytes;
+    const proxyBps = elapsedSec >= 2 ? Math.round(proxyTotalBytes / elapsedSec) : 0;
+    const cacheStatus = assetCache ? assetCache.getStatus() : null;
+    return {
+      startedAt: trafficState.startedAt,
+      elapsedSec,
+      proxyRxBytes: trafficState.proxyRxBytes,
+      proxyTxBytes: trafficState.proxyTxBytes,
+      proxyTotalBytes,
+      proxyBps,
+      proxyBytesPerHour: proxyBps * 3600,
+      directRxBytes: trafficState.directRxBytes,
+      directTxBytes: trafficState.directTxBytes,
+      directTotalBytes,
+      byProfile: trafficState.byProfile,
+      assetCache: cacheStatus
+    };
+  }
+
+  function resetTrafficStats({ resetAssetCacheStats = true } = {}) {
+    trafficState.startedAt = now();
+    trafficState.proxyRxBytes = 0;
+    trafficState.proxyTxBytes = 0;
+    trafficState.directRxBytes = 0;
+    trafficState.directTxBytes = 0;
+    trafficState.byProfile = {};
+    if (resetAssetCacheStats && assetCache && typeof assetCache.resetStats === 'function') {
+      assetCache.resetStats();
+    }
+    return getTrafficStats();
+  }
 
   function readJson(file, fallback) {
     try {
@@ -329,11 +410,13 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
     const raw = readJson(settingsFile, {});
     const maxScreensPerIp = Math.max(1, Math.min(10, parseInt(raw.maxScreensPerIp, 10) || DEFAULT_MAX_SCREENS_PER_IP));
     const mode = raw.mode === 'local-pool' ? 'local-pool' : 'owner-queue';
+    const localAssetCache = raw.localAssetCache !== false;
     return {
       enabled: raw.enabled === true,
       mode,
       maxScreensPerIp,
       onlyGameTraffic: raw.onlyGameTraffic !== false,
+      localAssetCache,
       lastTestedIp: raw.lastTestedIp || null,
       lastTestedAt: raw.lastTestedAt || null,
       updatedAt: raw.updatedAt || null
@@ -348,13 +431,26 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
       ...(patch.mode === 'local-pool' || patch.mode === 'owner-queue' ? { mode: patch.mode } : {}),
       ...(patch.maxScreensPerIp !== undefined ? { maxScreensPerIp: Math.max(1, Math.min(10, parseInt(patch.maxScreensPerIp, 10) || DEFAULT_MAX_SCREENS_PER_IP)) } : {}),
       ...(typeof patch.onlyGameTraffic === 'boolean' ? { onlyGameTraffic: patch.onlyGameTraffic } : {}),
+      ...(typeof patch.localAssetCache === 'boolean' ? { localAssetCache: patch.localAssetCache } : {}),
       ...(patch.lastTestedIp !== undefined ? { lastTestedIp: patch.lastTestedIp } : {}),
       ...(patch.lastTestedAt !== undefined ? { lastTestedAt: patch.lastTestedAt } : {}),
       updatedAt: now()
     };
     writeJson(settingsFile, next);
+    if (assetCache && typeof assetCache.setEnabled === 'function') {
+      assetCache.setEnabled(next.localAssetCache !== false);
+    }
     return loadSettings();
   }
+
+  // Sync initial localAssetCache flag to assetCache
+  try {
+    const initSt = loadSettings();
+    if (assetCache && typeof assetCache.setEnabled === 'function') {
+      assetCache.setEnabled(initSt.localAssetCache !== false);
+    }
+  } catch (_) {}
+
 
   function loadPool() {
     const settings = loadSettings();
@@ -558,12 +654,27 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
       s.once('close', () => sockets.delete(s));
     };
 
-    const server = http.createServer((req, res) => {
+    const server = http.createServer(async (req, res) => {
       // Standard HTTP request through tunnel
       let parsed;
       try { parsed = new URL(req.url); } catch (_) {
         res.writeHead(400);
         return res.end('Bad Request');
+      }
+      if (assetCache && assetCache.isEnabled() && req.method === 'GET' && assetCache.isCacheableAssetUrl(req.url)) {
+        try {
+          const cached = await assetCache.getOrFetch(req.url);
+          if (cached && cached.ok && cached.buffer) {
+            res.writeHead(200, {
+              'Content-Type': cached.mimeType || 'application/octet-stream',
+              'Content-Length': String(cached.size),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Access-Control-Allow-Origin': '*',
+              'X-Pmhee-Asset-Cache': cached.hit ? 'HIT' : 'MISS-DIRECT'
+            });
+            return res.end(cached.buffer);
+          }
+        } catch (_) {}
       }
       const targetHost = parsed.hostname;
       const targetPort = Number(parsed.port) || 80;
@@ -585,8 +696,14 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
         headers,
         timeout: 15000
       }, proxyRes => {
+        proxyRes.on('data', chunk => {
+          recordTraffic(profileId, chunk.length, 0, useProxy);
+        });
         res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
         proxyRes.pipe(res);
+      });
+      req.on('data', chunk => {
+        recordTraffic(profileId, 0, chunk.length, useProxy);
       });
       proxyReq.on('error', () => {
         if (!res.headersSent) res.writeHead(502);
@@ -627,7 +744,12 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
           if (clientSocket.destroyed) { upstream.destroy(); return; }
           upstream.setNoDelay(true);
           clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-          if (head && head.length) upstream.write(head);
+          if (head && head.length) {
+            recordTraffic(profileId, 0, head.length, false);
+            upstream.write(head);
+          }
+          upstream.on('data', chunk => recordTraffic(profileId, chunk.length, 0, false));
+          clientSocket.on('data', chunk => recordTraffic(profileId, 0, chunk.length, false));
           upstream.pipe(clientSocket);
           clientSocket.pipe(upstream);
         });
@@ -651,8 +773,16 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
         }
         trackSocket(upstream);
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (head && head.length) upstream.write(head);
-        if (upstreamHead && upstreamHead.length) clientSocket.write(upstreamHead);
+        if (head && head.length) {
+          recordTraffic(profileId, 0, head.length, true);
+          upstream.write(head);
+        }
+        if (upstreamHead && upstreamHead.length) {
+          recordTraffic(profileId, upstreamHead.length, 0, true);
+          clientSocket.write(upstreamHead);
+        }
+        upstream.on('data', chunk => recordTraffic(profileId, chunk.length, 0, true));
+        clientSocket.on('data', chunk => recordTraffic(profileId, 0, chunk.length, true));
         upstream.pipe(clientSocket);
         clientSocket.pipe(upstream);
         upstream.on('error', () => clientSocket.destroy());
@@ -803,7 +933,8 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
       ...(typeof data.enabled === 'boolean' ? { enabled: data.enabled } : {}),
       ...(data.mode ? { mode: data.mode } : {}),
       ...(data.maxScreensPerIp !== undefined ? { maxScreensPerIp: data.maxScreensPerIp } : {}),
-      ...(typeof data.onlyGameTraffic === 'boolean' ? { onlyGameTraffic: data.onlyGameTraffic } : {})
+      ...(typeof data.onlyGameTraffic === 'boolean' ? { onlyGameTraffic: data.onlyGameTraffic } : {}),
+      ...(typeof data.localAssetCache === 'boolean' ? { localAssetCache: data.localAssetCache } : {})
     });
     const rawPoolText = typeof data.poolText === 'string'
       ? data.poolText
@@ -927,6 +1058,7 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
 
     const leases = Array.from(activeLeases.values()).filter(l => l && l.assigned).map(l => {
       const tunnel = tunnels.get(l.profileId) || null;
+      const pTraffic = trafficState.byProfile[l.profileId] || { proxyRxBytes: 0, proxyTxBytes: 0 };
       return {
         profileId: l.profileId,
         proxyId: l.proxyId,
@@ -939,13 +1071,17 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
         maxScreensPerIp: l.maxScreens || maxPerIp,
         activeOnIp: l.activeOnIp || 1,
         scheme: l.scheme || 'http',
-        tunnelPort: tunnel?.port || null
+        tunnelPort: tunnel?.port || null,
+        proxyRxBytes: pTraffic.proxyRxBytes || 0,
+        proxyTxBytes: pTraffic.proxyTxBytes || 0,
+        proxyTotalBytes: (pTraffic.proxyRxBytes || 0) + (pTraffic.proxyTxBytes || 0)
       };
     });
 
     const assignments = allProfiles.map(p => {
       const lease = activeLeases.get(p.id) || null;
       const tunnel = tunnels.get(p.id) || null;
+      const pTraffic = trafficState.byProfile[p.id] || { proxyRxBytes: 0, proxyTxBytes: 0 };
       return {
         profileId: p.id,
         profileName: p.name,
@@ -960,9 +1096,14 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
         maxScreensPerIp: pub.enabled && lease?.assigned ? (lease.maxScreens || maxPerIp) : maxPerIp,
         activeOnIp: pub.enabled && lease?.assigned ? (lease.activeOnIp || 1) : 0,
         scheme: lease?.scheme || 'http',
-        tunnelPort: tunnel?.port || null
+        tunnelPort: tunnel?.port || null,
+        proxyRxBytes: pTraffic.proxyRxBytes || 0,
+        proxyTxBytes: pTraffic.proxyTxBytes || 0,
+        proxyTotalBytes: (pTraffic.proxyRxBytes || 0) + (pTraffic.proxyTxBytes || 0)
       };
     });
+
+    const traffic = getTrafficStats();
 
     return {
       success: true,
@@ -991,7 +1132,9 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
         }))
       },
       leases,
-      assignments
+      assignments,
+      traffic,
+      assetCache: traffic.assetCache
     };
   }
 
@@ -1006,6 +1149,7 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
     const l = activeLeases.get(profileId);
     if (!l || !l.assigned) return { active: false };
     const maxS = l.maxScreens || settings.maxScreensPerIp || DEFAULT_MAX_SCREENS_PER_IP;
+    const pTraffic = trafficState.byProfile[profileId] || { proxyRxBytes: 0, proxyTxBytes: 0 };
     return {
       active: true,
       ip: l.ip,
@@ -1016,7 +1160,8 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
       maxScreens: maxS,
       maxScreensPerIp: maxS,
       activeOnIp: l.activeOnIp || 1,
-      scheme: l.scheme || 'http'
+      scheme: l.scheme || 'http',
+      proxyTotalBytes: (pTraffic.proxyRxBytes || 0) + (pTraffic.proxyTxBytes || 0)
     };
   }
 
@@ -1026,10 +1171,15 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
       try { t.server.close(); } catch (_) {}
     }
     tunnels.clear();
+    if (assetCache && typeof assetCache.dispose === 'function') {
+      assetCache.dispose();
+    }
   }
 
   return {
     isEnabled: () => loadSettings().enabled,
+    isAssetCacheEnabled: () => assetCache ? assetCache.isEnabled() : false,
+    assetCache,
     loadSettings,
     saveSettings,
     publicSettings,
@@ -1050,6 +1200,8 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, now = Date.no
     getStatus,
     getQueueStatus,
     getProfileLeaseSnapshot,
+    getTrafficStats,
+    resetTrafficStats,
     dispose
   };
 }

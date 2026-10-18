@@ -56,9 +56,10 @@ function getText(url, timeout = 8000) {
   });
 }
 
-function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot, cdpPort = DEFAULT_CDP_PORT, browserUserDataDir, gameUrl = GAME_URL, profileScriptSource, screenProxy }) {
+function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot, cdpPort = DEFAULT_CDP_PORT, browserUserDataDir, gameUrl = GAME_URL, profileScriptSource, screenProxy, assetCache }) {
   if(!Number.isInteger(cdpPort)||cdpPort<1024||cdpPort>65535)throw Error('INVALID_CDP_PORT');
   const CDP_PORT = cdpPort;
+  const effectiveAssetCache = assetCache || screenProxy?.assetCache || null;
   const isGameUrl=value=>{try{return new URL(value).origin===new URL(gameUrl).origin;}catch(_){return false;}};
   const userDataDir = browserUserDataDir || path.join(sessionsDir, '_browser');
   const storageDir = (sessionsDir && sessionsDir !== 'fake') ? path.join(sessionsDir, '_browser_storage') : null;
@@ -228,8 +229,20 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     const restoreJs = hasSaved
       ? `try { const __s = ${JSON.stringify(saved)}; if (window.localStorage) { for (const [k, v] of Object.entries(__s)) { if (typeof v === 'string' && window.localStorage.getItem(k) === null) window.localStorage.setItem(k, v); } } } catch (_) {}`
       : '';
-    return `window.__pmProfileId = ${JSON.stringify(profileId)}; try { window.sessionStorage && window.sessionStorage.setItem('__pmProfileId', ${JSON.stringify(profileId)}); } catch (_) {} ${restoreJs}`;
+    const cacheFlag = Boolean(effectiveAssetCache && effectiveAssetCache.isEnabled());
+    return `window.__pmProfileId = ${JSON.stringify(profileId)}; window.__pmLocalAssetCacheEnabled = ${cacheFlag}; try { window.sessionStorage && window.sessionStorage.setItem('__pmProfileId', ${JSON.stringify(profileId)}); } catch (_) {} ${restoreJs}`;
   };
+
+  async function configureSessionAssetCache(sessionId) {
+    if (!sessionId || !effectiveAssetCache) return;
+    try {
+      if (effectiveAssetCache.isEnabled()) {
+        await send('Fetch.enable', { patterns: effectiveAssetCache.CDP_ASSET_FETCH_PATTERNS }, sessionId, 4000);
+      } else {
+        await send('Fetch.disable', {}, sessionId, 3000);
+      }
+    } catch (_) {}
+  }
 
   async function syncClientStorage(c) {
     if (!c || !c.sessionId || !storageDir) return;
@@ -256,6 +269,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   async function ensureSessionHooks(sessionId, profileId) {
     await send('Page.enable', {}, sessionId, 5000).catch(() => {});
     await send('Runtime.enable', {}, sessionId, 5000).catch(() => {});
+    await configureSessionAssetCache(sessionId);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: profileInitScript(profileId) }, sessionId, 5000).catch(() => {});
   }
 
@@ -384,6 +398,37 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
 
   listeners.add(msg => {
     if (!msg.sessionId) return;
+    if (msg.method === 'Fetch.requestPaused' && msg.params?.requestId) {
+      const requestId = msg.params.requestId;
+      const reqUrl = msg.params.request?.url || '';
+      const reqMethod = String(msg.params.request?.method || 'GET').toUpperCase();
+      if (effectiveAssetCache && effectiveAssetCache.isEnabled() && reqMethod === 'GET' && effectiveAssetCache.isCacheableAssetUrl(reqUrl)) {
+        effectiveAssetCache.getOrFetch(reqUrl).then(cached => {
+          if (cached && cached.ok && cached.base64) {
+            return send('Fetch.fulfillRequest', {
+              requestId,
+              responseCode: 200,
+              responseHeaders: [
+                { name: 'Content-Type', value: cached.mimeType || 'application/octet-stream' },
+                { name: 'Content-Length', value: String(cached.size || 0) },
+                { name: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+                { name: 'Access-Control-Allow-Origin', value: '*' },
+                { name: 'Access-Control-Allow-Methods', value: 'GET, HEAD, OPTIONS' },
+                { name: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
+                { name: 'X-Pmhee-Asset-Cache', value: cached.hit ? 'HIT' : 'MISS-DIRECT' }
+              ],
+              body: cached.base64
+            }, msg.sessionId, 10000);
+          }
+          return send('Fetch.continueRequest', { requestId }, msg.sessionId, 5000);
+        }).catch(() => {
+          send('Fetch.continueRequest', { requestId }, msg.sessionId, 5000).catch(() => {});
+        });
+      } else {
+        send('Fetch.continueRequest', { requestId }, msg.sessionId, 5000).catch(() => {});
+      }
+      return;
+    }
     const c = Array.from(clients.values()).find(x => x.sessionId === msg.sessionId);
     if (!c) return;
     if(msg.method==='Page.frameNavigated'&&!msg.params?.frame?.parentId){c.generation++;c.documentId=null;c.attempts=0;clearTimeout(c.retryTimer);diagnostic(c,'document-pending',{navigationType:String(msg.params?.type||'navigation').slice(0,40)});}
@@ -408,6 +453,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     try {
     await send('Page.enable', {}, sessionId);
     await send('Runtime.enable', {}, sessionId);
+    await configureSessionAssetCache(sessionId);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: profileInitScript(profileId) }, sessionId);
     if (!skipIdentityProbe) {
       const identity=await evaluate({sessionId},`(() => { if(!window.__pmProfileId)window.__pmProfileId=${JSON.stringify(profileId)}; try { window.sessionStorage && window.sessionStorage.setItem('__pmProfileId', window.__pmProfileId); } catch (_) {} return window.__pmProfileId; })()`,4500);
@@ -778,6 +824,21 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     return { switched, updatedTunnels, details };
   }
 
+  async function syncAssetCacheToOpenWindows() {
+    if (!effectiveAssetCache) return { synced: 0 };
+    const enabled = effectiveAssetCache.isEnabled();
+    let synced = 0;
+    for (const c of Array.from(clients.values())) {
+      if (!c.sessionId) continue;
+      try {
+        await configureSessionAssetCache(c.sessionId);
+        await evaluate(c, `window.__pmLocalAssetCacheEnabled = ${Boolean(enabled)};`, 2500).catch(() => {});
+        synced++;
+      } catch (_) {}
+    }
+    return { synced, enabled };
+  }
+
   function start() {
     if(started)return;started=true;
     // reconnect to a browser left open by a previous Manager run
@@ -791,7 +852,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     if(ws){const socket=ws;ws=null;socket.close();}
     for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('BROWSER_MODE_DISPOSED'));}pending.clear();
   }
-  return { launch, stop, isOpen, start, dispose, findBrowser, applyProxyModeToOpenWindows, status:()=>Object.fromEntries(diagnostics) };
+  return { launch, stop, isOpen, start, dispose, findBrowser, applyProxyModeToOpenWindows, syncAssetCacheToOpenWindows, status:()=>Object.fromEntries(diagnostics) };
 }
 
 module.exports = { createBrowserMode, findBrowser, HEALTH_JS };

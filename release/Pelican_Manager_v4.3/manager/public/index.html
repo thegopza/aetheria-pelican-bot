@@ -1142,7 +1142,7 @@
   </div>
 
   <script src="image_board_solver.js?v=4381"></script>
-  <script src="app.js?v=44300"></script>
+  <script src="app.js?v=44301"></script>
   <script src="patcher_module.js?v=41744"></script>
   <script src="builder_module.js?v=44009"></script>
   <script src="gear_builder.js?v=42900"></script>
@@ -1888,11 +1888,42 @@
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06);">
             <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #a7f3d0; cursor: pointer;">
               <input type="checkbox" id="sp-only-game-traffic" checked style="accent-color: #10b981;">
               <span>⚡ <b>Split-Tunnel:</b> ส่งเฉพาะ Traffic เกม (`*.aetheria-online.in.th`) ผ่าน Proxy (เชื่อมต่อไวและประหยัดเน็ตสูงสุด)</span>
             </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #fde68a; cursor: pointer;">
+              <input type="checkbox" id="sp-local-asset-cache" checked style="accent-color: #f59e0b;">
+              <span>📦 <b>Local Asset Cache:</b> โหลดรูป/เสียง/ฟอนต์ (`.png`, `.webp`, `.mp3`, `.woff2`) จาก Cache ในเครื่อง (ไม่เปลืองเน็ต Proxy เลย)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Real Proxy Traffic & Local Asset Cache Savings Meter -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 9px; padding: 9px 12px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span style="font-size: 11.5px; font-weight: 700; color: #7dd3fc;">📊 มิเตอร์วัดเน็ต Proxy จริง & ประหยัดด้วย Cache ในเครื่อง</span>
+            <button type="button" id="btn-sp-reset-traffic" class="btn btn-ghost btn-sm" style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1;" title="รีเซ็ตตัวนับเน็ต Proxy และตัวนับเน็ตวันนี้เพื่อเริ่มจับค่าใหม่">
+              🔄 รีเซ็ตตัวนับเน็ต
+            </button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+            <div style="background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; padding: 6px 9px;">
+              <div style="font-size: 10px; color: #94a3b8;">📡 เน็ตผ่าน Proxy จริง</div>
+              <div id="sp-stat-proxy-traffic" style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-top: 2px;">0 B</div>
+              <div id="sp-stat-proxy-traffic-sub" style="font-size: 10px; color: #64748b; margin-top: 1px;">↓0 B / ↑0 B</div>
+            </div>
+            <div style="background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; padding: 6px 9px;">
+              <div style="font-size: 10px; color: #94a3b8;">💾 ประหยัดด้วย Cache</div>
+              <div id="sp-stat-cache-saved" style="font-size: 13px; font-weight: 700; color: #34d399; margin-top: 2px;">0 B</div>
+              <div id="sp-stat-cache-saved-sub" style="font-size: 10px; color: #64748b; margin-top: 1px;">Hit 0 ครั้ง (Miss 0)</div>
+            </div>
+            <div style="background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 7px; padding: 6px 9px;">
+              <div style="font-size: 10px; color: #94a3b8;">🗂️ ไฟล์ใน Cache เครื่อง</div>
+              <div id="sp-stat-cache-files" style="font-size: 13px; font-weight: 700; color: #fbbf24; margin-top: 2px;">0 ไฟล์</div>
+              <div id="sp-stat-cache-files-sub" style="font-size: 10px; color: #64748b; margin-top: 1px;">ขนาดรวม 0 B</div>
+            </div>
           </div>
         </div>
 

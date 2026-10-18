@@ -119,3 +119,74 @@ test("ScreenProxyManager enforces 1 IP : 3 screens queue, sticky slots, and togg
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("Local Asset Cache intercepts .png, .webp, .mp3, .woff2 and serves from disk cache without proxy bandwidth", async () => {
+  const { createAssetCache, isCacheableAssetUrl } = require("../asset_cache");
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "asset-cache-test-"));
+  let upstreamFetchCount = 0;
+
+  const cache = createAssetCache({
+    dataDir: tmpDir,
+    fetchDirect: async (url) => {
+      upstreamFetchCount += 1;
+      const ext = path.extname(new URL(url).pathname).toLowerCase();
+      return {
+        statusCode: 200,
+        contentType: ext === ".webp" ? "image/webp" : (ext === ".mp3" ? "audio/mpeg" : (ext === ".woff2" ? "font/woff2" : "image/png")),
+        body: Buffer.from(`MOCK_ASSET_PAYLOAD_${ext}_${url}`)
+      };
+    }
+  });
+
+  try {
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/art/sprites/monsters/poring.png"), true);
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/art/icons/sword.webp?v=123"), true);
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/audio/bgm/town.mp3"), true);
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/fonts/kanit.woff2"), true);
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/api/login"), false);
+    assert.equal(isCacheableAssetUrl("https://www.aetheria-online.in.th/play"), false);
+
+    const pngUrl = "https://www.aetheria-online.in.th/art/sprites/monsters/poring.png";
+    const webpUrl = "https://www.aetheria-online.in.th/art/icons/potion.webp";
+    const mp3Url = "https://www.aetheria-online.in.th/audio/bgm/theme.mp3";
+    const woff2Url = "https://www.aetheria-online.in.th/fonts/game.woff2";
+
+    // First window fetches -> cache miss (downloaded once directly, saved to disk)
+    const r1 = await cache.getOrFetch(pngUrl);
+    assert.equal(r1.ok, true);
+    assert.equal(r1.fromCache, false);
+    assert.equal(upstreamFetchCount, 1);
+
+    // Next 5 windows request the same .png -> served from local cache, 0 upstream requests!
+    for (let i = 0; i < 5; i++) {
+      const hit = await cache.getOrFetch(pngUrl);
+      assert.equal(hit.ok, true);
+      assert.equal(hit.fromCache, true);
+      assert.deepEqual(hit.body, r1.body);
+    }
+    assert.equal(upstreamFetchCount, 1);
+
+    // Test .webp, .mp3, .woff2
+    await cache.getOrFetch(webpUrl);
+    await cache.getOrFetch(webpUrl);
+    await cache.getOrFetch(mp3Url);
+    await cache.getOrFetch(mp3Url);
+    await cache.getOrFetch(woff2Url);
+    await cache.getOrFetch(woff2Url);
+
+    assert.equal(upstreamFetchCount, 4); // Only 1 fetch per unique asset URL
+    const stats = cache.getStats();
+    assert.equal(stats.filesCount, 4);
+    assert.equal(stats.misses, 4);
+    assert.equal(stats.hits, 8); // 5 png + 1 webp + 1 mp3 + 1 woff2 cache hits
+    assert.ok(stats.bytesSaved > 0);
+    assert.ok(stats.byGroup.png.bytesSaved > 0);
+    assert.ok(stats.byGroup.webp.bytesSaved > 0);
+    assert.ok(stats.byGroup.audio.bytesSaved > 0);
+    assert.ok(stats.byGroup.font.bytesSaved > 0);
+  } finally {
+    cache.dispose();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+

@@ -2863,11 +2863,21 @@ let currentScreenProxySettings = {
   mode: "owner-queue",
   maxScreensPerIp: 3,
   onlyGameTraffic: true,
+  localAssetCache: true,
   poolCount: 0,
   totalSlots: 0,
   activeLeaseCount: 0,
   freeSlots: 0
 };
+
+function formatProxyBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n <= 0) return "0 B";
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 function updateScreenProxyToolbarBtn(summary) {
   if (summary && typeof summary === "object") {
@@ -2963,6 +2973,39 @@ function renderScreenProxyModal(statusData) {
     onlyGameChk.checked = s.onlyGameTraffic !== false;
   }
 
+  const localCacheChk = document.getElementById("sp-local-asset-cache");
+  if (localCacheChk) {
+    localCacheChk.checked = s.localAssetCache !== false;
+  }
+
+  const tr = statusData.traffic || {};
+  const ac = statusData.assetCache || tr.assetCache || {};
+  const proxyTrafficEl = document.getElementById("sp-stat-proxy-traffic");
+  const proxyTrafficSubEl = document.getElementById("sp-stat-proxy-traffic-sub");
+  const cacheSavedEl = document.getElementById("sp-stat-cache-saved");
+  const cacheSavedSubEl = document.getElementById("sp-stat-cache-saved-sub");
+  const cacheFilesEl = document.getElementById("sp-stat-cache-files");
+  const cacheFilesSubEl = document.getElementById("sp-stat-cache-files-sub");
+  if (proxyTrafficEl) {
+    proxyTrafficEl.textContent = formatProxyBytes(tr.proxyTotalBytes || 0);
+  }
+  if (proxyTrafficSubEl) {
+    const rateNote = tr.proxyBytesPerHour > 0 ? ` · ~${formatProxyBytes(tr.proxyBytesPerHour)}/ชม.` : "";
+    proxyTrafficSubEl.textContent = `↓${formatProxyBytes(tr.proxyRxBytes || 0)} / ↑${formatProxyBytes(tr.proxyTxBytes || 0)}${rateNote}`;
+  }
+  if (cacheSavedEl) {
+    cacheSavedEl.textContent = formatProxyBytes(ac.bytesSaved || 0);
+  }
+  if (cacheSavedSubEl) {
+    cacheSavedSubEl.textContent = `Hit ${(Number(ac.hits) || 0).toLocaleString()} ครั้ง (ดึงใหม่ ${(Number(ac.misses) || 0).toLocaleString()})`;
+  }
+  if (cacheFilesEl) {
+    cacheFilesEl.textContent = `${(Number(ac.filesCount) || 0).toLocaleString()} ไฟล์`;
+  }
+  if (cacheFilesSubEl) {
+    cacheFilesSubEl.textContent = `ขนาดรวม ${formatProxyBytes(ac.diskBytes || 0)}`;
+  }
+
   const poolTextarea = document.getElementById("sp-pool-textarea");
   if (poolTextarea && document.activeElement !== poolTextarea && typeof s.poolText === "string") {
     poolTextarea.value = s.poolText;
@@ -2979,6 +3022,7 @@ function renderScreenProxyModal(statusData) {
         const prof = profById.get(l.profileId);
         const pName = prof ? prof.name : l.profileId;
         const isOnline = prof ? !!prof.isRunning : false;
+        const pTraffic = (tr.byProfile && tr.byProfile[l.profileId]) ? tr.byProfile[l.profileId].proxyTotalBytes : 0;
         return `
           <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -2991,6 +3035,7 @@ function renderScreenProxyModal(statusData) {
               <span style="background: rgba(168, 85, 247, 0.2); color: #e9d5ff; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 99px; padding: 1px 8px; font-size: 10.5px; font-weight: 700;">
                 ช่อง ${l.slotIndex || 1}/${l.maxScreensPerIp || maxS}
               </span>
+              ${pTraffic > 0 ? `<span style="color: #7dd3fc; font-size: 10px; font-family: monospace;" title="เน็ตที่วิ่งผ่าน Proxy ของจอนี้">${formatProxyBytes(pTraffic)}</span>` : ''}
               ${l.tunnelPort ? `<span style="color: #10b981; font-size: 10px;" title="Local Forwarder Port">127.0.0.1:${l.tunnelPort}</span>` : ''}
             </div>
           </div>
@@ -3028,6 +3073,7 @@ async function saveScreenProxySettings(showToastFeedback = true) {
   const mode = (modeOwner && modeOwner.checked) ? "owner-queue" : "local-pool";
   const maxScreensPerIp = Math.max(1, Math.min(10, Number(document.getElementById("sp-max-screens")?.value) || 3));
   const onlyGameTraffic = document.getElementById("sp-only-game-traffic")?.checked !== false;
+  const localAssetCache = document.getElementById("sp-local-asset-cache")?.checked !== false;
   const poolText = document.getElementById("sp-pool-textarea")?.value || "";
 
   const btnSave = document.getElementById("btn-sp-save-pool");
@@ -3036,7 +3082,7 @@ async function saveScreenProxySettings(showToastFeedback = true) {
     const res = await fetch(`${API_BASE}/api/screen-proxy/settings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, maxScreensPerIp, onlyGameTraffic, poolText })
+      body: JSON.stringify({ mode, maxScreensPerIp, onlyGameTraffic, localAssetCache, poolText })
     }).then(r => r.json());
     if (res && res.success) {
       await fetchScreenProxyStatus();
@@ -3078,6 +3124,45 @@ function initScreenProxyControls() {
   const btnSave = document.getElementById("btn-sp-save-pool");
   if (btnSave) {
     btnSave.onclick = () => saveScreenProxySettings(true);
+  }
+
+  const localCacheChk = document.getElementById("sp-local-asset-cache");
+  if (localCacheChk) {
+    localCacheChk.onchange = async () => {
+      const enabled = localCacheChk.checked;
+      const res = await saveScreenProxySettings(false);
+      if (res && res.success) {
+        showToast(
+          enabled
+            ? "📦 เปิด Local Asset Cache แล้ว — โหลด .png/.webp/.mp3/.woff2 จากเครื่องโดยไม่เปลืองเน็ต Proxy"
+            : "⏸️ ปิด Local Asset Cache แล้ว",
+          enabled ? "success" : "info"
+        );
+      }
+    };
+  }
+
+  const btnResetTraffic = document.getElementById("btn-sp-reset-traffic");
+  if (btnResetTraffic) {
+    btnResetTraffic.onclick = async () => {
+      btnResetTraffic.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/api/screen-proxy/reset-traffic`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        }).then(r => r.json());
+        if (res && res.success) {
+          renderScreenProxyModal(res);
+          fetchProfiles();
+          showToast("🔄 รีเซ็ตตัวนับเน็ต Proxy และตัวนับเน็ตวันนี้เรียบร้อยแล้ว", "success");
+        }
+      } catch (e) {
+        showToast("❌ รีเซ็ตไม่สำเร็จ: " + e.message, "error");
+      } finally {
+        btnResetTraffic.disabled = false;
+      }
+    };
   }
 
   const btnToggleMain = document.getElementById("btn-screen-proxy-toggle-main");

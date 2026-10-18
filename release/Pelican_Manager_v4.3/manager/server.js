@@ -3018,9 +3018,10 @@ let bandwidthStatsDirty = false;
 let bandwidthStatsCache = null;
 
 const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
-  if (typeof window.__pmGetBandwidth === 'function' && window.__pmBwState) {
+  if (typeof window.__pmGetBandwidth === 'function' && window.__pmBwState && window.__pmBwProbeVersion === 2) {
     return window.__pmGetBandwidth();
   }
+  window.__pmBwProbeVersion = 2;
   const sessionId = Math.round((typeof performance !== 'undefined' && performance.timeOrigin) ? performance.timeOrigin : Date.now());
   const st = window.__pmBwState = window.__pmBwState || {
     sessionId,
@@ -3032,8 +3033,12 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
     httpRxBytes: 0,
     httpTxBytes: 0,
     httpRequests: 0,
+    cachedRxBytes: 0,
+    cachedRequests: 0,
     navCounted: false
   };
+  if (typeof st.cachedRxBytes !== 'number') st.cachedRxBytes = 0;
+  if (typeof st.cachedRequests !== 'number') st.cachedRequests = 0;
 
   function byteLen(data) {
     if (!data) return 0;
@@ -3044,8 +3049,11 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
     return 0;
   }
 
+  const STATIC_ASSET_RE = /\\.(?:png|webp|jpg|jpeg|gif|svg|avif|ico|mp3|ogg|wav|m4a|aac|flac|woff2|woff|ttf|otf|eot)(?:$|\\?)/i;
+
   function consumeResourceEntries(entries) {
     if (!entries || !entries.length) return;
+    const localCacheOn = window.__pmLocalAssetCacheEnabled !== false;
     for (let i = 0; i < entries.length; i++) {
       const r = entries[i];
       if (!r) continue;
@@ -3053,6 +3061,14 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
       if (name.includes('127.0.0.1') || name.includes('localhost')) continue;
       const transfer = Number(r.transferSize) || 0;
       const encoded = Number(r.encodedBodySize) || 0;
+      if (localCacheOn && STATIC_ASSET_RE.test(name)) {
+        const saved = transfer > 0 ? transfer : encoded;
+        if (saved > 0) {
+          st.cachedRxBytes += saved;
+          st.cachedRequests += 1;
+        }
+        continue;
+      }
       if (transfer > 0) {
         st.httpRxBytes += transfer;
         st.httpTxBytes += 160;
@@ -3077,6 +3093,10 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
   } catch (e) {}
 
   try {
+    if (st.observer && typeof st.observer.disconnect === 'function') {
+      st.observer.disconnect();
+      st.observer = null;
+    }
     if (typeof PerformanceObserver === 'function' && !st.observer) {
       const obs = new PerformanceObserver((list) => {
         try {
@@ -3156,6 +3176,7 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
     const rxBytes = st.wsRxBytes + st.httpRxBytes;
     const txBytes = st.wsTxBytes + st.httpTxBytes;
     return {
+      probeVersion: 2,
       sessionId: st.sessionId,
       rxBytes,
       txBytes,
@@ -3164,6 +3185,8 @@ const BANDWIDTH_PROBE_INSTALL_JS = `(() => {
       wsTxBytes: st.wsTxBytes,
       httpRxBytes: st.httpRxBytes,
       httpTxBytes: st.httpTxBytes,
+      cachedRxBytes: st.cachedRxBytes || 0,
+      cachedRequests: st.cachedRequests || 0,
       wsRxPackets: st.wsRxPackets,
       wsTxPackets: st.wsTxPackets,
       httpRequests: st.httpRequests
@@ -3249,7 +3272,7 @@ async function updateBandwidthTracker(profileId, liveState, debugPort) {
   }
   const profDaily = dayBucket.byProfile[profileId];
 
-  if (liveState && !liveState.error && !liveState.bandwidth && debugPort) {
+  if (liveState && !liveState.error && (!liveState.bandwidth || liveState.bandwidth.probeVersion !== 2) && debugPort) {
     const lastTry = bwProbeInstallCooldown[debugPort] || 0;
     if (now - lastTry > 5000) {
       bwProbeInstallCooldown[debugPort] = now;
@@ -3370,6 +3393,7 @@ async function updateBandwidthTracker(profileId, liveState, debugPort) {
     todayTxBytes: profDaily.txBytes || 0,
     todayWsBytes: (profDaily.wsRxBytes || 0) + (profDaily.wsTxBytes || 0),
     todayHttpBytes: (profDaily.httpRxBytes || 0) + (profDaily.httpTxBytes || 0),
+    cachedRxBytes: (bw && typeof bw.cachedRxBytes === "number") ? bw.cachedRxBytes : 0,
     activeSec: Math.round(profDaily.activeSec || 0),
     bps,
     rxBps,
@@ -3401,6 +3425,11 @@ function resetBandwidthTracker(profileId) {
       bandwidthRateTrackers[k].lastTime = now;
       bandwidthRateTrackers[k].samples = [];
     }
+    try {
+      if (typeof screenProxy !== "undefined" && screenProxy && typeof screenProxy.resetTrafficStats === "function") {
+        screenProxy.resetTrafficStats();
+      }
+    } catch (_) {}
   } else {
     if (dayBucket && dayBucket.byProfile && dayBucket.byProfile[profileId]) {
       const p = dayBucket.byProfile[profileId];
@@ -4346,6 +4375,9 @@ const server = http.createServer(async (req, res) => {
           } else if (saved.settings && !saved.settings.enabled) {
             await screenProxy.releaseAll().catch(() => {});
           }
+          if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
+            await browserMode.syncAssetCacheToOpenWindows().catch(() => {});
+          }
           const status = await screenProxy.getQueueStatus({ refreshBackend: true });
           sendJSON({ ...status, backendSync: saved.backendSync || null });
         } catch (e) {
@@ -4371,11 +4403,14 @@ const server = http.createServer(async (req, res) => {
         let openApplied = null;
         if (updated.enabled) {
           await syncScreenProxyForOpenProfiles().catch(() => {});
-          if (data.applyToOpen && isBrowserMode()) {
+          if ((data.applyToOpen || data.applyToOpenWindows) && isBrowserMode()) {
             openApplied = await browserMode.applyProxyModeToOpenWindows().catch(err => ({ error: err.message }));
           }
         } else {
           await screenProxy.releaseAll().catch(() => {});
+        }
+        if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
+          await browserMode.syncAssetCacheToOpenWindows().catch(() => {});
         }
         const status = await screenProxy.getQueueStatus({ refreshBackend: false });
         sendJSON({
@@ -4406,6 +4441,9 @@ const server = http.createServer(async (req, res) => {
         const applied = isBrowserMode()
           ? await browserMode.applyProxyModeToOpenWindows({ onlyProfileIds: data.profileIds })
           : { switched: 0, updatedTunnels: (await syncScreenProxyForOpenProfiles()).length };
+        if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
+          await browserMode.syncAssetCacheToOpenWindows().catch(() => {});
+        }
         const status = await screenProxy.getQueueStatus({ refreshBackend: false });
         sendJSON({
           ...status,
@@ -4417,6 +4455,20 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  if (pathname === "/api/screen-proxy/reset-traffic" && req.method === "POST") {
+    try {
+      screenProxy.resetTrafficStats();
+      resetBandwidthTracker("all");
+      if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
+        await browserMode.syncAssetCacheToOpenWindows().catch(() => {});
+      }
+      const status = await screenProxy.getQueueStatus({ refreshBackend: false });
+      return sendJSON({ ...status, success: true });
+    } catch (e) {
+      return sendJSON({ success: false, error: e.message }, 500);
+    }
   }
 
   if (pathname === "/api/screen-proxy/test" && req.method === "POST") {
@@ -6623,6 +6675,14 @@ server.listen(PORT, "127.0.0.1", () => {
   if(!TEST_INSTANCE)authSync.start();
   browserMode.start();
   if (!TEST_INSTANCE) {
+    setTimeout(() => {
+      if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
+        browserMode.syncAssetCacheToOpenWindows().catch(() => {});
+      }
+      if (screenProxy.isEnabled()) {
+        syncScreenProxyForOpenProfiles().catch(() => {});
+      }
+    }, 2800);
     setTimeout(() => syncStashTradeConfigToAllClients().catch(() => {}), 3500);
     setInterval(() => syncStashTradeConfigToAllClients().catch(() => {}), 25000);
   }
