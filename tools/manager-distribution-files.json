@@ -1,4 +1,5 @@
 [
+  "manager/asset_cache.js",
   "manager/auth_sync.js",
   "manager/bot_auto_update.js",
   "manager/browser_mode.js",
@@ -51,6 +52,7 @@
   "manager/public/script_status.html",
   "manager/public/script_status.js",
   "manager/public/style.css",
+  "manager/screen_proxy_manager.js",
   "manager/script_bootstrap.js",
   "manager/script_coordinator.js",
   "manager/script_release_keys.js",
@@ -59,3 +61,4 @@
   "manager/server.js",
   "manager/test_isolation.js"
 ]
+

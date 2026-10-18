@@ -53,3 +53,10 @@ manager/data/bandwidth_stats.json
 manager/data/bandwidth_stats.json.tmp
 manager/data/zeny_rate_state.json
 manager/data/zeny_rate_state.json.tmp
+manager/data/screen_proxy_*.json
+manager/data/screen_proxy_*.json.tmp
+manager/data/screen_proxy_*.txt
+manager/data/asset_cache/
+*proxies*.txt
+Webshare*.txt
+

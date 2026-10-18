@@ -1085,7 +1085,7 @@ function createScreenProxyManager({ dataDir, solver, loadProfiles, assetCache: p
       return {
         profileId: p.id,
         profileName: p.name,
-        running: openSet.has(p.id),
+        running: openSet.has(p.id) || Boolean(lease?.assigned && tunnel),
         assigned: Boolean(pub.enabled && lease?.assigned),
         ip: pub.enabled && lease?.assigned ? lease.ip : null,
         proxyHost: pub.enabled && lease?.assigned ? lease.proxyHost : null,
