@@ -57,6 +57,11 @@ manager/data/screen_proxy_*.json
 manager/data/screen_proxy_*.json.tmp
 manager/data/screen_proxy_*.txt
 manager/data/asset_cache/
+manager/data/*.backup.json
+manager/data/deleted_profiles.json
+manager/*.tmp
+manager/data/*.tmp
 *proxies*.txt
 Webshare*.txt
+
 
