@@ -101,6 +101,7 @@ const { createHumanCheckSolver } = require("./human_check_solver");
 const humanCheckSolver = createHumanCheckSolver({ dataDir: path.join(__dirname, "data"), ...(TEST_INSTANCE ? { requestJSON: require('./test_isolation').createFixtureRequestJSON(testFixturePort) } : {}) });
 const { createProxyRegisterService } = require("./proxy_register");
 const proxyRegister = createProxyRegisterService({ dataDir: path.join(__dirname, "data"), solver: humanCheckSolver });
+const { createScreenProxyManager } = require("./screen_proxy_manager");
 const imageBoardSolver = require('./image_board_solver');
 const { createScriptCoordinator } = require('./script_coordinator');
 const { loadScriptRollout, saveScriptRolloutSelection } = require('./script_rollout');
@@ -3297,12 +3298,35 @@ const botAutoUpdater = createBotAutoUpdater({
 });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)
 const authSync = createAuthSync({ loadProfiles, saveProfiles, evalProfilePort, credentials, proxyRegister });
+// Per-screen IP queue & split-tunnel forwarder (1 IP : 3 screens)
+const screenProxy = createScreenProxyManager({
+  dataDir: path.join(__dirname, "data"),
+  solver: humanCheckSolver,
+  loadProfiles
+});
 // Browser mode: game windows in one real Chrome / Edge instead of one Electron app each (manager/browser_mode.js)
-const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles, ...(TEST_INSTANCE?{cdpPort:testCdpPort,browserUserDataDir:path.join(SESSIONS_DIR,'_isolated_test_browser')}:{ }), profileScriptSource:id=>scriptCoordinator.profileScriptSource(id) });
+const browserMode = createBrowserMode({ rootDir: path.resolve(__dirname, ".."), sessionsDir: SESSIONS_DIR, getSettings: () => installer.loadSettings(), loadProfiles, ...(TEST_INSTANCE?{cdpPort:testCdpPort,browserUserDataDir:path.join(SESSIONS_DIR,'_isolated_test_browser')}:{ }), profileScriptSource:id=>scriptCoordinator.profileScriptSource(id), screenProxy });
 const isBrowserMode = () => {
   const st = installer.loadSettings() || {};
   return (st.launchMode || "browser") === "browser";
 };
+
+async function syncScreenProxyForOpenProfiles() {
+  if (!screenProxy.isEnabled()) return [];
+  const profiles = loadProfiles() || [];
+  const results = [];
+  for (const p of profiles) {
+    const isOpen = browserMode.isOpen(p.id) || (runningProcesses[p.id] && isProcessAlive(runningProcesses[p.id].pid)) || (p.debugPort && await portAnswers(p.debugPort));
+    if (!isOpen) continue;
+    try {
+      const t = await screenProxy.acquireForProfile(p.id, { debugPort: p.debugPort });
+      results.push({ profileId: p.id, name: p.name, lease: t?.lease || null, proxyServerUrl: t?.proxyServerUrl || null });
+    } catch (e) {
+      results.push({ profileId: p.id, name: p.name, error: e.message });
+    }
+  }
+  return results;
+}
 
 const managerUpdater = createManagerSelfUpdater({
   managerDir: __dirname,
@@ -3404,6 +3428,7 @@ function saveAdminPeers(peers) {
 }
 
 async function stopSingleProfile(id) {
+  await screenProxy.releaseProfile(id, 'stopped').catch(() => {});
   if (browserMode.isOpen(id)) {
     try { await browserMode.stop(id); } catch (_) {}
     return { success: true };
@@ -3417,6 +3442,7 @@ async function stopSingleProfile(id) {
 }
 
 async function stopAllProfiles() {
+  await screenProxy.releaseAll().catch(() => {});
   for (const p of loadProfiles()) {
     if (browserMode.isOpen(p.id)) browserMode.stop(p.id).catch(() => {});
   }
@@ -4083,6 +4109,137 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ==========================================
+  // PER-SCREEN IP QUEUE (1 IP : 3 SCREENS) API
+  // ==========================================
+  if (pathname === "/api/screen-proxy/status" && req.method === "GET") {
+    try {
+      const refresh = parsedUrl.searchParams.get("refresh") === "1";
+      const st = await screenProxy.getQueueStatus({ refreshBackend: refresh });
+      return sendJSON(st);
+    } catch (e) {
+      return sendJSON({ success: false, error: e.message }, 500);
+    }
+  }
+
+  if (pathname === "/api/screen-proxy/settings") {
+    if (req.method === "GET") {
+      try {
+        const st = await screenProxy.getQueueStatus({ refreshBackend: false });
+        return sendJSON(st);
+      } catch (e) {
+        return sendJSON({ success: false, error: e.message }, 500);
+      }
+    }
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => {
+        body += c;
+        if (Buffer.byteLength(body, "utf8") > 262144) req.destroy();
+      });
+      req.on("end", async () => {
+        try {
+          const data = JSON.parse(body || "{}");
+          const saved = await screenProxy.savePoolAndSettings(data);
+          if (saved.settings && saved.settings.enabled) {
+            await syncScreenProxyForOpenProfiles().catch(() => {});
+          } else if (saved.settings && !saved.settings.enabled) {
+            await screenProxy.releaseAll().catch(() => {});
+          }
+          const status = await screenProxy.getQueueStatus({ refreshBackend: true });
+          sendJSON({ ...status, backendSync: saved.backendSync || null });
+        } catch (e) {
+          sendJSON({ success: false, error: e.message }, 400);
+        }
+      });
+      return;
+    }
+  }
+
+  if (pathname === "/api/screen-proxy/toggle" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => {
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > 8192) req.destroy();
+    });
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const current = screenProxy.loadSettings();
+        const nextState = typeof data.enabled === "boolean" ? data.enabled : !current.enabled;
+        const updated = screenProxy.saveSettings({ enabled: nextState });
+        let openApplied = null;
+        if (updated.enabled) {
+          await syncScreenProxyForOpenProfiles().catch(() => {});
+          if (data.applyToOpen && isBrowserMode()) {
+            openApplied = await browserMode.applyProxyModeToOpenWindows().catch(err => ({ error: err.message }));
+          }
+        } else {
+          await screenProxy.releaseAll().catch(() => {});
+        }
+        const status = await screenProxy.getQueueStatus({ refreshBackend: false });
+        sendJSON({
+          ...status,
+          success: true,
+          enabled: updated.enabled,
+          openApplied
+        });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/screen-proxy/apply-open" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => {
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > 16384) req.destroy();
+    });
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        if (!screenProxy.isEnabled()) {
+          screenProxy.saveSettings({ enabled: true });
+        }
+        const applied = isBrowserMode()
+          ? await browserMode.applyProxyModeToOpenWindows({ onlyProfileIds: data.profileIds })
+          : { switched: 0, updatedTunnels: (await syncScreenProxyForOpenProfiles()).length };
+        const status = await screenProxy.getQueueStatus({ refreshBackend: false });
+        sendJSON({
+          ...status,
+          success: true,
+          applied
+        });
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 500);
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/screen-proxy/test" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => {
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > 8192) req.destroy();
+    });
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const result = await screenProxy.testProxy({
+          proxyLine: data.proxyLine || "",
+          profileId: data.profileId || ""
+        });
+        sendJSON(result, result.success ? 200 : 502);
+      } catch (e) {
+        sendJSON({ success: false, error: e.message }, 500);
+      }
+    });
+    return;
+  }
+
   // 1. GET /api/profiles
   if (req.method === "GET" && pathname === "/api/profiles") {
     lastProfilesZenyPollAt = Date.now();
@@ -4151,6 +4308,7 @@ const server = http.createServer(async (req, res) => {
           premiumUntil: effectivePremiumUntil,
           zenyRate,
           bandwidth,
+          screenProxy: screenProxy.getProfileLeaseSnapshot(p.id),
           windowState: windowStates[p.id] || { isHidden: false, zeroRender: false }
         };
       })
@@ -4209,6 +4367,7 @@ const server = http.createServer(async (req, res) => {
       success: true,
       profiles: enriched,
       bandwidthSummary,
+      screenProxySummary: screenProxy.publicSettings(),
       gameExe: getGameExe(),
       allWindowsHidden,
       captchaStats: getCaptchaStats()
@@ -4526,6 +4685,7 @@ const server = http.createServer(async (req, res) => {
     const idx = profiles.findIndex(p => p.id === id);
     if (idx === -1) return sendJSON({ success: false, error: "Profile not found" }, 404);
 
+    screenProxy.releaseProfile(id, "deleted").catch(() => {});
     // Stop process if running
     if (runningProcesses[id] && isProcessAlive(runningProcesses[id].pid)) {
       try { process.kill(runningProcesses[id].pid, "SIGTERM"); } catch (e) {}
@@ -4581,8 +4741,21 @@ const server = http.createServer(async (req, res) => {
 
     const protectedPilot=!!scriptCoordinator.profileScriptSource(profile.id);
     if(protectedPilot&&!installer.checkStatus().protectedScriptCapable)return sendJSON({success:false,code:'PROTECTED_LOADER_UPDATE_REQUIRED',error:'จอทดลอง Electron ต้องอัปเดตผ่านปุ่ม สคริปต์เกม ก่อน (loader 1.0.7) จากนั้นเปิดเฉพาะจอทดลองใหม่ จออื่นไม่ต้องปิด'},409);
+    let proxyArgs = [];
+    if (screenProxy.isEnabled()) {
+      try {
+        const tunnelInfo = await screenProxy.acquireForProfile(profile.id, { debugPort: profile.debugPort });
+        if (tunnelInfo && tunnelInfo.proxyServerUrl) {
+          proxyArgs = [
+            `--proxy-server=${tunnelInfo.proxyServerUrl}`,
+            "--proxy-bypass-list=127.0.0.1;localhost"
+          ];
+        }
+      } catch (_) {}
+    }
     const args = [
       ...(protectedPilot?['--pmhee-protected-script']:[]),
+      ...proxyArgs,
       `--user-data-dir=${sessionDir}`,
       `--profile-name=${encodeURIComponent(profile.name)}`,
       `--debug-port=${profile.debugPort || 49876}`,
@@ -4617,6 +4790,7 @@ const server = http.createServer(async (req, res) => {
   // 6. POST /api/profiles/:id/stop
   if (req.method === "POST" && pathname.match(/^\/api\/profiles\/[^/]+\/stop$/)) {
     const id = pathname.split("/")[3];
+    screenProxy.releaseProfile(id, "stopped").catch(() => {});
     if (browserMode.isOpen(id)) {
       browserMode.stop(id).then(() => sendJSON({ success: true })).catch(e => sendJSON({ success: false, error: e.message }, 500));
       return;
@@ -4682,8 +4856,21 @@ const server = http.createServer(async (req, res) => {
 
       const protectedPilot=!!scriptCoordinator.profileScriptSource(p.id);
       if(protectedPilot&&!installer.checkStatus().protectedScriptCapable){failed.push(p.name+': ต้องอัปเดต สคริปต์เกม เป็น loader 1.0.7 ก่อนเปิดจอทดลอง');continue;}
+      let proxyArgs = [];
+      if (screenProxy.isEnabled()) {
+        try {
+          const tunnelInfo = await screenProxy.acquireForProfile(p.id, { debugPort: p.debugPort });
+          if (tunnelInfo && tunnelInfo.proxyServerUrl) {
+            proxyArgs = [
+              `--proxy-server=${tunnelInfo.proxyServerUrl}`,
+              "--proxy-bypass-list=127.0.0.1;localhost"
+            ];
+          }
+        } catch (_) {}
+      }
       const args = [
         ...(protectedPilot?['--pmhee-protected-script']:[]),
+        ...proxyArgs,
         `--user-data-dir=${sessionDir}`,
         `--profile-name=${encodeURIComponent(p.name)}`,
         `--debug-port=${p.debugPort || 49876}`,
@@ -4704,6 +4891,7 @@ const server = http.createServer(async (req, res) => {
 
   // 8. POST /api/stop-all
   if (req.method === "POST" && pathname === "/api/stop-all") {
+    screenProxy.releaseAll().catch(() => {});
     for (const p of loadProfiles()) if (browserMode.isOpen(p.id)) browserMode.stop(p.id).catch(() => {});
     for (const id in runningProcesses) {
       const proc = runningProcesses[id];

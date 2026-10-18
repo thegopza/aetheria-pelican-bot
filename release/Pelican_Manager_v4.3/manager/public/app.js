@@ -217,6 +217,9 @@ async function fetchProfiles() {
       if (data.captchaStats && typeof data.captchaStats.totalSolved === 'number') {
         updateCaptchaSolvedDisplay(data.captchaStats.totalSolved);
       }
+      if (data.screenProxySummary && typeof updateScreenProxyToolbarBtn === 'function') {
+        updateScreenProxyToolbarBtn(data.screenProxySummary);
+      }
 
       // Play alert chime if any card has humanCheck active or is in prison
       const hasActiveHumanCheck = currentProfiles.some(p => p.liveState && p.liveState.humanCheck && p.liveState.humanCheck.active);
@@ -1481,6 +1484,7 @@ function buildProfileCard(p) {
             ${baseLv !== null ? `<span class="lv-text">Base <b>${baseLv}</b></span>` : ''}
             ${jobLv !== null ? `<span class="lv-text">Job <b>${jobLv}</b></span>` : ''}
             ${buildPartyRoleChip(p.id)}
+            ${p.screenProxy && p.screenProxy.active && p.screenProxy.proxyHost ? `<span class="chip" style="background:rgba(168,85,247,0.18);color:#e9d5ff;border:1px solid rgba(168,85,247,0.45);font-size:0.68rem;cursor:pointer;" onclick="openScreenProxyModal()" title="จอนี้เชื่อมต่อผ่านคิวแยก IP: ${escapeHTML(p.screenProxy.proxyHost)}:${p.screenProxy.proxyPort || ''} (ช่อง ${p.screenProxy.slotIndex || 1}/${p.screenProxy.maxScreensPerIp || 3})">🛡️ IP: ${escapeHTML(p.screenProxy.proxyHost)} (${p.screenProxy.slotIndex || 1}/${p.screenProxy.maxScreensPerIp || 3})</span>` : ''}
           </div>
         </div>
         <div class="card-meta">
@@ -2796,6 +2800,334 @@ function initProxyRegisterControls() {
 }
 
 // ==========================================
+// PER-SCREEN IP QUEUE (1 IP : 3 SCREENS) MODAL & TOGGLE CONTROLLER
+// ==========================================
+let currentScreenProxySettings = {
+  enabled: false,
+  mode: "owner-queue",
+  maxScreensPerIp: 3,
+  onlyGameTraffic: true,
+  poolCount: 0,
+  totalSlots: 0,
+  activeLeaseCount: 0,
+  freeSlots: 0
+};
+
+function updateScreenProxyToolbarBtn(summary) {
+  if (summary && typeof summary === "object") {
+    currentScreenProxySettings = { ...currentScreenProxySettings, ...summary };
+  }
+  const enabled = !!currentScreenProxySettings.enabled;
+  const maxS = Number(currentScreenProxySettings.maxScreensPerIp) || 3;
+  const activeCount = Number(currentScreenProxySettings.activeLeaseCount) || 0;
+  const poolCount = Number(currentScreenProxySettings.poolCount) || 0;
+
+  const btn = document.getElementById("btn-toggle-screen-proxy");
+  const lbl = document.getElementById("lbl-toggle-screen-proxy");
+  if (!btn) return;
+
+  if (enabled) {
+    if (lbl) {
+      lbl.textContent = poolCount > 0
+        ? `แยก IP (1:${maxS}): เปิด (${activeCount}/${poolCount * maxS})`
+        : `แยก IP (1:${maxS}): เปิด`;
+    }
+    btn.style.borderColor = "rgba(168, 85, 247, 0.55)";
+    btn.style.background = "rgba(168, 85, 247, 0.18)";
+    btn.style.color = "#e9d5ff";
+    btn.title = `ระบบแยก IP รายจอเปิดใช้งานอยู่ (1 IP ต่อ ${maxS} จอ · จับคู่แล้ว ${activeCount} จอ จาก ${poolCount} IP) — คลิกเพื่อตั้งค่าหรือเปิด/ปิด`;
+  } else {
+    if (lbl) lbl.textContent = `แยก IP (1:${maxS}): ปิด`;
+    btn.style.borderColor = "rgba(148, 163, 184, 0.3)";
+    btn.style.background = "rgba(148, 163, 184, 0.08)";
+    btn.style.color = "#94a3b8";
+    btn.title = `ระบบแยก IP รายจอ (1 IP ต่อ ${maxS} จอ) ปิดอยู่ — คลิกเพื่อตั้งค่ารายการ IP หรือเปิดใช้งาน`;
+  }
+}
+window.updateScreenProxyToolbarBtn = updateScreenProxyToolbarBtn;
+
+function renderScreenProxyModal(statusData) {
+  if (!statusData) return;
+  if (statusData.settings) {
+    updateScreenProxyToolbarBtn(statusData.settings);
+  }
+  const s = currentScreenProxySettings;
+  const enabled = !!s.enabled;
+  const maxS = Number(s.maxScreensPerIp) || 3;
+
+  const badge = document.getElementById("screen-proxy-status-badge");
+  if (badge) {
+    if (enabled) {
+      badge.textContent = "สถานะ: เปิดใช้งาน";
+      badge.style.background = "rgba(16, 185, 129, 0.2)";
+      badge.style.color = "#34d399";
+      badge.style.borderColor = "rgba(16, 185, 129, 0.45)";
+    } else {
+      badge.textContent = "สถานะ: ปิด";
+      badge.style.background = "rgba(148, 163, 184, 0.15)";
+      badge.style.color = "#94a3b8";
+      badge.style.borderColor = "rgba(148, 163, 184, 0.3)";
+    }
+  }
+
+  const toggleBtn = document.getElementById("btn-screen-proxy-toggle-main");
+  if (toggleBtn) {
+    if (enabled) {
+      toggleBtn.textContent = "⏸️ ปิดใช้งานระบบแยก IP";
+      toggleBtn.style.background = "rgba(239, 68, 68, 0.85)";
+      toggleBtn.style.borderColor = "rgba(239, 68, 68, 0.55)";
+    } else {
+      toggleBtn.textContent = `✅ เปิดใช้งานแยก IP (1:${maxS})`;
+      toggleBtn.style.background = "#7c3aed";
+      toggleBtn.style.borderColor = "#a855f7";
+    }
+  }
+
+  const poolCountEl = document.getElementById("sp-stat-pool-count");
+  const totalSlotsEl = document.getElementById("sp-stat-total-slots");
+  const activeLeasesEl = document.getElementById("sp-stat-active-leases");
+  const freeSlotsEl = document.getElementById("sp-stat-free-slots");
+  if (poolCountEl) poolCountEl.textContent = `${s.poolCount || 0} IP`;
+  if (totalSlotsEl) totalSlotsEl.textContent = `${s.totalSlots || 0} จอ`;
+  if (activeLeasesEl) activeLeasesEl.textContent = `${s.activeLeaseCount || 0} จอ`;
+  if (freeSlotsEl) freeSlotsEl.textContent = `${s.freeSlots || 0} ช่อง`;
+
+  const modeOwner = document.getElementById("sp-mode-owner");
+  const modeLocal = document.getElementById("sp-mode-local");
+  if (modeOwner) modeOwner.checked = s.mode !== "local-pool";
+  if (modeLocal) modeLocal.checked = s.mode === "local-pool";
+
+  const maxInput = document.getElementById("sp-max-screens");
+  if (maxInput && document.activeElement !== maxInput) {
+    maxInput.value = String(maxS);
+  }
+
+  const onlyGameChk = document.getElementById("sp-only-game-traffic");
+  if (onlyGameChk) {
+    onlyGameChk.checked = s.onlyGameTraffic !== false;
+  }
+
+  const poolTextarea = document.getElementById("sp-pool-textarea");
+  if (poolTextarea && document.activeElement !== poolTextarea && typeof s.poolText === "string") {
+    poolTextarea.value = s.poolText;
+  }
+
+  const leasesListEl = document.getElementById("sp-leases-list");
+  if (leasesListEl) {
+    const leases = Array.isArray(statusData.leases) ? statusData.leases : [];
+    if (leases.length === 0) {
+      leasesListEl.innerHTML = `<div style="text-align: center; color: #64748b; padding: 14px;">ยังไม่มีจอที่จับคู่ IP ในขณะนี้ (เมื่อเปิดใช้งานและเปิดจอเกม ระบบจะจับคู่ให้อัตโนมัติ)</div>`;
+    } else {
+      const profById = new Map(currentProfiles.map(p => [p.id, p]));
+      leasesListEl.innerHTML = leases.map(l => {
+        const prof = profById.get(l.profileId);
+        const pName = prof ? prof.name : l.profileId;
+        const isOnline = prof ? !!prof.isRunning : false;
+        return `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: ${isOnline ? '#34d399' : '#64748b'}; display: inline-block;"></span>
+              <strong style="color: #f8fafc;">${escapeHTML(pName)}</strong>
+              <span style="color: #64748b; font-size: 10.5px;">(${escapeHTML(l.profileId)})</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #38bdf8; font-weight: 600;">${escapeHTML(l.proxyHost)}:${escapeHTML(String(l.proxyPort || ''))}</span>
+              <span style="background: rgba(168, 85, 247, 0.2); color: #e9d5ff; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 99px; padding: 1px 8px; font-size: 10.5px; font-weight: 700;">
+                ช่อง ${l.slotIndex || 1}/${l.maxScreensPerIp || maxS}
+              </span>
+              ${l.tunnelPort ? `<span style="color: #10b981; font-size: 10px;" title="Local Forwarder Port">127.0.0.1:${l.tunnelPort}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+async function fetchScreenProxyStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/screen-proxy/status`).then(r => r.json());
+    if (res && res.success) {
+      renderScreenProxyModal(res);
+    }
+  } catch (_) {}
+}
+
+function openScreenProxyModal() {
+  const modal = document.getElementById("modal-screen-proxy-settings");
+  if (!modal) return;
+  modal.style.display = "flex";
+  fetchScreenProxyStatus();
+}
+window.openScreenProxyModal = openScreenProxyModal;
+
+function closeScreenProxyModal() {
+  const modal = document.getElementById("modal-screen-proxy-settings");
+  if (modal) modal.style.display = "none";
+}
+window.closeScreenProxyModal = closeScreenProxyModal;
+
+async function saveScreenProxySettings(showToastFeedback = true) {
+  const modeOwner = document.getElementById("sp-mode-owner");
+  const mode = (modeOwner && modeOwner.checked) ? "owner-queue" : "local-pool";
+  const maxScreensPerIp = Math.max(1, Math.min(10, Number(document.getElementById("sp-max-screens")?.value) || 3));
+  const onlyGameTraffic = document.getElementById("sp-only-game-traffic")?.checked !== false;
+  const poolText = document.getElementById("sp-pool-textarea")?.value || "";
+
+  const btnSave = document.getElementById("btn-sp-save-pool");
+  if (btnSave) btnSave.disabled = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/screen-proxy/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, maxScreensPerIp, onlyGameTraffic, poolText })
+    }).then(r => r.json());
+    if (res && res.success) {
+      await fetchScreenProxyStatus();
+      if (showToastFeedback) {
+        const pCount = res.settings?.poolCount || 0;
+        showToast(`💾 บันทึกรายการ IP สำเร็จ (${pCount} IP = รองรับสูงสุด ${pCount * maxScreensPerIp} จอ)`, "success");
+      }
+      return res;
+    } else {
+      if (showToastFeedback) showToast("❌ บันทึกไม่สำเร็จ: " + (res?.error || "Unknown"), "error");
+      return null;
+    }
+  } catch (e) {
+    if (showToastFeedback) showToast("❌ เกิดข้อผิดพลาด: " + e.message, "error");
+    return null;
+  } finally {
+    if (btnSave) btnSave.disabled = false;
+  }
+}
+
+function initScreenProxyControls() {
+  const btnToolbar = document.getElementById("btn-toggle-screen-proxy");
+  if (btnToolbar) {
+    btnToolbar.onclick = () => openScreenProxyModal();
+  }
+
+  const btnClose = document.getElementById("btn-screen-proxy-close");
+  if (btnClose) btnClose.onclick = closeScreenProxyModal;
+  const btnCancel = document.getElementById("btn-screen-proxy-cancel");
+  if (btnCancel) btnCancel.onclick = closeScreenProxyModal;
+
+  const modal = document.getElementById("modal-screen-proxy-settings");
+  if (modal) {
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeScreenProxyModal();
+    });
+  }
+
+  const btnSave = document.getElementById("btn-sp-save-pool");
+  if (btnSave) {
+    btnSave.onclick = () => saveScreenProxySettings(true);
+  }
+
+  const btnToggleMain = document.getElementById("btn-screen-proxy-toggle-main");
+  if (btnToggleMain) {
+    btnToggleMain.onclick = async () => {
+      btnToggleMain.disabled = true;
+      try {
+        // Save any unsaved IP pool edits first before toggling
+        await saveScreenProxySettings(false);
+        const nextEnabled = !currentScreenProxySettings.enabled;
+        const res = await fetch(`${API_BASE}/api/screen-proxy/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: nextEnabled, applyToOpenWindows: true })
+        }).then(r => r.json());
+        if (res && res.success) {
+          await fetchScreenProxyStatus();
+          fetchProfiles();
+          showToast(
+            res.enabled
+              ? `🛡️ เปิดใช้งานระบบแยก IP รายจอ (1 IP ต่อ ${res.settings?.maxScreensPerIp || 3} จอ) แล้ว`
+              : "⏸️ ปิดระบบแยก IP รายจอแล้ว (สลับกลับไปใช้เน็ตปกติ)",
+            res.enabled ? "success" : "info"
+          );
+        } else {
+          showToast("❌ เปลี่ยนสถานะไม่สำเร็จ: " + (res?.error || "Unknown"), "error");
+        }
+      } catch (e) {
+        showToast("❌ เกิดข้อผิดพลาด: " + e.message, "error");
+      } finally {
+        btnToggleMain.disabled = false;
+      }
+    };
+  }
+
+  const btnApplyOpen = document.getElementById("btn-sp-apply-open");
+  if (btnApplyOpen) {
+    btnApplyOpen.onclick = async () => {
+      btnApplyOpen.disabled = true;
+      try {
+        await saveScreenProxySettings(false);
+        const res = await fetch(`${API_BASE}/api/screen-proxy/apply-open`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        }).then(r => r.json());
+        if (res && res.success) {
+          await fetchScreenProxyStatus();
+          fetchProfiles();
+          const count = Array.isArray(res.switched) ? res.switched.filter(x => x.ok).length : 0;
+          showToast(`🔄 จัดคิวและสลับ IP ให้จอที่เปิดอยู่สำเร็จ (${count} จอ)`, "success");
+        } else {
+          showToast("❌ สลับ IP ไม่สำเร็จ: " + (res?.error || "Unknown"), "error");
+        }
+      } catch (e) {
+        showToast("❌ เกิดข้อผิดพลาด: " + e.message, "error");
+      } finally {
+        btnApplyOpen.disabled = false;
+      }
+    };
+  }
+
+  const btnTest = document.getElementById("btn-sp-test-conn");
+  const statusMsg = document.getElementById("sp-test-status-msg");
+  if (btnTest) {
+    btnTest.onclick = async () => {
+      btnTest.disabled = true;
+      if (statusMsg) {
+        statusMsg.textContent = "⏳ กำลังบันทึกและทดสอบการเชื่อมต่อผ่าน Proxy IP...";
+        statusMsg.style.color = "#38bdf8";
+      }
+      try {
+        await saveScreenProxySettings(false);
+        const res = await fetch(`${API_BASE}/api/screen-proxy/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        }).then(r => r.json());
+        if (res && res.success) {
+          if (statusMsg) {
+            statusMsg.textContent = `✅ เชื่อมต่อสำเร็จ! Egress IP: ${res.ip} (ผ่าน Proxy ${res.proxyHost}:${res.proxyPort})`;
+            statusMsg.style.color = "#34d399";
+          }
+          showToast(`✅ ทดสอบแยก IP สำเร็จ! Egress IP: ${res.ip}`, "success");
+        } else {
+          if (statusMsg) {
+            statusMsg.textContent = `❌ ทดสอบไม่สำเร็จ: ${res?.error || "ยังไม่ได้ใส่รายการ IP หรือ Proxy ตอบกลับผิดพลาด"}`;
+            statusMsg.style.color = "#f87171";
+          }
+          showToast(`❌ ทดสอบไม่สำเร็จ: ${res?.error || "Unknown"}`, "error");
+        }
+      } catch (e) {
+        if (statusMsg) {
+          statusMsg.textContent = `❌ เกิดข้อผิดพลาด: ${e.message}`;
+          statusMsg.style.color = "#f87171";
+        }
+      } finally {
+        btnTest.disabled = false;
+      }
+    };
+  }
+
+  fetchScreenProxyStatus();
+}
+
+// ==========================================
 // AUTO CAPTCHA POINT TOP-UP MODAL CONTROLLER
 // ==========================================
 let lastKnownPointsPerSolve = 1;
@@ -3114,7 +3446,7 @@ function initDeviceNickname() {
     }
   } catch (e) {}
   // The modal markup follows this script; a fast/cached response can finish before parsing it.
-  const initAccountModals=()=>{initTopupCaptchaModal();initProxyRegisterControls();};
+  const initAccountModals=()=>{initTopupCaptchaModal();initProxyRegisterControls();initScreenProxyControls();};
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccountModals, { once: true });
   else initAccountModals();
   initDeviceNickname();

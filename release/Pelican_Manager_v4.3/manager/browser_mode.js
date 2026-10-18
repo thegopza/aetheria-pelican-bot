@@ -56,23 +56,45 @@ function getText(url, timeout = 8000) {
   });
 }
 
-function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot, cdpPort = DEFAULT_CDP_PORT, browserUserDataDir, gameUrl = GAME_URL, profileScriptSource }) {
+function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, preferLocalBot, cdpPort = DEFAULT_CDP_PORT, browserUserDataDir, gameUrl = GAME_URL, profileScriptSource, screenProxy }) {
   if(!Number.isInteger(cdpPort)||cdpPort<1024||cdpPort>65535)throw Error('INVALID_CDP_PORT');
   const CDP_PORT = cdpPort;
   const isGameUrl=value=>{try{return new URL(value).origin===new URL(gameUrl).origin;}catch(_){return false;}};
   const userDataDir = browserUserDataDir || path.join(sessionsDir, '_browser');
+  const storageDir = (sessionsDir && sessionsDir !== 'fake') ? path.join(sessionsDir, '_browser_storage') : null;
   const localBotPath = path.join(rootDir, 'bot.js');
   let browserProc = null;
   let ws = null, wsReady = null, nextId = 1;
   const pending = new Map();            // CDP call id -> {resolve, reject}
   const listeners = new Set();          // CDP event listeners
-  const clients = new Map();            // profileId -> { targetId, sessionId, server, port }
+  const clients = new Map();            // profileId -> { targetId, sessionId, server, port, browserContextId }
   let startupPages = [];                // the empty window Chrome opens on start — closed once a game window exists
   const portServers = new Map();        // port -> proxy server (one per port, even if a client object went stale)
   let rediscovering = null;
   let started = false, reconnectTimer = null, reconnectDelay = 1000, monitorTimer = null;
   const stoppedProfiles = new Set(), knownTargets = new Map(), diagnostics = new Map();
   const knownTargetsFile = (sessionsDir && sessionsDir !== 'fake') ? path.join(sessionsDir, '_browser_targets.json') : null;
+
+  function loadProfileStorage(profileId) {
+    if (!storageDir || !profileId) return {};
+    try {
+      const f = path.join(storageDir, `${profileId}.json`);
+      if (!fs.existsSync(f)) return {};
+      const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+      return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+    } catch (_) { return {}; }
+  }
+  function saveProfileStorage(profileId, entries) {
+    if (!storageDir || !profileId || !entries || typeof entries !== 'object') return;
+    try {
+      fs.mkdirSync(storageDir, { recursive: true });
+      const f = path.join(storageDir, `${profileId}.json`);
+      const merged = { ...loadProfileStorage(profileId), ...entries };
+      fs.writeFileSync(f + '.tmp', JSON.stringify(merged), 'utf8');
+      fs.renameSync(f + '.tmp', f);
+    } catch (_) {}
+  }
+
   function loadKnownTargets() {
     if (!knownTargetsFile) return;
     try {
@@ -200,7 +222,36 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
   const MSGPACK = `(function(){ if (!window.msgpack && !window.__pmMsgpackLoading) { window.__pmMsgpackLoading=true; const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/msgpack-lite/0.1.26/msgpack.min.js'; s.onerror=()=>{window.__pmMsgpackLoading=false;}; document.head.appendChild(s); } })(); void 0;`;
 
   const crashedTargetReloadAt = new Map();
-  const profileInitScript = profileId => `window.__pmProfileId = ${JSON.stringify(profileId)}; try { window.sessionStorage && window.sessionStorage.setItem('__pmProfileId', ${JSON.stringify(profileId)}); } catch (_) {}`;
+  const profileInitScript = profileId => {
+    const saved = loadProfileStorage(profileId);
+    const hasSaved = saved && Object.keys(saved).length > 0;
+    const restoreJs = hasSaved
+      ? `try { const __s = ${JSON.stringify(saved)}; if (window.localStorage) { for (const [k, v] of Object.entries(__s)) { if (typeof v === 'string' && window.localStorage.getItem(k) === null) window.localStorage.setItem(k, v); } } } catch (_) {}`
+      : '';
+    return `window.__pmProfileId = ${JSON.stringify(profileId)}; try { window.sessionStorage && window.sessionStorage.setItem('__pmProfileId', ${JSON.stringify(profileId)}); } catch (_) {} ${restoreJs}`;
+  };
+
+  async function syncClientStorage(c) {
+    if (!c || !c.sessionId || !storageDir) return;
+    try {
+      const prefix = `pelican_${c.profileId}__`;
+      const entries = await evaluate(c, `(() => {
+        const out = {};
+        if (!window.localStorage) return out;
+        const pfx = ${JSON.stringify(prefix)};
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && (k.startsWith(pfx) || (k.startsWith('pelican_') && !k.includes('__')))) {
+            out[k] = window.localStorage.getItem(k);
+          }
+        }
+        return out;
+      })()`, 3000);
+      if (entries && typeof entries === 'object' && Object.keys(entries).length > 0) {
+        saveProfileStorage(c.profileId, entries);
+      }
+    } catch (_) {}
+  }
 
   async function ensureSessionHooks(sessionId, profileId) {
     await send('Page.enable', {}, sessionId, 5000).catch(() => {});
@@ -351,7 +402,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     }
   });
 
-  async function attach(profileId, targetId, skipIdentityProbe = false) {
+  async function attach(profileId, targetId, skipIdentityProbe = false, browserContextId = null) {
     if(stoppedProfiles.has(profileId))throw Error('PROFILE_STOPPED');
     const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
     try {
@@ -363,11 +414,35 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       if(identity!==profileId)throw Error('PROFILE_ID_CONFLICT');
     }
     if(stoppedProfiles.has(profileId))throw Error('PROFILE_STOPPED');
-    const c = { profileId, targetId, sessionId, generation:0,documentId:null,attempts:0,injectionInFlight:null,retryTimer:null,crashReloadCount:0,lastCrashReloadAt:0,crashReloadInFlight:false,stateFailCount:0 };
+    const c = { profileId, targetId, sessionId, browserContextId: browserContextId || null, generation:0,documentId:null,attempts:0,injectionInFlight:null,retryTimer:null,crashReloadCount:0,lastCrashReloadAt:0,crashReloadInFlight:false,stateFailCount:0,lastStorageSyncAt:0 };
     clients.set(profileId, c);
     knownTargets.set(profileId,targetId);saveKnownTargets();diagnostic(c,'document-pending');
     return c;
     } catch(e) {await send('Target.detachFromTarget',{sessionId}).catch(()=>{});throw e;}
+  }
+
+  async function migrateProfileStorageFromDefaultContext(profileId) {
+    if (!storageDir || !profileId) return;
+    const existing = loadProfileStorage(profileId);
+    if (existing && Object.keys(existing).length > 0) return;
+    const donor = Array.from(clients.values()).find(x => !x.browserContextId && x.sessionId);
+    if (!donor) return;
+    try {
+      const prefix = `pelican_${profileId}__`;
+      const entries = await evaluate(donor, `(() => {
+        const out = {};
+        if (!window.localStorage) return out;
+        const pfx = ${JSON.stringify(prefix)};
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(pfx)) out[k] = window.localStorage.getItem(k);
+        }
+        return out;
+      })()`, 3000);
+      if (entries && typeof entries === 'object' && Object.keys(entries).length > 0) {
+        saveProfileStorage(profileId, entries);
+      }
+    } catch (_) {}
   }
 
   // After a Manager restart the browser windows are still there: find them again by __pmProfileId
@@ -434,7 +509,10 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
         }
         const profile = identified && !stoppedProfiles.has(identified) && allProfiles.find(p => p.id === identified);
         if (profile) {
-          const c = await attach(profile.id, t.targetId, probeFailed);
+          if (screenProxy && (screenProxy.isEnabled() || t.browserContextId)) {
+            await screenProxy.acquireForProfile(profile.id, { debugPort: profile.debugPort }).catch(() => {});
+          }
+          const c = await attach(profile.id, t.targetId, probeFailed, t.browserContextId || null);
           startProxy(c, profile.debugPort);
           if (probeFailed) await reloadCrashedClient(c, 'rediscover-crashed', true);
         }
@@ -494,6 +572,9 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
             c.stateFailCount = 0;
             if (st === null && !c.injectionInFlight && !c.retryTimer) {
               injectBot(c).catch(() => {});
+            } else if (st && Date.now() - (c.lastStorageSyncAt || 0) > 15000) {
+              c.lastStorageSyncAt = Date.now();
+              syncClientStorage(c).catch(() => {});
             }
             return reply(200, st);
           } catch (e) {
@@ -503,7 +584,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
             return reply(500, { success: false, error: e.message });
           }
         }
-        if(url.pathname==='/api/browser-status')return reply(200,{success:true,profileId:c.profileId,...diagnostics.get(c.profileId)});
+        if(url.pathname==='/api/browser-status')return reply(200,{success:true,profileId:c.profileId,browserContextId:c.browserContextId||null,...diagnostics.get(c.profileId)});
         if (url.pathname === '/api/window') {
           await windowAction(c, url.searchParams.get('action'), url.searchParams);
           return reply(200, { success: true });
@@ -541,13 +622,16 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       const orphans = targetInfos.filter(t => t.type === 'page' && isGameUrl(t.url) && !claimedTargets.has(t.targetId));
       if (orphans.length === 1) {
         try {
-          existing = await attach(profile.id, orphans[0].targetId, true);
+          existing = await attach(profile.id, orphans[0].targetId, true, orphans[0].browserContextId || null);
         } catch (_) {}
       }
     }
     if (existing) {
       const { targetInfos } = await send('Target.getTargets');
       if (targetInfos.some(t => t.targetId === existing.targetId)) {
+        if (screenProxy && screenProxy.isEnabled()) {
+          await screenProxy.acquireForProfile(profile.id, { debugPort: profile.debugPort }).catch(() => {});
+        }
         startProxy(existing, profile.debugPort);
         let h = null, reloaded = false;
         try { h = await health(existing); } catch (_) {}
@@ -573,24 +657,126 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
       }
       drop(existing);
     }
-    const { targetId } = await send('Target.createTarget', { url: 'about:blank', newWindow: true });
-    const c = await attach(profile.id, targetId);
+    await migrateProfileStorageFromDefaultContext(profile.id);
+    let browserContextId = null;
+    let tunnelInfo = null;
+    if (screenProxy && screenProxy.isEnabled()) {
+      try {
+        tunnelInfo = await screenProxy.acquireForProfile(profile.id, { debugPort: profile.debugPort });
+        if (tunnelInfo && tunnelInfo.proxyServerUrl) {
+          const ctxRes = await send('Target.createBrowserContext', {
+            disposeOnDetach: false,
+            proxyServer: tunnelInfo.proxyServerUrl,
+            proxyBypassList: 'localhost,127.0.0.1'
+          });
+          browserContextId = ctxRes?.browserContextId || null;
+        }
+      } catch (e) {
+        console.warn(`[BrowserMode] createBrowserContext proxy failed for ${profile.id}: ${e.message}`);
+      }
+    }
+    const createParams = browserContextId
+      ? { url: 'about:blank', newWindow: true, browserContextId }
+      : { url: 'about:blank', newWindow: true };
+    const { targetId } = await send('Target.createTarget', createParams);
+    const c = await attach(profile.id, targetId, false, browserContextId);
     startProxy(c, profile.debugPort);
     await send('Page.navigate', { url: gameUrl }, c.sessionId);
     for (const targetId of startupPages.splice(0)) await send('Target.closeTarget', { targetId }).catch(() => {});
-    return { success: true, message: 'เปิดหน้าต่างเบราว์เซอร์แล้ว' };
+    const proxyTag = tunnelInfo?.lease?.proxyHost ? ` (IP: ${tunnelInfo.lease.proxyHost} [${tunnelInfo.lease.slot || 1}/${tunnelInfo.lease.maxSlots || 3}])` : '';
+    return { success: true, message: `เปิดหน้าต่างเบราว์เซอร์แล้ว${proxyTag}` };
   }
   async function stop(profileId) {
     stoppedProfiles.add(profileId);
     const c = clients.get(profileId);
+    if (c) await syncClientStorage(c).catch(() => {});
     const targetId=c?.targetId||knownTargets.get(profileId);knownTargets.delete(profileId);saveKnownTargets();
+    const oldCtxId = c?.browserContextId || null;
     diagnostics.set(profileId,{gameAlive:null,botReady:false,state:'explicitly-stopped'});
+    if (screenProxy) await screenProxy.releaseProfile(profileId, 'stopped').catch(() => {});
     if (!targetId) return false;
     if(c)drop(c);
-    await connect().then(()=>send('Target.closeTarget', { targetId })).catch(() => {});
+    await connect().then(async () => {
+      await send('Target.closeTarget', { targetId }).catch(() => {});
+      if (oldCtxId) await send('Target.disposeBrowserContext', { browserContextId: oldCtxId }).catch(() => {});
+    }).catch(() => {});
     return true;
   }
   const isOpen = profileId => clients.has(profileId);
+
+  async function applyProxyModeToOpenWindows({ onlyProfileIds } = {}) {
+    if (!screenProxy) return { switched: 0, updatedTunnels: 0, details: [] };
+    await connect().catch(() => {});
+    const allProfiles = loadProfiles() || [];
+    const filterSet = Array.isArray(onlyProfileIds) && onlyProfileIds.length > 0 ? new Set(onlyProfileIds) : null;
+    let switched = 0;
+    let updatedTunnels = 0;
+    const details = [];
+
+    for (const c of Array.from(clients.values())) {
+      if (filterSet && !filterSet.has(c.profileId)) continue;
+      const profile = allProfiles.find(p => p.id === c.profileId) || { id: c.profileId, debugPort: c.port };
+      await syncClientStorage(c).catch(() => {});
+      if (!screenProxy.isEnabled()) {
+        await screenProxy.releaseProfile(c.profileId, 'disabled').catch(() => {});
+        updatedTunnels++;
+        details.push({ profileId: c.profileId, action: 'direct-tunnel' });
+        continue;
+      }
+      const tunnelInfo = await screenProxy.acquireForProfile(c.profileId, { debugPort: profile.debugPort });
+      if (c.browserContextId) {
+        // Already running in a proxy-enabled BrowserContext pointing to 127.0.0.1:<tunnelPort>
+        updatedTunnels++;
+        details.push({ profileId: c.profileId, action: 'tunnel-updated', proxyHost: tunnelInfo?.lease?.proxyHost || null });
+        continue;
+      }
+      // Migrate from default context to isolated proxy BrowserContext while preserving window bounds
+      if (tunnelInfo && tunnelInfo.proxyServerUrl) {
+        try {
+          let savedBounds = null;
+          try {
+            const winInfo = await send('Browser.getWindowForTarget', { targetId: c.targetId });
+            if (winInfo && winInfo.bounds) savedBounds = winInfo.bounds;
+          } catch (_) {}
+          const ctxRes = await send('Target.createBrowserContext', {
+            disposeOnDetach: false,
+            proxyServer: tunnelInfo.proxyServerUrl,
+            proxyBypassList: 'localhost,127.0.0.1'
+          });
+          const browserContextId = ctxRes?.browserContextId || null;
+          if (browserContextId) {
+            const oldTargetId = c.targetId;
+            const { targetId: newTargetId } = await send('Target.createTarget', { url: 'about:blank', newWindow: true, browserContextId });
+            drop(c);
+            const newClient = await attach(profile.id, newTargetId, false, browserContextId);
+            startProxy(newClient, profile.debugPort);
+            if (savedBounds) {
+              try {
+                const { windowId: newWinId } = await send('Browser.getWindowForTarget', { targetId: newTargetId });
+                await send('Browser.setWindowBounds', { windowId: newWinId, bounds: { windowState: 'normal' } }).catch(() => {});
+                await send('Browser.setWindowBounds', {
+                  windowId: newWinId,
+                  bounds: {
+                    left: savedBounds.left,
+                    top: savedBounds.top,
+                    width: savedBounds.width,
+                    height: savedBounds.height
+                  }
+                }).catch(() => {});
+              } catch (_) {}
+            }
+            await send('Page.navigate', { url: gameUrl }, newClient.sessionId);
+            await send('Target.closeTarget', { targetId: oldTargetId }).catch(() => {});
+            switched++;
+            details.push({ profileId: c.profileId, action: 'recreated-with-proxy', proxyHost: tunnelInfo?.lease?.proxyHost || null });
+          }
+        } catch (e) {
+          details.push({ profileId: c.profileId, action: 'error', error: e.message });
+        }
+      }
+    }
+    return { switched, updatedTunnels, details };
+  }
 
   function start() {
     if(started)return;started=true;
@@ -605,7 +791,7 @@ function createBrowserMode({ rootDir, sessionsDir, getSettings, loadProfiles, pr
     if(ws){const socket=ws;ws=null;socket.close();}
     for(const entry of pending.values()){clearTimeout(entry.timer);entry.reject(Error('BROWSER_MODE_DISPOSED'));}pending.clear();
   }
-  return { launch, stop, isOpen, start, dispose, findBrowser, status:()=>Object.fromEntries(diagnostics) };
+  return { launch, stop, isOpen, start, dispose, findBrowser, applyProxyModeToOpenWindows, status:()=>Object.fromEntries(diagnostics) };
 }
 
 module.exports = { createBrowserMode, findBrowser, HEALTH_JS };
