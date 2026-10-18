@@ -1436,39 +1436,97 @@ function buildStashTradeSyncEvalCode(cfg) {
     window.__stashTradeConfig = cfg;
     try { localStorage.setItem('pelican_stash_trade_cfg', JSON.stringify(cfg)); } catch (e) {}
 
-    if (typeof window.matchesStashItemList !== 'function') {
-      const KNOWN_IDS = { 'enchant rune': 90340, 'accessory enchant rune': 90341, 'rough elunium': 90204, 'elunium': 90205, 'oridecon': 90203, 'phracon': 90201, 'emveretarcon': 90202 };
-      window.matchesStashItemList = function(itemOrName, listOverride) {
-        const list = Array.isArray(listOverride) ? listOverride : (window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items) ? window.__stashTradeConfig.items : []);
-        if (!list.length) return false;
-        const raw = (itemOrName && typeof itemOrName === 'object') ? (itemOrName.raw || itemOrName) : null;
-        const itemId = raw ? Number(raw.id ?? itemOrName.id) : NaN;
-        const rawName = typeof itemOrName === 'string'
-          ? itemOrName
-          : String((raw && (raw.refinedName || raw.name)) || (itemOrName && itemOrName.name) || '');
-        const cleanName = rawName.replace(/\\+\\d+\\s*/g, '').replace(/\\[\\d+\\]/g, '').replace(/\\s*x\\d+$/i, '').trim().toLowerCase();
-        for (const entry of list) {
-          const w = String(entry || '').trim().toLowerCase();
-          if (!w) continue;
-          if (cleanName && (cleanName === w || rawName.trim().toLowerCase() === w)) return true;
-          if (Number.isFinite(itemId) && KNOWN_IDS[w] && itemId === KNOWN_IDS[w]) return true;
+    const isRealBagInv = (o) => Boolean(
+      o && typeof o === 'object' && Array.isArray(o.items) &&
+      o.feeZeny === undefined &&
+      (typeof o.weight === 'number' || typeof o.weightLimit === 'number')
+    );
+
+    if (typeof window.applyLiveInventoryPacket === 'function' && !window.applyLiveInventoryPacket.__storageGuarded) {
+      const origApply = window.applyLiveInventoryPacket;
+      const guarded = function(dec, silent) {
+        if (!isRealBagInv(dec)) {
+          if (dec && typeof dec === 'object' && Array.isArray(dec.items) && dec.feeZeny !== undefined) {
+            window.__latestStorage = dec;
+          }
+          return;
         }
-        return false;
+        return origApply.apply(this, arguments);
       };
+      guarded.__storageGuarded = true;
+      window.applyLiveInventoryPacket = guarded;
     }
-    if (typeof window.isStashOnlyItem !== 'function') {
-      window.isStashOnlyItem = function(itemOrName) {
-        if (!window.__stashTradeConfig || !window.__stashTradeConfig.storeOnlyEnabled) return false;
-        return window.matchesStashItemList(itemOrName);
-      };
-    }
-    if (typeof window.hasStashOnlyItemsInBag !== 'function') {
-      window.hasStashOnlyItemsInBag = function() {
-        if (!window.__stashTradeConfig || !window.__stashTradeConfig.storeOnlyEnabled) return false;
-        const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
-        return bag.some(it => it && !it.locked && !it.equipped && window.isStashOnlyItem(it.raw || it));
-      };
-    }
+
+    const readAuthoritativeBagInventory = () => {
+      try {
+        const root = document.querySelector('#root');
+        const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
+        const fiber = (root && key) ? root[key] : null;
+        let invData = null;
+        let visited = 0;
+        function walk(n, depth = 0) {
+          if (!n || depth > 45 || invData || ++visited > 900) return;
+          if (n.memoizedProps) {
+            if (isRealBagInv(n.memoizedProps.inventory)) { invData = n.memoizedProps.inventory; return; }
+            if (isRealBagInv(n.memoizedProps)) { invData = n.memoizedProps; return; }
+          }
+          if (!invData && n.memoizedState) {
+            let s = n.memoizedState, steps = 0;
+            while (s && ++steps < 30) {
+              const ms = s.memoizedState;
+              if (ms && typeof ms === 'object') {
+                if (isRealBagInv(ms.inventory)) { invData = ms.inventory; break; }
+                if (isRealBagInv(ms)) { invData = ms; break; }
+              }
+              s = s.next;
+            }
+          }
+          if (n.child) walk(n.child, depth + 1);
+          if (n.sibling) walk(n.sibling, depth + 1);
+        }
+        if (fiber) walk(fiber);
+        if (isRealBagInv(invData)) {
+          window.__latestInventory = invData;
+          return invData;
+        }
+      } catch (e) {}
+      if (isRealBagInv(window.__latestInventory)) return window.__latestInventory;
+      return null;
+    };
+    window.__readAuthoritativeBagInventory = readAuthoritativeBagInventory;
+    readAuthoritativeBagInventory();
+
+    const KNOWN_IDS = { 'enchant rune': 90340, 'accessory enchant rune': 90341, 'rough elunium': 90204, 'elunium': 90205, 'enriched elunium': 90206, 'oridecon': 90203, 'phracon': 90201, 'emveretarcon': 90202 };
+    window.matchesStashItemList = function(itemOrName, listOverride) {
+      const list = Array.isArray(listOverride) ? listOverride : (window.__stashTradeConfig && Array.isArray(window.__stashTradeConfig.items) ? window.__stashTradeConfig.items : []);
+      if (!list.length) return false;
+      const raw = (itemOrName && typeof itemOrName === 'object') ? (itemOrName.raw || itemOrName) : null;
+      const itemId = raw ? Number(raw.itemId ?? raw.id ?? itemOrName.itemId ?? itemOrName.id) : NaN;
+      const rawName = typeof itemOrName === 'string'
+        ? itemOrName
+        : String((raw && (raw.refinedName || raw.name)) || (itemOrName && itemOrName.name) || '');
+      const cleanName = rawName.replace(/\\+\\d+\\s*/g, '').replace(/\\[\\d+\\]/g, '').replace(/\\s*x\\d+$/i, '').trim().toLowerCase();
+      for (const entry of list) {
+        const w = String(entry || '').trim().toLowerCase();
+        if (!w) continue;
+        if (cleanName && (cleanName === w || rawName.trim().toLowerCase() === w)) return true;
+        if (Number.isFinite(itemId) && KNOWN_IDS[w] && itemId === KNOWN_IDS[w]) return true;
+      }
+      return false;
+    };
+
+    window.isStashOnlyItem = function(itemOrName) {
+      if (!window.__stashTradeConfig || !window.__stashTradeConfig.storeOnlyEnabled) return false;
+      return window.matchesStashItemList(itemOrName);
+    };
+
+    window.hasStashOnlyItemsInBag = function() {
+      if (!window.__stashTradeConfig || !window.__stashTradeConfig.storeOnlyEnabled) return false;
+      const authInv = readAuthoritativeBagInventory();
+      const bag = (authInv && Array.isArray(authInv.items)) ? authInv.items : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+      return bag.some(it => it && !it.locked && !it.equipped && window.isStashOnlyItem(it.raw || it));
+    };
+
     if (typeof window.setStashTradeConfig === 'function') {
       window.setStashTradeConfig(cfg);
     }
@@ -1493,25 +1551,26 @@ function buildStashTradeSyncEvalCode(cfg) {
       wrappedSingle.__stashWrapped = true;
       window.sellSingleRuleNow = wrappedSingle;
     }
-    if (typeof window.getConsolidationMatchingBagItems !== 'function') {
-      window.getConsolidationMatchingBagItems = function(itemList) {
-        const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
-        const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
-        const matched = [];
-        let totalQty = 0, totalWeight = 0;
-        for (const it of bag) {
-          if (!it || it.locked || it.equipped) continue;
-          const raw = it.raw || it;
-          if (!window.matchesStashItemList(raw, list)) continue;
-          const qty = Math.max(1, Number(it.qty ?? raw.qty ?? 1) || 1);
-          const unitW = Math.max(0, Number(raw.weight ?? it.weight ?? 1) || 1);
-          matched.push({ slot: Number(it.slot ?? raw.slot), id: raw.id ?? it.id, name: it.name || raw.name || 'Item', qty, unitWeight: unitW, totalWeight: qty * unitW });
-          totalQty += qty;
-          totalWeight += qty * unitW;
-        }
-        return { items: matched, totalQty, totalWeight };
-      };
-    }
+    window.getConsolidationMatchingBagItems = function(itemList) {
+      const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
+      const authInv = (typeof window.__readAuthoritativeBagInventory === 'function') ? window.__readAuthoritativeBagInventory() : null;
+      const bag = (authInv && Array.isArray(authInv.items)) ? authInv.items : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
+      const matched = [];
+      let totalQty = 0, totalWeight = 0;
+      for (const it of bag) {
+        if (!it || it.locked || it.equipped) continue;
+        const raw = it.raw || it;
+        if (raw.locked || raw.equipped) continue;
+        if (!window.matchesStashItemList(raw, list)) continue;
+        const qty = Math.max(1, Number(it.qty ?? raw.qty ?? 1) || 1);
+        const unitW = Math.max(0, Number(raw.weight ?? it.weight ?? 1) || 1);
+        matched.push({ slot: Number(it.slot ?? raw.slot), id: raw.itemId ?? raw.id ?? it.id, name: it.name || raw.name || 'Item', qty, unitWeight: unitW, totalWeight: qty * unitW });
+        totalQty += qty;
+        totalWeight += qty * unitW;
+      }
+      matched.sort((a, b) => (b.qty || 0) - (a.qty || 0));
+      return { items: matched, totalQty, totalWeight };
+    };
     return { success: true, config: window.__stashTradeConfig };
   })()`;
 }
@@ -1539,6 +1598,7 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
     const tradeZeny = () => Number(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).zeny);
     const sameName = (x, y) => String(x || '').trim().toLowerCase() === String(y || '').trim().toLowerCase();
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const readBagInv = () => (typeof window.__readAuthoritativeBagInventory === 'function') ? window.__readAuthoritativeBagInventory() : window.__latestInventory;
 
     const getPlayerPixelPos = (room) => {
       const r = room || tradeRoom();
@@ -1550,7 +1610,7 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
     };
 
     const getRealWeightInfo = () => {
-      const inv = window.__latestInventory || {};
+      const inv = readBagInv() || {};
       const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
       const weight = Number(inv.weight ?? live.weight) || 0;
       const weightLimit = Number(inv.weightLimit ?? live.weightLimit) || 2000;
@@ -1565,12 +1625,20 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
         let found = null;
         r.state.npcs.forEach((n, k) => {
           if (!found && n && /Alice|อลิซ|Kafra|Storage|Banker|คลัง/i.test(n.name || '')) {
-            found = { key: k, name: n.name, x: n.x, y: n.y };
+            found = { key: k, name: n.name, x: Number(n.x), y: Number(n.y) };
           }
         });
         if (found) return found;
       }
       return null;
+    };
+
+    const closeStorageAndDialogs = () => {
+      try {
+        document.querySelectorAll('.storage-window .win-close, .npc-dialog .win-close').forEach(b => { try { b.click(); } catch (e) {} });
+      } catch (e) {}
+      if (typeof window.closeShopUI === 'function') { try { window.closeShopUI(); } catch (e) {} }
+      if (typeof window.sendNpcClose === 'function') { try { window.sendNpcClose(); } catch (e) {} }
     };
 
     // Clear any poisoned refused entries for refine ores in pelican_storage_state
@@ -1596,8 +1664,7 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
       const isStopped = (typeof stopped === 'function') ? stopped : () => false;
       if (!room) return null;
 
-      if (typeof window.closeShopUI === 'function') window.closeShopUI();
-      if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+      closeStorageAndDialogs();
       await sleep(250);
 
       let npc = null;
@@ -1611,69 +1678,104 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
       if (Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
         const walkStart = Date.now();
         let lastSend = 0;
-        while (Date.now() - walkStart < 12000 && !isStopped()) {
+        while (Date.now() - walkStart < 18000 && !isStopped()) {
           const p = getPlayerPixelPos(room);
           const dist = p ? Math.hypot(p.x - npc.x, p.y - npc.y) : Infinity;
-          if (dist <= 120) break;
+          if (dist <= 115) break;
           if (Date.now() - lastSend > 1800) {
             lastSend = Date.now();
             try { room.send('move_to', { x: npc.x, y: npc.y }); } catch (e) {}
           }
           await sleep(250);
         }
+        await sleep(200);
       }
       if (isStopped()) return null;
 
-      let latestStorage = null;
-      const unsub = (typeof room.onMessage === 'function')
-        ? room.onMessage('storage', (msg) => { latestStorage = msg; })
-        : null;
-      try {
-        try { room.send('npc_talk', { npcKey: npc.key }); } catch (e) {}
-        let dialogOk = false;
-        for (let i = 0; i < 20 && !isStopped(); i++) {
-          await sleep(200);
-          if (document.querySelector('.npc-dialog-window, .npc-dialog-choices')) { dialogOk = true; break; }
+      for (let attempt = 0; attempt < 3 && !isStopped(); attempt++) {
+        let latestStorage = null;
+        let unsub = null;
+        const waitStorage = new Promise(resolve => {
+          const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 5500);
+          unsub = (typeof room.onMessage === 'function')
+            ? room.onMessage('storage', (msg) => {
+                if (msg && Array.isArray(msg.items)) {
+                  clearTimeout(timer);
+                  if (typeof unsub === 'function') unsub();
+                  latestStorage = msg;
+                  window.__latestStorage = msg;
+                  resolve(msg);
+                }
+              })
+            : null;
+        });
+        try {
+          document.querySelectorAll('.npc-dialog .win-close').forEach(b => { try { b.click(); } catch (e) {} });
+          await sleep(150);
+          try { room.send('npc_talk', { npcKey: npc.key }); } catch (e) {}
+          let dlg = null;
+          for (let i = 0; i < 25 && !dlg && !latestStorage && !isStopped(); i++) {
+            await sleep(180);
+            const d = document.querySelector('.npc-dialog, .npc-dialog-window');
+            if (d && d.querySelector('.npc-options button, .npc-dialog-choices button, button')) {
+              dlg = d;
+              break;
+            }
+          }
+          if (!latestStorage && dlg) {
+            const optBtns = Array.from(dlg.querySelectorAll('.npc-options button, .npc-dialog-choices button'));
+            const idx = optBtns.findIndex(b => {
+              const t = (b.innerText || b.textContent || '').replace(/^\\s*\\d+\\s*/, '').trim();
+              return /คลัง|ฝากของ|storage/i.test(t) && !/กิลด์|guild/i.test(t);
+            });
+            if (idx >= 0) {
+              room.send('npc_option', { index: idx });
+            } else {
+              document.querySelectorAll('.npc-dialog .win-close').forEach(b => { try { b.click(); } catch (e) {} });
+              if (typeof unsub === 'function') unsub();
+              await sleep(300);
+              continue;
+            }
+          } else if (!latestStorage) {
+            if (typeof unsub === 'function') unsub();
+            if (Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
+              try { room.send('move_to', { x: npc.x, y: npc.y }); } catch (e) {}
+            }
+            await sleep(500);
+            continue;
+          }
+          const msg = await waitStorage;
+          if (msg && Array.isArray(msg.items)) {
+            readBagInv();
+            return msg;
+          }
+        } finally {
+          if (typeof unsub === 'function') { try { unsub(); } catch (e) {} }
         }
-        if (!dialogOk || isStopped()) return null;
-
-        let clicked = false;
-        for (let i = 0; i < 10 && !isStopped(); i++) {
-          const choices = Array.from(document.querySelectorAll('.npc-dialog-choices button, .npc-choice-btn, .npc-dialog-window button'));
-          const btn = choices.find(b => {
-            const t = (b.textContent || '').trim();
-            return /คลัง|ฝากของ|storage/i.test(t) && !/กิลด์|guild/i.test(t);
-          });
-          if (btn) { btn.click(); clicked = true; break; }
-          await sleep(200);
-        }
-        if (!clicked || isStopped()) return null;
-
-        for (let i = 0; i < 25 && !isStopped(); i++) {
-          await sleep(200);
-          if (latestStorage && Array.isArray(latestStorage.items)) return latestStorage;
-        }
-        return latestStorage;
-      } finally {
-        if (typeof unsub === 'function') { try { unsub(); } catch (e) {} }
+        await sleep(350);
       }
+      return null;
     };
 
     window.getConsolidationMatchingBagItems = function(itemList) {
       const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
-      const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+      const authInv = readBagInv();
+      const bag = (authInv && Array.isArray(authInv.items))
+        ? authInv.items
+        : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
       const matched = [];
       let totalQty = 0;
       let totalWeight = 0;
       for (const it of bag) {
         if (!it || it.locked || it.equipped) continue;
         const raw = it.raw || it;
+        if (raw.locked || raw.equipped) continue;
         if (!window.matchesStashItemList(raw, list)) continue;
         const qty = Math.max(1, Number(it.qty ?? raw.qty ?? 1) || 1);
         const unitW = Math.max(0, Number(raw.weight ?? it.weight ?? 1) || 1);
         matched.push({
           slot: Number(it.slot ?? raw.slot),
-          id: raw.id ?? it.id,
+          id: raw.itemId ?? raw.id ?? it.id,
           name: it.name || raw.name || 'Item',
           qty,
           unitWeight: unitW,
@@ -1686,26 +1788,77 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
       return { items: matched, totalQty, totalWeight };
     };
 
-    window.runConsolidationQuickSellTrash = async function(timeoutMs = 28000) {
+    window.runConsolidationQuickSellTrash = async function(timeoutMs = 28000, force = false) {
       try {
-        if (typeof window.triggerAutoSellTrash !== 'function') return { success: false, error: 'No triggerAutoSellTrash' };
-        const wasConsolidating = window.__isConsolidating;
-        window.__isConsolidating = false;
-        window.triggerAutoSellTrash();
-        await sleep(900);
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-          if (!window.__isShopping && !window.__isNavigating) break;
-          await sleep(500);
-        }
-        window.__isConsolidating = wasConsolidating;
-        if (typeof window.closeShopUI === 'function') window.closeShopUI();
-        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
-        const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+        const authInv = readBagInv();
         const wInfo = getRealWeightInfo();
-        return { success: true, weight: wInfo.weight, weightLimit: wInfo.weightLimit, zeny: Number(live.zeny) || 0 };
+        const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+        const zeny = Number(live.zeny) || 0;
+        const freeWeight = Math.max(0, wInfo.weightLimit - wInfo.weight);
+        const heavyRatio = wInfo.weightLimit > 0 ? (wInfo.weight / wInfo.weightLimit) : 0;
+        const maxSlots = Number(authInv?.slots ?? authInv?.maxSlots) || 100;
+        const usedSlots = Array.isArray(authInv?.items) ? authInv.items.filter(Boolean).length : 0;
+        const freeSlots = Math.max(0, maxSlots - usedSlots);
+
+        // Skip walking to Shopkeeper Bor if character already has plenty of free bag weight/slots and >= 40 zeny for storage fee
+        if (!force && freeWeight >= 800 && heavyRatio < 0.80 && freeSlots > 4 && zeny >= 40) {
+          return { success: true, skipped: true, sold: false, weight: wInfo.weight, weightLimit: wInfo.weightLimit, zeny };
+        }
+
+        if (typeof window.triggerAutoSellTrash !== 'function') return { success: false, error: 'No triggerAutoSellTrash' };
+        const room = tradeRoom();
+        if (room && !document.querySelector('.shop-window')) {
+          let shopNpc = null;
+          if (room.state && room.state.npcs && typeof room.state.npcs.forEach === 'function') {
+            room.state.npcs.forEach((n, k) => {
+              if (!shopNpc && n && (k === 'n2' || /Shopkeeper|Bor|ร้านค้า/i.test(n.name || ''))) {
+                shopNpc = { key: k, x: Number(n.x), y: Number(n.y) };
+              }
+            });
+          }
+          if (shopNpc && Number.isFinite(shopNpc.x) && Number.isFinite(shopNpc.y)) {
+            const walkStart = Date.now();
+            let lastSend = 0;
+            while (Date.now() - walkStart < 15000) {
+              const p = getPlayerPixelPos(room);
+              if (p && Math.hypot(p.x - shopNpc.x, p.y - shopNpc.y) <= 115) break;
+              if (Date.now() - lastSend > 1800) {
+                lastSend = Date.now();
+                try { room.send('move_to', { x: shopNpc.x, y: shopNpc.y }); } catch (e) {}
+              }
+              await sleep(250);
+            }
+            await sleep(200);
+            try { room.send('npc_talk', { npcKey: shopNpc.key }); } catch (e) {}
+            await sleep(550);
+            try { room.send('npc_option', { index: 0 }); } catch (e) {}
+            for (let i = 0; i < 15 && !document.querySelector('.shop-window'); i++) {
+              await sleep(200);
+            }
+          }
+        }
+
+        window.__isManualSelling = true;
+        await new Promise((resolve) => {
+          let done = false;
+          const t = setTimeout(() => { if (!done) { done = true; resolve(); } }, Math.min(timeoutMs, 20000));
+          try {
+            window.triggerAutoSellTrash(() => {
+              if (!done) { done = true; clearTimeout(t); resolve(); }
+            });
+          } catch (e) {
+            if (!done) { done = true; clearTimeout(t); resolve(); }
+          }
+        });
+        window.__isManualSelling = false;
+        closeStorageAndDialogs();
+        await sleep(250);
+        readBagInv();
+        const liveAfter = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+        const wAfter = getRealWeightInfo();
+        return { success: true, sold: true, weight: wAfter.weight, weightLimit: wAfter.weightLimit, zeny: Number(liveAfter.zeny) || 0 };
       } catch (err) {
-        window.__isConsolidating = true;
+        window.__isManualSelling = false;
         return { success: false, error: err.message };
       }
     };
@@ -1716,15 +1869,23 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
       if (!room) return { success: false, error: 'No room connection', withdrawnQty: 0 };
       try {
         let st = await window.openStorageWindow(room, () => false);
-        if (!st || !Array.isArray(st.items)) return { success: false, error: 'เปิดคลังไม่สำเร็จ', withdrawnQty: 0 };
+        if (!st || !Array.isArray(st.items)) {
+          const z = tradeZeny();
+          const errReason = (Number.isFinite(z) && z < 40) ? 'เงินไม่พอค่าเปิดคลัง (ต้องมีอย่างน้อย 40 z)' : 'เปิดคลังไม่สำเร็จ';
+          return { success: false, error: errReason, withdrawnQty: 0 };
+        }
         let withdrawnQty = 0;
         const withdrawnDetails = [];
         for (let pass = 0; pass < 60; pass++) {
+          const authInv = readBagInv();
           const wInfo = getRealWeightInfo();
           const safeAvailWeight = Math.max(0, wInfo.weightLimit - wInfo.weight - 20);
           if (safeAvailWeight <= 0) break;
-          const slots = (typeof window.getBagSlots === 'function') ? window.getBagSlots() : null;
-          if (slots && Number.isFinite(slots.max) && slots.max > 0 && slots.used >= slots.max - 1) break;
+          if (authInv && Array.isArray(authInv.items)) {
+            const maxSlots = Number(authInv.slots ?? authInv.maxSlots) || 100;
+            const usedSlots = authInv.items.filter(Boolean).length;
+            if (maxSlots > 0 && usedSlots >= maxSlots - 1) break;
+          }
           const stItems = Array.isArray(st.items) ? st.items : [];
           const candidates = stItems
             .filter(it => it && window.matchesStashItemList(it, list) && (Number(it.qty) || 0) > 0)
@@ -1744,20 +1905,19 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
           const updated = await nextPromise;
           withdrawnQty += takeQty;
           withdrawnDetails.push((target.name || 'Item') + ' x' + takeQty);
+          await sleep(220);
+          readBagInv();
           if (updated && Array.isArray(updated.items)) st = updated;
           else { await sleep(350); break; }
-          await sleep(180);
         }
-        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
-        if (withdrawnQty > 0) {
-          try { room.send('inv_sort', {}); } catch (e) {}
-          await sleep(450);
-        }
+        closeStorageAndDialogs();
+        await sleep(300);
+        readBagInv();
         const bagMatch = window.getConsolidationMatchingBagItems(list);
         const wAfter = getRealWeightInfo();
         return { success: true, withdrawnQty, withdrawnDetails, bagMatchingQty: bagMatch.totalQty, bagMatchingWeight: bagMatch.totalWeight, weight: wAfter.weight, weightLimit: wAfter.weightLimit };
       } catch (err) {
-        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        closeStorageAndDialogs();
         return { success: false, error: err.message, withdrawnQty: 0 };
       }
     };
@@ -1770,6 +1930,7 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
       try {
         let st = await window.openStorageWindow(room, () => false);
         if (!st || !Array.isArray(st.items)) return { success: false, error: 'เปิดคลังไม่สำเร็จ', depositedQty: 0 };
+        readBagInv();
         const bagMatch = window.getConsolidationMatchingBagItems(list);
         let depositedQty = 0;
         for (const it of bagMatch.items) {
@@ -1778,7 +1939,9 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
           depositedQty += it.qty;
           await sleep(260);
         }
-        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        closeStorageAndDialogs();
+        await sleep(250);
+        readBagInv();
         const backTarget = returnTileCoords || beforePos;
         if (backTarget && Number.isFinite(backTarget.x) && Number.isFinite(backTarget.y)) {
           const tx = backTarget.x > 250 ? backTarget.x : (backTarget.x * 32 + 16);
@@ -1794,7 +1957,7 @@ async function ensureClientConsolidationItemHelpers(port, cfg = null) {
         const wAfter = getRealWeightInfo();
         return { success: true, depositedQty, weight: wAfter.weight, weightLimit: wAfter.weightLimit };
       } catch (err) {
-        if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        closeStorageAndDialogs();
         return { success: false, error: err.message, depositedQty: 0 };
       }
     };
@@ -2268,11 +2431,10 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
       let bagMatchingQty = 0;
       let bagMatchingWeight = 0;
       if (tradeItemsEnabled) {
-        // 1. Sell trash first to free up bag weight before opening storage
-        addConsolidationLog(`🛒 จอ ${s.name}: แวะขายขยะเคลียร์น้ำหนักกระเป๋าก่อนเปิดคลัง...`, 'info');
+        // 1. Sell trash first to free up bag weight before opening storage (skips walking to shop if bag is already light)
         const sellRes = await evalProfilePort(s.debugPort, `window.runConsolidationQuickSellTrash ? window.runConsolidationQuickSellTrash(28000) : { success: false }`, 32000);
-        if (sellRes?.result?.success) {
-          addConsolidationLog(`🧹 จอ ${s.name}: เคลียร์กระเป๋าเสร็จแล้ว (น้ำหนัก ${sellRes.result.weight}/${sellRes.result.weightLimit})`, 'info');
+        if (sellRes?.result?.sold) {
+          addConsolidationLog(`🧹 จอ ${s.name}: แวะขายขยะเคลียร์กระเป๋าแล้ว (น้ำหนัก ${sellRes.result.weight}/${sellRes.result.weightLimit})`, 'info');
         }
         // 2. Open storage and withdraw matching items up to safe bag weight
         addConsolidationLog(`📦 จอ ${s.name}: เปิดคลังเบิกไอเทม (${tradeItemsList.join(', ')})...`, 'info');
@@ -2382,7 +2544,7 @@ async function runConsolidationWorkflow(receiverProfileId, senderProfileIds, kee
     const ensureReceiverWeightReady = async (incomingWeight = 0) => {
       if (!tradeItemsEnabled) return Infinity;
       const rStat = await evalProfilePort(receiverProfile.debugPort, `(() => {
-        const inv = window.__latestInventory || {};
+        const inv = (typeof window.__readAuthoritativeBagInventory === 'function' ? window.__readAuthoritativeBagInventory() : window.__latestInventory) || {};
         const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
         const me = room && room.state && room.state.players && room.state.players.get ? room.state.players.get(room.sessionId) : null;
@@ -3294,6 +3456,7 @@ const botAutoUpdater = createBotAutoUpdater({
   getGameDir: () => installer.getEffectiveGamePath(),
   getManagedRelease:()=>scriptCoordinator.refreshRelease?scriptCoordinator.refreshRelease():scriptCoordinator.release?.(),
   getCachedManagedRelease:()=>scriptCoordinator.release?.(),
+  isConsolidating: () => Boolean(typeof consolidationState !== 'undefined' && consolidationState && consolidationState.running),
   dataDir: path.join(__dirname, "data")
 });
 // Auto-login / auto-register: game clients get their profile's ID + password (manager/auth_sync.js)

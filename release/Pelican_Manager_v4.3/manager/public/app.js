@@ -3920,6 +3920,7 @@ const PRESET_CONSOLIDATION_ITEMS = [
   { name: "Accessory Enchant Rune", icon: "💍" },
   { name: "Rough Elunium", icon: "🪨" },
   { name: "Elunium", icon: "🛡️" },
+  { name: "Enriched Elunium", icon: "💎" },
   { name: "Oridecon", icon: "⚔️" },
   { name: "Phracon", icon: "🔩" },
   { name: "Emveretarcon", icon: "🔶" }

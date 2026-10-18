@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.42.4
+// @version      4.42.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.42.4';
+    const PELICAN_BOT_VERSION = '4.42.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -975,7 +975,8 @@
     window.__outgoingLogs = [];
     try {
         const cachedInv = localStorage.getItem('pelican_latest_inventory');
-        window.__latestInventory = cachedInv ? JSON.parse(cachedInv) : null;
+        const parsedInv = cachedInv ? JSON.parse(cachedInv) : null;
+        window.__latestInventory = (parsedInv && parsedInv.feeZeny === undefined && (typeof parsedInv.weight === 'number' || typeof parsedInv.weightLimit === 'number')) ? parsedInv : null;
     } catch(e) {
         window.__latestInventory = null;
     }
@@ -4723,14 +4724,14 @@
 
     // Recovery function to scan packet logs for inventory payload if memory was reset
     window.tryRecoverInventoryFromPackets = function() {
-        if (window.__latestInventory && (window.__latestInventory.slots !== undefined || Array.isArray(window.__latestInventory.items))) {
+        if (window.__latestInventory && window.__latestInventory.feeZeny === undefined && (typeof window.__latestInventory.weight === 'number' || typeof window.__latestInventory.weightLimit === 'number') && Array.isArray(window.__latestInventory.items)) {
             return window.__latestInventory;
         }
         if (!window.__packetLogs || window.__packetLogs.length === 0 || !window.msgpack) return null;
 
         for (let i = window.__packetLogs.length - 1; i >= 0; i--) {
             const p = window.__packetLogs[i];
-            if (p && p.dir === 'IN' && p.ascii && (p.ascii.includes('inventory') || p.ascii.includes('slots') || p.ascii.includes('weightLimit'))) {
+            if (p && p.dir === 'IN' && p.ascii && (p.ascii.includes('inventory') || p.ascii.includes('weightLimit'))) {
                 try {
                     const bytes = new Uint8Array(p.hex.split(' ').map(h => parseInt(h, 16)));
                     const offsetsToScan = [11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15];
@@ -4738,7 +4739,7 @@
                         if (off >= bytes.length - 10) continue;
                         try {
                             const dec = window.msgpack.decode(bytes.slice(off));
-                            if (dec && typeof dec === 'object' && (dec.slots !== undefined || Array.isArray(dec.items))) {
+                            if (dec && typeof dec === 'object' && dec.feeZeny === undefined && (typeof dec.weight === 'number' || typeof dec.weightLimit === 'number') && Array.isArray(dec.items)) {
                                 window.__latestInventory = dec;
                                 try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
                                 return dec;
@@ -6748,6 +6749,11 @@
 
     window.applyLiveInventoryPacket = function(dec, silent = false) {
         if (!dec || typeof dec !== 'object') return;
+        // Guard against Colyseus 'storage' packets ({ slots: 500, feeZeny: 40, items: [...], zeny: 0 })
+        if (dec.feeZeny !== undefined || (dec.weight === undefined && dec.weightLimit === undefined && !Array.isArray(dec))) {
+            window.__latestStoragePacket = dec;
+            return;
+        }
         window.__latestInventory = dec;
         try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(dec)); } catch(e) {}
         const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
@@ -6872,14 +6878,18 @@
                 }
 
                 // ตรวจสอบว่าคือแพ็กเก็ต 'inventory' หรือไม่ (0x0D + fixstr(9) 'inventory')
+                // ระวัง! แพ็กเก็ต 'storage' (0x0D + fixstr(7) 'storage') ก็มีฟิลด์ 'slots' แต่มี feeZeny และไม่มี weight/weightLimit
+                const isStoragePacket = (u.length > 15 && u[1] === 0xa7 && u[2] === 0x73 && u[3] === 0x74 && u[4] === 0x6f);
                 const isInventoryPacket = (u.length > 15 && u[1] === 0xa9 && u[2] === 0x69 && u[3] === 0x6e && u[4] === 0x76);
                 const targetOffset = isInventoryPacket ? 11 : -1;
 
                 let slotsPos = -1;
-                for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
-                    if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
-                        slotsPos = i;
-                        break;
+                if (!isStoragePacket) {
+                    for (let i = 0; i < Math.min(u.length - 5, 80); i++) {
+                        if (u[i] === 0x73 && u[i+1] === 0x6c && u[i+2] === 0x6f && u[i+3] === 0x74 && u[i+4] === 0x73) {
+                            slotsPos = i;
+                            break;
+                        }
                     }
                 }
 
@@ -6894,7 +6904,7 @@
                     for (const offset of offsetsToTry) {
                         try {
                             const dec = window.msgpack.decode(u.slice(offset));
-                            if (dec && typeof dec === 'object') {
+                            if (dec && typeof dec === 'object' && dec.feeZeny === undefined && (typeof dec.weight === 'number' || typeof dec.weightLimit === 'number')) {
                                 window.applyLiveInventoryPacket(dec, false);
                                 break;
                             }
@@ -9854,6 +9864,7 @@
         90341: 'accessory enchant rune',
         90204: 'rough elunium',
         90205: 'elunium',
+        90206: 'enriched elunium',
         90203: 'oridecon',
         90201: 'phracon',
         90202: 'emveretarcon'
@@ -9981,7 +9992,14 @@
         const likely = /Alice|อลิซ|Kafra|Storage|Banker|คลัง/i, never = /Valkyrie|Event|Arena|Guild|Training|Auction|Blacksmith|Shopkeeper|Bag Merchant|Card|Auger/i;
         const order = [...all.filter(n => n.name === saved), ...all.filter(n => n.name !== saved && likely.test(n.name)),
             ...all.filter(n => n.name !== saved && !likely.test(n.name) && !never.test(n.name))].slice(0, 6);
-        const closeDlg = () => { const x = document.querySelector('.npc-dialog .win-close'); if (x) x.click(); };
+        const closeDlg = () => {
+            try {
+                const stClose = document.querySelector('.storage-window .win-close');
+                if (stClose) stClose.click();
+                const x = document.querySelector('.npc-dialog .win-close');
+                if (x) x.click();
+            } catch (_) {}
+        };
         if (typeof window.closeShopUI === 'function') { try { window.closeShopUI(); } catch (_) {} }
         closeDlg();
         for (const npc of order) {
@@ -9990,42 +10008,55 @@
             if (Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
                 const getMe = () => (room.state && room.state.players && typeof room.state.players.get === 'function') ? room.state.players.get(room.sessionId) : null;
                 let me = getMe();
-                if (me && Number.isFinite(me.x) && Math.hypot(me.x - npc.x, me.y - npc.y) > 120) {
+                if (me && Number.isFinite(me.x) && Math.hypot(me.x - npc.x, me.y - npc.y) > 115) {
                     const walkStart = Date.now();
                     let lastMove = 0;
-                    while (Date.now() - walkStart < 12000 && !stopFn()) {
+                    while (Date.now() - walkStart < 15000 && !stopFn()) {
                         me = getMe();
-                        if (me && Math.hypot(me.x - npc.x, me.y - npc.y) <= 120) break;
-                        if (Date.now() - lastMove > 2200) {
+                        if (me && Math.hypot(me.x - npc.x, me.y - npc.y) <= 115) break;
+                        if (Date.now() - lastMove > 1800) {
                             lastMove = Date.now();
                             room.send('move_to', { x: npc.x, y: npc.y });
                         }
                         await sleep(250);
                     }
-                    await sleep(200);
+                    await sleep(250);
                 }
             }
-            let got = null, unsub;
-            const wait = new Promise(resolve => {
-                const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 9000);
-                unsub = room.onMessage('storage', msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); got = msg; resolve(msg); });
-            });
-            room.send('npc_talk', { npcKey: npc.key });
-            let dlg = null;
-            for (let i = 0; i < 40 && !dlg && !got; i++) { await sleep(200); dlg = document.querySelector('.npc-dialog'); if (dlg && !dlg.querySelector('.npc-options button')) dlg = null; }
-            if (!got && dlg) {
-                const opts = Array.from(dlg.querySelectorAll('.npc-options button')).map(b => (b.innerText || '').replace(/^\s*\d+\s*/, '').trim());
-                const idx = opts.findIndex(o => /คลัง|ฝากของ|storage/i.test(o) && !/กิลด์|guild/i.test(o));
-                if (idx < 0) { closeDlg(); await sleep(400); if (typeof unsub === 'function') unsub(); continue; }
-                room.send('npc_option', { index: idx });
+            for (let attempt = 0; attempt < 3; attempt++) {
+                if (stopFn()) return null;
+                let got = null, unsub;
+                const wait = new Promise(resolve => {
+                    const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 7500);
+                    unsub = room.onMessage('storage', msg => { clearTimeout(timer); if (typeof unsub === 'function') unsub(); got = msg; resolve(msg); });
+                });
+                room.send('npc_talk', { npcKey: npc.key });
+                let dlg = null;
+                for (let i = 0; i < 30 && !dlg && !got; i++) {
+                    await sleep(180);
+                    dlg = document.querySelector('.npc-dialog');
+                    if (dlg && !dlg.querySelector('.npc-options button')) dlg = null;
+                }
+                if (!got && dlg) {
+                    const btns = Array.from(dlg.querySelectorAll('.npc-options button'));
+                    const opts = btns.map(b => (b.innerText || b.textContent || '').replace(/^\s*\d+\s*/, '').trim());
+                    const idx = opts.findIndex(o => /คลัง|ฝากของ|storage/i.test(o) && !/กิลด์|guild/i.test(o));
+                    if (idx < 0) {
+                        closeDlg();
+                        if (typeof unsub === 'function') unsub();
+                        await sleep(300);
+                        break;
+                    }
+                    room.send('npc_option', { index: idx });
+                }
+                const msg = await wait;
+                if (msg && Array.isArray(msg.items)) {
+                    try { localStorage.setItem(STORAGE_NPC_KEY, npc.name); } catch (e) {}
+                    return msg;
+                }
+                closeDlg();
+                await sleep(350);
             }
-            const msg = await wait;
-            if (msg && Array.isArray(msg.items)) {
-                try { localStorage.setItem(STORAGE_NPC_KEY, npc.name); } catch (e) {}
-                return msg;
-            }
-            closeDlg();
-            await sleep(400);
         }
         return null;
     }
@@ -18457,7 +18488,7 @@
 
     window.getLiveInventoryData = function() {
         const now = Date.now();
-        if (window.__latestInventory && (now - lastInvFiberScanAt < 800)) {
+        if (window.__latestInventory && window.__latestInventory.feeZeny === undefined && typeof window.__latestInventory.weightLimit === 'number' && (now - lastInvFiberScanAt < 800)) {
             return window.__latestInventory;
         }
         lastInvFiberScanAt = now;
@@ -18467,7 +18498,7 @@
         let invData = null;
         let visited = 0;
         function isInvObj(o) {
-            return o && typeof o === 'object' && Array.isArray(o.items) && (typeof o.weight === 'number' || typeof o.weightLimit === 'number' || typeof o.slots === 'number');
+            return o && typeof o === 'object' && Array.isArray(o.items) && o.feeZeny === undefined && (typeof o.weight === 'number' || typeof o.weightLimit === 'number');
         }
         function walk(n, depth = 0) {
             if (!n || depth > 40 || invData || ++visited > 350) return;
@@ -19544,18 +19575,80 @@
         return null;
     }
 
+    window.__readAuthoritativeBagInventory = function() {
+        const root = document.querySelector('#root');
+        const key = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
+        const fiber = (root && key) ? root[key] : null;
+        let invData = null;
+        let visited = 0;
+        function isRealBagInv(o) {
+            return Boolean(
+                o &&
+                typeof o === 'object' &&
+                Array.isArray(o.items) &&
+                o.feeZeny === undefined &&
+                (typeof o.weight === 'number' || typeof o.weightLimit === 'number')
+            );
+        }
+        function walk(n, depth = 0) {
+            if (!n || depth > 42 || invData || ++visited > 450) return;
+            if (n.memoizedProps) {
+                if (isRealBagInv(n.memoizedProps.inventory)) invData = n.memoizedProps.inventory;
+                else if (isRealBagInv(n.memoizedProps)) invData = n.memoizedProps;
+            }
+            if (!invData && n.memoizedState) {
+                let s = n.memoizedState;
+                let steps = 0;
+                while (s && ++steps < 30) {
+                    const ms = s.memoizedState;
+                    if (ms && typeof ms === 'object') {
+                        if (isRealBagInv(ms.inventory)) { invData = ms.inventory; break; }
+                        if (isRealBagInv(ms)) { invData = ms; break; }
+                    }
+                    s = s.next;
+                }
+            }
+            if (n.child) walk(n.child, depth + 1);
+            if (n.sibling) walk(n.sibling, depth + 1);
+        }
+        if (fiber) walk(fiber);
+        if (invData) {
+            window.__latestInventory = invData;
+            try { localStorage.setItem('pelican_latest_inventory', JSON.stringify(invData)); } catch (_) {}
+            return invData;
+        }
+        if (isRealBagInv(window.__latestInventory)) return window.__latestInventory;
+        return null;
+    };
+
     function getRealWeightInfo() {
-        const inv = window.__latestInventory || {};
+        const inv = (typeof window.__readAuthoritativeBagInventory === 'function' ? window.__readAuthoritativeBagInventory() : window.__latestInventory) || {};
         const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
         const weight = Number(inv.weight ?? live.weight) || 0;
         const weightLimit = Number(inv.weightLimit ?? live.weightLimit) || 2000;
-        return { weight, weightLimit };
+        const usedSlots = Array.isArray(inv.items) ? inv.items.filter(Boolean).length : 0;
+        const maxSlots = Number(inv.slots) || 200;
+        return { weight, weightLimit, usedSlots, maxSlots, inv };
+    }
+
+    function closeConsolidationStorageAndDialogs() {
+        try {
+            const stClose = document.querySelector('.storage-window .win-close');
+            if (stClose) stClose.click();
+            const dlgClose = document.querySelector('.npc-dialog .win-close');
+            if (dlgClose) dlgClose.click();
+            if (typeof window.closeShopUI === 'function') window.closeShopUI();
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        } catch (_) {}
     }
 
     // Helper: Get matching stash items currently in character bag
     window.getConsolidationMatchingBagItems = function(itemList) {
         const list = Array.isArray(itemList) ? itemList : (window.__stashTradeConfig && window.__stashTradeConfig.items) || [];
-        const bag = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
+        const inv = (typeof window.__readAuthoritativeBagInventory === 'function') ? window.__readAuthoritativeBagInventory() : window.__latestInventory;
+        const bag = (inv && Array.isArray(inv.items))
+            ? inv.items.filter(Boolean)
+            : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
         const matched = [];
         let totalQty = 0;
         let totalWeight = 0;
@@ -19567,7 +19660,7 @@
             const unitW = Math.max(0, Number(raw.weight ?? it.weight ?? 1) || 1);
             matched.push({
                 slot: Number(it.slot ?? raw.slot),
-                id: raw.id ?? it.id,
+                id: raw.itemId ?? raw.id ?? it.itemId ?? it.id,
                 name: it.name || raw.name || 'Item',
                 qty,
                 unitWeight: unitW,
@@ -19581,11 +19674,28 @@
     };
 
     // Helper: Quick sell trash at capital shop before withdrawing stash items during consolidation
+    // Skips walking to Shopkeeper Bor if bag already has plenty of free weight and character has >= 40z storage fee
     window.runConsolidationQuickSellTrash = async function(timeoutMs = 28000) {
         try {
-            if (typeof window.triggerAutoSellTrash !== 'function') return { success: false, error: 'No triggerAutoSellTrash' };
-            const wasConsolidating = window.__isConsolidating;
-            window.__isConsolidating = false; // Allow triggerAutoSellTrash to walk to shop
+            const wBefore = getRealWeightInfo();
+            const liveBefore = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
+            const zenyBefore = Number(liveBefore.zeny ?? window.__currentZeny) || 0;
+            const freeWeight = Math.max(0, wBefore.weightLimit - wBefore.weight);
+            const heavyRatio = wBefore.weightLimit > 0 ? (wBefore.weight / wBefore.weightLimit) : 0;
+            const freeSlots = Math.max(0, wBefore.maxSlots - wBefore.usedSlots);
+            if (freeWeight >= 800 && heavyRatio < 0.80 && freeSlots > 4 && zenyBefore >= 40) {
+                return {
+                    success: true,
+                    skipped: true,
+                    sold: false,
+                    weight: wBefore.weight,
+                    weightLimit: wBefore.weightLimit,
+                    zeny: zenyBefore
+                };
+            }
+            if (typeof window.triggerAutoSellTrash !== 'function') {
+                return { success: true, skipped: true, sold: false, weight: wBefore.weight, weightLimit: wBefore.weightLimit, zeny: zenyBefore };
+            }
             window.triggerAutoSellTrash();
             await new Promise(r => setTimeout(r, 900));
             const start = Date.now();
@@ -19593,19 +19703,17 @@
                 if (!window.__isShopping && !window.__isNavigating) break;
                 await new Promise(r => setTimeout(r, 500));
             }
-            window.__isConsolidating = wasConsolidating;
-            if (typeof window.closeShopUI === 'function') window.closeShopUI();
-            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            closeConsolidationStorageAndDialogs();
             const live = (typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {};
             const wInfo = getRealWeightInfo();
             return {
                 success: true,
+                sold: true,
                 weight: wInfo.weight,
                 weightLimit: wInfo.weightLimit,
                 zeny: Number(live.zeny) || 0
             };
         } catch (err) {
-            window.__isConsolidating = true;
             return { success: false, error: err.message };
         }
     };
@@ -19623,7 +19731,8 @@
                 ? await window.openStorageWindow(room, () => false)
                 : null;
             if (!st || !Array.isArray(st.items)) {
-                return { success: false, error: 'เปิดคลังไม่สำเร็จ', withdrawnQty: 0 };
+                closeConsolidationStorageAndDialogs();
+                return { success: false, error: 'เปิดคลังไม่สำเร็จ (ตรวจดูว่าตัวละครมีเงิน >= 40z และอยู่ในเมืองหลวง)', withdrawnQty: 0 };
             }
 
             let withdrawnQty = 0;
@@ -19634,8 +19743,7 @@
                 const safeAvailWeight = Math.max(0, wInfo.weightLimit - wInfo.weight - 20); // Leave 20 weight safety margin
                 if (safeAvailWeight <= 0) break;
 
-                const slots = (typeof window.getBagSlots === 'function') ? window.getBagSlots() : null;
-                if (slots && Number.isFinite(slots.max) && slots.max > 0 && slots.used >= slots.max - 1) break;
+                if (wInfo.maxSlots > 0 && wInfo.usedSlots >= wInfo.maxSlots - 1) break;
 
                 const stItems = Array.isArray(st.items) ? st.items : [];
                 const candidates = stItems
@@ -19662,7 +19770,7 @@
                         done = true;
                         if (typeof unsub === 'function') unsub();
                         resolve(null);
-                    }, 3000);
+                    }, 3500);
                 });
 
                 room.send('storage_take', { slot: Number(target.slot), qty: Number(takeQty) });
@@ -19672,16 +19780,16 @@
                 if (updated && Array.isArray(updated.items)) {
                     st = updated;
                 } else {
-                    await new Promise(r => setTimeout(r, 350));
+                    await new Promise(r => setTimeout(r, 400));
                     break;
                 }
-                await new Promise(r => setTimeout(r, 180));
+                await new Promise(r => setTimeout(r, 220));
             }
 
-            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            closeConsolidationStorageAndDialogs();
             if (withdrawnQty > 0) {
                 try { room.send('inv_sort', {}); } catch (e) {}
-                await new Promise(r => setTimeout(r, 450));
+                await new Promise(r => setTimeout(r, 500));
             }
             const bagMatch = window.getConsolidationMatchingBagItems(list);
             const wAfter = getRealWeightInfo();
@@ -19695,7 +19803,7 @@
                 weightLimit: wAfter.weightLimit
             };
         } catch (err) {
-            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            closeConsolidationStorageAndDialogs();
             return { success: false, error: err.message, withdrawnQty: 0 };
         }
     };
@@ -19714,18 +19822,38 @@
                 ? await window.openStorageWindow(room, () => false)
                 : null;
             if (!st || !Array.isArray(st.items)) {
+                closeConsolidationStorageAndDialogs();
                 return { success: false, error: 'เปิดคลังไม่สำเร็จ', depositedQty: 0 };
             }
 
-            const bagMatch = window.getConsolidationMatchingBagItems(list);
             let depositedQty = 0;
-            for (const it of bagMatch.items) {
-                if (!Number.isFinite(it.slot) || it.qty <= 0) continue;
+            for (let pass = 0; pass < 40; pass++) {
+                const bagMatch = window.getConsolidationMatchingBagItems(list);
+                const it = bagMatch.items[0];
+                if (!it || !Number.isFinite(it.slot) || it.qty <= 0) break;
+
+                const nextPromise = new Promise(resolve => {
+                    let done = false;
+                    const unsub = room.onMessage('storage', msg => {
+                        if (done) return;
+                        done = true;
+                        if (typeof unsub === 'function') unsub();
+                        resolve(msg);
+                    });
+                    setTimeout(() => {
+                        if (done) return;
+                        done = true;
+                        if (typeof unsub === 'function') unsub();
+                        resolve(null);
+                    }, 3000);
+                });
+
                 room.send('storage_put', { slot: Number(it.slot), qty: Number(it.qty) });
                 depositedQty += it.qty;
-                await new Promise(r => setTimeout(r, 260));
+                await nextPromise;
+                await new Promise(r => setTimeout(r, 240));
             }
-            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            closeConsolidationStorageAndDialogs();
 
             // Walk back to trade spot if requested
             const backTarget = returnTileCoords || beforePos;
@@ -19749,7 +19877,7 @@
                 weightLimit: wAfter.weightLimit
             };
         } catch (err) {
-            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+            closeConsolidationStorageAndDialogs();
             return { success: false, error: err.message, depositedQty: 0 };
         }
     };
