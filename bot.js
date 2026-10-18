@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.43.1
+// @version      4.43.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.43.1';
+    const PELICAN_BOT_VERSION = '4.43.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8670,12 +8670,15 @@
         const bag = Array.isArray(bagList) ? bagList : ((typeof window.getBagItems === 'function') ? window.getBagItems() : []);
         const targetSlot = Number(slot);
         const slotEntry = bag.find(b => b && Number(b.slot) === targetSlot) || itemHint;
-        if (!slotEntry) return { reserveQty: 0, keepQty: 0, sellableQty: 0, totalQty: 0 };
+        if (!slotEntry) return { reserveQty: 0, keepQty: 0, sellableQty: 0, totalQty: 0, reserveSource: '' };
         const raw = slotEntry.raw || slotEntry;
         const slotQty = Math.max(0, Number(slotEntry.qty ?? raw.qty) || 1);
-        const reserveQty = window.getGuildDonationReserveQty(slotEntry);
+        const gdReserveQty = window.getGuildDonationReserveQty(slotEntry);
+        const gearOreReserveQty = (typeof window.getGearOreReserveQty === 'function') ? window.getGearOreReserveQty(slotEntry) : 0;
+        const reserveQty = Math.max(gdReserveQty, gearOreReserveQty);
+        const reserveSource = (gearOreReserveQty > 0 && gearOreReserveQty >= gdReserveQty) ? 'gear' : (gdReserveQty > 0 ? 'guild' : '');
         if (reserveQty <= 0) {
-            return { reserveQty: 0, keepQty: 0, sellableQty: slotQty, totalQty: slotQty };
+            return { reserveQty: 0, keepQty: 0, sellableQty: slotQty, totalQty: slotQty, reserveSource: '' };
         }
         const targetId = Number(raw.itemId ?? raw.id ?? slotEntry.itemId ?? slotEntry.id);
         const targetName = String(raw.name || slotEntry.name || '').trim().toLowerCase();
@@ -8691,7 +8694,7 @@
             .sort((a, b) => Number(a.slot) - Number(b.slot));
         if (!sameStacks.length) {
             const keepQty = Math.min(slotQty, reserveQty);
-            return { reserveQty, keepQty, sellableQty: Math.max(0, slotQty - keepQty), totalQty: slotQty };
+            return { reserveQty, keepQty, sellableQty: Math.max(0, slotQty - keepQty), totalQty: slotQty, reserveSource };
         }
         const totalQty = sameStacks.reduce((sum, b) => sum + Math.max(0, Number(b.qty ?? (b.raw && b.raw.qty)) || 1), 0);
         let reserveRemaining = reserveQty;
@@ -8704,7 +8707,8 @@
                     reserveQty,
                     keepQty: keepHere,
                     sellableQty: Math.max(0, q - keepHere),
-                    totalQty
+                    totalQty,
+                    reserveSource
                 };
             }
         }
@@ -8713,7 +8717,8 @@
             reserveQty,
             keepQty: keepFallback,
             sellableQty: Math.max(0, slotQty - keepFallback),
-            totalQty
+            totalQty,
+            reserveSource
         };
     };
 
@@ -9466,10 +9471,6 @@
                     const b = slot !== null ? bySlot[slot] : null;
                     const raw = b ? (b.raw || b) : null;
                     if (!raw || !types.includes(raw.type)) return;
-                    if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(raw)) {
-                        console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}"`);
-                        return;
-                    }
                     if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(raw)) {
                         console.log(`%c[PmheeAether Shop] 🔒 [เก็บเข้าคลังอย่างเดียว] ห้ามขายเด็ดขาด: "${raw.name}"`, 'color: #38bdf8; font-weight: bold;');
                         return;
@@ -9479,9 +9480,17 @@
                         console.log(`[PmheeAether Shop] 🔒 [Whitelist] เก็บ: "${raw.name}"`);
                         return;
                     }
+                    if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(raw)) {
+                        console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}" x${raw.qty || 1} (เก็บสูงสุดไม่เกิน ${window.GEAR_ORE_MAX_KEEP || 100} ก้อน)`);
+                        return;
+                    }
                     const gdInfo = window.getGuildDonationSlotSellableQty(slot, bag, b);
                     if (gdInfo.reserveQty > 0 && gdInfo.sellableQty <= 0) {
-                        console.log(`%c[PmheeAether Shop] 🏛️ [ของบริจาคกิลด์] เก็บสำรองไว้บริจาคกิลด์รายวัน: "${raw.name}" x${raw.qty || 1} (สำรอง ${gdInfo.reserveQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                        if (gdInfo.reserveSource === 'gear') {
+                            console.log(`[PmheeAether Shop] 🔒 [เซ็ตอุปกรณ์] เก็บไว้ตีบวก: "${raw.name}" x${raw.qty || 1} (เก็บสำรองสูงสุด ${gdInfo.reserveQty} ก้อน)`);
+                        } else {
+                            console.log(`%c[PmheeAether Shop] 🏛️ [ของบริจาคกิลด์] เก็บสำรองไว้บริจาคกิลด์รายวัน: "${raw.name}" x${raw.qty || 1} (สำรอง ${gdInfo.reserveQty} ชิ้น)`, 'color: #38bdf8; font-weight: bold;');
+                        }
                         return;
                     }
                     const allBtn = row.querySelector('button.cart-all');
@@ -9489,7 +9498,7 @@
                     const btn = (allBtn && !allBtn.disabled) ? allBtn : addBtn;
                     if (!btn || btn.disabled) return;
                     const sellQty = gdInfo.reserveQty > 0 ? gdInfo.sellableQty : (raw.qty || 1);
-                    picks.push({ name: raw.name, slot, qty: sellQty, totalSlotQty: raw.qty || 1, keepQty: gdInfo.keepQty || 0, btn });
+                    picks.push({ name: raw.name, slot, qty: sellQty, totalSlotQty: raw.qty || 1, keepQty: gdInfo.keepQty || 0, reserveSource: gdInfo.reserveSource || 'guild', btn });
                 });
 
                 if (!picks.length) {
@@ -9502,7 +9511,11 @@
                     if (i >= picks.length) { setTimeout(onDone, 500); return; }
                     const p = picks[i++];
                     if (p.keepQty > 0) {
-                        console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้าส่วนเกินของบริจาคกิลด์ (${catName}): "${p.name}" ขาย ${p.qty}/${p.totalSlotQty} ชิ้น (เก็บสำรองบริจาค ${p.keepQty} ชิ้น)`, 'color: #22c55e;');
+                        if (p.reserveSource === 'gear') {
+                            console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้าส่วนเกินแร่เซ็ตอุปกรณ์ (${catName}): "${p.name}" ขาย ${p.qty}/${p.totalSlotQty} ก้อน (เก็บสำรองไว้ตีบวก ${p.keepQty} ก้อน)`, 'color: #22c55e;');
+                        } else {
+                            console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้าส่วนเกินของบริจาคกิลด์ (${catName}): "${p.name}" ขาย ${p.qty}/${p.totalSlotQty} ชิ้น (เก็บสำรองบริจาค ${p.keepQty} ชิ้น)`, 'color: #22c55e;');
+                        }
                     } else {
                         console.log(`%c[PmheeAether Shop] ➕ ใส่ตะกร้า (${catName}): "${p.name}" x${p.qty}`, 'color: #22c55e;');
                     }
@@ -10000,13 +10013,24 @@
     // Items the plan is waiting to wear: an "สวมใส่" action's item not worn yet (bought, level too low), or a gem
     // that is a better % of a worn gem (the gem auto-upgrade waits for its level) — depositing them made the plan
     // buy them again
-    function planStillNeeds(it) {
+    function planStillNeeds(it, bagList = null) {
         const lc = s => String(s || '').trim().toLowerCase();
         const name = lc(it.name);
         const worn = Object.values(((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).equipment || {}).filter(Boolean);
-        const plan = window.__currentScriptPlan;
+        const plan = window.__planScriptEnabled ? window.__currentScriptPlan : null;
         if (plan && Array.isArray(plan.triggers) && !worn.some(w => lc(w.name) === name)
-            && plan.triggers.some(t => (t.actions || []).some(a => a && a.type === 'equip_item' && lc(a.itemName) === name))) return true;
+            && plan.triggers.some(t => (t.actions || []).some(a => a && a.type === 'equip_item' && lc(a.itemName) === name))) {
+            if (Array.isArray(bagList) && bagList.length && it.slot !== undefined && it.slot !== null && it.slot !== '-') {
+                const same = bagList
+                    .filter(b => b && lc(b.name) === name)
+                    .slice()
+                    .sort((a, b) => ((Number(b.refine) || 0) - (Number(a.refine) || 0))
+                        || (((Array.isArray(b.affixes) ? b.affixes.length : 0) - (Array.isArray(a.affixes) ? a.affixes.length : 0)))
+                        || ((Number(a.slot) || 0) - (Number(b.slot) || 0)));
+                if (same.length && Number(same[0].slot) !== Number(it.slot)) return false;
+            }
+            return true;
+        }
         const tier = n => { const m = String(n || '').trim().match(/^(.*\S)\s+(\d+(?:\.\d+)?)\s*%$/); return m ? { fam: m[1].toLowerCase(), pct: parseFloat(m[2]) } : null; };
         const g = it.equipType === 'Gem' ? tier(it.name) : null;
         return !!g && worn.some(w => { const t = w.equipType === 'Gem' ? tier(w.name) : null; return t && t.fam === g.fam && t.pct < g.pct; });
@@ -10039,7 +10063,7 @@
         if (isItemOnMarketSellList(it)) return false;
         if (it.locked && cfg.storeSkipLocked !== false) return false;
         if (typeof window.isGearKeptItem === 'function' && window.isGearKeptItem(it)) return false;
-        if (planStillNeeds(it)) return false;
+        if (planStillNeeds(it, bagList)) return false;
         const cat = storeCategoryOf(it);
         if (cat !== 'refine' && refused && refused[it.itemId] && Date.now() - refused[it.itemId] < 24 * 3600 * 1000) return false;   // the game refused it before
         if (typeof window.getGuildDonationSlotSellableQty === 'function') {
@@ -13896,9 +13920,13 @@
 
         let totalQty = 0;
         matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
-        const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
+        const gdReserveQty = typeof window.getGuildDonationReserveQty === 'function'
             ? window.getGuildDonationReserveQty(matchingItems[0] || rule.itemName)
             : 0;
+        const gearReserveQty = typeof window.getGearOreReserveQty === 'function'
+            ? window.getGearOreReserveQty(matchingItems[0] || rule.itemName)
+            : 0;
+        const reserveQty = Math.max(gdReserveQty, gearReserveQty);
         let targetSlotItem = matchingItems[0];
         let maxFromSlot = Number(targetSlotItem.qty) || 1;
         if (reserveQty > 0 && typeof window.getGuildDonationSlotSellableQty === 'function') {
@@ -13907,7 +13935,7 @@
                 .filter(x => x.gd.sellableQty > 0)
                 .sort((a, b) => b.gd.sellableQty - a.gd.sellableQty);
             if (!candidates.length) {
-                console.warn(`[PmheeAether AutoSell] 🏛️ ไม่สามารถลงขาย "${rule.itemName}" ได้ เนื่องจากมี ${totalQty}/${reserveQty} ชิ้น (ต้องเก็บสำรองไว้บริจาคกิลด์รายวัน ${reserveQty} ชิ้น)`);
+                console.warn(`[PmheeAether AutoSell] 🏛️ ไม่สามารถลงขาย "${rule.itemName}" ได้ เนื่องจากมี ${totalQty}/${reserveQty} ชิ้น (ต้องเก็บสำรอง ${reserveQty} ชิ้น)`);
                 return;
             }
             targetSlotItem = candidates[0].it;
@@ -14039,9 +14067,13 @@
                 matchingItems.forEach(it => totalQty += (Number(it.qty) || 1));
 
                 const threshold = Number(rule.minQty) || 1;
-                const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
+                const gdReserveQty = typeof window.getGuildDonationReserveQty === 'function'
                     ? window.getGuildDonationReserveQty(matchingItems[0] || rule.itemName)
                     : 0;
+                const gearReserveQty = typeof window.getGearOreReserveQty === 'function'
+                    ? window.getGearOreReserveQty(matchingItems[0] || rule.itemName)
+                    : 0;
+                const reserveQty = Math.max(gdReserveQty, gearReserveQty);
                 const effectiveThreshold = reserveQty > 0
                     ? ((rule.sellMode === 'min' || threshold <= reserveQty) ? (reserveQty + threshold) : threshold)
                     : threshold;
@@ -17896,39 +17928,153 @@
         }
     }
 
-    // Items the gear set still needs: ores + Blessing of refine steps not done, and the items of equip steps not
-    // worn yet (with the required options). The NPC sell trip and the auto market sell skip them.
-    function gearKeepIds() {
+    // Items the gear set still needs: ores (capped at GEAR_ORE_MAX_KEEP = 100 per needed ore) + Blessing of refine
+    // steps not done, cards of card steps not done, and at most 1 best copy per uncompleted equip step.
+    const GEAR_ORE_MAX_KEEP = 100;
+    window.GEAR_ORE_MAX_KEEP = GEAR_ORE_MAX_KEEP;
+    const ALL_GEAR_ORES = [...GEAR_ORES.weapon, ...GEAR_ORES.armor];
+    const gearOreByName = n => {
+        const lc = String(n || '').replace(/^\+\s*\d+\s*/, '').replace(/\s*\[\s*\d+\s*\]\s*$/, '').trim().toLowerCase();
+        return ALL_GEAR_ORES.find(o => o.name.toLowerCase() === lc) || null;
+    };
+    function gearNeededOreIds() {
+        if (!window.__planScriptEnabled) return [];
         const plan = window.__currentScriptPlan || {};
         const steps = (plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
+        if (!steps.length) return [];
+        const eq = gearChar().equipment || {};
+        const sk = gearSkipped();
+        const ores = new Set();
+        steps.forEach((x, i) => {
+            if (!x || x.kind !== 'refine' || gearIsSkipped(sk, x) || gearStepDone(x, eq, steps)) return;
+            const superseded = steps.slice(i + 1).some(s => s && s.kind === 'equip' && s.slot === x.slot && gearName({ name: s.itemName }) !== gearName({ name: x.itemName }) && gearWorn(s, eq, steps));
+            if (superseded) return;
+            const w = gearWorn(x, eq, steps);
+            for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) {
+                ores.add(gearOreFor(x.slot, to).id);
+            }
+        });
+        return [...ores];
+    }
+    function gearKeepIds() {
+        if (!window.__planScriptEnabled) return [];
+        const plan = window.__currentScriptPlan || {};
+        const steps = (plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
+        if (!steps.length) return [];
         const eq = gearChar().equipment || {};
         const sk = gearSkipped();
         const keep = new Set();
-        steps.forEach(x => {
+        steps.forEach((x, i) => {
             if (!x || x.kind !== 'refine' || gearIsSkipped(sk, x) || gearStepDone(x, eq, steps)) return;
-            const w = gearWorn(x, eq, steps);
-            for (let to = (w ? Number(w.refine) || 0 : 0) + 1; to <= (Number(x.toLevel) || 0); to++) keep.add(gearOreFor(x.slot, to).id);
+            const superseded = steps.slice(i + 1).some(s => s && s.kind === 'equip' && s.slot === x.slot && gearName({ name: s.itemName }) !== gearName({ name: x.itemName }) && gearWorn(s, eq, steps));
+            if (superseded) return;
             if (x.blessing !== false) keep.add(90208);   // Blacksmith Blessing
         });
         steps.forEach(x => { if (x && x.kind === 'card' && x.cardId && !gearIsSkipped(sk, x) && !gearStepDone(x, eq, steps)) keep.add(Number(x.cardId)); });
         return [...keep];
     }
-    let gearKeepMemo = { at: 0, plan: null, ids: [], eq: null, sk: null };
+    function gearKeptEquipSlots(steps, eq, sk, bag) {
+        const kept = new Set();
+        if (!Array.isArray(bag) || !bag.length) return kept;
+        steps.forEach((st, i) => {
+            if (!st || st.kind !== 'equip' || gearIsSkipped(sk, st) || gearStepDone(st, eq, steps)) return;
+            const name = gearName({ name: st.itemName });
+            const superseded = steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== name && gearWorn(x, eq, steps));
+            if (superseded) return;
+            const terms = parsePlanOptionFilter(st.options);
+            const candidates = bag
+                .map(b => b && (b.raw || b))
+                .filter(it => it && gearName(it) === name && itemPassesPlanOptions(it, terms))
+                .sort((a, b) => ((Number(b.refine) || 0) - (Number(a.refine) || 0))
+                    || (((Array.isArray(b.affixes) ? b.affixes.length : 0) - (Array.isArray(a.affixes) ? a.affixes.length : 0)))
+                    || ((Number(b.slots) || 0) - (Number(a.slots) || 0))
+                    || ((Number(a.slot) || 0) - (Number(b.slot) || 0)));
+            const pick = candidates.find(it => it.slot !== undefined && it.slot !== null && it.slot !== '-' && !kept.has(Number(it.slot)));
+            if (pick) kept.add(Number(pick.slot));
+        });
+        return kept;
+    }
+    let gearKeepMemo = { at: 0, plan: null, enabled: false, ids: [], oreIds: [], eq: null, sk: null, keptEquipSlots: new Set(), hasBag: false, bag: [] };
+    function refreshGearKeepMemo() {
+        const plan = window.__currentScriptPlan || {};
+        const enabled = !!window.__planScriptEnabled;
+        if (Date.now() - gearKeepMemo.at > 1000 || gearKeepMemo.plan !== plan || gearKeepMemo.enabled !== enabled) {
+            const steps = (enabled && plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
+            const eq = gearChar().equipment || {};
+            const sk = gearSkipped();
+            const rawBag = planBag();
+            const bag = rawBag.length ? rawBag : ((typeof window.getBagItems === 'function') ? window.getBagItems().map(x => x && (x.raw || x)).filter(Boolean) : []);
+            gearKeepMemo = {
+                at: Date.now(),
+                plan,
+                enabled,
+                ids: gearKeepIds(),
+                oreIds: gearNeededOreIds(),
+                eq,
+                sk,
+                keptEquipSlots: gearKeptEquipSlots(steps, eq, sk, bag),
+                hasBag: bag.length > 0,
+                bag
+            };
+        }
+        return gearKeepMemo;
+    }
+    window.getGearOreReserveQty = function (itemOrNameOrId) {
+        try {
+            if (!window.__planScriptEnabled || itemOrNameOrId === null || itemOrNameOrId === undefined) return 0;
+            const memo = refreshGearKeepMemo();
+            if (!memo.oreIds.length) return 0;
+            if (typeof itemOrNameOrId === 'number' || (typeof itemOrNameOrId === 'string' && /^\d+$/.test(itemOrNameOrId.trim()))) {
+                return memo.oreIds.includes(Number(itemOrNameOrId)) ? GEAR_ORE_MAX_KEEP : 0;
+            }
+            if (typeof itemOrNameOrId === 'string') {
+                const ore = gearOreByName(itemOrNameOrId);
+                return (ore && memo.oreIds.includes(ore.id)) ? GEAR_ORE_MAX_KEEP : 0;
+            }
+            const raw = itemOrNameOrId.raw || itemOrNameOrId;
+            const id = Number(raw.itemId ?? raw.id ?? itemOrNameOrId.itemId ?? itemOrNameOrId.id);
+            if (Number.isFinite(id) && id > 0 && memo.oreIds.includes(id)) return GEAR_ORE_MAX_KEEP;
+            const ore = gearOreByName(raw.name || itemOrNameOrId.name || '');
+            return (ore && memo.oreIds.includes(ore.id)) ? GEAR_ORE_MAX_KEEP : 0;
+        } catch (e) { return 0; }
+    };
     window.isGearKeptItem = function (raw) {
         try {
+            if (!window.__planScriptEnabled) return false;
             const plan = window.__currentScriptPlan || {};
             const steps = (plan.gearPlan && Array.isArray(plan.gearPlan.steps)) ? plan.gearPlan.steps : [];
             if (!raw || !steps.length) return false;
-            if (Date.now() - gearKeepMemo.at > 1000 || gearKeepMemo.plan !== plan) {
-                gearKeepMemo = { at: Date.now(), plan, ids: gearKeepIds(), eq: gearChar().equipment || {}, sk: gearSkipped() };
+            const item = raw.raw || raw;
+            const memo = refreshGearKeepMemo();
+            const itemId = Number(item.itemId ?? item.id ?? raw.itemId ?? raw.id);
+            if (memo.ids.includes(itemId)) return true;
+            const oreObj = (Number.isFinite(itemId) && itemId > 0 && gearOreById(itemId)) || gearOreByName(item.name || raw.name || '');
+            if (oreObj && memo.oreIds.includes(oreObj.id)) {
+                const slot = item.slot ?? raw.slot;
+                if (slot !== undefined && slot !== null && slot !== '-' && typeof window.getGuildDonationSlotSellableQty === 'function') {
+                    const info = window.getGuildDonationSlotSellableQty(slot, memo.bag, item);
+                    return info.sellableQty <= 0;
+                }
+                const qty = Math.max(1, Number(item.qty ?? raw.qty) || 1);
+                const bagTotal = Array.isArray(memo.bag) && memo.bag.length
+                    ? memo.bag.filter(b => b && (Number(b.itemId ?? b.id) === oreObj.id || gearName(b) === oreObj.name.toLowerCase()))
+                        .reduce((s, b) => s + Math.max(1, Number(b.qty) || 1), 0)
+                    : qty;
+                return Math.max(qty, bagTotal) <= GEAR_ORE_MAX_KEEP;
             }
-            if (gearKeepMemo.ids.includes(Number(raw.itemId))) return true;
-            const eq = gearKeepMemo.eq;
-            const name = gearName(raw);
-            return steps.some((st, i) => st && st.kind === 'equip' && gearName({ name: st.itemName }) === name
+            const eq = memo.eq;
+            const sk = memo.sk;
+            const name = gearName(item);
+            const matchesStep = steps.some((st, i) => st && st.kind === 'equip' && !gearIsSkipped(sk, st) && gearName({ name: st.itemName }) === name
                 && !gearStepDone(st, eq, steps)
                 && !steps.slice(i + 1).some(x => x && x.kind === 'equip' && x.slot === st.slot && gearName({ name: x.itemName }) !== name && gearWorn(x, eq, steps))
-                && itemPassesPlanOptions(raw, parsePlanOptionFilter(st.options)));
+                && itemPassesPlanOptions(item, parsePlanOptionFilter(st.options)));
+            if (!matchesStep) return false;
+            const slot = item.slot ?? raw.slot;
+            if (slot !== undefined && slot !== null && slot !== '-' && memo.hasBag && memo.keptEquipSlots.size > 0) {
+                return memo.keptEquipSlots.has(Number(slot));
+            }
+            return true;
         } catch (e) { return false; }
     };
 
