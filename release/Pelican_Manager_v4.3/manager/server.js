@@ -4317,18 +4317,22 @@ function buildLocalProfileBackupPayload() {
   for (const p of profiles) {
     if (!p || !p.id) continue;
     const password = credentials.getPassword(p.id) || "";
-    const username = String(p.username || "").trim();
+    const username = String(p.account || p.username || "").trim();
     const characterName = String((p.liveState && p.liveState.charName) || p.lastCharName || "").trim();
     const copy = { ...p };
     delete copy.liveState;
     delete copy.password;
-    if (username) copy.username = username;
+    if (username) {
+      copy.account = username;
+      copy.username = username;
+    }
     if (characterName) copy.lastCharName = characterName;
     cleanProfiles.push({
       id: p.id,
       name: p.name || p.id,
       characterName,
       username,
+      account: username,
       password,
       server: p.server || "aetheria-main",
       profile: copy
@@ -4365,7 +4369,7 @@ function applyProfileBackupPayload(data) {
     if (!id || seenIds.has(id)) continue;
     seenIds.add(id);
     const prev = existingById.get(id) || {};
-    const username = String(item.username || base.username || (credsObj[id] && credsObj[id].username) || prev.username || "").trim();
+    const username = String(item.username || item.account || base.account || base.username || (credsObj[id] && credsObj[id].username) || prev.account || prev.username || "").trim();
     const password = String(item.password || (credsObj[id] && credsObj[id].password) || "").trim();
     const charName = String(item.characterName || base.lastCharName || prev.lastCharName || "").trim();
     delete base.password;
@@ -4376,7 +4380,7 @@ function applyProfileBackupPayload(data) {
       id,
       name: String(item.name || base.name || prev.name || id).trim(),
       server: String(item.server || base.server || prev.server || "aetheria-main").trim(),
-      ...(username ? { username } : {}),
+      ...(username ? { account: username, username } : {}),
       ...(charName ? { lastCharName: charName } : {})
     };
     merged.push(finalProfile);
