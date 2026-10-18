@@ -7336,6 +7336,12 @@ server.listen(PORT, "127.0.0.1", () => {
   if(!TEST_INSTANCE)authSync.start();
   browserMode.start();
   if (!TEST_INSTANCE) {
+    try {
+      const spSettings = screenProxy.loadSettings();
+      if (spSettings && spSettings.updatedAt == null) {
+        screenProxy.saveSettings({ enabled: true, mode: "owner-queue" });
+      }
+    } catch (_) {}
     setTimeout(() => {
       if (isBrowserMode() && typeof browserMode.syncAssetCacheToOpenWindows === "function") {
         browserMode.syncAssetCacheToOpenWindows().catch(() => {});
@@ -7344,6 +7350,11 @@ server.listen(PORT, "127.0.0.1", () => {
         syncScreenProxyForOpenProfiles().catch(() => {});
       }
     }, 2800);
+    setInterval(() => {
+      if (screenProxy.isEnabled()) {
+        syncScreenProxyForOpenProfiles().catch(() => {});
+      }
+    }, 60000);
     setTimeout(() => syncStashTradeConfigToAllClients().catch(() => {}), 3500);
     setInterval(() => syncStashTradeConfigToAllClients().catch(() => {}), 25000);
   }
