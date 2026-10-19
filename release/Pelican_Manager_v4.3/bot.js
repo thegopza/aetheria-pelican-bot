@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.43.2
+// @version      4.44.0
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.43.2';
+    const PELICAN_BOT_VERSION = '4.44.0';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1173,7 +1173,7 @@
                 room.send = function(type) {
                     try {
                         const cmd = String(type || '');
-                        if (/shop_buy|shop_sell|market_buy|market_claim|market_collect|exchange|refine|warp|npc_option|trade/i.test(cmd)) {
+                        if (/shop_buy|shop_sell|market_buy|market_claim|market_collect|exchange|refine|warp|npc_option|trade|guild/i.test(cmd)) {
                             if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true);
                             setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 250);
                             setTimeout(() => { try { if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true); } catch (_) {} }, 600);
@@ -1187,6 +1187,19 @@
         room.__humanCheckAttached = true;
         try {
             if (typeof room.onMessage === 'function') {
+                room.onMessage('guild', (payload) => {
+                    window.__pmGuildData = payload || null;
+                    window.__pmGuildDataAt = Date.now();
+                    if (payload && payload.id) {
+                        setTimeout(() => {
+                            try {
+                                if (typeof window.checkAndAutoBuyGuildEnchantRune === 'function') {
+                                    window.checkAndAutoBuyGuildEnchantRune('guild_msg');
+                                }
+                            } catch (_) {}
+                        }, 350);
+                    }
+                });
                 room.onMessage('human_check', (payload) => {
                     if (!payload || payload.id == null) return;
                     window.__latestHumanCheck = {
@@ -8591,39 +8604,71 @@
     let __guildDonationCacheAt = 0;
     let __guildDonationCache = null;
 
+    window.getLiveGuildData = function (force = false) {
+        const now = Date.now();
+        if (!force && window.__pmGuildData && (now - (window.__pmGuildDataAt || 0) < 5000)) {
+            return window.__pmGuildData;
+        }
+        let g = window.__pmGuildData || null;
+        try {
+            const root = document.getElementById('root') || document.body;
+            const fk = root ? Object.keys(root).find(k => k.startsWith('__reactContainer') || k.startsWith('__reactFiber')) : null;
+            const q = fk && root[fk] ? [root[fk]] : [];
+            const seen = new Set();
+            while (q.length && seen.size < 600) {
+                const n = q.shift();
+                if (!n || seen.has(n)) continue;
+                seen.add(n);
+                if (n.memoizedProps && n.memoizedProps.guild && typeof n.memoizedProps.guild === 'object' && n.memoizedProps.guild.myPoints !== undefined) {
+                    g = n.memoizedProps.guild;
+                    window.__pmGuildData = g;
+                    window.__pmGuildDataAt = now;
+                    break;
+                }
+                let m = n.memoizedState;
+                let guard = 0;
+                while (m && guard++ < 35) {
+                    const v = m.memoizedState;
+                    if (v && typeof v === 'object' && !Array.isArray(v)) {
+                        if (v.myPoints !== undefined && v.shopToday !== undefined && v.id) {
+                            g = v;
+                            window.__pmGuildData = g;
+                            window.__pmGuildDataAt = now;
+                            break;
+                        }
+                        if (v.value && typeof v.value === 'object' && v.value.myPoints !== undefined && v.value.shopToday !== undefined && v.value.id) {
+                            g = v.value;
+                            window.__pmGuildData = g;
+                            window.__pmGuildDataAt = now;
+                            break;
+                        }
+                        if ('guild' in v && 'inventory' in v) {
+                            const liveG = typeof v.guild === 'function' ? v.guild() : v.guild;
+                            if (liveG && typeof liveG === 'object' && liveG.id) {
+                                g = liveG;
+                                window.__pmGuildData = g;
+                                window.__pmGuildDataAt = now;
+                                break;
+                            }
+                        }
+                    }
+                    m = m.next;
+                }
+                if (g && window.__pmGuildDataAt === now) break;
+                if (n.child) q.push(n.child);
+                if (n.sibling) q.push(n.sibling);
+            }
+        } catch (e) {}
+        return g;
+    };
+
     window.getGuildDonationReserveMap = function () {
         const now = Date.now();
         if (__guildDonationCache && (now - __guildDonationCacheAt < 5000)) return __guildDonationCache;
         const byId = Object.assign({}, GUILD_DONATION_DEFAULT_BY_ID);
         const byName = Object.assign({}, GUILD_DONATION_DEFAULT_BY_NAME);
         try {
-            let g = window.__pmGuildData || null;
-            if (!g || (now - (window.__pmGuildDataAt || 0) > 15000)) {
-                const root = document.getElementById('root');
-                const fk = root ? Object.keys(root).find(k => k.startsWith('__reactContainer')) : null;
-                const q = fk && root[fk] ? [root[fk]] : [];
-                const seen = new Set();
-                while (q.length && seen.size < 400) {
-                    const n = q.shift();
-                    if (!n || seen.has(n)) continue;
-                    seen.add(n);
-                    let m = n.memoizedState;
-                    while (m) {
-                        const v = m.memoizedState;
-                        if (v && typeof v === 'object' && !Array.isArray(v) && 'guild' in v && 'inventory' in v) {
-                            if (typeof v.guild === 'function') {
-                                const liveG = v.guild();
-                                if (liveG) { g = liveG; window.__pmGuildData = liveG; window.__pmGuildDataAt = now; }
-                            }
-                            break;
-                        }
-                        m = m.next;
-                    }
-                    if (g && window.__pmGuildDataAt === now) break;
-                    if (n.child) q.push(n.child);
-                    if (n.sibling) q.push(n.sibling);
-                }
-            }
+            const g = window.getLiveGuildData(now - (window.__pmGuildDataAt || 0) > 15000);
             if (g && Array.isArray(g.materials)) {
                 g.materials.forEach(tier => {
                     if (!tier || !Array.isArray(tier.items)) return;
@@ -8721,6 +8766,125 @@
             reserveSource
         };
     };
+
+    // ---------- 🔮 Auto Guild Shop Enchant Rune Exchange ----------
+    // Automatically exchanges guild donation points for Enchant Rune (itemId: 90340, 10 points each, max 10/day)
+    // whenever the character belongs to a guild, has >= 10 points, and still has daily exchange quota left.
+    const GUILD_ENCHANT_RUNE_ITEM_ID = 90340;
+    const GUILD_ENCHANT_RUNE_COST_POINTS = 10;
+    const GUILD_ENCHANT_RUNE_MAX_PER_DAY = 10;
+    let __lastGuildEnchantRuneBuyAt = 0;
+    let __lastGuildEnchantRuneDayKey = '';
+
+    function getBangkokDateKeyForGuild() {
+        try {
+            return new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    window.getGuildEnchantRuneStatus = function (force = false) {
+        const g = window.getLiveGuildData(force);
+        if (!g || !g.id) {
+            return { hasGuild: false, guildName: '', myPoints: 0, boughtToday: 0, leftToday: 0, canBuyQty: 0 };
+        }
+        const shopToday = (g.shopToday && typeof g.shopToday === 'object') ? g.shopToday : {};
+        const boughtToday = Math.max(0, Number(shopToday[GUILD_ENCHANT_RUNE_ITEM_ID] ?? shopToday[String(GUILD_ENCHANT_RUNE_ITEM_ID)] ?? 0) || 0);
+        const leftToday = Math.max(0, GUILD_ENCHANT_RUNE_MAX_PER_DAY - boughtToday);
+        const myPoints = Math.max(0, Number(g.myPoints) || 0);
+        const affordable = Math.floor(myPoints / GUILD_ENCHANT_RUNE_COST_POINTS);
+        const canBuyQty = Math.max(0, Math.min(leftToday, affordable));
+        return {
+            hasGuild: true,
+            guildId: g.id,
+            guildName: g.name || '',
+            myPoints,
+            boughtToday,
+            leftToday,
+            canBuyQty
+        };
+    };
+
+    window.checkAndAutoBuyGuildEnchantRune = function (triggerSource = 'interval', force = false) {
+        try {
+            if (window.__autoGuildEnchantRuneEnabled === false) return { exchanged: false, reason: 'disabled' };
+            const now = Date.now();
+            if (!force && (now - __lastGuildEnchantRuneBuyAt < 10000)) {
+                return { exchanged: false, reason: 'cooldown' };
+            }
+            if (window.__latestHumanCheck && (now - (window.__latestHumanCheck.timestamp || 0) < 15000)) {
+                return { exchanged: false, reason: 'human_check' };
+            }
+            const room = (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null)
+                || (typeof window.getGameRoom === 'function' ? window.getGameRoom() : null)
+                || window.__colyseusRoom
+                || window.__gameRoom;
+            if (!room || typeof room.send !== 'function' || (room.connection && room.connection.isOpen === false)) {
+                return { exchanged: false, reason: 'no_room' };
+            }
+            const todayKey = getBangkokDateKeyForGuild();
+            if (todayKey && __lastGuildEnchantRuneDayKey && __lastGuildEnchantRuneDayKey !== todayKey) {
+                window.__pmGuildDataAt = 0;
+            }
+            __lastGuildEnchantRuneDayKey = todayKey;
+
+            const status = window.getGuildEnchantRuneStatus(true);
+            if (!status.hasGuild) return { exchanged: false, reason: 'no_guild', status };
+            if (status.leftToday <= 0) return { exchanged: false, reason: 'daily_limit_reached', status };
+            if (status.canBuyQty <= 0) return { exchanged: false, reason: 'insufficient_points', status };
+
+            const qty = status.canBuyQty;
+            const costPoints = qty * GUILD_ENCHANT_RUNE_COST_POINTS;
+            const remainPoints = status.myPoints - costPoints;
+            __lastGuildEnchantRuneBuyAt = now;
+
+            room.send('guild', {
+                action: 'shopBuy',
+                itemId: GUILD_ENCHANT_RUNE_ITEM_ID,
+                qty
+            });
+
+            if (window.__pmGuildData && window.__pmGuildData.id === status.guildId) {
+                window.__pmGuildData = Object.assign({}, window.__pmGuildData, {
+                    myPoints: Math.max(0, remainPoints),
+                    shopToday: Object.assign({}, window.__pmGuildData.shopToday || {}, {
+                        [GUILD_ENCHANT_RUNE_ITEM_ID]: status.boughtToday + qty
+                    })
+                });
+                window.__pmGuildDataAt = now;
+            }
+
+            setTimeout(() => {
+                try {
+                    const dlg = document.querySelector('.guild-shop-dialog');
+                    if (dlg && /Enchant Rune/i.test(dlg.innerText || '')) {
+                        const closeBtn = dlg.querySelector('button.win-close');
+                        if (closeBtn) closeBtn.click();
+                    }
+                    if (typeof window.getLiveCharacterData === 'function') window.getLiveCharacterData(true);
+                } catch (_) {}
+            }, 400);
+
+            console.log(
+                `%c[PmheeAether Guild] 🔮 แลก Enchant Rune x${qty} อัตโนมัติสำเร็จ! (กิลด์ ${status.guildName} · ใช้ ${costPoints} คะแนน · คงเหลือ ${remainPoints} คะแนน · แลกวันนี้ ${status.boughtToday + qty}/${GUILD_ENCHANT_RUNE_MAX_PER_DAY})`,
+                'color: #c084fc; font-weight: bold;'
+            );
+            return { exchanged: true, qty, costPoints, remainPoints, guildName: status.guildName, triggerSource };
+        } catch (e) {
+            return { exchanged: false, reason: 'error', error: e && e.message };
+        }
+    };
+
+    if (!window.__pmGuildEnchantRuneInterval) {
+        window.__pmGuildEnchantRuneInterval = setInterval(() => {
+            try {
+                if (typeof window.checkAndAutoBuyGuildEnchantRune === 'function') {
+                    window.checkAndAutoBuyGuildEnchantRune('interval');
+                }
+            } catch (_) {}
+        }, 15000);
+    }
 
     window.triggerAutoSellTrash = triggerAutoSellTrash;
     function triggerAutoSellTrash(callback) {
@@ -9438,6 +9602,13 @@
                 const b = bySlot[slot];
                 const raw = b ? (b.raw || b) : null;
                 if (!raw) return;
+                const rawId = Number(raw.itemId || raw.id || (b && b.id) || 0);
+                const rawLower = String(raw.name || '').trim().toLowerCase();
+                if (rawId === 90340 || rawId === 90341 || rawLower === 'enchant rune' || rawLower === 'accessory enchant rune') {
+                    console.log(`%c[PmheeAether Shop] 🏛️ [หินออฟกิลด์] เอา "${raw.name}" ออกจากตะกร้าขายเด็ดขาด`, 'color: #a855f7; font-weight: bold;');
+                    setShopCartSlotQty(slot, 0);
+                    return;
+                }
                 const gdInfo = window.getGuildDonationSlotSellableQty(slot, bag, b);
                 if (gdInfo.reserveQty <= 0) return;
                 if (isWhitelisted(raw.name) || gdInfo.sellableQty <= 0) {
@@ -9471,6 +9642,12 @@
                     const b = slot !== null ? bySlot[slot] : null;
                     const raw = b ? (b.raw || b) : null;
                     if (!raw || !types.includes(raw.type)) return;
+                    const rawId = Number(raw.itemId || raw.id || (b && b.id) || 0);
+                    const rawLower = String(raw.name || '').trim().toLowerCase();
+                    if (rawId === 90340 || rawId === 90341 || rawLower === 'enchant rune' || rawLower === 'accessory enchant rune') {
+                        console.log(`%c[PmheeAether Shop] 🏛️ [หินออฟกิลด์] ห้ามขายเด็ดขาด: "${raw.name}"`, 'color: #a855f7; font-weight: bold;');
+                        return;
+                    }
                     if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(raw)) {
                         console.log(`%c[PmheeAether Shop] 🔒 [เก็บเข้าคลังอย่างเดียว] ห้ามขายเด็ดขาด: "${raw.name}"`, 'color: #38bdf8; font-weight: bold;');
                         return;
