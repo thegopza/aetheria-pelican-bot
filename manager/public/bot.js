@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.0
+// @version      4.44.1
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.0';
+    const PELICAN_BOT_VERSION = '4.44.1';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -27,7 +27,12 @@
         const get = proto.getItem, set = proto.setItem, del = proto.removeItem;
         const SHARED = new Set(['pelican_icon_manifest', 'pelican_item_catalog']);
         const SKIP_PERSIST = new Set(['pelican_item_catalog', 'pelican_latest_inventory', 'pelican_packet_logs']);
-        const map = (st, k) => (pid && st === window.localStorage && typeof k === 'string' && k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) ? NS + k.slice(P.length) : k;
+        const map = (st, k) => {
+            if (!pid || st !== window.localStorage || typeof k !== 'string') return k;
+            if (k === 'aetheria.device') return NS + 'aetheria_device';
+            if (k.startsWith(P) && !k.startsWith(NS) && !SHARED.has(k)) return NS + k.slice(P.length);
+            return k;
+        };
         const CHAT = 'webgame.chat.';
         const trimChat = (v, maxPerCh = 3, maxTotal = 10) => {
             try {
@@ -12021,16 +12026,27 @@
     function checkPostLoginScreen() {
         const cfg = window.__authConfig || {};
         if (isLoginScreenVisible()) return;
+        const activeTag = document.activeElement && document.activeElement.tagName;
+        if ((activeTag === 'INPUT' || activeTag === 'TEXTAREA') && !cfg.autoCreateChar) return;
 
         const bodyText = document.body.innerText || '';
-        const isCharSelectScreen = bodyText.includes('เลือกตัวละคร') || 
+        const isCharSelectScreen = !!document.querySelector('.char-select, .char-card') ||
+                                   bodyText.includes('เลือกตัวละคร') || 
                                    bodyText.includes('สร้างตัวละคร') || 
                                    bodyText.includes('เข้าเกมด้วย') || 
                                    bodyText.includes('Select Character');
 
-        // Helper: หาปุ่มเข้าเกมที่มีอยู่แล้ว
+        // Helper: หาปุ่มเข้าเกมที่มีอยู่แล้ว (ข้ามปุ่มที่ disabled และไม่หยิบหัวข้อ "เลือกตัวละคร")
         function findEnterButton() {
-            const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a.btn, [class*="btn"], div')).filter(el => {
+            const directEnter = Array.from(document.querySelectorAll('button.char-enter:not([disabled])')).find(el => {
+                if (el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+                const txt = (el.innerText || el.textContent || '').trim();
+                return txt.startsWith('เข้าเกมด้วย') || txt === 'เข้าเกม' || txt === 'เริ่มเกม' || txt === 'Enter World' || txt === 'Start Game';
+            });
+            if (directEnter) return directEnter;
+
+            const candidates = Array.from(document.querySelectorAll('button:not([disabled]), div[role="button"], a.btn, [class*="btn"]')).filter(el => {
+                if (el.disabled) return false;
                 if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
                 if (el.offsetHeight > 140) return false; // ไม่ใช่ container ใหญ่
                 const txt = (el.innerText || el.textContent || '').trim();
@@ -12040,7 +12056,6 @@
                     txt === 'เริ่มเกม' || 
                     txt === 'เข้าสู่โลก' || 
                     txt === 'เข้าเล่น' || 
-                    txt === 'เลือกตัวละคร' || 
                     txt === 'Enter World' || 
                     txt === 'Start Game') {
                     return true;
@@ -12053,6 +12068,9 @@
 
         // Helper: หาการ์ดตัวละคร
         function findCharacterCards() {
+            const directCards = Array.from(document.querySelectorAll('.char-card:not(.empty):not(.pending-delete)')).filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+            if (directCards.length > 0) return directCards;
+
             const cards = Array.from(document.querySelectorAll('div, button, a')).filter(el => {
                 if (el.closest('#pelican-hud') || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
                 if (el.offsetWidth < 80 || el.offsetHeight < 80 || el.offsetWidth > 450 || el.offsetHeight > 500) return false;
@@ -12080,8 +12098,8 @@
                     targetCard = cards[0];
                 }
 
-                if (targetCard) {
-                    triggerClick(targetCard);
+                if (targetCard && !targetCard.classList.contains('selected')) {
+                    safeClickOnce(targetCard);
                 }
             }
 
@@ -12093,7 +12111,7 @@
                 if (enterBtn && !isLoginScreenVisible()) {
                     const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
                     console.log(`%c[PmheeAether Auth] 🎮 เลือกตัวละคร & คลิกเข้าเกม ("${btnTxt}")...`, 'color: #22c55e; font-weight: bold;');
-                    triggerClick(enterBtn);
+                    safeClickOnce(enterBtn);
                 }
             }, 350);
         } else {
@@ -12101,42 +12119,49 @@
             if (enterBtn && !isLoginScreenVisible()) {
                 const btnTxt = (enterBtn.innerText || enterBtn.textContent || '').trim();
                 console.log(`%c[PmheeAether Auth] 🎮 พบคลิกปุ่มเข้าสู่โลก ("${btnTxt}") -> กำลังคลิกเข้าเกม...`, 'color: #22c55e; font-weight: bold;');
-                triggerClick(enterBtn);
+                safeClickOnce(enterBtn);
             }
         }
     }
 
-    // The previous session of this character (page reload, auto-update, a window that was just closed) can
-    // still be open on the server for a moment. The character list is loaded once, so the game keeps showing
-    // "ตัวนี้ออนไลน์อยู่" until the page loads again. Wait a little, then reload — never "บังคับออกจากระบบ"
-    // (that would kick a session that really plays somewhere else). At most 4 reloads per 15 minutes.
-    let staleSessionSince = 0, staleSessionGaveUp = false;
+    // When a proxy/network blip drops the WebSocket, the game's reconnect hits HTTP 400 ("character still online")
+    // and dumps the player onto Character Select (.char-select), which fetches /characters only ONCE on mount
+    // and permanently displays "ตัวนี้ออนไลน์อยู่" (disabled) + "บังคับออกจากระบบ".
+    // Wait 3.5s for any brief disconnect to settle, then click "บังคับออกจากระบบ" (which calls POST /characters/:id/kick
+    // and refreshes /characters in-place so the "เข้าเกมด้วย ..." button becomes enabled immediately), or reload after 12s.
+    let staleSessionSince = 0, lastForceKickClickAt = 0;
     function characterShownOnline() {
         const btnOnline = Array.from(document.querySelectorAll('button.char-enter')).some(b => /ตัวนี้ออนไลน์อยู่|This character is online/i.test(b.innerText || ''));
-        const errOnline = /ตัวละครนี้ออนไลน์อยู่แล้ว|already online/i.test((document.querySelector('.char-select, .login-card, .char-panel, body') || document.body).innerText || '');
+        const errOnline = /ตัวละครนี้ออนไลน์อยู่แล้ว|ตัวละครอยู่ในเกม|already online/i.test((document.querySelector('.char-select, .login-card, .char-panel, body') || document.body).innerText || '');
         return btnOnline || (errOnline && !!document.querySelector('.char-card'));
     }
     function handleStaleCharacterSession() {
         const now = Date.now();
         if (!staleSessionSince) {
             staleSessionSince = now;
-            console.log('%c[PmheeAether Auth] ⏳ เกมแสดงว่าตัวละครนี้ออนไลน์อยู่ (session เก่ายังไม่ปิด) -> รอสักครู่แล้วรีเฟรชหน้า', 'color: #f59e0b; font-weight: bold;');
+            console.log('%c[PmheeAether Auth] ⏳ เกมแสดงว่าตัวละครนี้ออนไลน์อยู่ (session เก่ายังค้าง) -> รอ 3.5 วินาทีเพื่อเคลียร์และเข้าเกมใหม่อัตโนมัติ', 'color: #f59e0b; font-weight: bold;');
             return;
         }
-        if (now - staleSessionSince < 15000) return;
-        let st = { n: 0, first: 0 };
-        try { st = JSON.parse(localStorage.getItem('pelican_stale_session_reloads') || '{}'); } catch (e) {}
-        if (!st.first || now - st.first > 15 * 60 * 1000) st = { n: 0, first: now };
-        if (st.n >= 4) {
-            if (!staleSessionGaveUp) {
-                staleSessionGaveUp = true;
-                console.warn('[PmheeAether Auth] ⚠️ รีเฟรชแล้ว 4 ครั้งตัวละครยังออนไลน์อยู่ — อาจเปิดตัวนี้อยู่ในจออื่นจริง ไม่รีเฟรชต่อ');
-            }
+        const elapsed = now - staleSessionSince;
+        if (elapsed < 3500) return;
+
+        const forceKickBtn = Array.from(document.querySelectorAll('button.char-enter:not([disabled]), .char-select button:not([disabled])')).find(b => {
+            if (b.offsetWidth === 0 || b.offsetHeight === 0) return false;
+            const t = (b.innerText || b.textContent || '').trim();
+            return /บังคับออกจากระบบ|Force logout/i.test(t);
+        });
+        if (forceKickBtn && (now - lastForceKickClickAt >= 6000)) {
+            lastForceKickClickAt = now;
+            console.log('%c[PmheeAether Auth] 🔓 กดปุ่ม "บังคับออกจากระบบ" เพื่อเคลียร์ตัวละครที่ค้างในเซิร์ฟเวอร์ แล้วเข้าเกมต่อทันที...', 'color: #f59e0b; font-weight: bold;');
+            safeClickOnce(forceKickBtn);
+            setTimeout(() => { try { checkPostLoginScreen(); } catch (_) {} }, 1200);
+            setTimeout(() => { try { checkPostLoginScreen(); } catch (_) {} }, 2500);
             return;
         }
-        st.n++;
-        try { localStorage.setItem('pelican_stale_session_reloads', JSON.stringify(st)); } catch (e) {}
-        console.log(`%c[PmheeAether Auth] ♻️ ตัวละครยังขึ้นว่าออนไลน์อยู่ -> รีเฟรชหน้า (ครั้งที่ ${st.n}/4)`, 'color: #f59e0b; font-weight: bold;');
+
+        if (elapsed < 12000) return;
+        staleSessionSince = now;
+        console.log('%c[PmheeAether Auth] ♻️ ตัวละครยังค้างสถานะออนไลน์อยู่ -> รีเฟรชหน้าเพื่อดึงสถานะใหม่', 'color: #f59e0b; font-weight: bold;');
         location.reload();
     }
 
@@ -12384,27 +12409,33 @@
     // Auto-Login Watcher & Reconnect Monitor (รันทุก 2.5 วินาที)
     setInterval(() => {
         const cfg = window.__authConfig || {};
-        if (!cfg.enabled) return;
+        const botWasRunning = localStorage.getItem('pelican_bot_running') === 'true' ||
+                              !!window.__autoLoopEnabled ||
+                              !!window.__isBotRunning ||
+                              !!window.__planScriptEnabled;
+        const charSelectVisible = !!document.querySelector('.char-select, .char-card');
+        if (!cfg.enabled && !botWasRunning && !charSelectVisible) return;
 
         // ถ้าอยู่ในหน้า Login
         if (isLoginScreenVisible()) {
-            window.executeAutoLogin(false);
+            if (cfg.enabled) window.executeAutoLogin(false);
             return;
         }
-        confirmRegistered();
+        if (cfg.enabled) confirmRegistered();
 
         // ตรวจสอบหน้าเลือกตัวละคร (ถ้ามี)
         checkPostLoginScreen();
 
         // ตรวจสอบเมื่อกลับเข้าสู่เกมสำเร็จ และต้องการ Resume Bot ทำงานต่อ
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-        if (curMap && curMap !== 'ไม่ทราบ' && curMap.length > 0 && !isLoginScreenVisible()) {
+        if (curMap && curMap !== 'ไม่ทราบ' && curMap.length > 0 && !isLoginScreenVisible() && !charSelectVisible) {
+            staleSessionSince = 0;
             if (loginFailCount > 0) {
                 console.log('%c[PmheeAether Auth] ✅ เข้าสู่โลกสำเร็จเรียบร้อย! (แมพปัจจุบัน: ' + curMap + ')', 'color: #22c55e; font-weight: bold;');
                 loginFailCount = 0;
             }
 
-            const shouldResume = cfg.autoResumeBot && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled);
+            const shouldResume = (cfg.autoResumeBot !== false) && (localStorage.getItem('pelican_bot_running') === 'true' || window.__autoLoopEnabled);
             if (shouldResume && !window.__isBotRunning && !window.__isNavigating && !window.__isShopping && !window.__isRecovering) {
                 if (!window.__resumeTimer) {
                     console.log('%c[PmheeAether Auth] ⏳ กำลังเตรียมความพร้อมแผนที่... อีก 3 วินาทีจะเริ่มระบบฟาร์มอัตโนมัติต่อเนื่อง', 'color: #38bdf8; font-weight: bold;');
