@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.5
+// @version      4.44.6
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.5';
+    const PELICAN_BOT_VERSION = '4.44.6';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -85,17 +85,36 @@
                 const r = (Math.random() * 16) | 0;
                 return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
             });
+        const mintBotMachineId = () => {
+            try {
+                if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+                    const bytes = new Uint8Array(32);
+                    crypto.getRandomValues(bytes);
+                    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+                }
+            } catch (_) {}
+            let hex = '';
+            for (let i = 0; i < 64; i++) hex += ((Math.random() * 16) | 0).toString(16);
+            return hex;
+        };
+        const hexToArrayBuffer32 = hex => {
+            const arr = new Uint8Array(32);
+            for (let i = 0; i < 32; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16) || 0;
+            return arr.buffer;
+        };
         try { freeSpace(false); } catch (e) {}
         try {
             const rawGet = (window.__pmRawStorage && window.__pmRawStorage.get) || get;
             const rawSet = (window.__pmRawStorage && window.__pmRawStorage.set) || set;
             const rawDel = (window.__pmRawStorage && window.__pmRawStorage.del) || del;
             const devKey = pid ? (NS + 'aetheria_device') : 'aetheria.device';
+            const machKey = pid ? (NS + 'aetheria_machine') : 'aetheria.machine';
             let sharedLegacy = '';
             if (pid && window.localStorage) {
                 try {
                     sharedLegacy = String(rawGet.call(window.localStorage, 'aetheria.device') || '').trim();
                     if (sharedLegacy) rawDel.call(window.localStorage, 'aetheria.device');
+                    rawDel.call(window.localStorage, 'aetheria.machine');
                 } catch (_) {}
             }
             let curDev = String(window.__pmDeviceId || (window.localStorage && rawGet.call(window.localStorage, devKey)) || '').trim();
@@ -103,35 +122,82 @@
                 curDev = mintBotDeviceId();
             }
             window.__pmDeviceId = curDev;
+            let curMach = String(window.__pmMachineId || (window.localStorage && rawGet.call(window.localStorage, machKey)) || '').trim().toLowerCase();
+            if (!/^[0-9a-f]{64}$/.test(curMach)) {
+                curMach = mintBotMachineId();
+            }
+            window.__pmMachineId = curMach;
             if (window.localStorage) {
-                try { rawSet.call(window.localStorage, devKey, curDev); }
-                catch (_) {
-                    try { freeSpace(true); rawSet.call(window.localStorage, devKey, curDev); } catch (__) {}
+                try {
+                    rawSet.call(window.localStorage, devKey, curDev);
+                    rawSet.call(window.localStorage, machKey, curMach);
+                } catch (_) {
+                    try {
+                        freeSpace(true);
+                        rawSet.call(window.localStorage, devKey, curDev);
+                        rawSet.call(window.localStorage, machKey, curMach);
+                    } catch (__) {}
                 }
             }
         } catch (e) {}
+        if (!window.__pmSubtleDigestHookInstalled && typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function') {
+            window.__pmSubtleDigestHookInstalled = true;
+            const origDigest = crypto.subtle.digest.bind(crypto.subtle);
+            crypto.subtle.digest = function (algo, data) {
+                try {
+                    const algoName = typeof algo === 'string' ? algo : (algo && algo.name ? String(algo.name) : '');
+                    if (algoName.toUpperCase() === 'SHA-256' && data && typeof TextDecoder !== 'undefined') {
+                        const txt = new TextDecoder().decode(data);
+                        if (txt && txt.split('|').length === 7 && /\|(win|mac|linux|android|ios|other)$/.test(txt)) {
+                            const mach = (/^[0-9a-f]{64}$/.test(String(window.__pmMachineId || '')))
+                                ? window.__pmMachineId
+                                : (window.__pmMachineId = mintBotMachineId());
+                            return Promise.resolve(hexToArrayBuffer32(mach));
+                        }
+                    }
+                } catch (_) {}
+                return origDigest(algo, data);
+            };
+        }
         window.__rotatePmDeviceId = function (reason = 'manual') {
             const nextId = mintBotDeviceId();
+            const nextMach = mintBotMachineId();
             window.__pmDeviceId = nextId;
+            window.__pmMachineId = nextMach;
             try {
                 const rawSet = (window.__pmRawStorage && window.__pmRawStorage.set) || set;
                 const devKey = pid ? (NS + 'aetheria_device') : 'aetheria.device';
+                const machKey = pid ? (NS + 'aetheria_machine') : 'aetheria.machine';
                 if (window.localStorage) {
-                    try { rawSet.call(window.localStorage, devKey, nextId); }
-                    catch (_) { freeSpace(true); try { rawSet.call(window.localStorage, devKey, nextId); } catch (__) {} }
+                    try {
+                        rawSet.call(window.localStorage, devKey, nextId);
+                        rawSet.call(window.localStorage, machKey, nextMach);
+                    } catch (_) {
+                        freeSpace(true);
+                        try {
+                            rawSet.call(window.localStorage, devKey, nextId);
+                            rawSet.call(window.localStorage, machKey, nextMach);
+                        } catch (__) {}
+                    }
                 }
             } catch (_) {}
-            console.log(`%c[PmheeAether Auth] 🔄 สุ่ม Device ID ใหม่สำหรับหน้าต่างนี้เรียบร้อย (${nextId.slice(0, 8)}... | ${reason})`, 'color: #38bdf8; font-weight: bold;');
+            console.log(`%c[PmheeAether Auth] 🔄 สุ่ม Device ID & Machine ID ใหม่สำหรับหน้าต่างนี้เรียบร้อย (${nextId.slice(0, 8)}... / ${nextMach.slice(0, 8)}... | ${reason})`, 'color: #38bdf8; font-weight: bold;');
             return nextId;
         };
         proto.getItem = function (k) {
-            if (this === window.localStorage && window.__pmDeviceId && (k === 'aetheria.device' || k === NS + 'aetheria_device')) {
-                return window.__pmDeviceId;
+            if (this === window.localStorage) {
+                if (window.__pmDeviceId && (k === 'aetheria.device' || k === NS + 'aetheria_device')) {
+                    return window.__pmDeviceId;
+                }
+                if (window.__pmMachineId && (k === 'aetheria.machine' || k === NS + 'aetheria_machine')) {
+                    return window.__pmMachineId;
+                }
             }
             return get.call(this, map(this, k));
         };
         proto.setItem = function (k, v) {
             if (this === window.localStorage && typeof k === 'string') {
+                window.__pmStorageDirtyAt = Date.now();
                 if (k === 'aetheria.device' || k === NS + 'aetheria_device') {
                     const incoming = String(v || '').trim();
                     const dev = (incoming && incoming.length >= 16 && incoming !== 'unknown-device') ? incoming : (window.__pmDeviceId || mintBotDeviceId());
@@ -141,6 +207,17 @@
                     catch (_) {
                         freeSpace(true);
                         try { return set.call(this, devKey, dev); } catch (__) { return; }
+                    }
+                }
+                if (k === 'aetheria.machine' || k === NS + 'aetheria_machine') {
+                    const incoming = String(v || '').trim().toLowerCase();
+                    const mach = /^[0-9a-f]{64}$/.test(incoming) ? incoming : (window.__pmMachineId || mintBotMachineId());
+                    window.__pmMachineId = mach;
+                    const machKey = pid ? (NS + 'aetheria_machine') : 'aetheria.machine';
+                    try { return set.call(this, machKey, mach); }
+                    catch (_) {
+                        freeSpace(true);
+                        try { return set.call(this, machKey, mach); } catch (__) { return; }
                     }
                 }
                 if (SKIP_PERSIST.has(k) || /__(item_catalog|latest_inventory|packet_logs)$/.test(k)) return;
@@ -156,7 +233,7 @@
             }
         };
         proto.removeItem = function (k) {
-            if (this === window.localStorage && (k === 'aetheria.device' || k === NS + 'aetheria_device')) return;
+            if (this === window.localStorage && (k === 'aetheria.device' || k === 'aetheria.machine' || k === NS + 'aetheria_device' || k === NS + 'aetheria_machine')) return;
             return del.call(this, map(this, k));
         };
         if (!window.__pmBotEnterWorldHookInstalled && typeof window.fetch === 'function') {
@@ -166,15 +243,19 @@
                 let isEnterWorld = false;
                 try {
                     const urlStr = typeof input === 'string' ? input : (input && typeof input.url === 'string' ? input.url : '');
-                    if (urlStr === '/world/enter' || urlStr.endsWith('/world/enter')) {
+                    if (urlStr === '/world/enter' || urlStr.endsWith('/world/enter') || urlStr.includes('/world/enter?')) {
                         isEnterWorld = true;
                         if (!window.__pmDeviceId || window.__pmDeviceId === 'unknown-device') {
                             window.__pmDeviceId = mintBotDeviceId();
+                        }
+                        if (!/^[0-9a-f]{64}$/.test(String(window.__pmMachineId || ''))) {
+                            window.__pmMachineId = mintBotMachineId();
                         }
                         if (init && typeof init.body === 'string') {
                             const parsed = JSON.parse(init.body);
                             if (parsed && typeof parsed === 'object') {
                                 parsed.deviceId = window.__pmDeviceId;
+                                parsed.machineId = window.__pmMachineId;
                                 init = Object.assign({}, init, { body: JSON.stringify(parsed) });
                             }
                         }
@@ -188,6 +269,12 @@
                                 res.clone().text().then(txt => {
                                     if (txt && txt.includes('เครื่องนี้เล่นพร้อมกัน') && typeof window.__rotatePmDeviceId === 'function') {
                                         window.__rotatePmDeviceId('world-enter-rejected');
+                                        setTimeout(() => {
+                                            try {
+                                                const btn = Array.from(document.querySelectorAll('button.char-enter:not([disabled])')).find(el => el.offsetWidth > 0 && (el.innerText || '').trim().startsWith('เข้าเกมด้วย'));
+                                                if (btn) btn.click();
+                                            } catch (_) {}
+                                        }, 500);
                                     }
                                 }).catch(() => {});
                             } catch (_) {}
@@ -14790,6 +14877,51 @@
 
         const jsonStr = JSON.stringify(exportData, null, 2);
         return { data: exportData, json: jsonStr };
+    };
+
+    window.reloadBotConfigsFromLocalStorage = function() {
+        try {
+            const fm = localStorage.getItem('pelican_farm_map');
+            if (fm) window.__targetFarmMap = fm;
+            const al = localStorage.getItem('pelican_auto_loop');
+            if (al !== null) window.__autoLoopEnabled = (al === 'true');
+            const sc = localStorage.getItem('pelican_sell_cfg');
+            if (sc) window.__sellConfig = Object.assign({}, window.__sellConfig || {}, JSON.parse(sc));
+            const sh = localStorage.getItem('pelican_shop_cfg');
+            if (sh) window.__shopConfig = Object.assign({}, window.__shopConfig || {}, JSON.parse(sh));
+            const ar = localStorage.getItem('pelican_archer_cfg');
+            if (ar) window.__archerConfig = Object.assign({}, window.__archerConfig || {}, JSON.parse(ar));
+            const au = localStorage.getItem('pelican_auth_cfg');
+            if (au) window.__authConfig = Object.assign({}, window.__authConfig || {}, JSON.parse(au));
+            const mf = localStorage.getItem('pelican_market_filter_cfg');
+            if (mf) window.__marketFilterConfig = Object.assign({}, window.__marketFilterConfig || {}, JSON.parse(mf));
+            const am = localStorage.getItem('pelican_auto_market_sell_cfg');
+            if (am) window.__autoMarketSellConfig = Object.assign({}, window.__autoMarketSellConfig || {}, JSON.parse(am));
+            const hm = localStorage.getItem('pelican_humanize_config') || localStorage.getItem('pelican_humanize_cfg');
+            if (hm) window.__humanizeConfig = Object.assign({}, window.__humanizeConfig || {}, JSON.parse(hm));
+            const tr = localStorage.getItem('pelican_travel_cfg');
+            if (tr) window.__travelConfig = Object.assign({}, window.__travelConfig || {}, JSON.parse(tr));
+            const bp = localStorage.getItem('pelican_buff_potion_config') || localStorage.getItem('pelican_buff_potions_cfg');
+            if (bp) window.__buffPotionConfig = Object.assign({}, window.__buffPotionConfig || {}, JSON.parse(bp));
+            const st = localStorage.getItem('pelican_stash_trade_cfg');
+            if (st) window.__stashTradeConfig = Object.assign({}, window.__stashTradeConfig || {}, JSON.parse(st));
+            const pe = localStorage.getItem('pelican_plan_script_enabled');
+            if (pe !== null) {
+                window.__planScriptEnabled = (pe === 'true');
+                const pt = document.getElementById('p-plan-script-toggle');
+                if (pt) pt.checked = window.__planScriptEnabled;
+            }
+            const sp = localStorage.getItem('pelican_script_plan');
+            if (sp) {
+                window.__currentScriptPlan = JSON.parse(sp);
+                if (typeof window.applyScriptPlan === 'function') {
+                    try { window.applyScriptPlan(window.__currentScriptPlan, window.__planScriptEnabled); } catch (_) {}
+                }
+            }
+            if (typeof window.syncAllHudInputsFromConfig === 'function') {
+                window.syncAllHudInputsFromConfig();
+            }
+        } catch (_) {}
     };
 
     window.syncAllHudInputsFromConfig = function() {
