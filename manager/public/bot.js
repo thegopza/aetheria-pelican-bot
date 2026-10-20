@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.3
+// @version      4.44.4
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.3';
+    const PELICAN_BOT_VERSION = '4.44.4';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -6008,10 +6008,17 @@
         }
     }, 200);
 
+    function isInvalidMapLabel(t) {
+        if (!t || t.length <= 1) return true;
+        if (t.includes(',') || /^CH\b/i.test(t) || /\bundefined\b|\bnull\b|\bNaN\b/i.test(t)) return true;
+        if (/^\d+%?$/.test(t) || /^[•|\-+\s\d%:,.]+$/.test(t)) return true;
+        return false;
+    }
+
     function getCurrentMapName() {
         // 1. ลองหาจาก class ที่เป็นไปได้
         const el = document.querySelector('.minimap-name, .minimap-title, [class*="map-name"], [class*="map-title"]');
-        if (el && el.textContent.trim()) {
+        if (el && el.textContent.trim() && !isInvalidMapLabel(el.textContent.trim())) {
             return el.textContent.trim();
         }
 
@@ -6019,7 +6026,7 @@
         const footerEls = Array.from(document.querySelectorAll('.minimap-footer span, .minimap-footer div, .minimap-footer p, .minimap-footer b, .minimap-footer strong'));
         for (const fEl of footerEls) {
             const t = (fEl.textContent || '').trim();
-            if (t.length > 1 && !t.includes(',') && !/^CH\s*\d+/i.test(t) && !/^\d+%?$/.test(t) && t !== '-' && t !== '+') {
+            if (!isInvalidMapLabel(t)) {
                 return t;
             }
         }
@@ -6029,7 +6036,7 @@
         if (footer) {
             const lines = (footer.innerText || footer.textContent || '').split(/\n|\s{2,}/).map(s => s.trim()).filter(Boolean);
             for (const line of lines) {
-                if (line.length > 1 && !line.includes(',') && !/^CH\s*\d+/i.test(line) && !/^\d+%?$/.test(line) && line !== '-' && line !== '+') {
+                if (!isInvalidMapLabel(line)) {
                     return line;
                 }
             }
@@ -6040,7 +6047,7 @@
         if (minimap) {
             const spans = Array.from(minimap.querySelectorAll('span, div')).filter(s => {
                 const t = (s.textContent || '').trim();
-                return t.length > 2 && !t.includes(',') && !/^CH\s*\d+/i.test(t) && !/^\d+%?$/.test(t) && t !== '-' && t !== '+';
+                return t.length > 2 && !isInvalidMapLabel(t);
             });
             if (spans.length > 0) return spans[0].textContent.trim();
         }
@@ -7577,10 +7584,11 @@
             }
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+            const cleanTargetMap = String(targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim() || targetMap;
             console.log(`%c[PmheeAether Master] 🗺️ ตรวจสอบแมพ: แมพปัจจุบัน = "${currentMap || 'ไม่ทราบ'}" | แมพเป้าหมาย = "${targetMap}"`, 'color: #38bdf8; font-weight: bold;');
 
             // Case A: ตัวละครอยู่ที่แมพเป้าหมายแล้ว!
-            if (currentMap && currentMap.includes(targetMap)) {
+            if (currentMap && cleanTargetMap && currentMap.includes(cleanTargetMap)) {
                 if (typeof isCharacterOverweight === 'function' && isCharacterOverweight()) {
                     console.warn('%c[PmheeAether Master] ⚖️ ถึงแมพแล้วแต่น้ำหนักเต็ม/เกินเกณฑ์! สั่งวาร์ปกลับไปขายของทันที...', 'color: #ef4444; font-weight: bold;');
                     if (typeof playWarningChime === 'function') playWarningChime();
@@ -8398,11 +8406,17 @@
     };
 
     window.equipArrowAndBow = function() {
-        console.log('%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
-
         // 1. ตรวจสอบการสวมใส่ "ลูกธนู" ชนิดที่เลือกจากกระเป๋าเซิร์ฟเวอร์
         const targetArrowId = (window.__archerConfig && window.__archerConfig.arrowType) ? parseInt(window.__archerConfig.arrowType) : 90030;
         const arrowInfo = (typeof ARROW_DATA !== 'undefined' && ARROW_DATA[targetArrowId]) ? ARROW_DATA[targetArrowId] : { name: 'Arrow' };
+
+        // ถ้าสวมใส่ลูกธนูชนิดที่ต้องการอยู่ในช่อง ammo แล้วและยังมีจำนวนเหลืออยู่ ไม่ต้องส่ง sendEquip ซ้ำ
+        const ch = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData;
+        if (ch && ch.ammo && (Number(ch.ammo.qty) || 0) > 0 && typeof isTargetArrow === 'function' && isTargetArrow(ch.ammo, targetArrowId)) {
+            return;
+        }
+
+        console.log('%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู (ไม่แตะต้องอาวุธของผู้เล่น)...', 'color: #38bdf8; font-weight: bold;');
         console.log(`%c[PmheeAether Ammo] 🏹 กำลังตรวจสอบและสวมใส่ลูกธนู "${arrowInfo.name}" (${targetArrowId})...`, 'color: #38bdf8; font-weight: bold;');
 
         const arrowInBag = findItemInServerInv(it => {
@@ -11431,9 +11445,10 @@
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
         const isTargetCity = mapName.includes('เมืองหลวง') || mapName.includes('โซลเฮเวน') || mapName.includes('ตลาดคาราวาน');
+        const cleanTargetMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim() || mapName;
 
         // ถ้าตัวละครอยู่ในเมืองหลวง หรือกำลังฟื้นคืนชีพ (recovering) แต่เป้าหมายคือแมพมอนสเตอร์ -> ห้ามสรุปว่าถึงแล้วเด็ดขาด!
-        if ((!inCity || isTargetCity) && curMap && curMap.includes(mapName) && !window.__isRecovering) {
+        if ((!inCity || isTargetCity) && curMap && cleanTargetMapName && curMap.includes(cleanTargetMapName) && !window.__isRecovering) {
             (async () => {
                 try {
                     if (!inCity && !isTargetCity && window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
@@ -11456,7 +11471,6 @@
 
         const saveWarp = window.isWarpTooExpensive() || !!(opts && opts.walkOnly);
         window.__navWalkOnly = !!(opts && opts.walkOnly);
-        const cleanTargetMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim();
         const targetMapId = MAP_NAME_TO_ID[cleanTargetMapName] || MAP_NAME_TO_ID[mapName];
 
         function clickWalkButton() {
@@ -11637,6 +11651,10 @@
 
     function startArrivalWatcher(targetMap) {
         stopArrivalWatcher();
+        const cleanTarget = String(targetMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim() || String(targetMap || '');
+        let lastWatcherMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+        let lastWatcherPos = window.__currentPos ? `${window.__currentPos.x},${window.__currentPos.y}` : '';
+        let lastProgressAt = Date.now();
         console.log(`%c[PmheeAether] 📡 เริ่มต้นระบบตรวจจับการถึงแมพ: "${targetMap}"`, 'color: #38bdf8;');
         window.__arrivalWatcherInterval = setInterval(() => {
             if (!window.__isBotRunning && !window.__isNavigating) {
@@ -11655,9 +11673,23 @@
 
             const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
             const currentMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-            const isTargetCity = targetMap.includes('เมืองหลวง') || targetMap.includes('โซลเฮเวน') || targetMap.includes('ตลาดคาราวาน');
+            const isTargetCity = cleanTarget.includes('เมืองหลวง') || cleanTarget.includes('โซลเฮเวน') || cleanTarget.includes('ตลาดคาราวาน');
+            const curPosKey = window.__currentPos ? `${window.__currentPos.x},${window.__currentPos.y}` : '';
 
-            if ((!inCity || isTargetCity) && currentMap && currentMap.includes(targetMap)) {
+            if ((currentMap && currentMap !== lastWatcherMap) || (curPosKey && curPosKey !== lastWatcherPos)) {
+                lastWatcherMap = currentMap || lastWatcherMap;
+                lastWatcherPos = curPosKey || lastWatcherPos;
+                lastProgressAt = Date.now();
+            }
+
+            // ระหว่างอยู่แมพทางผ่าน (ยังไม่ใช่แมพเป้าหมาย) ต้องปิด AUTO เสมอ เพื่อไม่ให้บอทตีมอนดึงตัวละครหลุดจากหน้าวาร์ป
+            if (!inCity && currentMap && cleanTarget && !currentMap.includes(cleanTarget)) {
+                if (typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'on') {
+                    window.deactivateInGameAuto();
+                }
+            }
+
+            if ((!inCity || isTargetCity) && currentMap && cleanTarget && currentMap.includes(cleanTarget)) {
                 stopArrivalWatcher();
                 console.log(`%c[PmheeAether] 🎯 เดินทางถึงแมพ "${targetMap}" สำเร็จ! เปิด Auto-Bot...`, 'color: #22c55e; font-weight: bold;');
                 setTimeout(async () => {
@@ -11682,6 +11714,16 @@
                         window.__isRecovering = false;
                     }
                 }, 1500);
+                return;
+            }
+
+            // หากตัวละครหยุดนิ่งไม่ขยับและไม่เปลี่ยนแมพนานเกิน 90 วินาที จึงถือว่าหมดเวลาเดินทางรอบนี้เพื่อให้ Watchdog สั่งเดินใหม่
+            if (Date.now() - lastProgressAt > 90000) {
+                stopArrivalWatcher();
+                console.warn(`[PmheeAether] ⚠️ ตัวละครหยุดนิ่งระหว่างเดินทางไปยัง "${targetMap}" เกิน 90 วินาที — รีเซ็ตเพื่อให้ระบบสั่งเดินต่อ`);
+                window.__isNavigating = false;
+                window.__navWalkOnly = false;
+                window.__isRecovering = false;
             }
         }, 1500);
 
@@ -11694,7 +11736,7 @@
                 window.__navWalkOnly = false;
                 window.__isRecovering = false;
             }
-        }, longWalk ? 480000 : 120000);
+        }, longWalk ? 480000 : 300000);
     }
 
 
@@ -11706,12 +11748,15 @@
     let lastPeriodicWeightRefresh = 0;
     let lastCityToFarmAttempt = 0, lastTownSweepAt = 0, cityTargetSince = 0;
     let navStaleSince = 0;
+    let lastIntermediatePos = '', intermediateStillTicks = 0, lastIntermediateWalkAttempt = 0;
 
     // Why is the character in town? Judged when it ARRIVES: an arrival with a reason (a trip / Butterfly Wing /
     // shop / plan stay / respawn / consolidation, or the bot stopped) explains the whole stay until it leaves town.
     // Before, a plan trip (e.g. Weight Limit Scrolls) that finished in town was taken for an unexplained return.
     setInterval(() => {
         try {
+            const curMapNow = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
+            if (!curMapNow) return; // map label not rendered yet during reconnect/warp
             const inCityNow = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
             if (!inCityNow) { window.__wasInCity = false; window.__townArrivalExplained = false; return; }
             if (window.__wasInCity === true) {
@@ -11865,10 +11910,40 @@
             autoActivateFailCount = 0;
         } else if (!inCity) {
             const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
-            if (curMap && !/เมืองหลวง|โซลเฮเวน/.test(curMap)) {
+            if (!curMap) return; // รอให้ชื่อแมพบน Minimap โหลดเสร็จก่อน
+            if (!/เมืองหลวง|โซลเฮเวน/.test(curMap)) {
                 window.__lastKnownNonCityMap = curMap;
             }
             window.__unexpectedTownTicks = 0;
+
+            const targetMap = window.__targetFarmMap || 'ถนนต้นหลิว';
+            const cleanTarget = String(targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim() || targetMap;
+            const isTargetCity = /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(cleanTarget);
+            const onTargetMap = !cleanTarget || isTargetCity || curMap.includes(cleanTarget);
+
+            // ห้ามเปิด AUTO เด็ดขาดหากยังอยู่ในแมพทางผ่าน (เช่น อยู่ทุ่งหญ้าตะวันออก แต่เป้าหมายคือหนองพิษ)
+            if (!onTargetMap) {
+                autoActivateFailCount = 0;
+                if (getInGameAutoStatus() === 'on') {
+                    window.deactivateInGameAuto();
+                }
+                const posKey = window.__currentPos ? `${window.__currentPos.x},${window.__currentPos.y}` : '';
+                if (posKey && posKey !== lastIntermediatePos) {
+                    lastIntermediatePos = posKey;
+                    intermediateStillTicks = 0;
+                } else {
+                    intermediateStillTicks++;
+                }
+                if (intermediateStillTicks >= 4 && Date.now() - lastIntermediateWalkAttempt > 10000) {
+                    intermediateStillTicks = 0;
+                    lastIntermediateWalkAttempt = Date.now();
+                    console.log(`%c[PmheeAether Watchdog] 🗺️ ตัวละครอยู่แมพทางผ่าน ("${curMap}") ยังไม่ถึงแมพเป้าหมาย ("${targetMap}") -> สั่งเดินทางต่อทันที!`, 'color: #38bdf8; font-weight: bold;');
+                    window.walkToTargetMap(targetMap, true);
+                }
+                return;
+            }
+
+            intermediateStillTicks = 0;
             const autoStatus = getInGameAutoStatus();
             if (autoStatus === 'on') {
                 // AUTO กำลังทำงานปกติ รีเซ็ตตัวนับความล้มเหลว
@@ -12655,8 +12730,14 @@
                 stateEl.innerText = '🏛️ ในเมือง';
                 stateEl.style.color = '#22c55e';
             } else {
-                stateEl.innerText = '⚔️ ในสนามฟาร์ม';
-                stateEl.style.color = '#38bdf8';
+                const cleanTarget = String(window.__targetFarmMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+                if (curMap && cleanTarget && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(cleanTarget) && !curMap.includes(cleanTarget)) {
+                    stateEl.innerText = `🚶 เดินทางไป ${cleanTarget}`;
+                    stateEl.style.color = '#c084fc';
+                } else {
+                    stateEl.innerText = '⚔️ ในสนามฟาร์ม';
+                    stateEl.style.color = '#38bdf8';
+                }
             }
         }
     }
@@ -17360,18 +17441,19 @@
     // Plan action "change_map": remember the new farm map (same key the bot loads) and walk there now
     window.setTargetFarmMap = function(mapName, walkNow = false, opts = {}) {
         if (!mapName) return;
-        window.__targetFarmMap = mapName;
-        try { localStorage.setItem('pelican_farm_map', mapName); } catch (e) {}
-        if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(mapName);
+        const cleanMap = String(mapName).replace(/\s*\(Lv\..*?\)/i, '').trim() || mapName;
+        window.__targetFarmMap = cleanMap;
+        try { localStorage.setItem('pelican_farm_map', cleanMap); } catch (e) {}
+        if (typeof window.rememberFarmMap === 'function') window.rememberFarmMap(cleanMap);
         if (opts && opts.fromParty) {
-            window.__partyForcedMap = mapName;
-            if (typeof window.setPlanManualMap === 'function') window.setPlanManualMap(mapName);
+            window.__partyForcedMap = cleanMap;
+            if (typeof window.setPlanManualMap === 'function') window.setPlanManualMap(cleanMap);
         }
         const sel = document.getElementById('p-target-map-select');
-        if (sel) sel.value = mapName;
+        if (sel) sel.value = cleanMap;
         if (walkNow && window.__isBotRunning && !planBusyReason() && typeof window.walkToTargetMap === 'function') {
             const cur = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
-            if (!cur.includes(mapName)) window.walkToTargetMap(mapName, true, opts);
+            if (!cur.includes(cleanMap)) window.walkToTargetMap(cleanMap, true, opts);
         }
     };
 
@@ -17465,7 +17547,7 @@
         return same || GEM_SLOTS.find(k => !equipment[k]) || null;
     }
 
-    window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '') {
+    window.findAndEquipItemByName = async function(itemName, buyFromMarketIfMissing = true, maxPrice = 100000, optionFilter = '', targetSlot = '') {
         if (!itemName) return 'failed';
         const want = itemName.trim().toLowerCase();
         const terms = parsePlanOptionFilter(optionFilter);
@@ -17477,8 +17559,12 @@
         const bagItems = () => (window.__latestInventory && Array.isArray(window.__latestInventory.items)) ? window.__latestInventory.items : [];
 
         // 1. Already wearing it (character equipment data, not text on screen)
-        const worn = ch.equipment ? Object.values(ch.equipment).filter(Boolean) : [];
-        if (worn.some(matches)) {
+        const eq = ch.equipment || {};
+        const worn = Object.values(eq).filter(Boolean);
+        const alreadyInTargetSlot = targetSlot && !/^gem-/.test(targetSlot)
+            ? matches(eq[targetSlot])
+            : worn.some(matches);
+        if (alreadyInTargetSlot) {
             console.log(`%c[PmheeAether Plan] 🛡️ สวม "${itemName}" อยู่แล้ว`, 'color: #22c55e;');
             return 'done';
         }
@@ -17494,7 +17580,9 @@
         const wearable = inBag.filter(it => !it.levelReq || it.levelReq <= baseLv).sort((a, b) => (b.refine || 0) - (a.refine || 0));
         if (wearable.length) {
             if (!room) return 'pending';
-            const to = gemTargetSlot(ch.equipment || {}, wearable[0]);
+            const to = (/^gem-/.test(targetSlot) || gemTier(wearable[0]))
+                ? gemTargetSlot(eq, wearable[0])
+                : ((targetSlot === 'accessory-left' || targetSlot === 'accessory-right') ? targetSlot : null);
             room.send('equip', to ? { slot: wearable[0].slot, to } : { slot: wearable[0].slot });
             console.log(`%c[PmheeAether Plan] 🎒 สวมใส่ "${itemName}" จากกระเป๋า (ช่อง ${wearable[0].slot}${to ? ' → ' + to : ''})`, 'color: #22c55e; font-weight: bold;');
             return 'done';
@@ -17537,8 +17625,12 @@
                 await new Promise(r => setTimeout(r, 500));
                 const got = bagItems().find(matches);
                 if (got) {
-                    room.send('equip', { slot: got.slot });
-                    console.log(`%c[PmheeAether Plan] 🛡️ สวมใส่ "${itemName}" ที่ซื้อมาแล้ว`, 'color: #22c55e; font-weight: bold;');
+                    const liveEq = ((typeof window.getLiveCharacterData === 'function' && window.getLiveCharacterData()) || {}).equipment || eq;
+                    const to = (/^gem-/.test(targetSlot) || gemTier(got))
+                        ? gemTargetSlot(liveEq, got)
+                        : ((targetSlot === 'accessory-left' || targetSlot === 'accessory-right') ? targetSlot : null);
+                    room.send('equip', to ? { slot: got.slot, to } : { slot: got.slot });
+                    console.log(`%c[PmheeAether Plan] 🛡️ สวมใส่ "${itemName}" ที่ซื้อมาแล้ว${to ? ' (' + to + ')' : ''}`, 'color: #22c55e; font-weight: bold;');
                     return 'done';
                 }
             }
@@ -18622,7 +18714,7 @@
             }
             gearLog(`🛒 ${label} — เงินถึง ${need.toLocaleString()} z แล้ว หาซื้อในตลาด (ราคาไม่เกิน ${(need || zeny).toLocaleString()} z)`, '#38bdf8');
             gearSet(boughtKey + '_pending', Date.now());
-            const r = await window.findAndEquipItemByName(step.itemName, true, need || zeny, step.options || '');
+            const r = await window.findAndEquipItemByName(step.itemName, true, need || zeny, step.options || '', step.slot || '');
             try { localStorage.removeItem(boughtKey + '_pending'); } catch (e) {}
             if ((Number(gearChar().zeny) || 0) < zeny) gearSet(boughtKey, Date.now());
             gearNextTry = Date.now() + (r === 'done' ? 5000 : 60000);
