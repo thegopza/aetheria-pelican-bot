@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.4
+// @version      4.44.5
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.4';
+    const PELICAN_BOT_VERSION = '4.44.5';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -2883,6 +2883,9 @@
         delete n[who];
         Object.keys(n).forEach(k => { if (!(n[k] > now)) delete n[k]; });
         saveTownNeeds(n);
+        window.__lastTownTripAt = now;
+        window.__townArrivalExplained = true;
+        window.__unexpectedTownTicks = 0;
         if (Object.keys(n).length) {
             console.log(`%c[PmheeAether Plan] 🏛️ ${who} เสร็จแล้ว แต่ยังมีงานในเมือง (${Object.keys(n).join(', ')}) -> ยังไม่กลับแมพฟาร์ม`, 'color: #94a3b8;');
             return;
@@ -2893,11 +2896,19 @@
             map = window.planMapForNow() || map;
         }
         if (!map || !/เมืองหลวง|โซลเฮเวน/.test(window.__targetFarmMap || '')) return;
-        console.log(`%c[PmheeAether Plan] 🗺️ คืนแมพฟาร์มเดิม "${map}" หลังเปลี่ยนอาชีพ`, 'color: #38bdf8;');
+        console.log(`%c[PmheeAether Plan] 🗺️ คืนแมพฟาร์มเดิม "${map}" หลังจบงานในเมือง (${who})`, 'color: #38bdf8;');
         window.__targetFarmMap = map;
         try { localStorage.setItem('pelican_farm_map', map); } catch (e) {}
         const sel = document.getElementById('p-target-map-select');
         if (sel) sel.value = map;
+        if (window.__isNavigating) {
+            if (typeof stopArrivalWatcher === 'function') stopArrivalWatcher();
+            window.__isNavigating = false;
+            window.__navWalkOnly = false;
+        }
+        if (window.__isBotRunning && typeof isCharacterInCity === 'function' && !isCharacterInCity() && typeof window.walkToTargetMap === 'function') {
+            window.walkToTargetMap(map, true);
+        }
     }
 
     window.restoreFarmMapAfterJobChange = restoreFarmMapAfterJobChange;
@@ -7392,22 +7403,20 @@
             return false;
         }
 
-        triggerClick(btn);
-        if (typeof btn.click === 'function') btn.click();
-
-        const rect = btn.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const opts = { clientX: cx, clientY: cy, bubbles: true, cancelable: true, buttons: 1 };
-        try { btn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(e) {}
-        try { btn.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(e) {}
-        try { btn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(e) {}
-        try { btn.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(e) {}
-        try { btn.dispatchEvent(new MouseEvent('click', opts)); } catch(e) {}
+        if (typeof btn.click === 'function') {
+            btn.click();
+        } else {
+            triggerClick(btn);
+        }
         return true;
     }
 
     function sendAutoSetPacket(enabled) {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+        if (room && typeof room.send === 'function') {
+            try { room.send('auto_set', { enabled: !!enabled }); } catch (e) {}
+            return;
+        }
         if (!window.__gameSocket || window.__gameSocket.readyState !== 1) return;
         const token = window.__lastMoveToken || [0xd4, 0x72, 0x41];
         const buffer = new Uint8Array(10 + token.length + 10);
@@ -18111,8 +18120,12 @@
         if (typeof window.restoreFarmMapAfterJobChange === 'function') window.restoreFarmMapAfterJobChange('gear');
     };
     const gearCloseNpc = () => {
-        const x = document.querySelector('.refine-window .win-close, .shop-window .win-close, .npc-dialog .win-close');
-        if (x) x.click();
+        try {
+            document.querySelectorAll('.refine-window .win-close, .shop-window .win-close, .npc-dialog .win-close').forEach(x => {
+                try { x.click(); } catch (_) {}
+            });
+            if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+        } catch (e) {}
     };
     function gearSmithKey(room) {
         let key = null;
@@ -18123,6 +18136,27 @@
     }
     // Talk to the Blacksmith and pick the dialog option whose text passes `pick`
     async function gearSmithOption(room, key, pick, waitFor) {
+        try {
+            const npc = room && room.state && room.state.npcs && typeof room.state.npcs.get === 'function' ? room.state.npcs.get(key) : null;
+            if (npc && Number.isFinite(Number(npc.x)) && Number.isFinite(Number(npc.y))) {
+                const getMe = () => (room.state && room.state.players && typeof room.state.players.get === 'function') ? room.state.players.get(room.sessionId) : null;
+                let me = getMe();
+                if (me && Number.isFinite(Number(me.x)) && Math.hypot(me.x - npc.x, me.y - npc.y) > 115) {
+                    const walkStart = Date.now();
+                    let lastMove = 0;
+                    while (Date.now() - walkStart < 15000 && window.__isBotRunning) {
+                        me = getMe();
+                        if (me && Math.hypot(me.x - npc.x, me.y - npc.y) <= 115) break;
+                        if (Date.now() - lastMove > 1800) {
+                            lastMove = Date.now();
+                            room.send('move_to', { x: Number(npc.x), y: Number(npc.y) });
+                        }
+                        await planSleep(250);
+                    }
+                    await planSleep(250);
+                }
+            }
+        } catch (e) {}
         const got = waitFor ? new Promise(resolve => {
             let unsub;
             const timer = setTimeout(() => { if (typeof unsub === 'function') unsub(); resolve(null); }, 12000);
