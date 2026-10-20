@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.1
+// @version      4.44.2
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.1';
+    const PELICAN_BOT_VERSION = '4.44.2';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -12242,7 +12242,8 @@
         const err = form.querySelector('.error');
         if (registerSubmittedAt && err && (err.innerText || '').trim()) {
             const msg = (err.innerText || '').trim();
-            if (cfg.generatedUser && registerTries < 6) {
+            const isUsernameTaken = /ซ้ำ|มีผู้ใช้|ถูกใช้|already|taken|exists/i.test(msg);
+            if (cfg.generatedUser && isUsernameTaken && registerTries < 6) {
                 const old = cfg.username;
                 cfg.username = randomId();
                 saveAuth();
@@ -12295,11 +12296,20 @@
     function confirmRegistered() {
         const cfg = window.__authConfig;
         if (!cfg || !cfg.register) return;
-        // past the login screen = the account exists (also after a page reload that lost registerSubmittedAt)
+        // Never mark a candidate ID as registered if it was never submitted on the registration form!
+        // If we are already in-game or at character select without having submitted a sign-up, cancel register mode.
         const inGameOrSelect = document.querySelector('.char-card') || (typeof getCurrentMapName === 'function' && getCurrentMapName());
-        if (!registerSubmittedAt && !inGameOrSelect) return;
+        if (!registerSubmittedAt) {
+            if (inGameOrSelect) {
+                cfg.register = false;
+                cfg.registerDone = false;
+                saveAuth();
+            }
+            return;
+        }
         cfg.register = false;
         cfg.registerDone = true;
+        cfg.verifiedLoginAt = Date.now();
         delete cfg.registerError;
         saveAuth();
         console.log(`%c[PmheeAether Auth] ✅ สมัครบัญชี "${cfg.username}" สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
@@ -16280,6 +16290,7 @@
         if (authEnabledEl) {
             authEnabledEl.onchange = (e) => {
                 window.__authConfig.enabled = e.target.checked;
+                window.__authConfig.userToggledAt = Date.now();
                 saveAuthConfig();
             };
         }
@@ -16288,6 +16299,10 @@
         if (authUserEl) {
             authUserEl.oninput = (e) => {
                 window.__authConfig.username = e.target.value.trim();
+                window.__authConfig.userEditedAt = Date.now();
+                window.__authConfig.generatedUser = false;
+                window.__authConfig.register = false;
+                delete window.__authConfig.registerError;
                 saveAuthConfig();
             };
         }
@@ -16296,6 +16311,10 @@
         if (authPassEl) {
             authPassEl.oninput = (e) => {
                 window.__authConfig.password = e.target.value;
+                window.__authConfig.userEditedAt = Date.now();
+                window.__authConfig.generatedUser = false;
+                window.__authConfig.register = false;
+                delete window.__authConfig.registerError;
                 saveAuthConfig();
             };
         }
