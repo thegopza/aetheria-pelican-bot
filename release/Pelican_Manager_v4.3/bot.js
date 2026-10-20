@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.2
+// @version      4.44.3
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.2';
+    const PELICAN_BOT_VERSION = '4.44.3';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -79,9 +79,70 @@
             } catch (e) {}
         };
         window.freeBotLocalStorageSpace = freeSpace;
-        proto.getItem = function (k) { return get.call(this, map(this, k)); };
+        const mintBotDeviceId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+            ? crypto.randomUUID()
+            : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = (Math.random() * 16) | 0;
+                return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+            });
+        try { freeSpace(false); } catch (e) {}
+        try {
+            const rawGet = (window.__pmRawStorage && window.__pmRawStorage.get) || get;
+            const rawSet = (window.__pmRawStorage && window.__pmRawStorage.set) || set;
+            const rawDel = (window.__pmRawStorage && window.__pmRawStorage.del) || del;
+            const devKey = pid ? (NS + 'aetheria_device') : 'aetheria.device';
+            let sharedLegacy = '';
+            if (pid && window.localStorage) {
+                try {
+                    sharedLegacy = String(rawGet.call(window.localStorage, 'aetheria.device') || '').trim();
+                    if (sharedLegacy) rawDel.call(window.localStorage, 'aetheria.device');
+                } catch (_) {}
+            }
+            let curDev = String(window.__pmDeviceId || (window.localStorage && rawGet.call(window.localStorage, devKey)) || '').trim();
+            if (!curDev || curDev.length < 16 || curDev === 'unknown-device' || (pid && sharedLegacy && curDev === sharedLegacy)) {
+                curDev = mintBotDeviceId();
+            }
+            window.__pmDeviceId = curDev;
+            if (window.localStorage) {
+                try { rawSet.call(window.localStorage, devKey, curDev); }
+                catch (_) {
+                    try { freeSpace(true); rawSet.call(window.localStorage, devKey, curDev); } catch (__) {}
+                }
+            }
+        } catch (e) {}
+        window.__rotatePmDeviceId = function (reason = 'manual') {
+            const nextId = mintBotDeviceId();
+            window.__pmDeviceId = nextId;
+            try {
+                const rawSet = (window.__pmRawStorage && window.__pmRawStorage.set) || set;
+                const devKey = pid ? (NS + 'aetheria_device') : 'aetheria.device';
+                if (window.localStorage) {
+                    try { rawSet.call(window.localStorage, devKey, nextId); }
+                    catch (_) { freeSpace(true); try { rawSet.call(window.localStorage, devKey, nextId); } catch (__) {} }
+                }
+            } catch (_) {}
+            console.log(`%c[PmheeAether Auth] 🔄 สุ่ม Device ID ใหม่สำหรับหน้าต่างนี้เรียบร้อย (${nextId.slice(0, 8)}... | ${reason})`, 'color: #38bdf8; font-weight: bold;');
+            return nextId;
+        };
+        proto.getItem = function (k) {
+            if (this === window.localStorage && window.__pmDeviceId && (k === 'aetheria.device' || k === NS + 'aetheria_device')) {
+                return window.__pmDeviceId;
+            }
+            return get.call(this, map(this, k));
+        };
         proto.setItem = function (k, v) {
             if (this === window.localStorage && typeof k === 'string') {
+                if (k === 'aetheria.device' || k === NS + 'aetheria_device') {
+                    const incoming = String(v || '').trim();
+                    const dev = (incoming && incoming.length >= 16 && incoming !== 'unknown-device') ? incoming : (window.__pmDeviceId || mintBotDeviceId());
+                    window.__pmDeviceId = dev;
+                    const devKey = map(this, 'aetheria.device');
+                    try { return set.call(this, devKey, dev); }
+                    catch (_) {
+                        freeSpace(true);
+                        try { return set.call(this, devKey, dev); } catch (__) { return; }
+                    }
+                }
                 if (SKIP_PERSIST.has(k) || /__(item_catalog|latest_inventory|packet_logs)$/.test(k)) return;
                 if (k.startsWith(CHAT)) v = trimChat(String(v), 3, 10);
             }
@@ -94,8 +155,49 @@
                 return set.call(this, key, v);
             }
         };
-        proto.removeItem = function (k) { return del.call(this, map(this, k)); };
-        try { freeSpace(false); } catch (e) {}
+        proto.removeItem = function (k) {
+            if (this === window.localStorage && (k === 'aetheria.device' || k === NS + 'aetheria_device')) return;
+            return del.call(this, map(this, k));
+        };
+        if (!window.__pmBotEnterWorldHookInstalled && typeof window.fetch === 'function') {
+            window.__pmBotEnterWorldHookInstalled = true;
+            const origFetch = window.fetch;
+            window.fetch = function (input, init) {
+                let isEnterWorld = false;
+                try {
+                    const urlStr = typeof input === 'string' ? input : (input && typeof input.url === 'string' ? input.url : '');
+                    if (urlStr === '/world/enter' || urlStr.endsWith('/world/enter')) {
+                        isEnterWorld = true;
+                        if (!window.__pmDeviceId || window.__pmDeviceId === 'unknown-device') {
+                            window.__pmDeviceId = mintBotDeviceId();
+                        }
+                        if (init && typeof init.body === 'string') {
+                            const parsed = JSON.parse(init.body);
+                            if (parsed && typeof parsed === 'object') {
+                                parsed.deviceId = window.__pmDeviceId;
+                                init = Object.assign({}, init, { body: JSON.stringify(parsed) });
+                            }
+                        }
+                    }
+                } catch (_) {}
+                const p = origFetch.call(this, input, init);
+                if (isEnterWorld && p && typeof p.then === 'function') {
+                    p.then(res => {
+                        if (res && !res.ok) {
+                            try {
+                                res.clone().text().then(txt => {
+                                    if (txt && txt.includes('เครื่องนี้เล่นพร้อมกัน') && typeof window.__rotatePmDeviceId === 'function') {
+                                        window.__rotatePmDeviceId('world-enter-rejected');
+                                    }
+                                }).catch(() => {});
+                            } catch (_) {}
+                        }
+                        return res;
+                    }).catch(() => {});
+                }
+                return p;
+            };
+        }
         setTimeout(() => { try { freeSpace(false); } catch (e) {} }, 4000);
         if (pid) {
             console.log(`%c[PmheeAether] 🌐 โหมดเบราว์เซอร์: แยกการตั้งค่าบอทของหน้าต่างนี้ (โปรไฟล์ ${pid})`, 'color: #38bdf8;');
@@ -12105,6 +12207,8 @@
 
             // คลิกปุ่มเข้าเกมหลังเลือกตัวละคร
             setTimeout(() => {
+                if (deviceLimitErrorShown()) { handleDeviceLimitError(findEnterButton()); return; }
+                deviceLimitRetryCount = 0;
                 if (characterShownOnline()) { handleStaleCharacterSession(); return; }
                 staleSessionSince = 0;
                 const enterBtn = findEnterButton();
@@ -12129,6 +12233,34 @@
     // and permanently displays "ตัวนี้ออนไลน์อยู่" (disabled) + "บังคับออกจากระบบ".
     // Wait 3.5s for any brief disconnect to settle, then click "บังคับออกจากระบบ" (which calls POST /characters/:id/kick
     // and refreshes /characters in-place so the "เข้าเกมด้วย ..." button becomes enabled immediately), or reload after 12s.
+    let lastDeviceLimitRotateAt = 0, deviceLimitRetryCount = 0;
+    function deviceLimitErrorShown() {
+        const txt = ((document.querySelector('.char-select, .login-card, .char-panel, body') || document.body).innerText || '');
+        return /เครื่องนี้เล่นพร้อมกันได้สูงสุด|ออกจากตัวละครอื่นก่อนจึงจะเข้าได้/i.test(txt) && !!document.querySelector('.char-select, .char-card');
+    }
+    function handleDeviceLimitError(enterBtn) {
+        const now = Date.now();
+        if (now - lastDeviceLimitRotateAt < 2000) return;
+        lastDeviceLimitRotateAt = now;
+        deviceLimitRetryCount++;
+        if (typeof window.__rotatePmDeviceId === 'function') {
+            window.__rotatePmDeviceId('char-select-limit');
+        }
+        if (deviceLimitRetryCount >= 4) {
+            deviceLimitRetryCount = 0;
+            console.log('%c[PmheeAether Auth] ♻️ สุ่ม Device ID ใหม่แล้วยังติดหน้าเลือกตัวละคร -> รีเฟรชหน้าเกมอัตโนมัติ', 'color: #f59e0b; font-weight: bold;');
+            location.reload();
+            return;
+        }
+        const btn = enterBtn || Array.from(document.querySelectorAll('button.char-enter:not([disabled])')).find(el => el.offsetWidth > 0 && (el.innerText || '').trim().startsWith('เข้าเกมด้วย'));
+        if (btn && !isLoginScreenVisible()) {
+            console.log(`%c[PmheeAether Auth] 🔑 พบแจ้งเตือนจำกัด 3 ตัวละครต่อเครื่อง -> เปลี่ยน Device ID ใหม่และคลิกเข้าเกมอัตโนมัติ (ครั้งที่ ${deviceLimitRetryCount})...`, 'color: #38bdf8; font-weight: bold;');
+            setTimeout(() => {
+                if (!isLoginScreenVisible()) safeClickOnce(btn);
+            }, 300);
+        }
+    }
+
     let staleSessionSince = 0, lastForceKickClickAt = 0;
     function characterShownOnline() {
         const btnOnline = Array.from(document.querySelectorAll('button.char-enter')).some(b => /ตัวนี้ออนไลน์อยู่|This character is online/i.test(b.innerText || ''));
