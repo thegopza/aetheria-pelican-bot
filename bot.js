@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.8
+// @version      4.44.10
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.8';
+    const PELICAN_BOT_VERSION = '4.44.10';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -1495,6 +1495,7 @@
         const accepted = new Set(ids), remaining = embeddedHumanCheckEvents.filter(e => !accepted.has(e.eventId));
         try { localStorage.setItem(humanCheckEventsKey, JSON.stringify(remaining)); } catch (_) { return false; }
         embeddedHumanCheckEvents = remaining;
+        window.__pmLocalHumanCheckEvents = remaining;
         return true;
     };
 
@@ -2771,6 +2772,25 @@
         }, delay);
     }
 
+    window.__pmLocalHumanCheckEvents = embeddedHumanCheckEvents;
+    window.__pmSolveEmbeddedHumanCheck = function () {
+        const cfg = window.__pmHumanCheckSolverConfig || {};
+        if (window.__autoHumanCheckEnabled === false || cfg.autoAnswer === false) return false;
+        const snapshot = embeddedHumanCheckSnapshot();
+        if (!snapshot || snapshot.key === embeddedHumanCheckAttempt) return false;
+        if (embeddedHumanCheckPending?.key === snapshot.key) return false;
+        if (snapshot.mode === 'board') {
+            tickEmbeddedHumanCheck();
+            return true;
+        }
+        const options = snapshot.buttons.map((button, index) => ({index, icon: button.querySelector?.('img')?.getAttribute?.('src') || button.querySelector?.('img')?.src || ''}));
+        const solution = embeddedHumanCheckMatch({prompt:snapshot.prompt, options, items:snapshot.packet.items});
+        if (!solution) return false;
+        if (snapshot.buttons[solution.pickIndex]?.disabled) return false;
+        tickEmbeddedHumanCheck();
+        return !!embeddedHumanCheckPending;
+    };
+    window.__pmAckLocalHumanCheckEvents = window.__pmAckHumanCheckEvents;
     // END EMBEDDED HUMAN CHECK HOTFIX
 
     window.playInGameHumanCheckBeep = function(urgent = false) {
@@ -12114,9 +12134,10 @@
                 window.activateInGameAuto();
                 return;
             }
+            const priestBusyBuffing = Boolean(window.__priestBusyBuffing && (Date.now() - (window.__priestBusyBuffingAt || 0) < 25000));
             const autoStatus = getInGameAutoStatus();
-            if (autoStatus === 'on') {
-                // AUTO กำลังทำงานปกติ รีเซ็ตตัวนับความล้มเหลว
+            if (autoStatus === 'on' || priestBusyBuffing) {
+                // AUTO กำลังทำงานปกติ (หรือพระกำลังเดินไปร่ายบัฟให้เพื่อนในตี้) รีเซ็ตตัวนับความล้มเหลว
                 autoActivateFailCount = 0;
                 window.__isKnownOverweight = false;
             } else if (autoStatus === 'off') {
@@ -21761,6 +21782,89 @@
         return out;
     };
 
+    // อ่านข้อมูลปาร์ตี้และรายการบัฟสดของสมาชิกทุกคนจาก React Store ของตัวเกมโดยตรง (0ms real-time ไม่ต้องรอ Manager sync)
+    window.getInGamePartyState = function() {
+        try {
+            let g = window.__pmPartyGetters;
+            if (!g || !g.party) {
+                const out = {};
+                const rootEl = document.getElementById('root') || (document.body && document.body.firstElementChild);
+                const key = rootEl && Object.keys(rootEl).find(k => k.startsWith('__reactContainer$') || k.startsWith('__reactFiber$'));
+                if (key) {
+                    let start = rootEl[key];
+                    if (start && start.stateNode && start.stateNode.current) start = start.stateNode.current;
+                    const stack = [start];
+                    let n = 0;
+                    while (stack.length && n++ < 100000 && !(out.party && out.invite && out.follow)) {
+                        const f = stack.pop();
+                        if (!f) continue;
+                        let h = f.memoizedState, gc = 0;
+                        while (h && typeof h === 'object' && gc++ < 80) {
+                            const q = h.queue;
+                            if (q && typeof q.getSnapshot === 'function') {
+                                const src = String(q.getSnapshot).replace(/\s+/g, '');
+                                if (!out.party && /^\(\)=>[A-Za-z_$][\w$]*\.party$/.test(src)) out.party = q.getSnapshot;
+                                if (!out.invite && /^\(\)=>[A-Za-z_$][\w$]*\.invite$/.test(src)) out.invite = q.getSnapshot;
+                                if (!out.follow && /^\(\)=>[A-Za-z_$][\w$]*\.follow$/.test(src)) out.follow = q.getSnapshot;
+                            }
+                            h = h.next;
+                        }
+                        if (f.sibling) stack.push(f.sibling);
+                        if (f.child) stack.push(f.child);
+                    }
+                }
+                if (out.party) window.__pmPartyGetters = Object.assign({}, g, out);
+                g = window.__pmPartyGetters;
+            }
+            return (g && typeof g.party === 'function') ? g.party() : null;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    function getMemberBuffRemainingMs(memberNameLower, skillId) {
+        try {
+            const now = Date.now();
+            const party = typeof window.getInGamePartyState === 'function' ? window.getInGamePartyState() : null;
+            if (party && Array.isArray(party.members)) {
+                const m = party.members.find(x => x && String(x.name || '').trim().toLowerCase() === memberNameLower);
+                if (m && Array.isArray(m.buffs)) {
+                    const b = m.buffs.find(x => x && x.skillId === skillId);
+                    if (b) return typeof b.remainingMs === 'number' ? b.remainingMs : (b.endsAt ? Math.max(0, b.endsAt - now) : 0);
+                }
+            }
+        } catch (e) {}
+        return 0;
+    }
+
+    function setPriestBuffWalkAutoPause(pause) {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const live = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+        if (pause) {
+            window.__priestBusyBuffing = true;
+            window.__priestBusyBuffingAt = Date.now();
+            const isAutoOn = Boolean((live && live.auto && live.auto.enabled) || (typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'on'));
+            if (isAutoOn || !window.__priestPausedAutoForBuff) {
+                window.__priestPausedAutoForBuff = true;
+                try { if (room && typeof room.send === 'function') room.send('auto_set', { enabled: false }); } catch (e) {}
+            }
+        } else {
+            window.__priestBusyBuffing = false;
+            window.__priestBusyBuffingAt = 0;
+            if (window.__priestPausedAutoForBuff) {
+                window.__priestPausedAutoForBuff = false;
+                if (window.__isBotRunning && !window.__isShopping && !window.__isNavigating) {
+                    try { if (room && typeof room.send === 'function') room.send('auto_set', { enabled: true }); } catch (e) {}
+                    setTimeout(() => {
+                        if (window.__isBotRunning && !window.__priestBusyBuffing && typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'off') {
+                            if (typeof window.activateInGameAuto === 'function') window.activateInGameAuto();
+                        }
+                    }, 250);
+                }
+            }
+        }
+    }
+
     // สั่งให้ Priest ร่ายบัฟทั้งหมดทุกสกิลใส่เป้าหมายรวดเดียว (แม้บัฟจะยังไม่หมด) เพื่อรีเซ็ตเวลาพร้อมกันทุกสกิล
     window.castFullPriestBuffSuite = async function(targetKey, targetName) {
         if (window.__priestCastingJob) return false;
@@ -21769,6 +21873,7 @@
         const wantNameLower = String(targetName || '').trim().toLowerCase();
         window.__priestCastingJob = { targetKey, targetName: wantNameLower, startedAt: Date.now() };
         window.__priestBuffingTarget = targetName || null;
+        setPriestBuffWalkAutoPause(true);
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         try {
             const liveInit = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
@@ -21793,37 +21898,42 @@
             };
 
             const castSingleSkill = async (skillId, isPartyWide = false) => {
-                const castWaitMs = (skillId === 'increase-agi' || skillId === 'kyrie-eleison' || skillId === 'aspersio') ? 1320 : 420;
+                const castWaitMs = (skillId === 'increase-agi' || skillId === 'kyrie-eleison' || skillId === 'aspersio') ? 920 : 450;
                 for (let attempt = 0; attempt < 3; attempt++) {
                     if (!window.__isBotRunning) return false;
+                    window.__priestBusyBuffingAt = Date.now();
                     const me = room.state.players.get(room.sessionId);
                     const found = findTarget();
                     if (!me || !found || (typeof found.player.hp === 'number' && found.player.hp <= 0)) return false;
 
-                    // หากเป้าหมายขยับออกนอกระยะ 9 ช่อง (~255px) ให้เดินตามเข้าไปใกล้ก่อนร่าย
+                    // หากเป้าหมายขยับออกนอกระยะ 8 ช่อง (~235px) ให้เดินตามเข้าไปใกล้ก่อนร่าย
                     if (!isPartyWide && found.key !== room.sessionId) {
                         const dist = Math.hypot((me.x || 0) - (found.player.x || 0), (me.y || 0) - (found.player.y || 0));
-                        if (dist > 250) {
-                            room.send('move_to', { x: found.player.x, y: found.player.y });
-                            await sleep(550);
+                        if (dist > 235) {
+                            try { room.send('auto_set', { enabled: false }); } catch (e) {}
+                            room.send('move_to', { x: found.player.x, y: found.player.y, auto: true });
+                            await sleep(500);
                             continue;
                         }
                     }
 
                     const liveBefore = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
                     const cdLeft = (liveBefore && liveBefore.cooldowns && Number(liveBefore.cooldowns[skillId])) || 0;
-                    if (cdLeft > 250 && cdLeft < 3500) {
-                        await sleep(Math.min(cdLeft + 120, 2200));
+                    if (cdLeft > 200 && cdLeft < 3500) {
+                        await sleep(Math.min(cdLeft + 100, 1800));
                     }
 
+                    const remBefore = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, skillId) : 0;
                     const payload = isPartyWide ? { skillId } : { skillId, targetId: found.key };
                     room.send('cast', payload);
                     await sleep(castWaitMs);
 
                     const liveAfter = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
                     const cdAfter = (liveAfter && liveAfter.cooldowns && Number(liveAfter.cooldowns[skillId])) || 0;
-                    if (cdAfter > 0) return true;
-                    await sleep(380);
+                    const remAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, skillId) : 0;
+                    if (cdAfter > 0 || remAfter > remBefore + 5000 || remAfter >= 22000) return true;
+                    if (skillId === 'heal') return true;
+                    await sleep(320);
                 }
                 return false;
             };
@@ -21842,19 +21952,29 @@
             }
 
             // 2. ร่ายสกิลบัฟทั้งหมดทุกสกิล แม้บัฟบางตัวจะยังไม่หมดเวลา!
+            let anyCastSuccess = false;
             for (const skillId of buffSkills) {
                 if (!window.__isBotRunning) break;
                 if (skillId === 'gloria') {
                     if (Date.now() - (window.__lastPriestGloriaAt || 0) < 7000) continue;
                     const ok = await castSingleSkill('gloria', true);
-                    if (ok) window.__lastPriestGloriaAt = Date.now();
+                    if (ok) {
+                        window.__lastPriestGloriaAt = Date.now();
+                        anyCastSuccess = true;
+                    }
                 } else {
-                    await castSingleSkill(skillId, false);
+                    const ok = await castSingleSkill(skillId, false);
+                    if (ok) anyCastSuccess = true;
                 }
             }
 
+            const blessAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, 'blessing') : 240000;
+            const agiAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, 'increase-agi') : 240000;
+            const coreLanded = (blessAfter > 45000 && agiAfter > 45000) || (targetKey === room.sessionId && anyCastSuccess);
             if (!window.__priestRecentlyBuffed) window.__priestRecentlyBuffed = {};
-            if (wantNameLower) window.__priestRecentlyBuffed[wantNameLower] = Date.now();
+            if (wantNameLower && (coreLanded || anyCastSuccess)) {
+                window.__priestRecentlyBuffed[wantNameLower] = coreLanded ? Date.now() : (Date.now() - 10000);
+            }
             console.log(`%c[PmheeAether Priest] ✅ ร่ายบัฟครบทุกสกิลให้ "${targetName || targetKey}" เสร็จเรียบร้อย!`, 'color: #22c55e; font-weight: bold;');
             return true;
         } catch (e) {
@@ -21942,6 +22062,7 @@
                 window.__returningToPriest = false;
                 if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
             }
+            setPriestBuffWalkAutoPause(false);
             clearPartyPriestFollow(null, prevSync, true);
             return { success: true, cleared: true };
         }
@@ -21958,20 +22079,40 @@
     window.__pmPartyCoordInterval = setInterval(() => {
         try {
             const busyNow = (typeof window.planBusyReason === 'function' ? window.planBusyReason() : (typeof planBusyReason === 'function' ? planBusyReason() : null)) !== null;
-            if (!window.__isBotRunning || busyNow) return;
-            if ((typeof window.isCharacterDeadNow === 'function' && window.isCharacterDeadNow()) || (typeof isCharacterDead === 'function' && isCharacterDead())) return;
+            if (!window.__isBotRunning || busyNow) {
+                if (window.__priestPausedAutoForBuff) setPriestBuffWalkAutoPause(false);
+                return;
+            }
+            if ((typeof window.isCharacterDeadNow === 'function' && window.isCharacterDeadNow()) || (typeof isCharacterDead === 'function' && isCharacterDead())) {
+                if (window.__priestPausedAutoForBuff) setPriestBuffWalkAutoPause(false);
+                return;
+            }
             const curMap = (typeof window.getCurrentMapName === 'function') ? (window.getCurrentMapName() || '') : '';
-            if (!curMap || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMap)) return;
+            if (!curMap || /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMap)) {
+                if (window.__priestPausedAutoForBuff) setPriestBuffWalkAutoPause(false);
+                return;
+            }
 
             const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
-            const sync = window.__pmPartySync;
-            if (!sync || (Date.now() - (sync.updatedAt || 0) > 45000)) {
+            const now = Date.now();
+            const rawSync = window.__pmPartySync;
+            const syncFresh = Boolean(rawSync && (now - (rawSync.updatedAt || 0) <= 45000));
+            const sync = syncFresh ? rawSync : null;
+            const inGameParty = typeof window.getInGamePartyState === 'function' ? window.getInGamePartyState() : null;
+            const hasInGameParty = Boolean(inGameParty && Array.isArray(inGameParty.members) && inGameParty.members.length > 1);
+
+            if (!sync && !hasInGameParty) {
                 if (window.__partyOverrideRadius || window.__returningToPriest) {
                     window.__returningToPriest = false;
-                    clearPartyPriestFollow(room, sync, true);
+                    clearPartyPriestFollow(room, rawSync, true);
                     if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
+                if (window.__priestPausedAutoForBuff) setPriestBuffWalkAutoPause(false);
                 return;
+            }
+
+            if (window.__partyOverrideRadius !== null && typeof window.applyPartyRadiusOverride === 'function') {
+                window.applyPartyRadiusOverride(null);
             }
 
             const players = room && room.state && room.state.players;
@@ -21981,44 +22122,74 @@
             const live = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
             const myClass = String((me && me.classId) || (live && live.classId) || '').toLowerCase();
             const isMePriest = /^(priest|acolyte)$/.test(myClass);
-            const now = Date.now();
 
-            // กรณีตัวเองเป็น Priest: เดินไปหาสมาชิกที่บัฟใกล้หมดหรือเลือดต่ำตามลำดับความสำคัญ และร่ายบัฟครบทุกสกิลรวดเดียว!
+            // กรณีตัวเองเป็น Priest: เดินไปหาสมาชิกที่ไม่มีบัฟ (เพิ่งกลับมาจากเมือง/ตายวาร์ปกลับมา) หรือบัฟใกล้หมด/เลือดต่ำ และร่ายบัฟครบทุกสกิล!
             if (isMePriest) {
-                if (sync.isAnchorPriest) {
-                    const chipBtn = document.querySelector('.follow-chip button');
-                    if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
-                }
+                const chipBtn = document.querySelector('.follow-chip button');
+                if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
+
                 if (window.__priestCastingJob) {
                     // กำลังร่ายชุดบัฟอยู่ รอให้ครบชุด (ป้องกันค้างเกิน 14 วิ)
                     if (now - (window.__priestCastingJob.startedAt || 0) > 14000) {
                         window.__priestCastingJob = null;
                         window.__priestBuffingTarget = null;
                     } else {
+                        window.__priestBusyBuffing = true;
+                        window.__priestBusyBuffingAt = now;
                         return;
                     }
                 }
 
                 if (!window.__priestRecentlyBuffed) window.__priestRecentlyBuffed = {};
+                if (!window.__priestWalkSkipUntil) window.__priestWalkSkipUntil = {};
                 const myNameLower = String(me.name || '').trim().toLowerCase();
+                const learned = (live && live.skills) || {};
+                const hasBlessLearned = Number(learned['blessing']) > 0;
+                const hasAgiLearned = Number(learned['increase-agi']) > 0;
 
                 // 1) เช็กบัฟของตัว Priest เองด้วย: ถ้าบัฟตัวเองใกล้หมด (< 28 วิ) หรือเลือดต่ำ ให้ร่ายครบทุกสกิลใส่ตัวเองก่อน
                 const myBuffSt = window.getPartyPriestBuffStatus(28000);
                 const selfRecentAt = window.__priestRecentlyBuffed[myNameLower] || 0;
-                if ((myBuffSt.needsPriest && (now - selfRecentAt > 14000)) || myBuffSt.needsHeal) {
-                    if (window.__partyOverrideRadius !== 3 && typeof window.applyPartyRadiusOverride === 'function') {
-                        window.applyPartyRadiusOverride(3);
-                    }
+                if ((myBuffSt.needsPriest && (now - selfRecentAt > 10000)) || myBuffSt.needsHeal) {
                     window.castFullPriestBuffSuite(room.sessionId, me.name || 'Self');
                     return;
                 }
 
-                // 2) สร้างคิวลำดับความสำคัญของสมาชิกในแมพเดียวกันที่ต้องการบัฟ/ฮีล
+                // 2) รวบรวมรายชื่อและสถานะบัฟสดของสมาชิกในปาร์ตี้จากทั้ง inGameParty (0ms real-time) และ sync
+                const partySet = new Set();
+                if (sync && Array.isArray(sync.partyNames)) {
+                    for (const n of sync.partyNames) if (n) partySet.add(String(n).trim().toLowerCase());
+                }
+                const inGameBuffMap = new Map();
+                if (inGameParty && Array.isArray(inGameParty.members)) {
+                    for (const m of inGameParty.members) {
+                        if (!m || !m.name) continue;
+                        const nl = String(m.name).trim().toLowerCase();
+                        partySet.add(nl);
+                        if (Array.isArray(m.buffs)) {
+                            let bMs = 0, aMs = 0, impMs = 0, kyrMs = 0;
+                            for (const b of m.buffs) {
+                                if (!b || !b.skillId) continue;
+                                const rem = typeof b.remainingMs === 'number' ? b.remainingMs : (b.endsAt ? Math.max(0, b.endsAt - now) : 0);
+                                if (b.skillId === 'blessing') bMs = Math.max(bMs, rem);
+                                else if (b.skillId === 'increase-agi') aMs = Math.max(aMs, rem);
+                                else if (b.skillId === 'impositio-manus') impMs = Math.max(impMs, rem);
+                                else if (b.skillId === 'kyrie-eleison') kyrMs = Math.max(kyrMs, rem);
+                            }
+                            const coreList = [];
+                            if (hasBlessLearned) coreList.push(bMs);
+                            if (hasAgiLearned) coreList.push(aMs);
+                            const minCore = coreList.length ? Math.min(...coreList) : Math.min(bMs, aMs);
+                            const missingCore = (hasBlessLearned && bMs <= 0) || (hasAgiLearned && aMs <= 0);
+                            inGameBuffMap.set(nl, { blessingMs: bMs, agiMs: aMs, impositioMs: impMs, kyrieMs: kyrMs, minCoreBuffMs: minCore, missingCoreBuff: missingCore });
+                        }
+                    }
+                }
+
                 const roomPartyMap = new Map();
-                const partySet = new Set((Array.isArray(sync.partyNames) ? sync.partyNames : []).map(n => String(n || '').trim().toLowerCase()));
                 if (typeof players.forEach === 'function') {
                     players.forEach((p, k) => {
-                        if (!p || !p.name || p === me) return;
+                        if (!p || !p.name || p === me || p.dead) return;
                         if (typeof p.hp === 'number' && p.hp <= 0) return;
                         const nl = String(p.name).trim().toLowerCase();
                         if (!partySet.has(nl)) return;
@@ -22028,41 +22199,44 @@
                     });
                 }
 
-                const candidates = [];
-                const seenNames = new Set();
-                const rawQueue = Array.isArray(sync.buffQueue) ? sync.buffQueue : [];
-                for (const q of rawQueue) {
-                    if (!q || !q.name) continue;
-                    const nl = String(q.name).trim().toLowerCase();
-                    if (nl === myNameLower || seenNames.has(nl)) continue;
-                    const rp = roomPartyMap.get(nl);
-                    if (!rp) continue;
-                    const recentAt = window.__priestRecentlyBuffed[nl] || 0;
-                    const liveNeedsHeal = rp.hpPct > 0 && rp.hpPct < 0.65;
-                    if (!liveNeedsHeal && (now - recentAt < 14000)) continue;
-                    seenNames.add(nl);
-                    candidates.push({
-                        name: rp.name,
-                        nameLower: nl,
-                        key: rp.key,
-                        player: rp.player,
-                        dist: rp.dist,
-                        hpPct: rp.hpPct,
-                        needsHeal: Boolean(liveNeedsHeal || q.needsHeal),
-                        minCoreBuffMs: typeof q.minCoreBuffMs === 'number' ? q.minCoreBuffMs : 0
-                    });
+                const syncQueueMap = new Map();
+                if (sync && Array.isArray(sync.buffQueue)) {
+                    for (const q of sync.buffQueue) {
+                        if (q && q.name) syncQueueMap.set(String(q.name).trim().toLowerCase(), q);
+                    }
                 }
 
-                // เช็กเลือดสด + สมาชิกที่เดินเข้ามาใกล้พระ (<= 240px) หรือครบกำหนดรีบัฟรอบใหม่ (เผื่อก่อนรอบซิงค์ของ Manager)
+                const candidates = [];
                 for (const [nl, rp] of roomPartyMap.entries()) {
-                    if (seenNames.has(nl)) continue;
-                    const recentAt = window.__priestRecentlyBuffed[nl] || 0;
-                    const sinceLastBuff = now - recentAt;
+                    if (nl === myNameLower) continue;
                     const liveNeedsHeal = rp.hpPct > 0 && rp.hpPct < 0.68;
-                    const cameNearForBuff = rp.dist <= 240 && sinceLastBuff > 40000;
-                    const dueForPeriodicFullBuff = sinceLastBuff > 185000;
-                    if (liveNeedsHeal || cameNearForBuff || dueForPeriodicFullBuff) {
-                        seenNames.add(nl);
+                    const skipUntil = window.__priestWalkSkipUntil[nl] || 0;
+                    if (!liveNeedsHeal && now < skipUntil) continue;
+
+                    const ig = inGameBuffMap.get(nl);
+                    const sq = syncQueueMap.get(nl);
+                    const recentAt = window.__priestRecentlyBuffed[nl] || 0;
+                    const sinceRecent = now - recentAt;
+
+                    let minCoreBuffMs = 999999;
+                    let missingCoreBuff = false;
+                    if (ig) {
+                        minCoreBuffMs = ig.minCoreBuffMs;
+                        missingCoreBuff = ig.missingCoreBuff;
+                    } else if (sq) {
+                        minCoreBuffMs = typeof sq.minCoreBuffMs === 'number' ? sq.minCoreBuffMs : 0;
+                        missingCoreBuff = minCoreBuffMs <= 0;
+                    } else {
+                        minCoreBuffMs = Math.max(0, 210000 - sinceRecent);
+                        missingCoreBuff = recentAt === 0;
+                    }
+
+                    const cooldownGuardMs = missingCoreBuff ? 3500 : 12000;
+                    if (!liveNeedsHeal && sinceRecent < cooldownGuardMs) continue;
+
+                    const needsBuffNow = missingCoreBuff || minCoreBuffMs < 32000 || Boolean(sq && (sq.needsBuff || sq.returningToPriest));
+                    const nearbyRefresh = rp.dist <= 235 && minCoreBuffMs < 65000;
+                    if (liveNeedsHeal || needsBuffNow || nearbyRefresh) {
                         candidates.push({
                             name: rp.name,
                             nameLower: nl,
@@ -22070,55 +22244,85 @@
                             player: rp.player,
                             dist: rp.dist,
                             hpPct: rp.hpPct,
-                            needsHeal: liveNeedsHeal,
-                            minCoreBuffMs: liveNeedsHeal ? 0 : (cameNearForBuff ? 5000 : Math.max(0, 215000 - sinceLastBuff))
+                            needsHeal: Boolean(liveNeedsHeal || (sq && sq.needsHeal)),
+                            missingCoreBuff,
+                            minCoreBuffMs
                         });
                     }
                 }
 
-                // เรียงลำดับความสำคัญ: 1. เลือดต่ำด่วนสุด -> 2. เวลาบัฟเหลือน้อยสุด -> 3. อยู่ใกล้พระที่สุด
+                // เรียงลำดับความสำคัญ:
+                // 1. เลือดต่ำด่วนสุด (< 68%)
+                // 2. คนที่อยู่ในระยะร่ายของพระอยู่แล้ว (<= 210px) และต้องการบัฟ ให้ร่ายให้เสร็จก่อนเดินไปไกล
+                // 3. คนที่ไม่มีบัพเลย (missingCoreBuff = เพิ่งกลับมาจากเมืองหรือตายวาร์ปกลับมา!)
+                // 4. เวลาบัฟเหลือน้อยสุด / อยู่ใกล้พระที่สุด
                 candidates.sort((a, b) => {
                     if (a.needsHeal !== b.needsHeal) return a.needsHeal ? -1 : 1;
                     if (a.needsHeal && b.needsHeal && Math.abs(a.hpPct - b.hpPct) > 0.05) return a.hpPct - b.hpPct;
-                    if (Math.abs(a.minCoreBuffMs - b.minCoreBuffMs) > 3000) return a.minCoreBuffMs - b.minCoreBuffMs;
+                    const aInRange = a.dist <= 210 && (a.missingCoreBuff || a.minCoreBuffMs < 32000);
+                    const bInRange = b.dist <= 210 && (b.missingCoreBuff || b.minCoreBuffMs < 32000);
+                    if (aInRange !== bInRange) return aInRange ? -1 : 1;
+                    if (a.missingCoreBuff !== b.missingCoreBuff) return a.missingCoreBuff ? -1 : 1;
+                    if (Math.abs(a.minCoreBuffMs - b.minCoreBuffMs) > 6000) return a.minCoreBuffMs - b.minCoreBuffMs;
                     return a.dist - b.dist;
                 });
 
                 if (candidates.length > 0) {
                     const top = candidates[0];
                     window.__priestBuffingTarget = top.name;
-                    if (window.__partyOverrideRadius !== 3 && typeof window.applyPartyRadiusOverride === 'function') {
-                        window.applyPartyRadiusOverride(3);
-                    }
-                    if (top.dist > 220) {
-                        // เดินเข้าหาสมาชิกที่บัฟใกล้หมดตามลำดับความสำคัญ (เจอกันครึ่งทาง!)
-                        if (window.__lastPriestWalkLogTarget !== top.nameLower || (now - (window.__lastPriestWalkLogAt || 0) > 6000)) {
+                    if (top.dist > 205) {
+                        if (window.__priestWalkTarget !== top.nameLower) {
+                            window.__priestWalkTarget = top.nameLower;
+                            window.__priestWalkStartedAt = now;
+                        } else if (now - (window.__priestWalkStartedAt || now) > 16000) {
+                            window.__priestWalkSkipUntil[top.nameLower] = now + 9000;
+                            window.__priestWalkTarget = null;
+                            return;
+                        }
+
+                        // พัก AUTO โจมตีมอนสเตอร์ชั่วคราวเพื่อให้พระเดินตรงไปหาเพื่อนที่ไม่มีบัพทันทีโดยไม่หยุดตีมอนระหว่างทาง!
+                        setPriestBuffWalkAutoPause(true);
+
+                        // ป้องกันตัวเองระหว่างเดิน: หากเลือดพระลดหรือเกราะ Kyrie หมด ให้ร่ายใส่ตัวเองระหว่างเดินได้
+                        const cdMap = (live && live.cooldowns) || {};
+                        if (myBuffSt.hpPct < 0.78 && Number(learned['heal']) > 0 && !(Number(cdMap['heal']) > 0)) {
+                            try { room.send('cast', { skillId: 'heal', targetId: room.sessionId }); } catch (e) {}
+                        } else if (myBuffSt.kyrieMs <= 0 && Number(learned['kyrie-eleison']) > 0 && !(Number(cdMap['kyrie-eleison']) > 0) && (now - (window.__lastPriestWalkKyrieAt || 0) > 4500)) {
+                            window.__lastPriestWalkKyrieAt = now;
+                            try { room.send('cast', { skillId: 'kyrie-eleison', targetId: room.sessionId }); } catch (e) {}
+                        }
+
+                        if (window.__lastPriestWalkLogTarget !== top.nameLower || (now - (window.__lastPriestWalkLogAt || 0) > 5000)) {
                             window.__lastPriestWalkLogTarget = top.nameLower;
                             window.__lastPriestWalkLogAt = now;
-                            console.log(`%c[PmheeAether Priest] 🏃‍♂️ เดินไปหา "${top.name}" (คิว #1 · บัฟเหลือ ${Math.round(top.minCoreBuffMs / 1000)}s · ระยะ ${Math.round(top.dist)}px) เพื่อบัฟครบทุกสกิล`, 'color: #38bdf8; font-weight: bold;');
+                            const statusLabel = top.missingCoreBuff ? 'ไม่มีบัพ/เพิ่งกลับมา' : `บัฟเหลือ ${Math.round(top.minCoreBuffMs / 1000)}s`;
+                            console.log(`%c[PmheeAether Priest] 🏃‍♂️ เดินไปหา "${top.name}" (${statusLabel} · ระยะ ${Math.round(top.dist)}px) เพื่อร่ายบัฟครบทุกสกิล`, 'color: #38bdf8; font-weight: bold;');
                         }
-                        room.send('move_to', { x: top.player.x, y: top.player.y });
+                        room.send('move_to', { x: top.player.x, y: top.player.y, auto: true });
                     } else {
+                        window.__priestWalkTarget = null;
                         // อยู่ในระยะร่ายบัฟแล้ว -> ร่ายบัฟทั้งหมดทุกสกิลรวดเดียว!
                         window.castFullPriestBuffSuite(top.key, top.name);
                     }
                     return;
                 }
 
+                window.__priestWalkTarget = null;
                 window.__priestBuffingTarget = null;
-                if (window.__partyOverrideRadius !== null) {
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
-                }
+                setPriestBuffWalkAutoPause(false);
                 return;
             }
 
             // กรณีเป็นสมาชิกหรือหัวตี้ที่มี Priest อยู่ในปาร์ตี้
-            const priestName = sync.priestName ? String(sync.priestName).trim() : '';
+            let priestName = (sync && sync.priestName) ? String(sync.priestName).trim() : '';
+            if (!priestName && inGameParty && Array.isArray(inGameParty.members)) {
+                const pm = inGameParty.members.find(m => m && m.online !== false && /^(priest|acolyte)$/i.test(String(m.classId || '')));
+                if (pm && pm.name) priestName = String(pm.name).trim();
+            }
             if (!priestName) {
-                if (window.__partyOverrideRadius || window.__returningToPriest) {
+                if (window.__returningToPriest) {
                     window.__returningToPriest = false;
                     clearPartyPriestFollow(room, sync, true);
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
@@ -22127,20 +22331,20 @@
             const wantPriest = priestName.toLowerCase();
             if (typeof players.forEach === 'function') {
                 players.forEach(p => {
-                    if (!priestPlayer && p && String(p.name || '').trim().toLowerCase() === wantPriest) priestPlayer = p;
+                    if (!priestPlayer && p && !p.dead && String(p.name || '').trim().toLowerCase() === wantPriest) priestPlayer = p;
                 });
             }
             if (!priestPlayer || (typeof priestPlayer.hp === 'number' && priestPlayer.hp <= 0)) {
-                if (window.__partyOverrideRadius || window.__returningToPriest) {
+                if (window.__returningToPriest) {
                     window.__returningToPriest = false;
                     clearPartyPriestFollow(room, sync, true);
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                 }
                 return;
             }
 
             const distToPriest = Math.hypot((me.x || 0) - (priestPlayer.x || 0), (me.y || 0) - (priestPlayer.y || 0));
             const buffSt = window.getPartyPriestBuffStatus(25000);
+            const hasNoCoreBuffs = (buffSt.blessingMs <= 0 || buffSt.agiMs <= 0);
 
             if (!window.__returningToPriest && buffSt.needsPriest && now >= (window.__priestBuffCooldownUntil || 0)) {
                 window.__returningToPriest = true;
@@ -22150,7 +22354,11 @@
                 window.__returnMinAgiMs = buffSt.agiMs;
                 window.__returnGotBless = false;
                 window.__returnGotAgi = false;
-                console.log(`%c[PmheeAether Party] 🙏 บัฟพระใกล้หมดหรือเลือดต่ำ (Bless:${Math.round(buffSt.blessingMs / 1000)}s, AGI:${Math.round(buffSt.agiMs / 1000)}s, HP:${Math.round(buffSt.hpPct * 100)}%) -> เดินไปเจอกับ Priest "${priestName}" ครึ่งทางเพื่อรับบัฟครบทุกสกิล`, 'color: #38bdf8; font-weight: bold;');
+                if (hasNoCoreBuffs && distToPriest > 260) {
+                    console.log(`%c[PmheeAether Party] 🙏 เพิ่งกลับเข้าแมพ/ไม่มีบัพพระ -> รอให้ Priest "${priestName}" (ระยะ ${Math.round(distToPriest)}px) เดินมาบัพให้โดยไม่วิ่งฝ่าฝูงมอนไปตาย`, 'color: #38bdf8; font-weight: bold;');
+                } else {
+                    console.log(`%c[PmheeAether Party] 🙏 บัฟพระใกล้หมดหรือเลือดต่ำ (Bless:${Math.round(buffSt.blessingMs / 1000)}s, AGI:${Math.round(buffSt.agiMs / 1000)}s, HP:${Math.round(buffSt.hpPct * 100)}%) -> ประสานงานรับบัฟกับ Priest "${priestName}"`, 'color: #38bdf8; font-weight: bold;');
+                }
             }
 
             if (window.__returningToPriest) {
@@ -22173,49 +22381,38 @@
 
                 const nearDuration = window.__returnNearPriestSince ? (now - window.__returnNearPriestSince) : 0;
                 const fullSuiteReady = window.__returnGotBless && window.__returnGotAgi && !buffSt.needsHeal;
-                const fallbackReady = nearDuration >= 7500 && buffSt.blessingMs >= 35000 && buffSt.agiMs >= 35000 && !buffSt.needsHeal;
+                const fallbackReady = nearDuration >= 6500 && buffSt.blessingMs >= 35000 && buffSt.agiMs >= 35000 && !buffSt.needsHeal;
 
                 if (fullSuiteReady || fallbackReady) {
                     window.__returningToPriest = false;
                     window.__returnNearPriestSince = 0;
                     console.log(`%c[PmheeAether Party] ✨ รับบัฟครบทุกสกิลจาก Priest "${priestName}" เรียบร้อย (Bless:${Math.round(buffSt.blessingMs / 1000)}s, AGI:${Math.round(buffSt.agiMs / 1000)}s) -> ลุยฟาร์มต่อ!`, 'color: #22c55e; font-weight: bold;');
                     clearPartyPriestFollow(room, sync, true);
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                     return;
                 }
 
-                if (nearDuration > 18000 || (now - (window.__returnToPriestStartedAt || now) > 28000)) {
-                    // ป้องกันค้างกรณีพระติดสถานะหรือ SP หมดชั่วคราว -> ปล่อยไปฟาร์มต่อ 20 วิ
-                    window.__priestBuffCooldownUntil = now + 20000;
+                if (nearDuration > 18000 || (now - (window.__returnToPriestStartedAt || now) > 32000)) {
+                    // ป้องกันค้างกรณีพระติดสถานะหรือ SP หมดชั่วคราว
+                    window.__priestBuffCooldownUntil = now + (hasNoCoreBuffs ? 6000 : 18000);
                     window.__returningToPriest = false;
                     window.__returnNearPriestSince = 0;
                     clearPartyPriestFollow(room, sync, true);
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
                     return;
                 }
 
-                if (window.__partyOverrideRadius !== 3) {
-                    if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(3);
-                }
-                if (distToPriest > 140) {
-                    try {
-                        const handlers = room.onMessageHandlers;
-                        if (handlers && typeof handlers.emit === 'function') {
-                            handlers.emit('party_follow', { name: priestName });
-                        }
-                    } catch (e) {}
-                    room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y });
+                // ป้องกันตัวละครที่เพิ่งกลับมาจากเมือง/ตาย (ไม่มีบัพเลย) วิ่งฝ่าดงมอนไปหาพระจนตายระหว่างทาง:
+                // ให้สู้ป้องกันตัวอยู่กับที่จนกว่าพระจะเดินเข้ามาใกล้ (<= 260px) แล้วค่อยขยับเข้ามารับบัฟ
+                const maxSafeMeetDist = hasNoCoreBuffs ? 260 : 450;
+                if (distToPriest > 145 && distToPriest <= maxSafeMeetDist) {
+                    room.send('move_to', { x: priestPlayer.x, y: priestPlayer.y, auto: true });
                 } else {
                     clearPartyPriestFollow(room, sync, false);
                 }
                 return;
             }
 
-            // เมื่อบัฟยังเต็มอยู่: ยกเลิกป้ายติดตามหากค้างอยู่ และคงระยะล่าปกติ
+            // เมื่อบัฟยังเต็มอยู่: ยกเลิกป้ายติดตามหากค้างอยู่
             clearPartyPriestFollow(room, sync, false);
-            if (window.__partyOverrideRadius !== null) {
-                if (typeof window.applyPartyRadiusOverride === 'function') window.applyPartyRadiusOverride(null);
-            }
         } catch (e) {}
-    }, 1000);
+    }, 550);
 
