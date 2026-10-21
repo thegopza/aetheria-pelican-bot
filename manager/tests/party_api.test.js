@@ -112,6 +112,14 @@ function makeWorld(chars) {
     }
     if (code.includes('evaluatePartyChannelSwitch(')) {
       world.evalAnchorCalls = (world.evalAnchorCalls || []).concat(c.name);
+      const avoidMatch = code.match(/evaluatePartyChannelSwitch\([^,]+,\s*\[.*?\],\s*(\[.*?\])\)/);
+      const avoidArr = avoidMatch ? JSON.parse(avoidMatch[1]) : [];
+      world.lastAvoidChannels = avoidArr;
+      if (Array.isArray(world.channelRanking) && world.channelRanking.length) {
+        const pick = world.channelRanking.find(ch => !avoidArr.includes(ch)) || world.channelRanking[0];
+        const shouldSwitch = pick !== c.channel && (avoidArr.includes(c.channel) || pick !== c.channel);
+        return { success: true, result: { success: true, currentCh: c.channel, channel: shouldSwitch ? pick : c.channel, shouldSwitch } };
+      }
       if (typeof world.proactiveLeast === 'number' && world.proactiveLeast !== c.channel) {
         return { success: true, result: { success: true, currentCh: c.channel, channel: world.proactiveLeast, shouldSwitch: true } };
       }
@@ -485,4 +493,62 @@ test('Post-sell channel check: when any party member returns from selling and sw
   await new Promise(r => setTimeout(r, 20));
   assert.strictEqual(chars.L.channel, 8, 'Leader stays on CH 8 when mode is solo_only');
   assert.strictEqual(chars.P.channel, 8, 'Priest stays on CH 8 when mode is solo_only');
+});
+
+test('Always mode & Non-overlapping channels across multiple parties: parties on the same farm map never share a channel, and death/town return pulls the party to a non-overlapping channel', async () => {
+  const chars = {
+    // Party 1
+    L1: { name: 'G4YSuuuuu', classId: 'hunter', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9101, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    P1: { name: 'Mix_999', classId: 'priest', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9102, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    // Party 2 (starts on same CH 8 -> must move to next least-populated CH 14)
+    L2: { name: 'ไม่ไหว56', classId: 'priest', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9103, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    M2: { name: 'DPS_Two', classId: 'hunter', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9104, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    // Party 3 (starts on CH 14 -> must avoid CH 8 and CH 14 and move to CH 17)
+    L3: { name: 'Ohm_Jaa', classId: 'priest', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9105, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } },
+    M3: { name: 'DPS_Three', classId: 'knight', level: 99, channel: 8, mapId: 'rotten_swamp', mapName: 'บึงรากเน่า', targetMap: 'บึงรากเน่า', port: 9106, helpers: { evaluateAnchorChannel: true, updatePartySyncState: true } }
+  };
+  const { svc, world } = service(chars, {
+    unfollowCooldownMs: 0,
+    followCooldownMs: 0,
+    getChannelCheckMode: () => 'always'
+  });
+  world.channelRanking = [8, 14, 17, 20];
+
+  await post(svc, '/api/parties', { leaderId: 'L1', memberIds: ['P1'], autoFill: false });
+  await post(svc, '/api/parties', { leaderId: 'L2', memberIds: ['M2'], autoFill: false });
+  await post(svc, '/api/parties', { leaderId: 'L3', memberIds: ['M3'], autoFill: false });
+
+  await new Promise(r => setTimeout(r, 60));
+  for (let i = 0; i < 8; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 25));
+  }
+
+  // Party 1 stays on CH 8, Party 2 moves to CH 14, Party 3 moves to CH 17 — zero channel overlap!
+  assert.strictEqual(chars.L1.channel, 8, 'Party 1 Leader on CH 8');
+  assert.strictEqual(chars.P1.channel, 8, 'Party 1 Priest on CH 8');
+  assert.strictEqual(chars.L2.channel, 14, 'Party 2 Leader avoids CH 8 and moves to CH 14');
+  assert.strictEqual(chars.M2.channel, 14, 'Party 2 Member follows to CH 14');
+  assert.strictEqual(chars.L3.channel, 17, 'Party 3 Leader avoids CH 8 & 14 and moves to CH 17');
+  assert.strictEqual(chars.M3.channel, 17, 'Party 3 Member follows to CH 17');
+
+  // Now in 'always' mode, M2 dies and returns from town, picking CH 20 (avoiding 8 and 17)
+  chars.M2.channel = 20;
+  chars.M2.lastPostSellChannelSwitch = {
+    channel: 20,
+    previousChannel: 1,
+    mapId: 'rotten_swamp',
+    mapName: 'บึงรากเน่า',
+    reason: 'after-death',
+    mode: 'always',
+    at: Date.now() + 1000
+  };
+  for (let i = 0; i < 4; i++) {
+    await svc.tick();
+    await new Promise(r => setTimeout(r, 25));
+  }
+  assert.strictEqual(chars.L2.channel, 20, 'Party 2 Leader immediately follows returning member M2 to CH 20 in always mode');
+  assert.strictEqual(chars.M2.channel, 20, 'Party 2 Member M2 on CH 20');
+  assert.strictEqual(chars.L1.channel, 8, 'Party 1 remains untouched on CH 8');
+  assert.strictEqual(chars.L3.channel, 17, 'Party 3 remains untouched on CH 17');
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.7
+// @version      4.44.8
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.7';
+    const PELICAN_BOT_VERSION = '4.44.8';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -7522,7 +7522,8 @@
             const curMapNow = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
             const isTargetCityNow = /เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(curMapNow);
             if (!inCityNow && curMapNow && !isTargetCityNow) {
-                window.runPostSellChannelCheck('after-sell').then(() => {
+                const checkReason = window.__pendingPostSellReason || 'after-sell';
+                window.runPostSellChannelCheck(checkReason).then(() => {
                     if (window.__isBotRunning && !window.__isShopping && !window.__isNavigating) {
                         window.activateInGameAuto(force);
                     }
@@ -7619,6 +7620,12 @@
         if (typeof isCharacterDead === 'function' && isCharacterDead()) {
             console.log('%c[PmheeAether Master] 💀 ตรวจพบตัวละครเสียชีวิตอยู่! สั่งชุบชีวิตทันที...', 'color: #ef4444; font-weight: bold;');
             window.__isRecovering = true;
+            window.__lastFarmArrivalMapKey = null;
+            if (window.__channelCheckMode === 'always') {
+                window.__pendingPostSellChannelCheck = true;
+                window.__pendingPostSellAt = Date.now();
+                window.__pendingPostSellReason = 'after-death';
+            }
             window.sendRespawn();
             setTimeout(() => {
                 window.__isRecovering = false;
@@ -7693,6 +7700,12 @@
                     window.executeAutoShopRoutine();
                     return;
                 }
+                if (window.__channelCheckMode === 'always' && !/เมืองหลวง|โซลเฮเวน|ตลาดคาราวาน/.test(cleanTargetMap)) {
+                    window.__pendingPostSellChannelCheck = true;
+                    window.__pendingPostSellAt = Date.now();
+                    window.__pendingPostSellReason = window.__pendingPostSellReason || 'start-bot';
+                    window.__lastFarmArrivalMapKey = cleanTargetMap;
+                }
                 console.log(`%c[PmheeAether Master] 🎯 ตัวละครอยู่ที่แมพ "${targetMap}" เรียบร้อยแล้ว! เปิดระบบ Auto โจมตีฟาร์มทันที!`, 'color: #22c55e; font-weight: bold;');
                 window.activateInGameAuto();
                 return;
@@ -7752,6 +7765,7 @@
         window.__isRecovering = false;
         window.__isWalkingToMap = false;
         window.__isHumanizing = false;
+        window.__lastFarmArrivalMapKey = null;
         window.__unexpectedTownWaiting = false;
         window.__unexpectedTownWaitUntil = 0;
         window.__unexpectedTownTicks = 0;
@@ -11561,14 +11575,23 @@
         const isTargetCity = mapName.includes('เมืองหลวง') || mapName.includes('โซลเฮเวน') || mapName.includes('ตลาดคาราวาน');
         const cleanTargetMapName = mapName.replace(/\s*\(Lv\..*?\)/i, '').trim() || mapName;
 
+        if (!isTargetCity && window.__channelCheckMode === 'always' && !window.__pendingPostSellChannelCheck) {
+            if (inCity || window.__isRecovering || !curMap || !curMap.includes(cleanTargetMapName)) {
+                window.__pendingPostSellChannelCheck = true;
+                window.__pendingPostSellAt = Date.now();
+                window.__pendingPostSellReason = window.__isRecovering ? 'after-death' : (inCity ? 'from-town' : 'arrive-map');
+            }
+        }
+
         // ถ้าตัวละครอยู่ในเมืองหลวง หรือกำลังฟื้นคืนชีพ (recovering) แต่เป้าหมายคือแมพมอนสเตอร์ -> ห้ามสรุปว่าถึงแล้วเด็ดขาด!
         if ((!inCity || isTargetCity) && curMap && cleanTargetMapName && curMap.includes(cleanTargetMapName) && !window.__isRecovering) {
             (async () => {
                 try {
                     if (!inCity && !isTargetCity && window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
-                        await window.runPostSellChannelCheck('after-sell');
+                        await window.runPostSellChannelCheck(window.__pendingPostSellReason || 'after-sell');
                     }
                 } catch (e) {}
+                window.__lastFarmArrivalMapKey = cleanTargetMapName;
                 console.log(`[PmheeAether] ตัวละครอยู่ที่แมพ "${mapName}" อยู่แล้ว เปิดบอททันที!`);
                 window.startBot();
                 window.__isNavigating = false;
@@ -11814,8 +11837,16 @@
                                 window.__pendingPostSellChannelCheck = false;
                                 window.executeAutoShopRoutine();
                             } else {
+                                if (!inCity && !isTargetCity && window.__channelCheckMode === 'always' && !window.__pendingPostSellChannelCheck) {
+                                    window.__pendingPostSellChannelCheck = true;
+                                    window.__pendingPostSellAt = Date.now();
+                                    window.__pendingPostSellReason = window.__pendingPostSellReason || 'arrive-map';
+                                }
                                 if (!inCity && !isTargetCity && window.__pendingPostSellChannelCheck && typeof window.runPostSellChannelCheck === 'function') {
-                                    await window.runPostSellChannelCheck('after-sell');
+                                    await window.runPostSellChannelCheck(window.__pendingPostSellReason || 'after-sell');
+                                }
+                                if (!inCity && !isTargetCity && cleanTarget) {
+                                    window.__lastFarmArrivalMapKey = cleanTarget;
                                 }
                                 if (window.__isBotRunning) {
                                     window.startBot();
@@ -11906,11 +11937,20 @@
         const isDead = deadNow;
         const inCity = typeof isCharacterInCity === 'function' ? isCharacterInCity() : false;
 
+        if (inCity || isDead) {
+            window.__lastFarmArrivalMapKey = null;
+        }
+
         // 1. ตรวจจับการเสียชีวิต (Dead Check)
         if (isDead) {
             console.log('%c[PmheeAether] ⚠️ ตัวละครตาย! เริ่มชุบชีวิตและเตรียมเดินกลับแมพฟาร์ม...', 'color: #ef4444; font-weight: bold;');
             lastCityToFarmAttempt = Date.now() + 3000;   // the respawn below walks back itself (was sent twice)
             window.__isRecovering = true;
+            if (window.__channelCheckMode === 'always') {
+                window.__pendingPostSellChannelCheck = true;
+                window.__pendingPostSellAt = Date.now();
+                window.__pendingPostSellReason = 'after-death';
+            }
             autoActivateFailCount = 0;
 
             // ส่ง Packet ชุบชีวิต
@@ -12037,6 +12077,7 @@
 
             // ห้ามเปิด AUTO เด็ดขาดหากยังอยู่ในแมพทางผ่าน (เช่น อยู่ทุ่งหญ้าตะวันออก แต่เป้าหมายคือหนองพิษ)
             if (!onTargetMap) {
+                window.__lastFarmArrivalMapKey = null;
                 autoActivateFailCount = 0;
                 if (getInGameAutoStatus() === 'on') {
                     window.deactivateInGameAuto();
@@ -12058,6 +12099,21 @@
             }
 
             intermediateStillTicks = 0;
+            if (cleanTarget && !isTargetCity && window.__lastFarmArrivalMapKey !== cleanTarget) {
+                window.__lastFarmArrivalMapKey = cleanTarget;
+                if (window.__channelCheckMode === 'always' && !window.__isCheckingPostSellChannel) {
+                    const lastSwAt = (window.__lastPostSellChannelSwitch && window.__lastPostSellChannelSwitch.at) || 0;
+                    if (Date.now() - lastSwAt > 8000) {
+                        window.__pendingPostSellChannelCheck = true;
+                        window.__pendingPostSellAt = Date.now();
+                        window.__pendingPostSellReason = window.__pendingPostSellReason || 'enter-farm-map';
+                    }
+                }
+            }
+            if (window.__pendingPostSellChannelCheck && !window.__isCheckingPostSellChannel && typeof window.runPostSellChannelCheck === 'function') {
+                window.activateInGameAuto();
+                return;
+            }
             const autoStatus = getInGameAutoStatus();
             if (autoStatus === 'on') {
                 // AUTO กำลังทำงานปกติ รีเซ็ตตัวนับความล้มเหลว
@@ -20270,7 +20326,61 @@
         });
     };
 
-    window.findLeastPopulatedChannel = async function() {
+    // รายการ Channel ที่ปาร์ตี้อื่นของเรา (ใน Manager เดียวกัน) จอง/ใช้งานอยู่บนแมพเดียวกัน เพื่อไม่ให้แต่ละตี้ทับ Channel กัน
+    window.getOtherPartyAvoidChannels = function(mapId = null, mapName = null, extraAvoid = null) {
+        const avoid = new Set();
+        if (Array.isArray(extraAvoid)) {
+            for (const ch of extraAvoid) {
+                const n = Number(ch);
+                if (Number.isFinite(n) && n > 0) avoid.add(n);
+            }
+        }
+        const sync = window.__pmPartySync;
+        if (!sync || (Date.now() - (sync.updatedAt || 0) > 120000)) return avoid;
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const curMapId = mapId || (room && room.state && room.state.mapId) || null;
+        const curMapName = mapName || (room && room.state && room.state.displayName) || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null) || '';
+        const cleanMapName = String(curMapName || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+
+        const byMap = sync.otherPartyChannelsByMap;
+        if (byMap && typeof byMap === 'object') {
+            if (curMapId && Array.isArray(byMap[curMapId])) {
+                for (const ch of byMap[curMapId]) {
+                    const n = Number(ch);
+                    if (Number.isFinite(n) && n > 0) avoid.add(n);
+                }
+            }
+            if (cleanMapName && Array.isArray(byMap[cleanMapName])) {
+                for (const ch of byMap[cleanMapName]) {
+                    const n = Number(ch);
+                    if (Number.isFinite(n) && n > 0) avoid.add(n);
+                }
+            }
+            if (cleanMapName) {
+                for (const [k, arr] of Object.entries(byMap)) {
+                    if (!Array.isArray(arr) || !k) continue;
+                    if (k.includes(cleanMapName) || cleanMapName.includes(k)) {
+                        for (const ch of arr) {
+                            const n = Number(ch);
+                            if (Number.isFinite(n) && n > 0) avoid.add(n);
+                        }
+                    }
+                }
+            }
+        }
+        if (Array.isArray(sync.avoidChannels)) {
+            const syncMapClean = String(sync.partyMapName || sync.forcedMap || '').replace(/\s*\(Lv\..*?\)/i, '').trim();
+            if (!cleanMapName || !syncMapClean || cleanMapName.includes(syncMapClean) || syncMapClean.includes(cleanMapName) || (curMapId && sync.partyMapId && curMapId === sync.partyMapId)) {
+                for (const ch of sync.avoidChannels) {
+                    const n = Number(ch);
+                    if (Number.isFinite(n) && n > 0) avoid.add(n);
+                }
+            }
+        }
+        return avoid;
+    };
+
+    window.findLeastPopulatedChannel = async function(extraAvoid = null) {
         const res = await window.getChannelsList(3500);
         if (!res.success || !res.data || !Array.isArray(res.data.channels)) {
             return null;
@@ -20279,19 +20389,25 @@
         const hardCap = res.data.hardCap || 40;
         const available = list.filter(c => c.players < hardCap);
         if (available.length === 0) return res.data.current || 1;
-        available.sort((a, b) => a.players - b.players);
-        console.log(`%c[PmheeAether Channel] 📊 สแกน Channel: พบ CH ${available[0].channel} คนน้อยสุด (${available[0].players} คน)`, 'color: #22c55e; font-weight: bold;');
-        return available[0].channel;
+        const avoid = window.getOtherPartyAvoidChannels(null, null, extraAvoid);
+        const nonOverlap = available.filter(c => !avoid.has(Number(c.channel)));
+        const pool = nonOverlap.length > 0 ? nonOverlap : available;
+        pool.sort((a, b) => a.players - b.players || a.channel - b.channel);
+        const avoidNote = avoid.size > 0 ? ` (หลบ CH ตี้อื่น: ${[...avoid].join(', ')})` : '';
+        console.log(`%c[PmheeAether Channel] 📊 สแกน Channel: พบ CH ${pool[0].channel} คนน้อยสุด (${pool[0].players} คน)${avoidNote}`, 'color: #22c55e; font-weight: bold;');
+        return pool[0].channel;
     };
 
-    // ตรวจสอบ Channel ที่คนน้อยที่สุดสำหรับปาร์ตี้ 1 ครั้งเมื่อลงแมพฟาร์ม (ตัดสมาชิกปาร์ตี้ตัวเองออกจากการนับคนอื่นใน CH ปัจจุบัน)
-    window.evaluatePartyChannelSwitch = async function(partySize = 1, partyNames = []) {
+    // ตรวจสอบ Channel ที่คนน้อยที่สุดสำหรับปาร์ตี้ 1 ครั้งเมื่อลงแมพฟาร์ม (ตัดสมาชิกปาร์ตี้ตัวเองออก และไม่ทับ CH ปาร์ตี้อื่นของเรา)
+    window.evaluatePartyChannelSwitch = async function(partySize = 1, partyNames = [], extraAvoid = null) {
         const res = await window.getChannelsList(3500);
         if (!res || !res.success || !res.data || !Array.isArray(res.data.channels)) {
             return { success: false, error: 'no-channels' };
         }
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         const currentCh = (room && room.state && typeof room.state.channel === 'number') ? room.state.channel : (res.currentCh || res.data.current || 1);
+        const mapId = (room && room.state && room.state.mapId) || null;
+        const mapName = (room && room.state && room.state.displayName) || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null);
         const hardCap = res.data.hardCap || 40;
         const size = Math.max(1, Number(partySize) || 1);
         const partySet = new Set((Array.isArray(partyNames) ? partyNames : []).map(n => String(n || '').trim().toLowerCase()).filter(Boolean));
@@ -20319,15 +20435,27 @@
         const curTotal = curRow && typeof curRow.players === 'number' ? curRow.players : (strangersInRoom + Math.max(1, partyInRoom));
         const strangersOnCurrentCh = Math.max(strangersInRoom, Math.max(0, curTotal - Math.max(1, partyInRoom)));
 
+        const avoid = window.getOtherPartyAvoidChannels(mapId, mapName, extraAvoid);
         const available = list.filter(c => (c.players + size) <= hardCap || c.players < hardCap);
         if (!available.length) {
-            return { success: true, currentCh, channel: currentCh, strangersOnCurrentCh, bestPlayers: curTotal, shouldSwitch: false };
+            return { success: true, currentCh, channel: currentCh, strangersOnCurrentCh, bestPlayers: curTotal, shouldSwitch: false, avoidChannels: [...avoid] };
         }
-        available.sort((a, b) => a.players - b.players || a.channel - b.channel);
-        const best = available[0];
-        const shouldSwitch = Boolean(best && best.channel !== currentCh && strangersOnCurrentCh > 0 && best.players < strangersOnCurrentCh);
+        const nonOverlap = available.filter(c => !avoid.has(Number(c.channel)));
+        const pool = nonOverlap.length > 0 ? nonOverlap : available;
+        pool.sort((a, b) => a.players - b.players || a.channel - b.channel);
+        const best = pool[0];
+        const currentIsOverlapped = avoid.has(Number(currentCh)) && nonOverlap.length > 0;
+        const shouldSwitch = Boolean(
+            best &&
+            best.channel !== currentCh &&
+            (currentIsOverlapped || (strangersOnCurrentCh > 0 && best.players < strangersOnCurrentCh))
+        );
         if (shouldSwitch) {
-            console.log(`%c[PmheeAether Party CH] 📊 CH ${currentCh} มีคนอื่น ${strangersOnCurrentCh} คน -> ย้ายไป CH ${best.channel} ที่คนน้อยสุด (${best.players} คน)`, 'color: #22c55e; font-weight: bold;');
+            if (currentIsOverlapped) {
+                console.log(`%c[PmheeAether Party CH] 🚫 CH ${currentCh} มีปาร์ตี้อื่นของเราอยู่แล้ว -> ย้ายไป CH ${best.channel} ที่คนน้อยรองลงมา (${best.players} คน)`, 'color: #f59e0b; font-weight: bold;');
+            } else {
+                console.log(`%c[PmheeAether Party CH] 📊 CH ${currentCh} มีคนอื่น ${strangersOnCurrentCh} คน -> ย้ายไป CH ${best.channel} ที่คนน้อยสุด (${best.players} คน)`, 'color: #22c55e; font-weight: bold;');
+            }
         } else {
             console.log(`%c[PmheeAether Party CH] ✅ ปักหลักที่ CH ${currentCh} (คนอื่น ${strangersOnCurrentCh} คน, CH ที่น้อยสุดคือ CH ${best ? best.channel : currentCh}: ${best ? best.players : 0} คน)`, 'color: #38bdf8; font-weight: bold;');
         }
@@ -20338,16 +20466,18 @@
             bestChannel: best ? best.channel : currentCh,
             strangersOnCurrentCh,
             bestPlayers: best ? best.players : 0,
+            currentIsOverlapped,
+            avoidChannels: [...avoid],
             shouldSwitch
         };
     };
 
     // =========================================================================
-    // POST-SELL CHANNEL CHECK & PARTY CHANNEL FOLLOW HELPERS
-    // Modes: 'all' (default) | 'party_only' | 'solo_only' | 'off'
+    // POST-SELL / FARM-ARRIVAL CHANNEL CHECK & PARTY CHANNEL FOLLOW HELPERS
+    // Modes: 'always' | 'all' (default) | 'party_only' | 'solo_only' | 'off'
     // =========================================================================
     (function initChannelCheckMode() {
-        const VALID_MODES = ['all', 'party_only', 'solo_only', 'off'];
+        const VALID_MODES = ['always', 'all', 'party_only', 'solo_only', 'off'];
         let saved = 'all';
         try {
             const raw = localStorage.getItem('pelican_channel_check_mode');
@@ -20357,14 +20487,14 @@
     })();
 
     window.setChannelCheckMode = function(mode) {
-        const VALID_MODES = ['all', 'party_only', 'solo_only', 'off'];
+        const VALID_MODES = ['always', 'all', 'party_only', 'solo_only', 'off'];
         const valid = VALID_MODES.includes(mode) ? mode : 'all';
         window.__channelCheckMode = valid;
         try { localStorage.setItem('pelican_channel_check_mode', valid); } catch (e) {}
         return { success: true, mode: valid };
     };
 
-    window.findBestChannelAfterSell = async function() {
+    window.findBestChannelAfterSell = async function(extraAvoid = null) {
         const res = await window.getChannelsList(3500);
         if (!res || !res.success || !res.data || !Array.isArray(res.data.channels)) {
             return { success: false, error: (res && res.error) || 'no-channels' };
@@ -20377,6 +20507,7 @@
         const mapName = (room && room.state && room.state.displayName)
             || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null);
         const hardCap = res.data.hardCap || 45;
+        const avoid = window.getOtherPartyAvoidChannels(mapId, mapName, extraAvoid);
 
         let inGameParty = null;
         try {
@@ -20408,17 +20539,32 @@
                     if (clean) seenNames.add(clean);
                 }
             }
+            if (sync && sync.ownPartyCountByCh && typeof sync.ownPartyCountByCh === 'object') {
+                const samePartyMap = !mapId || !sync.partyMapId || sync.partyMapId === mapId;
+                if (samePartyMap) {
+                    for (const [chKey, cnt] of Object.entries(sync.ownPartyCountByCh)) {
+                        const chNum = Number(chKey);
+                        const cNum = Number(cnt) || 0;
+                        if (Number.isFinite(chNum) && cNum > 0) {
+                            partyCountByCh[chNum] = Math.max(partyCountByCh[chNum] || 0, cNum);
+                        }
+                    }
+                }
+            }
             partyCountByCh[currentCh] = Math.max(1, partyCountByCh[currentCh] || 0);
             partySize = Math.max(1, seenNames.size);
         } else {
             partyCountByCh[currentCh] = 1;
         }
 
-        // Determine the primary channel where our party currently is (if any)
-        let mainPartyCh = currentCh;
-        let maxPartyOnCh = partyCountByCh[currentCh] || 0;
+        // Determine the primary channel where our party currently is (preferring channels not occupied by other parties)
+        let mainPartyCh = (sync && typeof sync.settledChannel === 'number' && !avoid.has(Number(sync.settledChannel)))
+            ? Number(sync.settledChannel)
+            : currentCh;
+        let maxPartyOnCh = 0;
         for (const [chKey, cnt] of Object.entries(partyCountByCh)) {
             const chNum = Number(chKey);
+            if (avoid.has(chNum)) continue;
             if (cnt > maxPartyOnCh) {
                 maxPartyOnCh = cnt;
                 mainPartyCh = chNum;
@@ -20438,6 +20584,7 @@
                 players: totalPlayers,
                 ownOnCh,
                 effectiveOthers,
+                overlappedByOtherParty: avoid.has(chNum),
                 hasRoom
             };
         });
@@ -20447,6 +20594,7 @@
             players: 0,
             ownOnCh: 1,
             effectiveOthers: 0,
+            overlappedByOtherParty: avoid.has(Number(currentCh)),
             hasRoom: true
         };
         const available = annotated.filter(x => x.hasRoom);
@@ -20462,13 +20610,18 @@
                 currentStrangers: curEntry.effectiveOthers,
                 bestPlayers: curEntry.players,
                 bestStrangers: curEntry.effectiveOthers,
+                currentIsOverlapped: false,
+                avoidChannels: [...avoid],
                 shouldSwitch: false,
                 mapId,
                 mapName
             };
         }
 
-        available.sort((a, b) => {
+        const nonOverlap = available.filter(x => !avoid.has(Number(x.channel)));
+        const pool = nonOverlap.length > 0 ? nonOverlap : available;
+
+        pool.sort((a, b) => {
             if (a.effectiveOthers !== b.effectiveOthers) return a.effectiveOthers - b.effectiveOthers;
             // Tie-breaker: prefer the channel where our party already is, then currentCh, then lowest channel number
             if (a.channel === mainPartyCh && b.channel !== mainPartyCh) return -1;
@@ -20478,12 +20631,14 @@
             return a.channel - b.channel;
         });
 
-        const best = available[0];
+        const best = pool[0];
+        const currentIsOverlapped = avoid.has(Number(currentCh)) && nonOverlap.length > 0;
         const shouldSwitch = Boolean(
             best &&
             best.channel !== currentCh &&
-            (best.effectiveOthers < curEntry.effectiveOthers ||
-             (inParty && best.channel === mainPartyCh && best.effectiveOthers === curEntry.effectiveOthers))
+            (currentIsOverlapped ||
+             best.effectiveOthers < curEntry.effectiveOthers ||
+             (inParty && best.channel === mainPartyCh && !avoid.has(Number(mainPartyCh)) && best.effectiveOthers === curEntry.effectiveOthers))
         );
         return {
             success: true,
@@ -20496,6 +20651,8 @@
             currentStrangers: curEntry.effectiveOthers,
             bestPlayers: best ? best.players : 0,
             bestStrangers: best ? best.effectiveOthers : 0,
+            currentIsOverlapped,
+            avoidChannels: [...avoid],
             shouldSwitch,
             mapId,
             mapName
@@ -20505,6 +20662,7 @@
     window.runPostSellChannelCheck = async function(reason = 'after-sell') {
         window.__pendingPostSellChannelCheck = false;
         window.__pendingPostSellAt = 0;
+        window.__pendingPostSellReason = null;
 
         const mode = window.__channelCheckMode || 'all';
         if (mode === 'off') {
@@ -20529,17 +20687,74 @@
         if (mode === 'solo_only' && inParty) {
             return { skipped: true, reason: 'party-in-solo-only-mode', mode };
         }
+        if (mode !== 'always' && reason !== 'after-sell') {
+            return { skipped: true, reason: 'non-sell-in-post-sell-mode', mode };
+        }
+
+        const reasonLabels = {
+            'after-sell': 'หลังขายของกลับแมพ',
+            'after-death': 'หลังตายกลับแมพฟาร์ม',
+            'from-town': 'กลับจากเมืองถึงแมพฟาร์ม',
+            'start-bot': 'เริ่มฟาร์มบนแมพ',
+            'enter-farm-map': 'เข้าแมพฟาร์ม',
+            'arrive-map': 'เดินทางถึงแมพฟาร์ม'
+        };
+        const reasonText = reasonLabels[reason] || 'กลับถึงแมพฟาร์ม';
 
         window.__isCheckingPostSellChannel = true;
         try {
+            const roomNow = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+            const curMapId = (roomNow && roomNow.state && roomNow.state.mapId) || null;
+            const curChNow = (roomNow && roomNow.state && typeof roomNow.state.channel === 'number') ? roomNow.state.channel : null;
+            const avoidNow = window.getOtherPartyAvoidChannels(curMapId, null);
+
+            // หากสมาชิกคนอื่นในปาร์ตี้เดียวกันเพิ่งสแกนและย้าย CH ของตี้ไปเมื่อไม่เกิน 18 วินาทีที่แล้ว ให้ย้ายตามเข้า CH ของตี้ทันทีโดยไม่แย่งย้ายซ้ำ
+            if (
+                inParty &&
+                sync &&
+                typeof sync.settledChannel === 'number' &&
+                sync.lastPartyChannelSwitchAt &&
+                (Date.now() - sync.lastPartyChannelSwitchAt < 18000) &&
+                (!curMapId || !sync.partyMapId || sync.partyMapId === curMapId) &&
+                !avoidNow.has(Number(sync.settledChannel))
+            ) {
+                const wantPartyCh = Number(sync.settledChannel);
+                let finalCh = curChNow || wantPartyCh;
+                let switched = false;
+                if (curChNow !== wantPartyCh) {
+                    console.log(`%c[PmheeAether Channel] 🤝 ${reasonText}: สมาชิกในตี้เพิ่งเลือก CH ${wantPartyCh} -> ย้ายตามไปรวมตี้ที่ CH ${wantPartyCh} ทันที...`, 'color: #22c55e; font-weight: bold;');
+                    const mv = await window.moveToChannel(wantPartyCh, 45000);
+                    const rAfter = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+                    finalCh = (mv && typeof mv.channel === 'number')
+                        ? mv.channel
+                        : ((rAfter && rAfter.state && typeof rAfter.state.channel === 'number') ? rAfter.state.channel : wantPartyCh);
+                    switched = (finalCh !== curChNow);
+                }
+                return {
+                    success: true,
+                    joinedRecentPartySwitch: true,
+                    channel: finalCh,
+                    switched,
+                    reason,
+                    mode
+                };
+            }
+
             const plan = await window.findBestChannelAfterSell();
             if (!plan || !plan.success) {
                 return { success: false, error: (plan && plan.error) || 'scan-failed' };
             }
             let finalCh = plan.currentCh;
             let switched = false;
+            const avoidNote = Array.isArray(plan.avoidChannels) && plan.avoidChannels.length > 0
+                ? ` [ไม่ทับ CH ตี้อื่น: ${plan.avoidChannels.join(', ')}]`
+                : '';
             if (plan.shouldSwitch && plan.targetCh !== plan.currentCh) {
-                console.log(`%c[PmheeAether Channel] 🔄 หลังขายของกลับแมพ (${plan.mapName || ''}): CH ${plan.currentCh} มีคนอื่น ${plan.currentStrangers} คน -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยสุด (คนอื่น ${plan.bestStrangers} คน)...`, 'color: #22c55e; font-weight: bold;');
+                if (plan.currentIsOverlapped) {
+                    console.log(`%c[PmheeAether Channel] 🚫 ${reasonText} (${plan.mapName || ''}): CH ${plan.currentCh} มีปาร์ตี้อื่นของเราอยู่แล้ว -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยรองลงมา (คนอื่น ${plan.bestStrangers} คน)${avoidNote}...`, 'color: #f59e0b; font-weight: bold;');
+                } else {
+                    console.log(`%c[PmheeAether Channel] 🔄 ${reasonText} (${plan.mapName || ''}): CH ${plan.currentCh} มีคนอื่น ${plan.currentStrangers} คน -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยสุด (คนอื่น ${plan.bestStrangers} คน)${avoidNote}...`, 'color: #22c55e; font-weight: bold;');
+                }
                 const mv = await window.moveToChannel(plan.targetCh, 45000);
                 const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
                 finalCh = (mv && typeof mv.channel === 'number')
@@ -20547,7 +20762,7 @@
                     : ((room && room.state && typeof room.state.channel === 'number') ? room.state.channel : plan.currentCh);
                 switched = (finalCh !== plan.currentCh);
             } else {
-                console.log(`%c[PmheeAether Channel] ✅ หลังขายของกลับแมพ (${plan.mapName || ''}): CH ${plan.currentCh} คนน้อยสุดอยู่แล้ว (คนอื่น ${plan.currentStrangers} คน) -> เริ่มฟาร์มทันที`, 'color: #38bdf8; font-weight: bold;');
+                console.log(`%c[PmheeAether Channel] ✅ ${reasonText} (${plan.mapName || ''}): CH ${plan.currentCh} คนน้อยสุดอยู่แล้ว (คนอื่น ${plan.currentStrangers} คน)${avoidNote} -> เริ่มฟาร์มทันที`, 'color: #38bdf8; font-weight: bold;');
             }
             const record = {
                 channel: finalCh,
@@ -20557,6 +20772,7 @@
                 partySize: plan.partySize,
                 currentStrangers: plan.currentStrangers,
                 bestStrangers: plan.bestStrangers,
+                avoidChannels: plan.avoidChannels || [],
                 mapId: plan.mapId,
                 mapName: plan.mapName,
                 reason,
