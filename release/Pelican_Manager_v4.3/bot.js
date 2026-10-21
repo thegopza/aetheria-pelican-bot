@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.6
+// @version      4.44.7
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.6';
+    const PELICAN_BOT_VERSION = '4.44.7';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -3514,6 +3514,8 @@
         weightCheckEnabled: true,
         weightThreshold: 80, // วาร์ปกลับไปขายเมื่อน้ำหนักเกิน 80% (ปรับได้)
         sellMaterials: true,
+        sellRefineOres: false,
+        sellConsumables: false,
         weaponRarity: 'normal', // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
         armorRarity: 'normal',  // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
         accRarity: 'none',      // 'none' (ไม่ขาย), 'normal' (ขาวเท่านั้น 0 Opt), 'good' (เขียวลงไป), 'rare' (ฟ้าลงไป), 'epic' (ม่วงลงไป)
@@ -5893,7 +5895,7 @@
                             <span style="font-size: 15px;">🏷️</span>
                             <span style="font-weight: bold; color: #c084fc; font-size: 13px;">ระบบตั้งขายอัตโนมัติ (Auto Sell to Market)</span>
                             <span style="background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">⚖️ กลยุทธ์: ราคากลางสมดุล (Market Median)</span>
-                            <span id="p-autosell-quota-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">โควตา: ${window.__myMarketActiveCount ?? 0}/10 รายการ</span>
+                            <span id="p-autosell-quota-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">โควตา: ${window.__myMarketActiveCount ?? 0}/${(typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : 3} รายการ</span>
                         </div>
                         <div style="display: flex; gap: 8px; align-items: center;">
                             <label style="display: flex; align-items: center; gap: 6px; color: #fff; font-size: 11px; cursor: pointer; font-weight: bold; background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 4px; border: 1px solid #334155;">
@@ -9106,7 +9108,7 @@
     window.triggerAutoSellTrash = triggerAutoSellTrash;
     function triggerAutoSellTrash(callback) {
         const sellCfg = window.__sellConfig || {};
-        const canSellAny = sellCfg.sellMaterials || sellCfg.sellRefineOres || 
+        const canSellAny = sellCfg.sellMaterials || sellCfg.sellRefineOres || sellCfg.sellConsumables ||
             (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') ||
             (sellCfg.armorRarity && sellCfg.armorRarity !== 'none') ||
             (sellCfg.accRarity && sellCfg.accRarity !== 'none') ||
@@ -9859,10 +9861,23 @@
                     const b = slot !== null ? bySlot[slot] : null;
                     const raw = b ? (b.raw || b) : null;
                     if (!raw || !types.includes(raw.type)) return;
+                    if (raw.locked || (b && b.locked)) return;
                     const rawId = Number(raw.itemId || raw.id || (b && b.id) || 0);
                     const rawLower = String(raw.name || '').trim().toLowerCase();
                     if (rawId === 90340 || rawId === 90341 || rawLower === 'enchant rune' || rawLower === 'accessory enchant rune') {
                         console.log(`%c[PmheeAether Shop] 🏛️ [หินออฟกิลด์] ห้ามขายเด็ดขาด: "${raw.name}"`, 'color: #a855f7; font-weight: bold;');
+                        return;
+                    }
+                    if (rawId === 90311 || rawId === 90310 || rawLower.includes('butterfly wing') || rawLower.includes('fly wing') || rawLower.includes('rebirth feather') || rawLower.includes('token')) {
+                        console.log(`[PmheeAether Shop] 🔒 [ของใช้จำเป็น] เก็บไว้ใช้งาน: "${raw.name}"`);
+                        return;
+                    }
+                    if (window.__buffPotionConfig && window.__buffPotionConfig[rawId] && window.__buffPotionConfig[rawId].enabled) {
+                        console.log(`[PmheeAether Shop] 🧪 [ยาบัพที่เปิดใช้งาน] เก็บไว้กินอัตโนมัติ: "${raw.name}"`);
+                        return;
+                    }
+                    if (typeof isItemOnMarketSellList === 'function' && isItemOnMarketSellList(raw)) {
+                        console.log(`[PmheeAether Shop] 🏷️ [รายการขายตลาดกลาง] เก็บไว้ลงขายตลาดกลาง: "${raw.name}"`);
                         return;
                     }
                     if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(raw)) {
@@ -9938,6 +9953,9 @@
             }
             if (sellCfg.sellRefineOres) {
                 steps.push((next) => processStackCategory('แร่/ตีบวก', ['Enchantment'], next));
+            }
+            if (sellCfg.sellConsumables) {
+                steps.push((next) => processStackCategory('ใช้ได้', ['Consumable'], next));
             }
             if (sellCfg.weaponRarity && sellCfg.weaponRarity !== 'none') {
                 steps.push((next) => processCategory('อาวุธ', true, sellCfg.weaponRarity, next));
@@ -10436,7 +10454,6 @@
         if (!it) return false;
         if (typeof window.isStashOnlyItem === 'function' && window.isStashOnlyItem(it)) return false;
         if (!window.__autoMarketSellConfig || !window.__autoMarketSellConfig.enabled) return false;
-        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) return false;
         const rules = Array.isArray(window.__autoMarketSellConfig.rules) ? window.__autoMarketSellConfig.rules : [];
         const name = String(it.name || '').trim().toLowerCase();
         const id = Number(it.itemId || it.id);
@@ -10447,6 +10464,7 @@
             return false;
         });
     }
+    window.isItemOnMarketSellList = isItemOnMarketSellList;
 
     function storeEligible(it, cfg, refused, opts = {}, bagList = null) {
         if (!it || it.bound) return false;
@@ -13862,8 +13880,11 @@
     };
 
     window.getEffectiveMarketMaxListings = function() {
-        if (typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter()) return 20;
-        return Number(window.__autoMarketSellConfig?.maxActiveListings) || 10;
+        const hasPrem = (typeof window.hasCharacterPremium === 'function' && window.hasCharacterPremium()) ||
+            (typeof window.isPremiumCharacter === 'function' && window.isPremiumCharacter());
+        if (hasPrem) return 20;
+        const customFree = Number(window.__autoMarketSellConfig?.maxActiveListingsFree);
+        return (customFree > 0) ? customFree : 3;
     };
 
     window.fetchMyMarketActiveCount = async function() {
@@ -13887,7 +13908,7 @@
                     if (typeof unsub === 'function') unsub();
                     const active = msg?.active || [];
                     window.__myMarketActiveCount = active.length;
-                    const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : 10;
+                    const maxQuota = (typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : 3;
                     const badge = document.getElementById('p-autosell-quota-badge');
                     if (badge) badge.innerText = `โควตา: ${active.length}/${maxQuota} รายการ`;
                     const badgeHud = document.getElementById('p-autosell-quota-badge-hud');
@@ -14040,7 +14061,6 @@
 
     window.getAutoSellRuleBagStatusHtml = function(itemName, minQty) {
         if (!itemName) return '<span style="color: #64748b; font-size: 10px;">รอระบุชื่อ</span>';
-        const hasPrem = typeof window.hasCharacterPremium === 'function' ? window.hasCharacterPremium() : true;
         const bagItems = (typeof window.getBagItems === 'function') ? window.getBagItems() : [];
         const norm = itemName.trim().toLowerCase();
         let totalCount = 0;
@@ -14051,9 +14071,6 @@
                 if (!sampleItem) sampleItem = it;
             }
         });
-        if (!hasPrem) {
-            return `<span style="color: #f59e0b; font-size: 10px;" title="ระบบเกมต้องมี Premium จึงจะตั้งขายตลาดกลางได้">🔒 ไม่มี Premium (มี ${totalCount.toLocaleString()} ชิ้น · ตั้งขายไม่ได้)</span>`;
-        }
         const threshold = Number(minQty) || 1;
         const reserveQty = typeof window.getGuildDonationReserveQty === 'function'
             ? window.getGuildDonationReserveQty(sampleItem || itemName)
@@ -14429,8 +14446,10 @@
             console.log(`%c[PmheeAether AutoSell] 🔒 ข้าม "${rule.itemName}" — อยู่ในโหมดเก็บเข้าคลังอย่างเดียว (ห้ามขายตลาดกลาง)`, 'color: #38bdf8; font-weight: bold;');
             return;
         }
-        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) {
-            console.warn('[PmheeAether AutoSell] ⚠️ ตัวละครนี้ไม่มีสถานะ Premium — ไม่สามารถตั้งขายของในตลาดกลางได้ (ระบบเกมอนุญาตให้ซื้อได้อย่างเดียว)');
+        const liveCharForLv = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const charLv = Number(liveCharForLv.level) || 0;
+        if (charLv > 0 && charLv < 10) {
+            console.warn(`[PmheeAether AutoSell] ⚠️ ตัวละครต้องมีเลเวลอย่างน้อย Lv.10 จึงจะตั้งขายในตลาดกลางได้ (ปัจจุบัน Lv.${charLv})`);
             return;
         }
 
@@ -14522,7 +14541,7 @@
                 console.log(`%c[PmheeAether AutoSell] 🚀 ลงขายสำเร็จ! { op: 'list', slot: ${targetSlotNum}, qty: ${qtyToSell}, price: ${totalPrice}, hours: 24 }`, 'color: #10b981; font-weight: bold;');
                 if (typeof playWarningChime === 'function') playWarningChime();
             } else {
-                console.warn(`[PmheeAether AutoSell] ⚠️ ส่งคำสั่งลงขาย ${rule.itemName} x${qtyToSell} แล้ว แต่จำนวนในกระเป๋าไม่ลดลง (เซิร์ฟเวอร์อาจปฏิเสธเนื่องจากไม่มี Premium / เงินมัดจำไม่พอ / โควตาเต็ม)`);
+                console.warn(`[PmheeAether AutoSell] ⚠️ ส่งคำสั่งลงขาย ${rule.itemName} x${qtyToSell} แล้ว แต่จำนวนในกระเป๋าไม่ลดลง (เซิร์ฟเวอร์อาจปฏิเสธเนื่องจากเลเวลต่ำกว่า 10 / เงินมัดจำไม่พอ / โควตาเต็ม)`);
             }
 
             setTimeout(() => {
@@ -14545,13 +14564,11 @@
         if (!manual && !window.__isBotRunning) return;
         if (window.__isAutoSellingNow) return;
 
-        // GUARD: Characters without Premium (ui:token buff) cannot list items on the market in Aetheria Online
-        if (typeof window.hasCharacterPremium === 'function' && !window.hasCharacterPremium()) {
+        const liveCharForLv = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const charLv = Number(liveCharForLv.level) || 0;
+        if (charLv > 0 && charLv < 10) {
             if (manual) {
-                console.warn('[PmheeAether AutoSell] ⚠️ ตัวละครนี้ไม่มีสถานะ Premium — ไม่สามารถตั้งขายของในตลาดกลางได้ (ระบบเกมอนุญาตให้ซื้อได้อย่างเดียว)');
-            } else if (!window.__warnedNoPremiumAutoSell) {
-                window.__warnedNoPremiumAutoSell = true;
-                console.log('%c[PmheeAether AutoSell] ⏸️ ตัวละครไม่มีสถานะ Premium — ข้ามการลงขายตลาดกลางอัตโนมัติ', 'color: #94a3b8;');
+                console.warn(`[PmheeAether AutoSell] ⚠️ ตัวละครต้องมีเลเวลอย่างน้อย Lv.10 จึงจะตั้งขายในตลาดกลางได้ (ปัจจุบัน Lv.${charLv})`);
             }
             return;
         }
@@ -14964,6 +14981,8 @@
         if (sellMat) sellMat.value = !sell.sellMaterials ? 'none' : (sell.materialMode === 'common' ? 'common' : 'all');
         const sellOres = document.getElementById('p-sell-refine-ores');
         if (sellOres) sellOres.value = sell.sellRefineOres ? 'unlisted' : 'keep';
+        const sellCons = document.getElementById('p-sell-consumables');
+        if (sellCons) sellCons.value = sell.sellConsumables ? 'unlisted' : 'keep';
         const sellRefined = document.getElementById('p-sell-keep-refined');
         if (sellRefined) sellRefined.checked = sell.keepRefined !== false;
         const sellSpecial = document.getElementById('p-sell-keep-special');
@@ -15327,7 +15346,7 @@
         };
         const existingHud = document.getElementById('pelican-hud');
         if (existingHud) {
-            if (!existingHud.querySelector('#p-sell-stats-filter-card')) {
+            if (!existingHud.querySelector('#p-sell-stats-filter-card') || !existingHud.querySelector('#p-sell-consumables')) {
                 existingHud.remove();
             } else {
                 return;
@@ -15973,6 +15992,15 @@
                                 <option value="unlisted" ${window.__sellConfig.sellRefineOres ? 'selected' : ''}>💰 ขายที่ไม่อยู่ใน Whitelist</option>
                             </select>
                         </div>
+
+                        <!-- 6. ของใช้ / ขวดยา -->
+                        <div class="p-row" title="ขวดยา / ของใช้ในแท็บใช้ได้ — ยกเว้น Butterfly Wing, Fly Wing, ยาบัพที่เปิดใช้ และรายการใน Whitelist">
+                            <span style="font-size: 10px; color: #e2e8f0; font-weight: 500;">🧪 ของใช้ / ขวดยา:</span>
+                            <select id="p-sell-consumables" class="p-select" style="width: 142px; padding: 2px 4px; font-size: 9.5px; background: #0b1329; border: 1px solid rgba(56, 189, 248, 0.35);">
+                                <option value="keep" ${!window.__sellConfig.sellConsumables ? 'selected' : ''}>🔒 เก็บทั้งหมด</option>
+                                <option value="unlisted" ${window.__sellConfig.sellConsumables ? 'selected' : ''}>💰 ขายที่ไม่อยู่ใน Whitelist</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Safety Locks Card -->
@@ -16111,7 +16139,7 @@
                                     <b>เปิดใช้งาน Auto Sell</b>
                                 </label>
                                 <span id="p-autosell-quota-badge-hud" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: bold;">
-                                    โควตา: ${window.__myMarketActiveCount ?? 0}/10
+                                    โควตา: ${window.__myMarketActiveCount ?? 0}/${(typeof window.getEffectiveMarketMaxListings === 'function') ? window.getEffectiveMarketMaxListings() : 3}
                                 </span>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #d8b4fe; margin-bottom: 4px;">
@@ -16800,6 +16828,13 @@
         if (sellOresEl) {
             sellOresEl.onchange = (e) => {
                 window.__sellConfig.sellRefineOres = (e.target.value === 'unlisted');
+                saveSellConfig();
+            };
+        }
+        const sellConsEl = document.getElementById('p-sell-consumables');
+        if (sellConsEl) {
+            sellConsEl.onchange = (e) => {
+                window.__sellConfig.sellConsumables = (e.target.value === 'unlisted');
                 saveSellConfig();
             };
         }
