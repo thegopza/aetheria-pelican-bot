@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.10
+// @version      4.44.11
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.10';
+    const PELICAN_BOT_VERSION = '4.44.11';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -8050,7 +8050,50 @@
         console.log(`%c[PmheeAether Warp] ⚡ ยิง Packet 'npc_warp' (MapId: "${mapId}") สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
     };
 
-    window.openAliceWarpService = function(callback) {
+    window.getCharacterHpSp = function() {
+        const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : window.__gameRoom;
+        const me = (room && room.state && room.state.players && typeof room.state.players.get === 'function')
+            ? room.state.players.get(room.sessionId)
+            : null;
+        const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
+        const derived = (liveChar && liveChar.derived && typeof liveChar.derived === 'object') ? liveChar.derived : {};
+
+        let domHp = null, domMaxHp = null, domSp = null, domMaxSp = null;
+        try {
+            const hpBar = document.querySelector('.bar-fill.bar-hp')?.closest('.bar');
+            const hpText = hpBar?.querySelector('.bar-num')?.innerText?.trim() || '';
+            const mHp = hpText.match(/(\d+)\s*\/\s*(\d+)/);
+            if (mHp) { domHp = Number(mHp[1]); domMaxHp = Number(mHp[2]); }
+            const spBar = document.querySelector('.bar-fill.bar-sp')?.closest('.bar');
+            const spText = spBar?.querySelector('.bar-num')?.innerText?.trim() || '';
+            const mSp = spText.match(/(\d+)\s*\/\s*(\d+)/);
+            if (mSp) { domSp = Number(mSp[1]); domMaxSp = Number(mSp[2]); }
+        } catch (_) {}
+
+        const maxHp = (me && typeof me.maxHp === 'number' && me.maxHp > 0) ? me.maxHp
+            : (typeof derived.maxHp === 'number' && derived.maxHp > 0) ? derived.maxHp
+            : (typeof liveChar.maxHp === 'number' && liveChar.maxHp > 0) ? liveChar.maxHp
+            : (typeof domMaxHp === 'number' && domMaxHp > 0) ? domMaxHp : 0;
+
+        const hp = (me && typeof me.hp === 'number' && me.hp >= 0) ? me.hp
+            : (typeof domHp === 'number' && domHp >= 0) ? domHp
+            : (typeof liveChar.hp === 'number' && liveChar.hp >= 0) ? liveChar.hp : maxHp;
+
+        const maxSp = (me && typeof me.maxSp === 'number' && me.maxSp > 0) ? me.maxSp
+            : (typeof derived.maxSp === 'number' && derived.maxSp > 0) ? derived.maxSp
+            : (typeof liveChar.maxSp === 'number' && liveChar.maxSp > 0) ? liveChar.maxSp
+            : (typeof domMaxSp === 'number' && domMaxSp > 0) ? domMaxSp : 0;
+
+        const sp = (me && typeof me.sp === 'number' && me.sp >= 0) ? me.sp
+            : (typeof domSp === 'number' && domSp >= 0) ? domSp
+            : (typeof liveChar.sp === 'number' && liveChar.sp >= 0) ? liveChar.sp : maxSp;
+
+        const needsHeal = (maxHp > 0 && hp < maxHp * 0.99) || (maxSp > 0 && sp < maxSp * 0.98) || maxHp === 0;
+        return { hp, maxHp, sp, maxSp, needsHeal };
+    };
+
+    window.openAliceWarpService = function(callback, opts = {}) {
+        const healOnly = !!(opts && opts.healOnly);
         // ล้างหน้าต่างร้านค้าหรือ dialog ค้างเก่าก่อนเริ่มคุยกับ Alice เสมอ
         if (typeof window.closeShopUI === 'function') {
             window.closeShopUI();
@@ -8058,7 +8101,11 @@
         // Alice only stands in the capital: elsewhere use the world map (walking) instead of talking to a guess
         if (typeof isCharacterInCity === 'function' && !isCharacterInCity()) {
             console.log('%c[PmheeAether Warp] 🗺️ ไม่ได้อยู่ในเมืองหลวง (ไม่มี Alice ในแมพนี้) -> เปิดแผนที่โลกเดินไปแทน', 'color: #f59e0b;');
-            openWorldMap(() => { if (callback) callback(); });
+            if (healOnly) {
+                if (callback) callback();
+            } else {
+                openWorldMap(() => { if (callback) callback(); });
+            }
             return;
         }
 
@@ -8067,14 +8114,14 @@
             const dlg = document.querySelector('.npc-dialog');
             if (dlg) {
                 const txt = (dlg.innerText || dlg.textContent || '').trim();
-                if (txt.includes('Alice') || txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)')) {
+                if (txt.includes('Alice') || txt.includes('อลิซ') || txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)') || txt.includes('ขอรักษาหน่อย')) {
                     return true;
                 }
             }
             const candidates = Array.from(document.querySelectorAll('.npc-dialog, [class*="npc-dialog"]')).filter(el => {
                 if (el.closest('#pelican-hud') || el.closest('#pelican-data-modal') || el.closest('#pelican-log')) return false;
                 const txt = (el.innerText || el.textContent || '').trim();
-                return (txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)'));
+                return (txt.includes('ยินดีต้อนรับสู่เมืองหลวง') || txt.includes('ให้ฉันช่วยอะไรดี') || txt.includes('บันทึกจุดเกิดที่นี่') || txt.includes('วาร์ป (เลือกจากแผนที่โลก)') || txt.includes('ขอรักษาหน่อย'));
             });
             return candidates.length > 0;
         }
@@ -8114,18 +8161,33 @@
             return null;
         }
 
-        if (isAliceMapWindowOpen(true)) {
-            console.log('%c[PmheeAether Warp] 🗺️ หน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
+        function getLivePlayerPos() {
+            const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : window.__gameRoom;
+            const me = (room && room.state && room.state.players && typeof room.state.players.get === 'function')
+                ? room.state.players.get(room.sessionId)
+                : null;
+            if (me && typeof me.x === 'number' && typeof me.y === 'number' && (me.x !== 0 || me.y !== 0)) {
+                return { x: me.x, y: me.y };
+            }
+            return window.__currentPos || { x: 0, y: 0 };
+        }
+
+        const initHpSp = (typeof window.getCharacterHpSp === 'function')
+            ? window.getCharacterHpSp()
+            : { hp: 0, maxHp: 0, sp: 0, maxSp: 0, needsHeal: true };
+
+        if (!healOnly && !initHpSp.needsHeal && isAliceMapWindowOpen(true)) {
+            console.log('%c[PmheeAether Warp] 🗺️ เลือด/มานาเต็มแล้ว และหน้าต่าง Alice Warp Service เปิดอยู่แล้ว ทำงานต่อได้ทันที', 'color: #22c55e;');
             if (callback) callback();
             return;
         }
-        // ถ้าแผนที่โลกเปิดค้างในโหมดเดินปกติ (ไม่ใช่โหมดวาร์ปของ Alice) ให้ปิดก่อนเพื่อคุยกับ Alice เปิดโหมดวาร์ป
+        // ถ้าแผนที่โลกเปิดค้างอยู่ (และต้องฮีลก่อน หรือไม่ใช่โหมดวาร์ปของ Alice) ให้ปิดแผนที่ก่อนเพื่อคุยกับ Alice
         const plainMapClose = document.querySelector('.worldmap-window .win-close');
-        if (plainMapClose && !document.querySelector('.worldmap-warp')) {
+        if (plainMapClose && (healOnly || initHpSp.needsHeal || !document.querySelector('.worldmap-warp'))) {
             try { plainMapClose.click(); } catch (e) {}
         }
 
-        console.log('%c[PmheeAether Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (Warp Service) เพื่อเปิดวาร์ปเกต...', 'color: #eab308; font-weight: bold;');
+        console.log(`%c[PmheeAether Warp] 🧙 กำลังเดินทางไปคุยกับ NPC Alice (${healOnly ? 'เพื่อฮีลเลือด/มานา' : 'เพื่อฮีลและเปิดวาร์ปเกต'})...`, 'color: #eab308; font-weight: bold;');
 
         // ฟังก์ชันช่วยค้นหาและคลิกป้ายชื่อ NPC Alice บนจอเกม (เฉพาะตอนที่ dialog ยังไม่เปิด)
         function findAliceElement() {
@@ -8179,30 +8241,34 @@
         const aliceNpc = ((typeof window.getAliceNpc === 'function') ? window.getAliceNpc() : null) || { key: null, x: 0, y: 0 };
         const aliceKey = aliceNpc.key;
 
-        // 1. ตรวจสอบระยะห่าง ถ้าตัวละครอยู่ไกลจาก Alice ให้เดินเข้าหาก่อน
-        const curPos = window.__currentPos || { x: 0, y: 0 };
-        const distToAlice = (curPos.x && aliceNpc.x) ? Math.hypot(curPos.x - aliceNpc.x, curPos.y - aliceNpc.y) : 0;
-        if (distToAlice > 90) {
+        // 1. ตรวจสอบระยะห่าง ถ้าตัวละครอยู่ไกลจาก Alice ให้เดินเข้าหาก่อน (ไม่ส่ง npc_talk ตอนอยู่ไกลเกิน 115px เพราะเซิร์ฟเวอร์จะเพิกเฉย)
+        const startPos = getLivePlayerPos();
+        const distToAlice = (startPos.x && aliceNpc.x) ? Math.hypot(startPos.x - aliceNpc.x, startPos.y - aliceNpc.y) : 0;
+        let lastMoveSentAt = 0;
+        let lastTalkSentAt = 0;
+        if (distToAlice > 110) {
             console.log(`%c[PmheeAether Warp] 🚶 ตัวละครอยู่ห่างจาก Alice Service (${Math.round(distToAlice)}px) -> กำลังเดินไปหาที่ (${aliceNpc.x}, ${aliceNpc.y})...`, 'color: #38bdf8;');
             const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
             if (room && aliceNpc.x && aliceNpc.y) {
                 room.send('move_to', { x: aliceNpc.x, y: aliceNpc.y });
+                lastMoveSentAt = Date.now();
+            }
+        } else {
+            clickAliceOnScreen();
+            if (aliceKey) {
+                window.sendRemoteNpcTalk(aliceKey);
+                lastTalkSentAt = Date.now();
             }
         }
-
-        // 2. ลองคลิกที่ตัว Alice บนจอเกม
-        clickAliceOnScreen();
-
-        // 3. ส่ง Packet npc_talk เพื่อเปิดคุย (เฉพาะเมื่อเจอ Alice จริงในแมพนี้)
-        if (aliceKey) window.sendRemoteNpcTalk(aliceKey);
 
         let attempts = 0;
         let lastPos = { x: 0, y: 0 };
         let stillCount = 0;
         let hasHealed = false;
+        let healRequestedAt = 0;
         let hasRequestedMap = false;
         let lastActionTime = 0;
-        const maxAttempts = 35; // 35 * 600ms = 21 วินาที ให้เวลาเดินข้ามเมืองจากร้านค้ามาหา Alice อย่างสบายๆ
+        const maxAttempts = 45; // 45 * 450ms ≈ 20.25 วินาที ให้เวลาเดินข้ามเมืองจากร้านค้ามาหา Alice อย่างสบายๆ
 
         if (window.__alicePollInterval) {
             clearInterval(window.__alicePollInterval);
@@ -8232,8 +8298,43 @@
                 return;
             }
 
-            // ถ้าหน้าต่างแผนที่วาร์ปเปิดแล้ว ให้ตัดจบและทำงานต่อทันที
-            if (isAliceMapWindowOpen()) {
+            const dialogOpen = isAliceDialogOpen();
+            const now = Date.now();
+            const curAlice = ((typeof window.getAliceNpc === 'function') ? window.getAliceNpc() : null) || aliceNpc;
+            const currentAliceKey = curAlice.key || aliceKey;
+            const curHpSp = (typeof window.getCharacterHpSp === 'function')
+                ? window.getCharacterHpSp()
+                : { hp: 0, maxHp: 0, sp: 0, maxSp: 0, needsHeal: true };
+            const needsHealNow = healOnly || curHpSp.needsHeal;
+
+            // ถ้าเพิ่งส่งคำสั่งฮีลไปแล้ว รอตรวจว่าฮีลสำเร็จหรือหน้าต่างสนทนาถูกเซิร์ฟเวอร์ปิดลงก่อนค่อยเปิดคุยใหม่เพื่อกดวาร์ป
+            if (healRequestedAt > 0 && !hasHealed) {
+                const hpFull = curHpSp.maxHp > 0 && curHpSp.hp >= curHpSp.maxHp * 0.99 && (curHpSp.maxSp === 0 || curHpSp.sp >= curHpSp.maxSp * 0.98);
+                if (!dialogOpen || hpFull || (now - healRequestedAt >= 1100)) {
+                    hasHealed = true;
+                    console.log(`%c[PmheeAether Warp] ✨ ฮีลฟื้นฟูเลือด/มานากับ NPC Alice สำเร็จ! (HP: ${curHpSp.hp}/${curHpSp.maxHp}, SP: ${curHpSp.sp}/${curHpSp.maxSp})`, 'color: #22c55e; font-weight: bold;');
+                    if (healOnly) {
+                        clearInterval(window.__alicePollInterval);
+                        window.__alicePollInterval = null;
+                        if (dialogOpen && typeof window.sendNpcClose === 'function') window.sendNpcClose();
+                        setTimeout(() => { if (callback) callback(); }, 250);
+                        return;
+                    }
+                    if (!dialogOpen) {
+                        if (currentAliceKey) {
+                            window.sendRemoteNpcTalk(currentAliceKey);
+                            lastTalkSentAt = now;
+                            lastActionTime = now;
+                        }
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+
+            // ถ้าหน้าต่างแผนที่วาร์ปเปิดแล้ว (และผ่านการเช็ก/ฮีลเรียบร้อยแล้ว) ให้ตัดจบและทำงานต่อทันที
+            if (!healOnly && (hasHealed || !needsHealNow) && (isAliceMapWindowOpen(true) || (hasRequestedMap && isAliceMapWindowOpen()))) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
                 console.log('%c[PmheeAether Warp] 🗺️ หน้าต่างแผนที่ Alice Warp Service พร้อมใช้งาน!', 'color: #00ffcc; font-weight: bold;');
@@ -8241,68 +8342,60 @@
                 return;
             }
 
-            const dialogOpen = isAliceDialogOpen();
-            const now = Date.now();
-            const currentAliceKey = ((typeof window.getAliceNpcKey === 'function') ? window.getAliceNpcKey() : null) || aliceKey;
-
             // =========================================================
             // กรณีที่ 1: หน้าต่างสนทนา Alice เปิดอยู่บนจอแล้ว
             // =========================================================
             if (dialogOpen) {
-                const liveChar = (typeof window.getLiveCharacterData === 'function' ? window.getLiveCharacterData() : null) || window.__latestCharacterData || {};
-                const hp = Number(liveChar.hp) || 0, maxHp = Number(liveChar.maxHp) || 0;
-                const sp = Number(liveChar.sp) || 0, maxSp = Number(liveChar.maxSp) || 0;
-                const needsHeal = (maxHp > 0 && hp < maxHp * 0.95) || (maxSp > 0 && sp < maxSp * 0.90);
-
+                const optionButtons = Array.from(document.querySelectorAll('.npc-dialog .npc-options button, .npc-options button')).filter(btn => {
+                    return !btn.closest('#pelican-hud') && !btn.closest('#pelican-data-modal') && !btn.closest('#pelican-log');
+                });
                 const healOption = findDialogOption(['ขอรักษาหน่อย']) || findDialogOption(['รักษา']) || findDialogOption(['ฟื้นฟู']);
                 const warpOption = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
 
-                // สเต็ป 1: กดฮีลฟื้นฟูเลือด/มานาก่อนเฉพาะเมื่อเลือด/มานาไม่เต็ม (เพราะการฮีลจะปิด dialog ทันที ต้องเปิดคุยใหม่ก่อนกดวาร์ป)
-                if (!hasHealed && needsHeal) {
-                    if (healOption) {
-                        console.log('%c[PmheeAether Warp] 💖 คลิกตัวเลือกฮีลบนจอ: "' + (healOption.innerText || '').trim() + '"', 'color: #ec4899; font-weight: bold;');
+                // สเต็ป 1: กดฮีลฟื้นฟูเลือด/มานาก่อนเสมอเมื่อเลือด/มานายังไม่เต็ม (การฮีลจะปิด dialog ทันที แล้วลูปจะเปิดคุยใหม่เพื่อกดวาร์ป)
+                if (!hasHealed && needsHealNow) {
+                    const healIdx = (healOption && optionButtons.indexOf(healOption) >= 0) ? optionButtons.indexOf(healOption) : 3;
+                    console.log(`%c[PmheeAether Warp] 💖 ฮีลฟื้นฟูเลือด/มานากับ NPC Alice ก่อนวาร์ป (HP: ${curHpSp.hp}/${curHpSp.maxHp}, SP: ${curHpSp.sp}/${curHpSp.maxSp}, option: ${healIdx})...`, 'color: #ec4899; font-weight: bold;');
+                    const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+                    if (room && typeof room.send === 'function') {
+                        if (healIdx === 3 && typeof window.sendRemoteNpcHeal === 'function') {
+                            window.sendRemoteNpcHeal();
+                        } else {
+                            window.sendRemoteNpcOption(healIdx);
+                        }
+                    } else if (healOption) {
                         triggerClick(healOption);
-                    }
-                    if (typeof window.sendRemoteNpcHeal === 'function') {
+                    } else if (typeof window.sendRemoteNpcHeal === 'function') {
                         window.sendRemoteNpcHeal();
                     } else {
-                        window.sendRemoteNpcOption(3);
+                        window.sendRemoteNpcOption(healIdx);
                     }
-                    hasHealed = true;
+                    healRequestedAt = now;
                     lastActionTime = now;
-
-                    // การกดฮีล (index: 3) เซิร์ฟเวอร์จะส่ง npc_close ปิดหน้าต่างสนทนา -> ต้องส่ง npc_talk เปิดคุยใหม่อีกครั้งแล้วค่อยเลือกวาร์ป (index: 1)
-                    setTimeout(() => {
-                        if (!window.__isBotRunning && !window.__isManualWarping) return;
-                        if (isAliceMapWindowOpen()) return;
-                        if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
-                        setTimeout(() => {
-                            if (!window.__isBotRunning && !window.__isManualWarping) return;
-                            if (isAliceMapWindowOpen()) return;
-                            const curWarpOpt = findDialogOption(['วาร์ป', 'แผนที่โลก']) || findDialogOption(['วาร์ป']) || findDialogOption(['Alice Warp']);
-                            if (curWarpOpt) {
-                                console.log('%c[PmheeAether Warp] 🔘 คลิกตัวเลือกในกล่องสนทนา: "' + (curWarpOpt.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
-                                triggerClick(curWarpOpt);
-                            }
-                            console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
-                            window.sendRemoteNpcOption(1);
-                            hasRequestedMap = true;
-                            lastActionTime = Date.now();
-                        }, 450);
-                    }, 400);
                     return;
                 }
 
                 hasHealed = true;
+                if (healOnly) {
+                    clearInterval(window.__alicePollInterval);
+                    window.__alicePollInterval = null;
+                    if (typeof window.sendNpcClose === 'function') window.sendNpcClose();
+                    setTimeout(() => { if (callback) callback(); }, 250);
+                    return;
+                }
 
-                // สเต็ป 2: เลือกเปิดแผนที่วาร์ป (Option 2 / index: 1) ทันที
+                // สเต็ป 2: เลือกเปิดแผนที่วาร์ป (Option 2 / index: 1) ทันทีเมื่อฮีลเสร็จแล้ว
                 if (!hasRequestedMap || (now - lastActionTime > 1200)) {
-                    if (warpOption) {
-                        console.log('%c[PmheeAether Warp] 🔘 คลิกตัวเลือกในกล่องสนทนา: "' + (warpOption.innerText || '').trim() + '"', 'color: #00ffcc; font-weight: bold;');
+                    const warpIdx = (warpOption && optionButtons.indexOf(warpOption) >= 0) ? optionButtons.indexOf(warpOption) : 1;
+                    const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+                    console.log(`%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: ${warpIdx})...`, 'color: #38bdf8; font-weight: bold;');
+                    if (room && typeof room.send === 'function') {
+                        window.sendRemoteNpcOption(warpIdx);
+                    } else if (warpOption) {
                         triggerClick(warpOption);
+                    } else {
+                        window.sendRemoteNpcOption(warpIdx);
                     }
-                    console.log('%c[PmheeAether Warp] 🗺️ ส่ง Packet เลือก Alice Warp Service (index: 1)...', 'color: #38bdf8; font-weight: bold;');
-                    window.sendRemoteNpcOption(1);
                     hasRequestedMap = true;
                     lastActionTime = now;
                 }
@@ -8312,45 +8405,57 @@
             }
 
             // ถ้าเพิ่งกดฮีลไปแล้วหน้าต่างสนทนาถูกปิดลง ให้เปิดคุยกับ Alice ใหม่ทันทีเพื่อกดวาร์ป
-            if (hasHealed && !hasRequestedMap && (now - lastActionTime > 700)) {
-                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
-                lastActionTime = now;
+            if (hasHealed && !hasRequestedMap && (now - lastTalkSentAt > 650)) {
+                if (currentAliceKey) {
+                    window.sendRemoteNpcTalk(currentAliceKey);
+                    lastTalkSentAt = now;
+                    lastActionTime = now;
+                }
                 return;
             }
 
             // =========================================================
             // กรณีที่ 2: หน้าต่างสนทนายังไม่เปิด (ตัวละครกำลังเดินข้ามเมืองไปหา Alice)
             // =========================================================
-            const curPos = window.__currentPos || { x: 0, y: 0 };
+            const curPos = getLivePlayerPos();
             const isStationary = (curPos.x === lastPos.x && curPos.y === lastPos.y && curPos.x !== 0);
             lastPos = { x: curPos.x, y: curPos.y };
             if (isStationary) stillCount++; else stillCount = 0;
 
-            // ส่งคำสั่งเดิน/คุยกับ Alice ซ้ำทุกๆ 3 วินาที (5 รอบ) เพื่อไม่ให้ตัวละครชะงัก เฉพาะตอนที่ dialog ยังไม่เปิด
-            if (attempts % 5 === 0) {
+            const curDist = (curPos.x && curAlice.x) ? Math.hypot(curPos.x - curAlice.x, curPos.y - curAlice.y) : 0;
+            if (curDist > 115) {
+                if (now - lastMoveSentAt > 1800) {
+                    if (typeof window.closeShopUI === 'function') window.closeShopUI();
+                    const room = (typeof window.getColyseusRoom === 'function') ? window.getColyseusRoom() : null;
+                    if (room && curAlice.x && curAlice.y) {
+                        room.send('move_to', { x: curAlice.x, y: curAlice.y });
+                        lastMoveSentAt = now;
+                    }
+                }
+            } else if (now - lastTalkSentAt > 750) {
                 if (typeof window.closeShopUI === 'function') window.closeShopUI();
                 clickAliceOnScreen();
-                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
+                if (currentAliceKey) {
+                    window.sendRemoteNpcTalk(currentAliceKey);
+                    lastTalkSentAt = now;
+                }
             }
 
-            // เมื่อตัวละครหยุดเดิน (ถึงตัว Alice แล้ว) ส่ง packet คุยทันที
-            if (isStationary && stillCount === 2) {
-                if (typeof window.closeShopUI === 'function') window.closeShopUI();
-                console.log(`%c[PmheeAether Warp] 💬 ตัวละครหยุดเดิน (ถึงตัว Alice) -> ส่ง Packet คุย (${currentAliceKey})...`, 'color: #38bdf8;');
-                if (currentAliceKey) window.sendRemoteNpcTalk(currentAliceKey);
-            }
-
-            // Timeout: ให้เวลาเดินอย่างน้อย 21 วินาที (35 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
+            // Timeout: ให้เวลาเดินอย่างน้อย ~20 วินาที (45 รอบ) และถ้าตัวละครกำลังเดินอยู่ ให้รอต่อไปห้ามตัดจบ
             const isStillMoving = !isStationary && curPos.x !== 0;
             if (attempts >= maxAttempts && !isStillMoving) {
                 clearInterval(window.__alicePollInterval);
                 window.__alicePollInterval = null;
-                console.warn('%c[PmheeAether Warp] ⚠️ หมดเวลารอ Alice Warp Service (เดินหาเกิน 21 วิ) -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าสำรอง...', 'color: #f59e0b; font-weight: bold;');
-                openWorldMap(() => {
+                console.warn('%c[PmheeAether Warp] ⚠️ หมดเวลารอ Alice Warp Service -> สลับไปเปิดแผนที่โลกเพื่อเดินเท้าสำรอง...', 'color: #f59e0b; font-weight: bold;');
+                if (healOnly) {
                     if (callback) callback();
-                });
+                } else {
+                    openWorldMap(() => {
+                        if (callback) callback();
+                    });
+                }
             }
-        }, 600);
+        }, 450);
     };
 
     window.warpToMap = function(targetMapNameOrId) {
@@ -11790,15 +11895,25 @@
             }
         }
 
-        // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อเปิด Alice Warp Service ก่อน
-        // (ยกเว้นเงินต่ำกว่าที่ตั้งไว้ -> เปิดแผนที่โลกแล้วเดินไปเอง)
+        // ถ้าตัวละครอยู่ในเมืองหลวง ให้คุยกับ Alice (n6) เพื่อฮีลเลือด/มานาให้เต็มและเปิด Alice Warp Service ก่อน
+        // (หากตั้งประหยัดค่าวาร์ปและเงินต่ำกว่าเกณฑ์ ให้แวะฮีลฟรีกับ Alice ก่อนถ้าเลือด/มานายังไม่เต็ม แล้วค่อยเปิดแผนที่โลกเดินไปเอง)
         if (saveWarp) {
-            console.log(`%c[PmheeAether Warp] 💸 เงินต่ำกว่า ${Number(window.__travelConfig.minZenyForWarp).toLocaleString()} z -> ไม่ใช้วาร์ป Alice เปิดแผนที่โลกแล้วเดินไป "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
-            openWorldMap(() => clickMapPin(2));
+            const hpSpNow = (typeof window.getCharacterHpSp === 'function') ? window.getCharacterHpSp() : null;
+            if (typeof isCharacterInCity === 'function' && isCharacterInCity() && !isTargetCity && hpSpNow && hpSpNow.needsHeal) {
+                console.log(`%c[PmheeAether Warp] 💖 แวะฮีลฟรีกับ NPC Alice ก่อนเดินเท้าไป "${mapName}" (HP: ${hpSpNow.hp}/${hpSpNow.maxHp}, SP: ${hpSpNow.sp}/${hpSpNow.maxSp})...`, 'color: #ec4899; font-weight: bold;');
+                window.openAliceWarpService(() => {
+                    if (!navLive()) return;
+                    console.log(`%c[PmheeAether Warp] 💸 เงินต่ำกว่า ${Number(window.__travelConfig.minZenyForWarp).toLocaleString()} z -> ฮีลเสร็จแล้ว เปิดแผนที่โลกเดินไป "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
+                    openWorldMap(() => clickMapPin(2));
+                }, { healOnly: true });
+            } else {
+                console.log(`%c[PmheeAether Warp] 💸 เงินต่ำกว่า ${Number(window.__travelConfig.minZenyForWarp).toLocaleString()} z -> ไม่ใช้วาร์ป Alice เปิดแผนที่โลกแล้วเดินไป "${mapName}"`, 'color: #f59e0b; font-weight: bold;');
+                openWorldMap(() => clickMapPin(2));
+            }
         } else if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
-            console.log(`%c[PmheeAether Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
+            console.log(`%c[PmheeAether Warp] 🏛️ ตัวละครอยู่ในเมืองหลวง -> คุยกับ NPC Alice เพื่อฮีลและเปิดวาร์ปเกตด่วนไป "${mapName}" (Warp Service ไม่ใช่ซื้อของ/ลูกธนู)`, 'color: #eab308; font-weight: bold;');
             window.openAliceWarpService(() => {
-                setTimeout(() => { if (navLive()) clickMapPin(3); }, 500);
+                setTimeout(() => { if (navLive()) clickMapPin(3); }, 400);
             });
         } else {
             console.log(`%c[PmheeAether] 🗺️ กำลังเปิดแผนที่โลกเพื่อเดินทางไปยัง "${mapName}"...`, 'color: #38bdf8; font-weight: bold;');
@@ -19418,13 +19533,20 @@
     window.getLiveCharacterData = function(forceScan = false) {
         const now = Date.now();
         if (!forceScan && window.__latestCharacterData && (now - lastCharFiberScanAt < 800)) {
+            const liveMe = window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId) || null;
             if (!window.__latestCharacterData.name) {
-                const liveName = document.querySelector('.hud-name')?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || window.__charName || '';
+                const liveName = document.querySelector('.hud-name')?.innerText?.trim() || liveMe?.name || window.__charName || '';
                 if (liveName) {
                     window.__charName = liveName;
                     window.__latestCharacterData.name = liveName;
                     window.__latestCharacterData.charName = liveName;
                 }
+            }
+            if (liveMe) {
+                if (typeof liveMe.maxHp === 'number' && liveMe.maxHp > 0) window.__latestCharacterData.maxHp = liveMe.maxHp;
+                if (typeof liveMe.hp === 'number' && liveMe.hp >= 0) window.__latestCharacterData.hp = liveMe.hp;
+                if (typeof liveMe.maxSp === 'number' && liveMe.maxSp > 0) window.__latestCharacterData.maxSp = liveMe.maxSp;
+                if (typeof liveMe.sp === 'number' && liveMe.sp >= 0) window.__latestCharacterData.sp = liveMe.sp;
             }
             return window.__latestCharacterData;
         }
@@ -19458,12 +19580,22 @@
         if (fiber) walk(fiber);
         const targetChar = charData || window.__latestCharacterData || null;
         if (targetChar) {
-            const liveName = document.querySelector('.hud-name')?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || targetChar.name || targetChar.charName || window.__charName || '';
+            const liveMe = window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId) || null;
+            const liveName = document.querySelector('.hud-name')?.innerText?.trim() || liveMe?.name || targetChar.name || targetChar.charName || window.__charName || '';
             if (liveName) {
                 window.__charName = liveName;
                 if (!targetChar.name) targetChar.name = liveName;
                 if (!targetChar.charName) targetChar.charName = liveName;
             }
+            const derived = (targetChar.derived && typeof targetChar.derived === 'object') ? targetChar.derived : {};
+            const resolvedMaxHp = (liveMe && typeof liveMe.maxHp === 'number' && liveMe.maxHp > 0) ? liveMe.maxHp : (typeof derived.maxHp === 'number' && derived.maxHp > 0 ? derived.maxHp : targetChar.maxHp);
+            const resolvedHp = (liveMe && typeof liveMe.hp === 'number' && liveMe.hp >= 0) ? liveMe.hp : (typeof targetChar.hp === 'number' ? targetChar.hp : resolvedMaxHp);
+            const resolvedMaxSp = (liveMe && typeof liveMe.maxSp === 'number' && liveMe.maxSp > 0) ? liveMe.maxSp : (typeof derived.maxSp === 'number' && derived.maxSp > 0 ? derived.maxSp : targetChar.maxSp);
+            const resolvedSp = (liveMe && typeof liveMe.sp === 'number' && liveMe.sp >= 0) ? liveMe.sp : (typeof targetChar.sp === 'number' ? targetChar.sp : resolvedMaxSp);
+            if (typeof resolvedMaxHp === 'number') targetChar.maxHp = resolvedMaxHp;
+            if (typeof resolvedHp === 'number') targetChar.hp = resolvedHp;
+            if (typeof resolvedMaxSp === 'number') targetChar.maxSp = resolvedMaxSp;
+            if (typeof resolvedSp === 'number') targetChar.sp = resolvedSp;
         }
         if (charData && typeof window.applyLiveCharacterPacket === 'function') {
             window.applyLiveCharacterPacket(charData, false);
