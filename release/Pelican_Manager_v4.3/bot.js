@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.11
+// @version      4.44.12
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.11';
+    const PELICAN_BOT_VERSION = '4.44.12';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -12732,8 +12732,50 @@
     }
     let registerSubmittedAt = 0;
     let registerTries = 0;
+    function syncManualLoginFormWatcher() {
+        const form = document.querySelector('form.login-form');
+        if (!form || isLoginInProgress) return;
+        const inputs = Array.from(form.querySelectorAll('input'));
+        if (inputs.length !== 2) return;
+        const [uEl, pEl] = inputs;
+        const bindManualInput = (el, field) => {
+            if (!el || el.__pmManualWatchBound) return;
+            el.__pmManualWatchBound = true;
+            const handler = (e) => {
+                if (isLoginInProgress) return;
+                if (e && e.isTrusted === false) return;
+                const val = field === 'username' ? String(el.value || '').trim() : String(el.value || '');
+                if (!val) return;
+                const cfg = window.__authConfig || (window.__authConfig = {});
+                cfg[field] = val;
+                cfg.userEditedAt = Date.now();
+                cfg.generatedUser = false;
+                cfg.register = false;
+                delete cfg.registerError;
+                saveAuth();
+                const hudEl = document.getElementById(field === 'username' ? 'p-auth-user' : 'p-auth-pass');
+                if (hudEl && document.activeElement !== hudEl) hudEl.value = val;
+            };
+            el.addEventListener('input', handler, { passive: true });
+            el.addEventListener('change', handler, { passive: true });
+        };
+        bindManualInput(uEl, 'username');
+        bindManualInput(pEl, 'password');
+    }
     function runAutoRegister() {
         const cfg = window.__authConfig;
+        if (!cfg) return;
+        const domUser = (document.getElementById('p-auth-user')?.value || '').trim();
+        const domPass = document.getElementById('p-auth-pass')?.value || '';
+        if (domUser && !cfg.username) cfg.username = domUser;
+        if (domPass && !cfg.password) cfg.password = domPass;
+        const isCustomUserId = Boolean(cfg.username && !/^pm[a-z0-9]{8}$/.test(cfg.username));
+        if (!cfg.generatedUser && (Number(cfg.userEditedAt) > 0 || Number(cfg.verifiedLoginAt) > 0 || isCustomUserId)) {
+            cfg.register = false;
+            saveAuth();
+            console.log(`%c[PmheeAether Auth] 🛡️ พบไอดีของผู้ใช้ ("${cfg.username}") -> ยกเลิกโหมดสมัครใหม่และใช้ไอดีเดิมเข้าเกม`, 'color: #38bdf8; font-weight: bold;');
+            return;
+        }
         const form = document.querySelector('form.login-form');
         if (!form || isLoginInProgress) return;
         const inputs = Array.from(form.querySelectorAll('input'));
@@ -12865,9 +12907,34 @@
     }
 
     window.executeAutoLogin = function(force = false) {
-        const cfg = window.__authConfig || {};
+        const cfg = window.__authConfig || (window.__authConfig = {});
+        const hudUserEl = document.getElementById('p-auth-user');
+        const hudPassEl = document.getElementById('p-auth-pass');
+        const hudCharEl = document.getElementById('p-auth-char');
+        const domUser = hudUserEl ? hudUserEl.value.trim() : '';
+        const domPass = hudPassEl ? hudPassEl.value : '';
+        const domChar = hudCharEl ? hudCharEl.value.trim() : '';
+        if (domUser && (force || !cfg.username)) cfg.username = domUser;
+        if (domPass && (force || !cfg.password)) cfg.password = domPass;
+        if (domChar && (force || !cfg.charName)) cfg.charName = domChar;
+        if (force && cfg.username && cfg.password) {
+            cfg.userEditedAt = Date.now();
+            cfg.generatedUser = false;
+            cfg.register = false;
+            delete cfg.registerError;
+            saveAuth();
+        }
         if (!force && !cfg.enabled) return;
-        if (cfg.register && cfg.username && cfg.password) { runAutoRegister(); return; }
+        if (cfg.register && cfg.username && cfg.password) {
+            const isCustomUserId = Boolean(cfg.username && !/^pm[a-z0-9]{8}$/.test(cfg.username));
+            if (!cfg.generatedUser && (Number(cfg.userEditedAt) > 0 || Number(cfg.verifiedLoginAt) > 0 || isCustomUserId)) {
+                cfg.register = false;
+                saveAuth();
+            } else {
+                runAutoRegister();
+                return;
+            }
+        }
 
         if (!cfg.username || !cfg.password) {
             if (force) {
@@ -12931,7 +12998,26 @@
 
     // Auto-Login Watcher & Reconnect Monitor (รันทุก 2.5 วินาที)
     setInterval(() => {
-        const cfg = window.__authConfig || {};
+        const cfg = window.__authConfig || (window.__authConfig = {});
+        const domUser = (document.getElementById('p-auth-user')?.value || '').trim();
+        const domPass = document.getElementById('p-auth-pass')?.value || '';
+        if (domUser && !cfg.username) {
+            cfg.username = domUser;
+            cfg.userEditedAt = cfg.userEditedAt || Date.now();
+            cfg.generatedUser = false;
+            cfg.register = false;
+            saveAuth();
+        }
+        if (domPass && !cfg.password) {
+            cfg.password = domPass;
+            cfg.userEditedAt = cfg.userEditedAt || Date.now();
+            cfg.generatedUser = false;
+            cfg.register = false;
+            saveAuth();
+        }
+        if (isLoginScreenVisible()) {
+            syncManualLoginFormWatcher();
+        }
         const botWasRunning = localStorage.getItem('pelican_bot_running') === 'true' ||
                               !!window.__autoLoopEnabled ||
                               !!window.__isBotRunning ||
@@ -12953,6 +13039,12 @@
         const curMap = typeof getCurrentMapName === 'function' ? getCurrentMapName() : '';
         if (curMap && curMap !== 'ไม่ทราบ' && curMap.length > 0 && !isLoginScreenVisible() && !charSelectVisible) {
             staleSessionSince = 0;
+            if (cfg.username && cfg.password && (!cfg.verifiedLoginAt || cfg.register)) {
+                cfg.register = false;
+                cfg.verifiedLoginAt = Date.now();
+                delete cfg.registerError;
+                saveAuth();
+            }
             if (loginFailCount > 0) {
                 console.log('%c[PmheeAether Auth] ✅ เข้าสู่โลกสำเร็จเรียบร้อย! (แมพปัจจุบัน: ' + curMap + ')', 'color: #22c55e; font-weight: bold;');
                 loginFailCount = 0;
@@ -16871,7 +16963,7 @@
 
         const authUserEl = document.getElementById('p-auth-user');
         if (authUserEl) {
-            authUserEl.oninput = (e) => {
+            const onUserEdit = (e) => {
                 window.__authConfig.username = e.target.value.trim();
                 window.__authConfig.userEditedAt = Date.now();
                 window.__authConfig.generatedUser = false;
@@ -16879,11 +16971,13 @@
                 delete window.__authConfig.registerError;
                 saveAuthConfig();
             };
+            authUserEl.oninput = onUserEdit;
+            authUserEl.onchange = onUserEdit;
         }
 
         const authPassEl = document.getElementById('p-auth-pass');
         if (authPassEl) {
-            authPassEl.oninput = (e) => {
+            const onPassEdit = (e) => {
                 window.__authConfig.password = e.target.value;
                 window.__authConfig.userEditedAt = Date.now();
                 window.__authConfig.generatedUser = false;
@@ -16891,6 +16985,8 @@
                 delete window.__authConfig.registerError;
                 saveAuthConfig();
             };
+            authPassEl.oninput = onPassEdit;
+            authPassEl.onchange = onPassEdit;
         }
 
         const authCharEl = document.getElementById('p-auth-char');
@@ -21665,6 +21761,26 @@
         const resolvedCharName = nameEl?.innerText?.trim() || window.__gameRoom?.state?.players?.get?.(window.__gameRoom?.sessionId)?.name || liveChar.name || liveChar.charName || window.__charName || null;
         if (resolvedCharName) window.__charName = resolvedCharName;
 
+        const authCfg = window.__authConfig || {};
+        const domAuthUser = document.getElementById('p-auth-user')?.value?.trim() || '';
+        const domAuthPass = document.getElementById('p-auth-pass')?.value || '';
+        const domAuthChar = document.getElementById('p-auth-char')?.value?.trim() || '';
+        if (domAuthUser && !authCfg.username) {
+            authCfg.username = domAuthUser;
+            authCfg.userEditedAt = authCfg.userEditedAt || Date.now();
+            authCfg.generatedUser = false;
+            authCfg.register = false;
+        }
+        if (domAuthPass && !authCfg.password) {
+            authCfg.password = domAuthPass;
+            authCfg.userEditedAt = authCfg.userEditedAt || Date.now();
+            authCfg.generatedUser = false;
+            authCfg.register = false;
+        }
+        if (domAuthChar && !authCfg.charName) {
+            authCfg.charName = domAuthChar;
+        }
+
         return {
             charName: resolvedCharName,
             charClass: rawClassText || liveChar.className || (cId ? (cId.charAt(0).toUpperCase() + cId.slice(1)) : null),
@@ -21710,6 +21826,18 @@
             hasInventory: !!window.__latestInventory,
             premiumUntil: premUntil,
             hasPremium: hasPremium,
+            authConfig: {
+                enabled: !!authCfg.enabled,
+                username: String(authCfg.username || '').trim(),
+                password: String(authCfg.password || ''),
+                charName: String(authCfg.charName || '').trim(),
+                generatedUser: !!authCfg.generatedUser,
+                register: !!authCfg.register,
+                registerDone: !!authCfg.registerDone,
+                registerError: String(authCfg.registerError || ''),
+                userEditedAt: Number(authCfg.userEditedAt) || 0,
+                verifiedLoginAt: Number(authCfg.verifiedLoginAt) || 0
+            },
             isOnline: true
         };
     };
