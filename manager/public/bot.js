@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.13
+// @version      4.44.14
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.13';
+    const PELICAN_BOT_VERSION = '4.44.14';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -10285,14 +10285,19 @@
         const charData = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : (window.__latestCharacterData || null);
 
         const currentConfig = (charData && charData.auto && charData.auto.config) ? charData.auto.config : {};
-        const newConfig = {
+        const managedPotionSet = new Set([90306, 90307, 90308]);
+        const otherBuffItems = Array.isArray(currentConfig.buffItems)
+            ? currentConfig.buffItems.map(Number).filter(id => Number.isFinite(id) && !managedPotionSet.has(id))
+            : [];
+        const mergedBuffItems = Array.from(new Set([...otherBuffItems, ...enabledIds]));
+        const newConfig = Object.assign({}, currentConfig, {
             skills: currentConfig.skills || [],
             flyWing: currentConfig.flyWing === true,
             hpItems: currentConfig.hpItems || [],
             spItems: currentConfig.spItems || [],
             lootWhen: currentConfig.lootWhen || 'first',
             monsters: currentConfig.monsters || [],
-            buffItems: enabledIds,
+            buffItems: mergedBuffItems,
             buffParty: currentConfig.buffParty !== false,
             hpPercent: typeof currentConfig.hpPercent === 'number' ? currentConfig.hpPercent : 40,
             lootTypes: currentConfig.lootTypes || [],
@@ -10307,7 +10312,7 @@
             healPartyPercent: currentConfig.healPartyPercent || 60,
             lootRarityByType: currentConfig.lootRarityByType || {},
             flyWingIdleSeconds: currentConfig.flyWingIdleSeconds || 1
-        };
+        });
 
         if (room && typeof room.send === 'function') {
             try {
@@ -15181,10 +15186,12 @@
 
     window.reloadBotConfigsFromLocalStorage = function() {
         try {
-            const fm = localStorage.getItem('pelican_farm_map');
+            const fm = localStorage.getItem('pelican_farm_map') || localStorage.getItem('pelican_target_map');
             if (fm) window.__targetFarmMap = fm;
             const al = localStorage.getItem('pelican_auto_loop');
             if (al !== null) window.__autoLoopEnabled = (al === 'true');
+            const utg = localStorage.getItem('pelican_unexpected_town_guard');
+            if (utg !== null) window.__unexpectedTownGuardEnabled = (utg !== 'false');
             const sc = localStorage.getItem('pelican_sell_cfg');
             if (sc) window.__sellConfig = Object.assign({}, window.__sellConfig || {}, JSON.parse(sc));
             const sh = localStorage.getItem('pelican_shop_cfg');
@@ -15208,14 +15215,14 @@
             const pe = localStorage.getItem('pelican_plan_script_enabled');
             if (pe !== null) {
                 window.__planScriptEnabled = (pe === 'true');
-                const pt = document.getElementById('p-plan-script-toggle');
+                const pt = document.getElementById('p-plan-script-enabled') || document.getElementById('p-plan-script-toggle');
                 if (pt) pt.checked = window.__planScriptEnabled;
             }
             const sp = localStorage.getItem('pelican_script_plan');
             if (sp) {
                 window.__currentScriptPlan = JSON.parse(sp);
-                if (typeof window.applyScriptPlan === 'function') {
-                    try { window.applyScriptPlan(window.__currentScriptPlan, window.__planScriptEnabled); } catch (_) {}
+                if (typeof window.__applyScriptPlan === 'function') {
+                    try { window.__applyScriptPlan(window.__currentScriptPlan, window.__planScriptEnabled); } catch (_) {}
                 }
             }
             if (typeof window.syncAllHudInputsFromConfig === 'function') {
@@ -15411,8 +15418,15 @@
             // 6. Target Map & Auto Loop
             if (data.targetMap) {
                 const cleanImportedMap = String(data.targetMap).replace(/\s*\(Lv\..*?\)/i, '').trim();
+                window.__targetFarmMap = cleanImportedMap;
+                safeSetConfigItem('pelican_target_map', cleanImportedMap);
+                safeSetConfigItem('pelican_farm_map', cleanImportedMap);
                 try {
-                    localStorage.removeItem('pelican_plan_manual_map');
+                    if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.isPlanLevelMapProgressionDone === 'function' && window.isPlanLevelMapProgressionDone()) {
+                        if (typeof window.setPlanManualMap === 'function') window.setPlanManualMap(cleanImportedMap);
+                    } else {
+                        localStorage.removeItem('pelican_plan_manual_map');
+                    }
                 } catch (_) {}
                 let nextMap = cleanImportedMap;
                 if (window.__planScriptEnabled && window.__currentScriptPlan && typeof window.planMapForNow === 'function') {
@@ -20235,12 +20249,26 @@
 
         console.log(`%c[PmheeAether Auto] 🎯 [${charName}] ปรับแต่งต่อสู้อัตโนมัติ: ระยะล่า -> ${desiredRadius === 'all' ? 'ทั้งแมพ ("all")' : desiredRadius + ' ช่อง'} | สกิล Auto -> [${targetSkills.join(', ')}]`, 'color: #10b981; font-weight: bold;');
 
-        const enabledBuffPotionIds = (window.__buffPotionConfig)
-            ? Object.keys(window.__buffPotionConfig).filter(id => window.__buffPotionConfig[id]?.enabled).map(Number)
-            : (Array.isArray(currentConfig.buffItems) ? currentConfig.buffItems : []);
+        const existingBuffItems = Array.isArray(currentConfig.buffItems)
+            ? currentConfig.buffItems.map(Number).filter(Number.isFinite)
+            : [];
+        const hasSavedPotionCfg = Boolean(
+            localStorage.getItem('pelican_buff_potion_config') ||
+            localStorage.getItem('pelican_buff_potions_cfg') ||
+            (window.__buffPotionConfig && Object.keys(window.__buffPotionConfig).some(id => window.__buffPotionConfig[id]?.enabled))
+        );
+        let mergedBuffItems = existingBuffItems;
+        if (hasSavedPotionCfg && window.__buffPotionConfig) {
+            const managedPotionSet = new Set([90306, 90307, 90308]);
+            const otherBuffs = existingBuffItems.filter(id => !managedPotionSet.has(id));
+            const enabledPotions = Object.keys(window.__buffPotionConfig)
+                .filter(id => window.__buffPotionConfig[id]?.enabled)
+                .map(Number);
+            mergedBuffItems = Array.from(new Set([...otherBuffs, ...enabledPotions]));
+        }
 
         const isPriestCls = /^(priest|acolyte)$/i.test(String(charData.classId || ''));
-        const newConfig = {
+        const newConfig = Object.assign({}, currentConfig, {
             skills: targetSkills,
             monsters: currentConfig.monsters || [],
             hpPercent: typeof currentConfig.hpPercent === 'number' ? currentConfig.hpPercent : 40,
@@ -20251,8 +20279,8 @@
             buffParty: currentConfig.buffParty !== false,
             healPartyPercent: isPriestCls ? Math.max(Number(currentConfig.healPartyPercent) || 80, 80) : (typeof currentConfig.healPartyPercent === 'number' ? currentConfig.healPartyPercent : 60),
             flyWing: currentConfig.flyWing === true,
-            buffItems: enabledBuffPotionIds
-        };
+            buffItems: mergedBuffItems
+        });
 
         try {
             room.send('auto_set', { config: newConfig });
