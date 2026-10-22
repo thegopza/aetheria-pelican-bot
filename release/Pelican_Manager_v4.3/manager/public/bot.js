@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.12
+// @version      4.44.13
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.12';
+    const PELICAN_BOT_VERSION = '4.44.13';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -9260,52 +9260,16 @@
 
         console.log('%c[PmheeAether Shop] 💰 เริ่มต้นระบบคัดกรองขายไอเทม (Auto-Sell & Whitelist)...', 'color: #f59e0b; font-weight: bold;');
 
-        const rawWhitelist = (sellCfg.whitelist || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-
         function normalizeItemBaseName(name) {
-            if (!name) return '';
-            return name
-                .replace(/^\+\s*\d+\s*/, '')                          // ตัดค่าตีบวก (+7, +10)
-                .replace(/\s*\[\s*\d+\s*\]\s*$/, '')                  // ตัดจำนวนรูการ์ด ([1], [2], [3], [4])
-                .replace(/\s*\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '') // ตัดป้ายระดับความหายาก
-                .replace(/มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt).*/i, '')
-                .replace(/\b(?:option|options|ออฟชั่น|ออปชั่น)\b.*/i, '')
-                .replace(/มี\s*\d+.*/, '')
-                .replace(/\bx\s*\d+\b.*/i, '')
-                .replace(/\b\d+[\s,]*z\b.*/i, '')
-                .trim();
+            return typeof window.normalizeWhitelistItemName === 'function'
+                ? window.normalizeWhitelistItemName(name)
+                : String(name || '').trim();
         }
 
         function isWhitelisted(itemName) {
-            if (!itemName) return false;
-            const baseName = normalizeItemBaseName(itemName).toLowerCase();
-            const fullName = itemName.toLowerCase();
-
-            return rawWhitelist.some(w => {
-                const target = w.trim().toLowerCase();
-                if (!target) return false;
-
-                // 1. ตรงกับชื่อหลัก หรือชื่อเต็มแบบเป๊ะๆ (เช่น 'bow' === 'bow', 'hunter bow' === 'hunter bow')
-                if (baseName === target || fullName === target) return true;
-
-                // กรณีพิเศษ: ถ้าพิมพ์ 'bow' ใน Whitelist จะหมายถึงธนูธรรมดา 'Bow' เท่านั้น ไม่ครอบคลุม 'Hunter Bow' หรือ 'Crossbow'
-                if (target === 'bow') {
-                    return baseName === 'bow';
-                }
-
-                // 2. คำใน Whitelist เป็นวลีระบุเฉพาะที่ตรงกับชื่อไอเทม (เช่น 'hunter bow' ตรงกับ 'Hunter Bow [1]')
-                // สำคัญ: ห้ามใช้ target.includes(baseName) เด็ดขาด เพราะจะทำให้ 'Hunter Bow' ไปครอบคลุมไอเทมสั้นอย่าง 'Bow'
-                if (baseName.includes(target) || fullName.includes(target)) {
-                    return true;
-                }
-
-                // 3. ป้องกันการพิมพ์ผิดยอดฮิต เช่น 'angrelic protection' -> 'angelic protection'
-                if ((target.includes('angrelic') || target.includes('angelic')) && (baseName.includes('angelic') || baseName.includes('angrelic'))) {
-                    return true;
-                }
-
-                return false;
-            });
+            return typeof window.isSellWhitelisted === 'function'
+                ? window.isSellWhitelisted(itemName, sellCfg.whitelist || '')
+                : false;
         }
 
         function parseOptionCount(text) {
@@ -10469,17 +10433,52 @@
         if (it.type === 'Enchantment') return 'refine';
         return null;   // usables, cards, materials...: not touched
     }
-    // The sell trip's Whitelist rule (same matching as isWhitelisted in triggerAutoSellTrash)
-    window.isSellWhitelisted = function (itemName) {
+    // The sell trip's Whitelist rule (exact base-name matching so "Elunium" never matches "Rough Elunium" or "Enriched Elunium")
+    window.normalizeWhitelistItemName = function (name) {
+        if (!name) return '';
+        return String(name)
+            .replace(/^\+\s*\d+\s*/, '')                                           // ตัดค่าตีบวก (+7, +10)
+            .replace(/\s*\[\s*(?:ธรรมดา|ดี|หายาก|มหากาพย์|ตำนาน)\s*\]/gi, '')       // ตัดป้ายระดับความหายาก
+            .replace(/\[\s*มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt)\s*\]/gi, '')
+            .replace(/มี\s*(?:option|options|ออฟชั่น|ออปชั่น|ออฟ|opt).*/i, '')
+            .replace(/\b(?:option|options|ออฟชั่น|ออปชั่น)\b.*/i, '')
+            .replace(/มี\s*\d+.*/, '')
+            .replace(/\bx\s*\d+\b.*/i, '')
+            .replace(/\b\d+[\s,]*z\b.*/i, '')
+            .replace(/\s*\[\s*\d+\s*\]\s*/g, ' ')                                  // ตัดจำนวนรูการ์ด ([1], [2], [3], [4])
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+    function canonicalizeWhitelistAlias(str) {
+        if (!str) return '';
+        const s = String(str).toLowerCase().replace(/\s+/g, ' ').trim()
+            .replace(/\bangrelic\b/g, 'angelic');
+        if (s === 'crossbow') return 'cross bow';
+        if (s === 'gakkung') return 'gakkung bow';
+        return s;
+    }
+    window.isSellWhitelisted = function (itemName, customWhitelistStr) {
         if (!itemName) return false;
-        const list = String((window.__sellConfig || {}).whitelist || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-        const base = String(itemName).replace(/^\+\s*\d+\s*/, '').replace(/\s*\[\s*\d+\s*\]\s*$/, '').trim().toLowerCase();
-        const full = String(itemName).toLowerCase();
+        const wlSource = customWhitelistStr !== undefined
+            ? String(customWhitelistStr || '')
+            : String((window.__sellConfig || {}).whitelist || '');
+        const list = wlSource.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (!list.length) return false;
+        const base = window.normalizeWhitelistItemName(itemName).toLowerCase();
+        const full = String(itemName).replace(/\s+/g, ' ').trim().toLowerCase();
+        const canonBase = canonicalizeWhitelistAlias(base);
         return list.some(t => {
-            if (base === t || full === t) return true;
-            if (t === 'bow') return base === 'bow';
-            if (base.includes(t) || full.includes(t)) return true;
-            return (t.includes('angrelic') || t.includes('angelic')) && (base.includes('angelic') || base.includes('angrelic'));
+            const rawTarget = t.replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!rawTarget) return false;
+            if (base === rawTarget || full === rawTarget) return true;
+            const targetHasExplicitRefineOrSlots = /^\+\s*\d+/.test(rawTarget) || /\[\s*\d+\s*\]/.test(rawTarget);
+            if (targetHasExplicitRefineOrSlots) {
+                return full === rawTarget || full.startsWith(rawTarget + ' ');
+            }
+            const targetBase = window.normalizeWhitelistItemName(rawTarget).toLowerCase();
+            if (!targetBase) return false;
+            if (base === targetBase) return true;
+            return canonBase === canonicalizeWhitelistAlias(targetBase);
         });
     };
     // ---------- 🔒 Stash-Only & Consolidation Trade Items (e.g. Enchant Rune) ----------
@@ -17701,7 +17700,9 @@
             .filter(Boolean);
 
         const lowerBase = baseName.toLowerCase();
-        const isInWL = currentList.some(item => item.toLowerCase() === lowerBase);
+        const isInWL = (typeof window.isSellWhitelisted === 'function')
+            ? window.isSellWhitelisted(baseName, sellCfg.whitelist || '')
+            : currentList.some(item => item.toLowerCase() === lowerBase);
 
         let btn = actionsEl.querySelector('.pelican-wl-toggle-btn');
         if (!btn) {
@@ -17746,10 +17747,13 @@
                 .map(s => s.trim())
                 .filter(Boolean);
 
-            const alreadyIn = freshList.some(it => it.toLowerCase() === targetLower);
+            const matchesEntry = (it) => (typeof window.isSellWhitelisted === 'function')
+                ? window.isSellWhitelisted(targetName, it)
+                : (it.toLowerCase() === targetLower);
+            const alreadyIn = freshList.some(matchesEntry);
 
             if (alreadyIn) {
-                freshList = freshList.filter(it => it.toLowerCase() !== targetLower);
+                freshList = freshList.filter(it => !matchesEntry(it));
                 window.__sellConfig.whitelist = freshList.join(', ');
                 if (typeof saveSellConfig === 'function') saveSellConfig();
 
