@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aetheria PmheeAether Control Hub
 // @namespace    https://www.aetheria-online.in.th/
-// @version      4.44.14
+// @version      4.44.15
 // @description  Full Packet Hex Dump, Minimap Direct Map Opener, Auto Shop, Auto-Sort Bag, Human Check & Humanize 24/7
 // @match        https://www.aetheria-online.in.th/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
     'use strict';
 
     // Single source of truth for the bot version (bump on every bot.js change, keep @version above in sync)
-    const PELICAN_BOT_VERSION = '4.44.14';
+    const PELICAN_BOT_VERSION = '4.44.15';
     window.__pelicanBotVersion = PELICAN_BOT_VERSION;
 
     // Browser mode (manager/browser_mode.js): many game windows share ONE browser's localStorage. The Manager
@@ -6130,7 +6130,7 @@
 
     function isInvalidMapLabel(t) {
         if (!t || t.length <= 1) return true;
-        if (t.includes(',') || /^CH\b/i.test(t) || /\bundefined\b|\bnull\b|\bNaN\b/i.test(t)) return true;
+        if (t.includes(',') || /^CH\b/i.test(t) || /^PK$/i.test(t) || /\bundefined\b|\bnull\b|\bNaN\b/i.test(t)) return true;
         if (/^\d+%?$/.test(t) || /^[•|\-+\s\d%:,.]+$/.test(t)) return true;
         return false;
     }
@@ -12238,6 +12238,15 @@
             }
 
             intermediateStillTicks = 0;
+            if (!isTargetCity && !window.__isCheckingPostSellChannel && typeof window.isCurrentChannelPk === 'function' && window.isCurrentChannelPk()) {
+                const nowPk = Date.now();
+                if (!window.__lastPkEscapeAttemptAt || nowPk - window.__lastPkEscapeAttemptAt > 10000) {
+                    window.__lastPkEscapeAttemptAt = nowPk;
+                    window.__pendingPostSellChannelCheck = true;
+                    window.__pendingPostSellAt = nowPk;
+                    window.__pendingPostSellReason = 'escape-pk';
+                }
+            }
             if (cleanTarget && !isTargetCity && window.__lastFarmArrivalMapKey !== cleanTarget) {
                 window.__lastFarmArrivalMapKey = cleanTarget;
                 if (window.__channelCheckMode === 'always' && !window.__isCheckingPostSellChannel) {
@@ -20575,21 +20584,94 @@
         return window.__currentChannel || 1;
     };
 
-    window.getChannelsList = function(timeoutMs = 4000) {
+    window.isPkChannelEntry = function(c) {
+        if (!c || typeof c !== 'object') return true;
+        if (c.pk === true || Boolean(c.pk) || Boolean(c.isPk) || Boolean(c.pvp)) return true;
+        if (typeof c.channel === 'string' && /pk|pvp/i.test(c.channel)) return true;
+        const label = String(c.type || c.mode || c.ruleset || c.name || c.label || '').trim();
+        if (label && /\b(pk|pvp)\b/i.test(label)) return true;
+        const chNum = Number(c.channel);
+        if (!Number.isFinite(chNum) || chNum <= 0) return true;
+        return false;
+    };
+
+    window.isKnownPkChannel = function(chNum, mapId = null) {
+        const n = Number(chNum);
+        if (!Number.isFinite(n) || n <= 0) return false;
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+        const curMapId = mapId || (room && room.state && room.state.mapId) || null;
+        if (curMapId && window.__knownPkChannelsByMap && window.__knownPkChannelsByMap[curMapId] instanceof Set) {
+            if (window.__knownPkChannelsByMap[curMapId].has(n)) return true;
+        }
+        if (window.__lastKnownPkChannels instanceof Set && window.__lastKnownPkChannels.has(n)) {
+            if (!curMapId || !window.__lastKnownPkMapId || window.__lastKnownPkMapId === curMapId) return true;
+        }
+        return false;
+    };
+
+    window.isCurrentChannelPk = function() {
+        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
+        if (room && room.state) {
+            if (room.state.pk === true || Boolean(room.state.pk)) return true;
+            if (typeof room.state.ruleset === 'string' && /\b(pk|pvp)\b/i.test(room.state.ruleset)) return true;
+            if (typeof room.state.channel === 'number' && window.isKnownPkChannel(room.state.channel, room.state.mapId)) return true;
+        }
+        try {
+            if (typeof document !== 'undefined') {
+                if (document.querySelector('.pk-banner')) return true;
+                const chBtn = document.querySelector('.minimap-ch');
+                if (chBtn && /\bPK\b/i.test(chBtn.textContent || '')) return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    window.getChannelsList = function(timeoutMs = 4000, options = {}) {
         return new Promise((resolve) => {
             const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : (window.__gameRoom || (typeof window.getColyseusRoom === 'function' ? window.getColyseusRoom() : null));
             if (!room) return resolve({ success: false, error: 'No room connection' });
+            const includePk = Boolean(options && options.includePk === true);
             
             let resolved = false;
             let unsub = null;
             try {
-                unsub = room.onMessage('channels', (data) => {
+                unsub = room.onMessage('channels', (rawData) => {
                     if (resolved) return;
                     resolved = true;
                     if (typeof unsub === 'function') unsub();
+                    let data = rawData;
+                    if (rawData && typeof rawData === 'object' && Array.isArray(rawData.channels)) {
+                        const mapId = (room && room.state && room.state.mapId) || null;
+                        const pkSet = new Set();
+                        const pkChannels = [];
+                        const normalChannels = [];
+                        for (const entry of rawData.channels) {
+                            if (window.isPkChannelEntry(entry)) {
+                                pkChannels.push(entry);
+                                const n = Number(entry && entry.channel);
+                                if (Number.isFinite(n) && n > 0) pkSet.add(n);
+                            } else {
+                                normalChannels.push(entry);
+                            }
+                        }
+                        window.__lastKnownPkChannels = pkSet;
+                        window.__lastKnownPkMapId = mapId;
+                        if (mapId) {
+                            if (!window.__knownPkChannelsByMap || typeof window.__knownPkChannelsByMap !== 'object') {
+                                window.__knownPkChannelsByMap = {};
+                            }
+                            window.__knownPkChannelsByMap[mapId] = pkSet;
+                        }
+                        data = Object.assign({}, rawData, {
+                            channels: includePk ? rawData.channels.slice() : normalChannels,
+                            allChannels: rawData.channels.slice(),
+                            pkChannels
+                        });
+                    }
                     resolve({
                         success: true,
                         currentCh: room.state ? room.state.channel : (data ? data.current : 1),
+                        currentIsPk: window.isCurrentChannelPk(),
                         data: data
                     });
                 });
@@ -20666,16 +20748,16 @@
         if (!res.success || !res.data || !Array.isArray(res.data.channels)) {
             return null;
         }
-        const list = res.data.channels;
+        const list = res.data.channels.filter(c => !window.isPkChannelEntry(c));
         const hardCap = res.data.hardCap || 40;
         const available = list.filter(c => c.players < hardCap);
-        if (available.length === 0) return res.data.current || 1;
+        if (available.length === 0) return (list[0] && list[0].channel) || 1;
         const avoid = window.getOtherPartyAvoidChannels(null, null, extraAvoid);
         const nonOverlap = available.filter(c => !avoid.has(Number(c.channel)));
         const pool = nonOverlap.length > 0 ? nonOverlap : available;
         pool.sort((a, b) => a.players - b.players || a.channel - b.channel);
         const avoidNote = avoid.size > 0 ? ` (หลบ CH ตี้อื่น: ${[...avoid].join(', ')})` : '';
-        console.log(`%c[PmheeAether Channel] 📊 สแกน Channel: พบ CH ${pool[0].channel} คนน้อยสุด (${pool[0].players} คน)${avoidNote}`, 'color: #22c55e; font-weight: bold;');
+        console.log(`%c[PmheeAether Channel] 📊 สแกน Channel (ข้ามแนล PK): พบ CH ${pool[0].channel} คนน้อยสุด (${pool[0].players} คน)${avoidNote}`, 'color: #22c55e; font-weight: bold;');
         return pool[0].channel;
     };
 
@@ -20687,6 +20769,7 @@
         }
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         const currentCh = (room && room.state && typeof room.state.channel === 'number') ? room.state.channel : (res.currentCh || res.data.current || 1);
+        const currentIsPk = window.isCurrentChannelPk() || Boolean(res.currentIsPk);
         const mapId = (room && room.state && room.state.mapId) || null;
         const mapName = (room && room.state && room.state.displayName) || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null);
         const hardCap = res.data.hardCap || 40;
@@ -20711,7 +20794,7 @@
             }
         } catch (e) {}
 
-        const list = res.data.channels;
+        const list = res.data.channels.filter(c => !window.isPkChannelEntry(c));
         const curRow = list.find(c => c.channel === currentCh);
         const curTotal = curRow && typeof curRow.players === 'number' ? curRow.players : (strangersInRoom + Math.max(1, partyInRoom));
         const strangersOnCurrentCh = Math.max(strangersInRoom, Math.max(0, curTotal - Math.max(1, partyInRoom)));
@@ -20719,7 +20802,7 @@
         const avoid = window.getOtherPartyAvoidChannels(mapId, mapName, extraAvoid);
         const available = list.filter(c => (c.players + size) <= hardCap || c.players < hardCap);
         if (!available.length) {
-            return { success: true, currentCh, channel: currentCh, strangersOnCurrentCh, bestPlayers: curTotal, shouldSwitch: false, avoidChannels: [...avoid] };
+            return { success: true, currentCh, currentIsPk, channel: currentCh, strangersOnCurrentCh, bestPlayers: curTotal, shouldSwitch: false, avoidChannels: [...avoid] };
         }
         const nonOverlap = available.filter(c => !avoid.has(Number(c.channel)));
         const pool = nonOverlap.length > 0 ? nonOverlap : available;
@@ -20728,11 +20811,14 @@
         const currentIsOverlapped = avoid.has(Number(currentCh)) && nonOverlap.length > 0;
         const shouldSwitch = Boolean(
             best &&
-            best.channel !== currentCh &&
-            (currentIsOverlapped || (strangersOnCurrentCh > 0 && best.players < strangersOnCurrentCh))
+            (currentIsPk ||
+                (best.channel !== currentCh &&
+                 (currentIsOverlapped || (strangersOnCurrentCh > 0 && best.players < strangersOnCurrentCh))))
         );
         if (shouldSwitch) {
-            if (currentIsOverlapped) {
+            if (currentIsPk) {
+                console.log(`%c[PmheeAether Party CH] 🛡️ ตัวละครอยู่ในแนล PK -> ย้ายออกไปยัง CH ${best.channel} ที่ปลอดภัยและคนน้อยสุด (${best.players} คน)`, 'color: #ef4444; font-weight: bold;');
+            } else if (currentIsOverlapped) {
                 console.log(`%c[PmheeAether Party CH] 🚫 CH ${currentCh} มีปาร์ตี้อื่นของเราอยู่แล้ว -> ย้ายไป CH ${best.channel} ที่คนน้อยรองลงมา (${best.players} คน)`, 'color: #f59e0b; font-weight: bold;');
             } else {
                 console.log(`%c[PmheeAether Party CH] 📊 CH ${currentCh} มีคนอื่น ${strangersOnCurrentCh} คน -> ย้ายไป CH ${best.channel} ที่คนน้อยสุด (${best.players} คน)`, 'color: #22c55e; font-weight: bold;');
@@ -20743,6 +20829,7 @@
         return {
             success: true,
             currentCh,
+            currentIsPk,
             channel: shouldSwitch ? best.channel : currentCh,
             bestChannel: best ? best.channel : currentCh,
             strangersOnCurrentCh,
@@ -20784,6 +20871,7 @@
         const currentCh = (room && room.state && typeof room.state.channel === 'number')
             ? room.state.channel
             : (res.currentCh || res.data.current || 1);
+        const currentIsPk = window.isCurrentChannelPk() || Boolean(res.currentIsPk);
         const mapId = (room && room.state && room.state.mapId) || null;
         const mapName = (room && room.state && room.state.displayName)
             || (typeof window.getCurrentMapName === 'function' ? window.getCurrentMapName() : null);
@@ -20799,7 +20887,7 @@
         const sync = window.__pmPartySync || null;
         const inParty = Boolean((inGameParty && Array.isArray(inGameParty.members) && inGameParty.members.length > 1) || (sync && sync.partyId));
 
-        // Count how many of our own party members are currently on each channel of this map
+        // Count how many of our own party members are currently on each normal (non-PK) channel of this map
         const partyCountByCh = {};
         let partySize = 1;
         if (inParty) {
@@ -20809,7 +20897,7 @@
                     if (!m || m.online === false) continue;
                     const nm = String(m.name || '').trim().toLowerCase();
                     if (nm) seenNames.add(nm);
-                    if ((!mapId || !m.mapId || m.mapId === mapId) && typeof m.channel === 'number') {
+                    if ((!mapId || !m.mapId || m.mapId === mapId) && typeof m.channel === 'number' && !window.isKnownPkChannel(m.channel, mapId)) {
                         partyCountByCh[m.channel] = (partyCountByCh[m.channel] || 0) + 1;
                     }
                 }
@@ -20826,39 +20914,41 @@
                     for (const [chKey, cnt] of Object.entries(sync.ownPartyCountByCh)) {
                         const chNum = Number(chKey);
                         const cNum = Number(cnt) || 0;
-                        if (Number.isFinite(chNum) && cNum > 0) {
+                        if (Number.isFinite(chNum) && cNum > 0 && !window.isKnownPkChannel(chNum, mapId)) {
                             partyCountByCh[chNum] = Math.max(partyCountByCh[chNum] || 0, cNum);
                         }
                     }
                 }
             }
-            partyCountByCh[currentCh] = Math.max(1, partyCountByCh[currentCh] || 0);
+            if (!currentIsPk && !window.isKnownPkChannel(currentCh, mapId)) {
+                partyCountByCh[currentCh] = Math.max(1, partyCountByCh[currentCh] || 0);
+            }
             partySize = Math.max(1, seenNames.size);
-        } else {
+        } else if (!currentIsPk && !window.isKnownPkChannel(currentCh, mapId)) {
             partyCountByCh[currentCh] = 1;
         }
 
-        // Determine the primary channel where our party currently is (preferring channels not occupied by other parties)
-        let mainPartyCh = (sync && typeof sync.settledChannel === 'number' && !avoid.has(Number(sync.settledChannel)))
+        // Determine the primary channel where our party currently is (preferring channels not occupied by other parties and never PK)
+        let mainPartyCh = (sync && typeof sync.settledChannel === 'number' && !avoid.has(Number(sync.settledChannel)) && !window.isKnownPkChannel(sync.settledChannel, mapId))
             ? Number(sync.settledChannel)
-            : currentCh;
+            : (!currentIsPk ? currentCh : null);
         let maxPartyOnCh = 0;
         for (const [chKey, cnt] of Object.entries(partyCountByCh)) {
             const chNum = Number(chKey);
-            if (avoid.has(chNum)) continue;
+            if (avoid.has(chNum) || window.isKnownPkChannel(chNum, mapId)) continue;
             if (cnt > maxPartyOnCh) {
                 maxPartyOnCh = cnt;
                 mainPartyCh = chNum;
             }
         }
 
-        const list = res.data.channels;
+        const list = res.data.channels.filter(c => !window.isPkChannelEntry(c));
         const annotated = list.map(c => {
             const chNum = Number(c.channel);
             const totalPlayers = Math.max(0, Number(c.players) || 0);
-            const ownOnCh = partyCountByCh[chNum] || (chNum === currentCh ? 1 : 0);
+            const ownOnCh = partyCountByCh[chNum] || (!currentIsPk && chNum === currentCh ? 1 : 0);
             const effectiveOthers = Math.max(0, totalPlayers - ownOnCh);
-            const extraNeeded = inParty ? Math.max(0, partySize - ownOnCh) : (chNum === currentCh ? 0 : 1);
+            const extraNeeded = inParty ? Math.max(0, partySize - ownOnCh) : (!currentIsPk && chNum === currentCh ? 0 : 1);
             const hasRoom = (totalPlayers + extraNeeded) <= hardCap || totalPlayers < hardCap;
             return {
                 channel: chNum,
@@ -20873,10 +20963,10 @@
         const curEntry = annotated.find(x => x.channel === currentCh) || {
             channel: currentCh,
             players: 0,
-            ownOnCh: 1,
-            effectiveOthers: 0,
+            ownOnCh: currentIsPk ? 0 : 1,
+            effectiveOthers: currentIsPk ? 999 : 0,
             overlappedByOtherParty: avoid.has(Number(currentCh)),
-            hasRoom: true
+            hasRoom: !currentIsPk
         };
         const available = annotated.filter(x => x.hasRoom);
         if (!available.length) {
@@ -20885,6 +20975,7 @@
                 inParty,
                 partySize,
                 currentCh,
+                currentIsPk,
                 targetCh: currentCh,
                 bestChannel: currentCh,
                 currentPlayers: curEntry.players,
@@ -20904,11 +20995,11 @@
 
         pool.sort((a, b) => {
             if (a.effectiveOthers !== b.effectiveOthers) return a.effectiveOthers - b.effectiveOthers;
-            // Tie-breaker: prefer the channel where our party already is, then currentCh, then lowest channel number
-            if (a.channel === mainPartyCh && b.channel !== mainPartyCh) return -1;
-            if (b.channel === mainPartyCh && a.channel !== mainPartyCh) return 1;
-            if (a.channel === currentCh && b.channel !== currentCh) return -1;
-            if (b.channel === currentCh && a.channel !== currentCh) return 1;
+            // Tie-breaker: prefer the channel where our party already is, then currentCh (if not PK), then lowest channel number
+            if (mainPartyCh != null && a.channel === mainPartyCh && b.channel !== mainPartyCh) return -1;
+            if (mainPartyCh != null && b.channel === mainPartyCh && a.channel !== mainPartyCh) return 1;
+            if (!currentIsPk && a.channel === currentCh && b.channel !== currentCh) return -1;
+            if (!currentIsPk && b.channel === currentCh && a.channel !== currentCh) return 1;
             return a.channel - b.channel;
         });
 
@@ -20916,16 +21007,18 @@
         const currentIsOverlapped = avoid.has(Number(currentCh)) && nonOverlap.length > 0;
         const shouldSwitch = Boolean(
             best &&
-            best.channel !== currentCh &&
-            (currentIsOverlapped ||
-             best.effectiveOthers < curEntry.effectiveOthers ||
-             (inParty && best.channel === mainPartyCh && !avoid.has(Number(mainPartyCh)) && best.effectiveOthers === curEntry.effectiveOthers))
+            (currentIsPk ||
+             (best.channel !== currentCh &&
+              (currentIsOverlapped ||
+               best.effectiveOthers < curEntry.effectiveOthers ||
+               (inParty && mainPartyCh != null && best.channel === mainPartyCh && !avoid.has(Number(mainPartyCh)) && best.effectiveOthers === curEntry.effectiveOthers))))
         );
         return {
             success: true,
             inParty,
             partySize,
             currentCh,
+            currentIsPk,
             targetCh: shouldSwitch ? best.channel : currentCh,
             bestChannel: best ? best.channel : currentCh,
             currentPlayers: curEntry.players,
@@ -20945,8 +21038,10 @@
         window.__pendingPostSellAt = 0;
         window.__pendingPostSellReason = null;
 
+        const currentIsPkNow = typeof window.isCurrentChannelPk === 'function' && window.isCurrentChannelPk();
+        const isEscapePk = currentIsPkNow || reason === 'escape-pk';
         const mode = window.__channelCheckMode || 'all';
-        if (mode === 'off') {
+        if (mode === 'off' && !isEscapePk) {
             return { skipped: true, reason: 'mode-off', mode };
         }
         if (typeof isCharacterInCity === 'function' && isCharacterInCity()) {
@@ -20962,14 +21057,16 @@
         const sync = window.__pmPartySync || null;
         const inParty = Boolean((inGameParty && Array.isArray(inGameParty.members) && inGameParty.members.length > 1) || (sync && sync.partyId));
 
-        if (mode === 'party_only' && !inParty) {
-            return { skipped: true, reason: 'solo-in-party-only-mode', mode };
-        }
-        if (mode === 'solo_only' && inParty) {
-            return { skipped: true, reason: 'party-in-solo-only-mode', mode };
-        }
-        if (mode !== 'always' && reason !== 'after-sell') {
-            return { skipped: true, reason: 'non-sell-in-post-sell-mode', mode };
+        if (!isEscapePk) {
+            if (mode === 'party_only' && !inParty) {
+                return { skipped: true, reason: 'solo-in-party-only-mode', mode };
+            }
+            if (mode === 'solo_only' && inParty) {
+                return { skipped: true, reason: 'party-in-solo-only-mode', mode };
+            }
+            if (mode !== 'always' && reason !== 'after-sell') {
+                return { skipped: true, reason: 'non-sell-in-post-sell-mode', mode };
+            }
         }
 
         const reasonLabels = {
@@ -20978,9 +21075,10 @@
             'from-town': 'กลับจากเมืองถึงแมพฟาร์ม',
             'start-bot': 'เริ่มฟาร์มบนแมพ',
             'enter-farm-map': 'เข้าแมพฟาร์ม',
-            'arrive-map': 'เดินทางถึงแมพฟาร์ม'
+            'arrive-map': 'เดินทางถึงแมพฟาร์ม',
+            'escape-pk': 'ย้ายออกจากแนล PK'
         };
-        const reasonText = reasonLabels[reason] || 'กลับถึงแมพฟาร์ม';
+        const reasonText = reasonLabels[reason] || (isEscapePk ? 'ย้ายออกจากแนล PK' : 'กลับถึงแมพฟาร์ม');
 
         window.__isCheckingPostSellChannel = true;
         try {
@@ -20989,11 +21087,12 @@
             const curChNow = (roomNow && roomNow.state && typeof roomNow.state.channel === 'number') ? roomNow.state.channel : null;
             const avoidNow = window.getOtherPartyAvoidChannels(curMapId, null);
 
-            // หากสมาชิกคนอื่นในปาร์ตี้เดียวกันเพิ่งสแกนและย้าย CH ของตี้ไปเมื่อไม่เกิน 18 วินาทีที่แล้ว ให้ย้ายตามเข้า CH ของตี้ทันทีโดยไม่แย่งย้ายซ้ำ
+            // หากสมาชิกคนอื่นในปาร์ตี้เดียวกันเพิ่งสแกนและย้าย CH ของตี้ไปเมื่อไม่เกิน 18 วินาทีที่แล้ว ให้ย้ายตามเข้า CH ของตี้ทันทีโดยไม่แย่งย้ายซ้ำ (ต้องไม่ใช่แนล PK)
             if (
                 inParty &&
                 sync &&
                 typeof sync.settledChannel === 'number' &&
+                !window.isKnownPkChannel(sync.settledChannel, curMapId) &&
                 sync.lastPartyChannelSwitchAt &&
                 (Date.now() - sync.lastPartyChannelSwitchAt < 18000) &&
                 (!curMapId || !sync.partyMapId || sync.partyMapId === curMapId) &&
@@ -21002,7 +21101,7 @@
                 const wantPartyCh = Number(sync.settledChannel);
                 let finalCh = curChNow || wantPartyCh;
                 let switched = false;
-                if (curChNow !== wantPartyCh) {
+                if (curChNow !== wantPartyCh || isEscapePk) {
                     console.log(`%c[PmheeAether Channel] 🤝 ${reasonText}: สมาชิกในตี้เพิ่งเลือก CH ${wantPartyCh} -> ย้ายตามไปรวมตี้ที่ CH ${wantPartyCh} ทันที...`, 'color: #22c55e; font-weight: bold;');
                     const mv = await window.moveToChannel(wantPartyCh, 45000);
                     const rAfter = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
@@ -21030,8 +21129,10 @@
             const avoidNote = Array.isArray(plan.avoidChannels) && plan.avoidChannels.length > 0
                 ? ` [ไม่ทับ CH ตี้อื่น: ${plan.avoidChannels.join(', ')}]`
                 : '';
-            if (plan.shouldSwitch && plan.targetCh !== plan.currentCh) {
-                if (plan.currentIsOverlapped) {
+            if (plan.shouldSwitch && (plan.targetCh !== plan.currentCh || plan.currentIsPk)) {
+                if (plan.currentIsPk) {
+                    console.log(`%c[PmheeAether Channel] 🛡️ ${reasonText} (${plan.mapName || ''}): ตัวละครอยู่ในแนล PK -> ย้ายออกไปยัง CH ${plan.targetCh} ปกติที่คนน้อยสุด (คนอื่น ${plan.bestStrangers} คน)${avoidNote}...`, 'color: #ef4444; font-weight: bold;');
+                } else if (plan.currentIsOverlapped) {
                     console.log(`%c[PmheeAether Channel] 🚫 ${reasonText} (${plan.mapName || ''}): CH ${plan.currentCh} มีปาร์ตี้อื่นของเราอยู่แล้ว -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยรองลงมา (คนอื่น ${plan.bestStrangers} คน)${avoidNote}...`, 'color: #f59e0b; font-weight: bold;');
                 } else {
                     console.log(`%c[PmheeAether Channel] 🔄 ${reasonText} (${plan.mapName || ''}): CH ${plan.currentCh} มีคนอื่น ${plan.currentStrangers} คน -> ย้ายไป CH ${plan.targetCh} ที่คนน้อยสุด (คนอื่น ${plan.bestStrangers} คน)${avoidNote}...`, 'color: #22c55e; font-weight: bold;');
@@ -21074,9 +21175,19 @@
         if (!room) return { success: false, error: 'No room connection' };
         const target = parseInt(targetCh);
         if (isNaN(target)) return { success: false, error: 'Invalid channel number' };
-        if (room.state && room.state.channel === target) {
+        const mapId = (room && room.state && room.state.mapId) || null;
+        if (typeof window.isKnownPkChannel === 'function' && window.isKnownPkChannel(target, mapId)) {
+            console.warn(`%c[PmheeAether Channel] 🛡️ บล็อกการย้ายเข้า CH ${target} เนื่องจากเป็นแนล PK!`, 'color: #ef4444; font-weight: bold;');
+            return { success: false, error: 'Blocked PK channel', blockedPk: true, channel: room.state?.channel };
+        }
+        const wasPk = typeof window.isCurrentChannelPk === 'function' && window.isCurrentChannelPk();
+        if (room.state && room.state.channel === target && !wasPk) {
             console.log(`%c[PmheeAether Channel] ℹ️ ตัวละครอยู่ที่ CH ${target} อยู่แล้ว`, 'color: #94a3b8;');
             return { success: true, alreadyThere: true, channel: target };
+        }
+        if (wasPk && typeof sendAutoSetPacket === 'function') {
+            try { sendAutoSetPacket(false); } catch (e) {}
+            await new Promise(r => setTimeout(r, 250));
         }
         console.log(`%c[PmheeAether Channel] 🔄 กำลังย้ายไป Channel ${target}...`, 'color: #38bdf8; font-weight: bold;');
         room.send('channel_switch', { channel: target });
@@ -21085,7 +21196,8 @@
         while (Date.now() - start < timeoutMs) {
             await new Promise(r => setTimeout(r, 400));
             const curRoom = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
-            if (curRoom && curRoom.state && curRoom.state.channel === target) {
+            const nowPk = typeof window.isCurrentChannelPk === 'function' && window.isCurrentChannelPk();
+            if (curRoom && curRoom.state && curRoom.state.channel === target && !nowPk) {
                 console.log(`%c[PmheeAether Channel] ✅ ย้ายไป CH ${target} สำเร็จ!`, 'color: #22c55e; font-weight: bold;');
                 return { success: true, channel: target };
             }
@@ -21097,16 +21209,30 @@
     // channel is full, waits for a free slot (the game's own picker disables both). Returns the channel the
     // character ended up on — callers must use that, not the one they asked for.
     window.moveToChannel = async function(targetCh, maxWaitMs = 90000) {
-        const target = parseInt(targetCh);
+        let target = parseInt(targetCh);
         if (isNaN(target)) return { success: false, error: 'Invalid channel number' };
         const roomNow = () => (typeof window.getGameRoom === 'function') ? window.getGameRoom() : null;
         const current = () => { const r = roomNow(); return r && r.state && typeof r.state.channel === 'number' ? r.state.channel : null; };
         const start = Date.now();
         let lastReason = '';
         while (Date.now() - start < maxWaitMs) {
-            if (current() === target) return { success: true, channel: target };
+            const curIsPk = typeof window.isCurrentChannelPk === 'function' && window.isCurrentChannelPk();
+            if (current() === target && !curIsPk && !(typeof window.isKnownPkChannel === 'function' && window.isKnownPkChannel(target))) {
+                return { success: true, channel: target };
+            }
             const list = await window.getChannelsList(3500);
             const d = list && list.success ? list.data : null;
+            if (d && Array.isArray(d.pkChannels) && d.pkChannels.some(c => Number(c.channel) === target)) {
+                const safePool = Array.isArray(d.channels) ? d.channels.filter(c => !window.isPkChannelEntry(c) && (!d.hardCap || c.players < d.hardCap)) : [];
+                safePool.sort((a, b) => a.players - b.players || a.channel - b.channel);
+                if (safePool.length > 0) {
+                    console.warn(`%c[PmheeAether Channel] 🛡️ CH ${target} เป็นแนล PK -> เปลี่ยนเป้าหมายเป็น CH ${safePool[0].channel} แทน`, 'color: #f59e0b; font-weight: bold;');
+                    target = Number(safePool[0].channel);
+                    if (current() === target && !curIsPk) return { success: true, channel: target };
+                } else {
+                    return { success: false, error: 'Target is PK channel', blockedPk: true, channel: current() };
+                }
+            }
             if (d && d.cooldownUntil && d.cooldownUntil > Date.now()) {
                 lastReason = 'ติดคูลดาวน์เปลี่ยน channel';
                 const wait = Math.min(d.cooldownUntil - Date.now() + 600, maxWaitMs - (Date.now() - start));
@@ -22129,46 +22255,63 @@
         return 0;
     }
 
-    function setPriestBuffWalkAutoPause(pause) {
-        const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
-        const live = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
-        if (pause) {
-            window.__priestBusyBuffing = true;
-            window.__priestBusyBuffingAt = Date.now();
-            const isAutoOn = Boolean((live && live.auto && live.auto.enabled) || (typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'on'));
-            if (isAutoOn || !window.__priestPausedAutoForBuff) {
-                window.__priestPausedAutoForBuff = true;
-                try { if (room && typeof room.send === 'function') room.send('auto_set', { enabled: false }); } catch (e) {}
-            }
-        } else {
-            window.__priestBusyBuffing = false;
-            window.__priestBusyBuffingAt = 0;
-            if (window.__priestPausedAutoForBuff) {
-                window.__priestPausedAutoForBuff = false;
-                if (window.__isBotRunning && !window.__isShopping && !window.__isNavigating) {
-                    try { if (room && typeof room.send === 'function') room.send('auto_set', { enabled: true }); } catch (e) {}
-                    setTimeout(() => {
-                        if (window.__isBotRunning && !window.__priestBusyBuffing && typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'off') {
-                            if (typeof window.activateInGameAuto === 'function') window.activateInGameAuto();
-                        }
-                    }, 250);
+    function getPriestCurrentSpInfo(me, live) {
+        let sp = (me && typeof me.sp === 'number') ? me.sp : (live && typeof live.sp === 'number' ? live.sp : null);
+        let maxSp = (me && typeof me.maxSp === 'number' && me.maxSp > 0) ? me.maxSp : (live && live.derived && live.derived.maxSp ? live.derived.maxSp : null);
+        if (sp === null || maxSp === null) {
+            try {
+                const spBar = typeof document !== 'undefined' && document.querySelector('.bar-fill.bar-sp')?.closest('.bar');
+                const spText = spBar?.querySelector('.bar-num')?.innerText?.trim() || '';
+                const m = spText.match(/(\d+)\s*\/\s*(\d+)/);
+                if (m) {
+                    sp = Number(m[1]);
+                    maxSp = Number(m[2]);
                 }
+            } catch (e) {}
+        }
+        const spNum = typeof sp === 'number' && Number.isFinite(sp) ? sp : 999;
+        const maxSpNum = typeof maxSp === 'number' && Number.isFinite(maxSp) && maxSp > 0 ? maxSp : 999;
+        return {
+            sp: spNum,
+            maxSp: maxSpNum,
+            spPct: maxSpNum > 0 ? (spNum / maxSpNum) : 1,
+            hasEnoughSpForBuff: spNum >= 65 && (maxSpNum <= 0 || (spNum / maxSpNum) >= 0.10)
+        };
+    }
+
+    // ห้ามบังคับปิด AUTO ของพระเด็ดขาด เพื่อให้พระตีมอนสเตอร์ฟื้นฟู SP และให้ระบบ AUTO ของเกมบัฟเพื่อนในระยะใกล้ได้ตลอดเวลา
+    function setPriestBuffWalkAutoPause(_pause) {
+        window.__priestBusyBuffing = false;
+        window.__priestBusyBuffingAt = 0;
+        if (window.__priestPausedAutoForBuff) {
+            window.__priestPausedAutoForBuff = false;
+            const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
+            if (window.__isBotRunning && !window.__isShopping && !window.__isNavigating) {
+                try { if (room && typeof room.send === 'function') room.send('auto_set', { enabled: true }); } catch (e) {}
+                setTimeout(() => {
+                    if (window.__isBotRunning && typeof getInGameAutoStatus === 'function' && getInGameAutoStatus() === 'off') {
+                        if (typeof window.activateInGameAuto === 'function') window.activateInGameAuto();
+                    }
+                }, 200);
             }
         }
     }
 
-    // สั่งให้ Priest ร่ายบัฟทั้งหมดทุกสกิลใส่เป้าหมายรวดเดียว (แม้บัฟจะยังไม่หมด) เพื่อรีเซ็ตเวลาพร้อมกันทุกสกิล
+    // ช่วยส่งคำสั่งร่ายบัฟที่ขาดให้เป้าหมายในระยะใกล้โดยไม่ปิด AUTO (ปล่อยให้ AUTO ของเกมทำงานและตีมอนควบคู่กันตลอด)
     window.castFullPriestBuffSuite = async function(targetKey, targetName) {
         if (window.__priestCastingJob) return false;
         const room = (typeof window.getGameRoom === 'function') ? window.getGameRoom() : window.__gameRoom;
         if (!room || !room.state || !room.state.players || !targetKey) return false;
+        const meNow = room.state.players.get ? room.state.players.get(room.sessionId) : null;
+        const liveInit = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+        const spInfo = getPriestCurrentSpInfo(meNow, liveInit);
+        if (!spInfo.hasEnoughSpForBuff) return false;
+
         const wantNameLower = String(targetName || '').trim().toLowerCase();
         window.__priestCastingJob = { targetKey, targetName: wantNameLower, startedAt: Date.now() };
         window.__priestBuffingTarget = targetName || null;
-        setPriestBuffWalkAutoPause(true);
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         try {
-            const liveInit = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
             const learned = (liveInit && liveInit.skills) || {};
             const buffSkills = window.getPriestPartyBuffSkills();
             if (!buffSkills.length) return false;
@@ -22189,86 +22332,49 @@
                 return p ? { player: p, key: k } : null;
             };
 
-            const castSingleSkill = async (skillId, isPartyWide = false) => {
-                const castWaitMs = (skillId === 'increase-agi' || skillId === 'kyrie-eleison' || skillId === 'aspersio') ? 920 : 450;
-                for (let attempt = 0; attempt < 3; attempt++) {
-                    if (!window.__isBotRunning) return false;
-                    window.__priestBusyBuffingAt = Date.now();
-                    const me = room.state.players.get(room.sessionId);
-                    const found = findTarget();
-                    if (!me || !found || (typeof found.player.hp === 'number' && found.player.hp <= 0)) return false;
-
-                    // หากเป้าหมายขยับออกนอกระยะ 8 ช่อง (~235px) ให้เดินตามเข้าไปใกล้ก่อนร่าย
-                    if (!isPartyWide && found.key !== room.sessionId) {
-                        const dist = Math.hypot((me.x || 0) - (found.player.x || 0), (me.y || 0) - (found.player.y || 0));
-                        if (dist > 235) {
-                            try { room.send('auto_set', { enabled: false }); } catch (e) {}
-                            room.send('move_to', { x: found.player.x, y: found.player.y, auto: true });
-                            await sleep(500);
-                            continue;
-                        }
-                    }
-
-                    const liveBefore = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
-                    const cdLeft = (liveBefore && liveBefore.cooldowns && Number(liveBefore.cooldowns[skillId])) || 0;
-                    if (cdLeft > 200 && cdLeft < 3500) {
-                        await sleep(Math.min(cdLeft + 100, 1800));
-                    }
-
-                    const remBefore = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, skillId) : 0;
-                    const payload = isPartyWide ? { skillId } : { skillId, targetId: found.key };
-                    room.send('cast', payload);
-                    await sleep(castWaitMs);
-
-                    const liveAfter = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
-                    const cdAfter = (liveAfter && liveAfter.cooldowns && Number(liveAfter.cooldowns[skillId])) || 0;
-                    const remAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, skillId) : 0;
-                    if (cdAfter > 0 || remAfter > remBefore + 5000 || remAfter >= 22000) return true;
-                    if (skillId === 'heal') return true;
-                    await sleep(320);
-                }
-                return false;
-            };
-
             const initialFound = findTarget();
             if (!initialFound) return false;
+
             const hpPct = (initialFound.player.maxHp > 0 && typeof initialFound.player.hp === 'number')
                 ? (initialFound.player.hp / initialFound.player.maxHp)
                 : 1;
-
-            console.log(`%c[PmheeAether Priest] ✨ เริ่มร่ายบัฟครบทุกสกิล (${buffSkills.join(', ')}) ให้ "${targetName || targetKey}"`, 'color: #a855f7; font-weight: bold;');
-
-            // 1. ฮีลก่อนถ้าเลือดลด (< 85%)
-            if (hpPct > 0 && hpPct < 0.85 && Number(learned['heal']) > 0) {
-                await castSingleSkill('heal', false);
+            if (hpPct > 0 && hpPct < 0.75 && Number(learned['heal']) > 0) {
+                try { room.send('cast', { skillId: 'heal', targetId: initialFound.key }); } catch (e) {}
+                await sleep(380);
             }
 
-            // 2. ร่ายสกิลบัฟทั้งหมดทุกสกิล แม้บัฟบางตัวจะยังไม่หมดเวลา!
-            let anyCastSuccess = false;
-            for (const skillId of buffSkills) {
+            // ร่ายเฉพาะสกิลบัฟหลักที่เป้าหมายยังไม่มีหรือเหลือน้อย (< 25 วิ) ครั้งละ 1 รอบโดยไม่ปิด AUTO
+            let anyCastSent = false;
+            for (const skillId of ['blessing', 'increase-agi', 'impositio-manus', 'kyrie-eleison']) {
                 if (!window.__isBotRunning) break;
-                if (skillId === 'gloria') {
-                    if (Date.now() - (window.__lastPriestGloriaAt || 0) < 7000) continue;
-                    const ok = await castSingleSkill('gloria', true);
-                    if (ok) {
-                        window.__lastPriestGloriaAt = Date.now();
-                        anyCastSuccess = true;
-                    }
-                } else {
-                    const ok = await castSingleSkill(skillId, false);
-                    if (ok) anyCastSuccess = true;
-                }
+                if (!buffSkills.includes(skillId)) continue;
+                const meCheck = room.state.players.get ? room.state.players.get(room.sessionId) : null;
+                const liveCheck = (typeof window.getLiveCharacterData === 'function') ? window.getLiveCharacterData() : window.__latestCharacterData;
+                if (!getPriestCurrentSpInfo(meCheck, liveCheck).hasEnoughSpForBuff) break;
+
+                const found = findTarget();
+                if (!meCheck || !found || (typeof found.player.hp === 'number' && found.player.hp <= 0)) break;
+                const dist = Math.hypot((meCheck.x || 0) - (found.player.x || 0), (meCheck.y || 0) - (found.player.y || 0));
+                if (found.key !== room.sessionId && dist > 235) break;
+
+                const remMs = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, skillId) : 0;
+                if (remMs >= 25000) continue;
+
+                const cdLeft = (liveCheck && liveCheck.cooldowns && Number(liveCheck.cooldowns[skillId])) || 0;
+                if (cdLeft > 200) continue;
+
+                try {
+                    room.send('cast', { skillId, targetId: found.key });
+                    anyCastSent = true;
+                } catch (e) {}
+                await sleep(420);
             }
 
-            const blessAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, 'blessing') : 240000;
-            const agiAfter = wantNameLower ? getMemberBuffRemainingMs(wantNameLower, 'increase-agi') : 240000;
-            const coreLanded = (blessAfter > 45000 && agiAfter > 45000) || (targetKey === room.sessionId && anyCastSuccess);
             if (!window.__priestRecentlyBuffed) window.__priestRecentlyBuffed = {};
-            if (wantNameLower && (coreLanded || anyCastSuccess)) {
-                window.__priestRecentlyBuffed[wantNameLower] = coreLanded ? Date.now() : (Date.now() - 10000);
+            if (wantNameLower) {
+                window.__priestRecentlyBuffed[wantNameLower] = Date.now();
             }
-            console.log(`%c[PmheeAether Priest] ✅ ร่ายบัฟครบทุกสกิลให้ "${targetName || targetKey}" เสร็จเรียบร้อย!`, 'color: #22c55e; font-weight: bold;');
-            return true;
+            return anyCastSent;
         } catch (e) {
             return false;
         } finally {
@@ -22415,21 +22521,36 @@
             const myClass = String((me && me.classId) || (live && live.classId) || '').toLowerCase();
             const isMePriest = /^(priest|acolyte)$/.test(myClass);
 
-            // กรณีตัวเองเป็น Priest: เดินไปหาสมาชิกที่ไม่มีบัฟ (เพิ่งกลับมาจากเมือง/ตายวาร์ปกลับมา) หรือบัฟใกล้หมด/เลือดต่ำ และร่ายบัฟครบทุกสกิล!
+            // กรณีตัวเองเป็น Priest: เปิด AUTO ค้างไว้ตลอดเพื่อให้ตีมอนฟื้นฟู SP และให้ระบบ AUTO ของเกมบัฟคนที่อยู่ใกล้ให้อัตโนมัติ
+            // จะเดินเข้าไปหาก็ต่อเมื่อมีเพื่อนที่ไม่มีบัพเลย (เช่น เพิ่งกลับจากเมือง/ตายวาร์ปกลับมา) หรือเลือดต่ำ และอยู่ไกลเกินระยะ AUTO บัฟ โดยที่พระมี SP เพียงพอ!
             if (isMePriest) {
+                setPriestBuffWalkAutoPause(false);
                 const chipBtn = document.querySelector('.follow-chip button');
                 if (chipBtn && typeof chipBtn.click === 'function') chipBtn.click();
 
+                // เปิด buffParty ในตั้งค่า AUTO ของเกมเสมอ เพื่อให้ตัวเกมบัฟเพื่อนที่อยู่ในระยะใกล้ให้อัตโนมัติระหว่างบอทตีมอน
+                if (live && live.auto && live.auto.config && live.auto.config.buffParty === false) {
+                    try {
+                        live.auto.config.buffParty = true;
+                        room.send('auto_set', { config: Object.assign({}, live.auto.config, { buffParty: true }) });
+                    } catch (e) {}
+                }
+
                 if (window.__priestCastingJob) {
-                    // กำลังร่ายชุดบัฟอยู่ รอให้ครบชุด (ป้องกันค้างเกิน 14 วิ)
-                    if (now - (window.__priestCastingJob.startedAt || 0) > 14000) {
+                    if (now - (window.__priestCastingJob.startedAt || 0) > 4000) {
                         window.__priestCastingJob = null;
                         window.__priestBuffingTarget = null;
                     } else {
-                        window.__priestBusyBuffing = true;
-                        window.__priestBusyBuffingAt = now;
                         return;
                     }
+                }
+
+                // ถ้า SP ของพระเหลือน้อย ให้ปล่อยให้ AUTO ตีมอนสเตอร์ฟื้นฟู SP ก่อน ห้ามสั่งเดินไล่บัฟจนไม่ได้ตีมอน
+                const spInfo = getPriestCurrentSpInfo(me, live);
+                if (!spInfo.hasEnoughSpForBuff) {
+                    window.__priestWalkTarget = null;
+                    window.__priestBuffingTarget = null;
+                    return;
                 }
 
                 if (!window.__priestRecentlyBuffed) window.__priestRecentlyBuffed = {};
@@ -22439,15 +22560,7 @@
                 const hasBlessLearned = Number(learned['blessing']) > 0;
                 const hasAgiLearned = Number(learned['increase-agi']) > 0;
 
-                // 1) เช็กบัฟของตัว Priest เองด้วย: ถ้าบัฟตัวเองใกล้หมด (< 28 วิ) หรือเลือดต่ำ ให้ร่ายครบทุกสกิลใส่ตัวเองก่อน
-                const myBuffSt = window.getPartyPriestBuffStatus(28000);
-                const selfRecentAt = window.__priestRecentlyBuffed[myNameLower] || 0;
-                if ((myBuffSt.needsPriest && (now - selfRecentAt > 10000)) || myBuffSt.needsHeal) {
-                    window.castFullPriestBuffSuite(room.sessionId, me.name || 'Self');
-                    return;
-                }
-
-                // 2) รวบรวมรายชื่อและสถานะบัฟสดของสมาชิกในปาร์ตี้จากทั้ง inGameParty (0ms real-time) และ sync
+                // รวบรวมรายชื่อและสถานะบัฟสดของสมาชิกในปาร์ตี้จากทั้ง inGameParty (0ms real-time) และ sync
                 const partySet = new Set();
                 if (sync && Array.isArray(sync.partyNames)) {
                     for (const n of sync.partyNames) if (n) partySet.add(String(n).trim().toLowerCase());
@@ -22501,7 +22614,7 @@
                 const candidates = [];
                 for (const [nl, rp] of roomPartyMap.entries()) {
                     if (nl === myNameLower) continue;
-                    const liveNeedsHeal = rp.hpPct > 0 && rp.hpPct < 0.68;
+                    const liveNeedsHeal = rp.hpPct > 0 && rp.hpPct < 0.60;
                     const skipUntil = window.__priestWalkSkipUntil[nl] || 0;
                     if (!liveNeedsHeal && now < skipUntil) continue;
 
@@ -22523,12 +22636,14 @@
                         missingCoreBuff = recentAt === 0;
                     }
 
-                    const cooldownGuardMs = missingCoreBuff ? 3500 : 12000;
+                    const cooldownGuardMs = missingCoreBuff ? 6000 : 16000;
                     if (!liveNeedsHeal && sinceRecent < cooldownGuardMs) continue;
 
-                    const needsBuffNow = missingCoreBuff || minCoreBuffMs < 32000 || Boolean(sq && (sq.needsBuff || sq.returningToPriest));
-                    const nearbyRefresh = rp.dist <= 235 && minCoreBuffMs < 65000;
-                    if (liveNeedsHeal || needsBuffNow || nearbyRefresh) {
+                    // เดินไปหาเฉพาะคนที่อยู่ไกลเกินระยะ AUTO บัฟปกติ (> 195px) และไม่มีบัพเลย (เพิ่งมาจากเมือง/ตาย) หรือบัฟใกล้หมด (< 15 วิ)
+                    // ส่วนคนที่อยู่ในระยะใกล้ (<= 195px) ระบบ AUTO ของเกมจะบัฟให้เองอยู่แล้ว จะช่วยส่ง cast เสริมเฉพาะตอนบัพหลักขาด (missingCoreBuff)
+                    const needsFarWalk = rp.dist > 195 && (missingCoreBuff || minCoreBuffMs < 15000 || liveNeedsHeal);
+                    const needsNearbyAssist = rp.dist <= 195 && (missingCoreBuff || liveNeedsHeal);
+                    if (needsFarWalk || needsNearbyAssist) {
                         candidates.push({
                             name: rp.name,
                             nameLower: nl,
@@ -22543,57 +22658,39 @@
                     }
                 }
 
-                // เรียงลำดับความสำคัญ:
-                // 1. เลือดต่ำด่วนสุด (< 68%)
-                // 2. คนที่อยู่ในระยะร่ายของพระอยู่แล้ว (<= 210px) และต้องการบัฟ ให้ร่ายให้เสร็จก่อนเดินไปไกล
-                // 3. คนที่ไม่มีบัพเลย (missingCoreBuff = เพิ่งกลับมาจากเมืองหรือตายวาร์ปกลับมา!)
-                // 4. เวลาบัฟเหลือน้อยสุด / อยู่ใกล้พระที่สุด
                 candidates.sort((a, b) => {
                     if (a.needsHeal !== b.needsHeal) return a.needsHeal ? -1 : 1;
-                    if (a.needsHeal && b.needsHeal && Math.abs(a.hpPct - b.hpPct) > 0.05) return a.hpPct - b.hpPct;
-                    const aInRange = a.dist <= 210 && (a.missingCoreBuff || a.minCoreBuffMs < 32000);
-                    const bInRange = b.dist <= 210 && (b.missingCoreBuff || b.minCoreBuffMs < 32000);
-                    if (aInRange !== bInRange) return aInRange ? -1 : 1;
                     if (a.missingCoreBuff !== b.missingCoreBuff) return a.missingCoreBuff ? -1 : 1;
-                    if (Math.abs(a.minCoreBuffMs - b.minCoreBuffMs) > 6000) return a.minCoreBuffMs - b.minCoreBuffMs;
                     return a.dist - b.dist;
                 });
 
                 if (candidates.length > 0) {
                     const top = candidates[0];
                     window.__priestBuffingTarget = top.name;
-                    if (top.dist > 205) {
+                    if (top.dist > 195) {
                         if (window.__priestWalkTarget !== top.nameLower) {
                             window.__priestWalkTarget = top.nameLower;
                             window.__priestWalkStartedAt = now;
-                        } else if (now - (window.__priestWalkStartedAt || now) > 16000) {
-                            window.__priestWalkSkipUntil[top.nameLower] = now + 9000;
+                        } else if (now - (window.__priestWalkStartedAt || now) > 9500) {
+                            window.__priestWalkSkipUntil[top.nameLower] = now + 12000;
                             window.__priestWalkTarget = null;
+                            window.__priestBuffingTarget = null;
                             return;
                         }
 
-                        // พัก AUTO โจมตีมอนสเตอร์ชั่วคราวเพื่อให้พระเดินตรงไปหาเพื่อนที่ไม่มีบัพทันทีโดยไม่หยุดตีมอนระหว่างทาง!
-                        setPriestBuffWalkAutoPause(true);
-
-                        // ป้องกันตัวเองระหว่างเดิน: หากเลือดพระลดหรือเกราะ Kyrie หมด ให้ร่ายใส่ตัวเองระหว่างเดินได้
-                        const cdMap = (live && live.cooldowns) || {};
-                        if (myBuffSt.hpPct < 0.78 && Number(learned['heal']) > 0 && !(Number(cdMap['heal']) > 0)) {
-                            try { room.send('cast', { skillId: 'heal', targetId: room.sessionId }); } catch (e) {}
-                        } else if (myBuffSt.kyrieMs <= 0 && Number(learned['kyrie-eleison']) > 0 && !(Number(cdMap['kyrie-eleison']) > 0) && (now - (window.__lastPriestWalkKyrieAt || 0) > 4500)) {
-                            window.__lastPriestWalkKyrieAt = now;
-                            try { room.send('cast', { skillId: 'kyrie-eleison', targetId: room.sessionId }); } catch (e) {}
+                        if (now - (window.__lastPriestMoveToAt || 0) >= 1100) {
+                            window.__lastPriestMoveToAt = now;
+                            if (window.__lastPriestWalkLogTarget !== top.nameLower || (now - (window.__lastPriestWalkLogAt || 0) > 5000)) {
+                                window.__lastPriestWalkLogTarget = top.nameLower;
+                                window.__lastPriestWalkLogAt = now;
+                                const statusLabel = top.missingCoreBuff ? 'ไม่มีบัพ/เพิ่งกลับมา' : `บัฟเหลือ ${Math.round(top.minCoreBuffMs / 1000)}s`;
+                                console.log(`%c[PmheeAether Priest] 🏃‍♂️ เดินเข้าใกล้ "${top.name}" (${statusLabel} · ระยะ ${Math.round(top.dist)}px) โดยเปิด AUTO ค้างไว้ให้บอทไหลลื่น`, 'color: #38bdf8; font-weight: bold;');
+                            }
+                            room.send('move_to', { x: top.player.x, y: top.player.y, auto: true });
                         }
-
-                        if (window.__lastPriestWalkLogTarget !== top.nameLower || (now - (window.__lastPriestWalkLogAt || 0) > 5000)) {
-                            window.__lastPriestWalkLogTarget = top.nameLower;
-                            window.__lastPriestWalkLogAt = now;
-                            const statusLabel = top.missingCoreBuff ? 'ไม่มีบัพ/เพิ่งกลับมา' : `บัฟเหลือ ${Math.round(top.minCoreBuffMs / 1000)}s`;
-                            console.log(`%c[PmheeAether Priest] 🏃‍♂️ เดินไปหา "${top.name}" (${statusLabel} · ระยะ ${Math.round(top.dist)}px) เพื่อร่ายบัฟครบทุกสกิล`, 'color: #38bdf8; font-weight: bold;');
-                        }
-                        room.send('move_to', { x: top.player.x, y: top.player.y, auto: true });
                     } else {
                         window.__priestWalkTarget = null;
-                        // อยู่ในระยะร่ายบัฟแล้ว -> ร่ายบัฟทั้งหมดทุกสกิลรวดเดียว!
+                        // อยู่ในระยะใกล้แล้ว: เปิด AUTO ให้เกมบัฟอัตโนมัติ และช่วยส่ง cast เฉพาะสกิลหลักที่ขาดโดยไม่ปิด AUTO
                         window.castFullPriestBuffSuite(top.key, top.name);
                     }
                     return;
@@ -22601,7 +22698,6 @@
 
                 window.__priestWalkTarget = null;
                 window.__priestBuffingTarget = null;
-                setPriestBuffWalkAutoPause(false);
                 return;
             }
 
