@@ -112,6 +112,13 @@ function fakePage(o = {}) {
       sent.push(m);
       if (t !== 'exchange') return;
       if (m.type === 'now' && market.tokens + m.qty >= 0) market.tokens += m.qty;
+      if (m.type === 'order' && m.side === 'ask' && market.tokens >= m.qty) {
+        market.tokens -= m.qty;
+        market.orders = (market.orders || []).concat([{ orderId: 'o' + sent.length, side: 'ask', price: m.price, qty: m.qty, remaining: m.qty, createdAt: NOW }]);
+      }
+      if (m.type === 'claim') {
+        market.claimZeny = 0;
+      }
       if (m.type === 'premium') { const p = PLANS.find(x => x.id === m.plan); market.tokens -= p.tokens; market.premiumUntil = new Date(NOW + p.days * DAY).toISOString(); }
       setTimeout(() => (handlers.exchange || []).forEach(h => h(JSON.parse(JSON.stringify(market)))), 5);
     }
@@ -243,6 +250,20 @@ test('ACTIONS.activate buys the plan only with enough Token', async () => {
   const r = await pg2.run(ACTIONS.activate('7d', 1000));
   assert.strictEqual(r.success, true);
   assert.strictEqual(r.tokens, 200);
+});
+
+test('ACTIONS.sell lists Token at the lowest ask price (not bestBid)', async () => {
+  const pgEmpty = fakePage({ market: { tokens: 0, bestBid: 18000, bestAsk: 21800 } });
+  assert.strictEqual((await pgEmpty.run(ACTIONS.sell(0, 0))).success, false);
+
+  const pg = fakePage({ market: { tokens: 277, bestBid: 18000, bestAsk: 21800, feePercent: 2 } });
+  const r = await pg.run(ACTIONS.sell(0, 0));
+  assert.strictEqual(r.success, true);
+  assert.strictEqual(r.sold, 277);
+  assert.strictEqual(r.price, 21800, 'uses lowest ask price, not bestBid 18000');
+  assert.strictEqual(r.after, 0);
+  const sentOrder = JSON.parse(JSON.stringify(pg.sent.find(m => m.type === 'order')));
+  assert.deepStrictEqual(sentOrder, { type: 'order', side: 'ask', price: 21800, qty: 277 });
 });
 
 // ---------------------------------------------------------------- service with a simulated client
